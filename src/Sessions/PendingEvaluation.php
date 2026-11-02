@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
@@ -153,6 +154,49 @@ final readonly class PendingEvaluation
         }
 
         return [$principals, $refusal];
+    }
+
+    /**
+     * The one principal with the identifier among those `principals()` lists
+     * for the identity, or `null`: the very candidates it judges, kept to the
+     * one whose principal identifier matches (two that match name no one
+     * principal), admitted as it admits them, after the same identifier-type
+     * refusal. So a principal is found exactly when `principals()` lists it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $id
+     * @param  ?string  $identifierType
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function principal(Identity $identity, mixed $id, ?string $identifierType = null): ?Principal
+    {
+        if ($identifierType !== null && $this->identifierRefusal($identity, $identifierType) !== null) {
+            return null;
+        }
+
+        $principal = null;
+
+        foreach ($this->candidates($identity) as $candidate) {
+
+            if (!$candidate instanceof Principal || !IdentifierCoercion::matches($candidate->getPrincipalIdentifier(), $id)) {
+                continue;
+            }
+
+            if ($principal !== null) {
+                return null;
+            }
+
+            $principal = $candidate;
+        }
+
+        $guard = $this->context->name();
+
+        return $principal !== null && WriteConnection::stored($principal, static fn (Principal $stored): ?FailureReason => PrincipalAdmission::refusal($guard, $stored)) === null
+            ? $principal
+            : null;
     }
 
     /**

@@ -173,13 +173,13 @@ final class ReplicaApplicationPolicyTest extends TestCase
 
         $this->verify($identity);
 
-        $refreshed = $this->sessions()->refresh($this->signIn('api', 'ada@example.test')->tokens->refreshToken);
+        $refreshed = $this->sessions()->refresh($this->signIn('api', 'ada@example.test')->tokens->refreshToken?->reveal());
 
         self::assertNotNull($refreshed->session);
 
         $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->refresh($refreshed->session->tokens->refreshToken)->reason);
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->refresh($refreshed->session->tokens->refreshToken?->reveal())->reason);
         self::assertNull(DB::table('authentication_sessions')->useWritePdo()->value('revoked_at'));
     }
 
@@ -203,14 +203,17 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $this->grant($first);
         $this->grant($second);
 
-        $switched = $this->sessions('members')->switchTo($this->signIn('members', 'member@example.test', $first)->tokens->refreshToken, SwitchTarget::principal($second));
+        $switched = $this->sessions('members')->switchTo(
+            $this->signIn('members', 'member@example.test', $first)->tokens->refreshToken?->reveal(),
+            SwitchTarget::principal($second),
+        );
 
         self::assertTrue($switched->isSwitched());
         self::assertNotNull($switched->session);
 
         $this->withdrawOnThePrimary(GrantedApplicationPolicy::VERIFICATIONS, $verification);
 
-        $back = $this->sessions('members')->switchTo($switched->session->tokens->refreshToken, SwitchTarget::principal($first));
+        $back = $this->sessions('members')->switchTo($switched->session->tokens->refreshToken?->reveal(), SwitchTarget::principal($first));
 
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $back->reason);
     }

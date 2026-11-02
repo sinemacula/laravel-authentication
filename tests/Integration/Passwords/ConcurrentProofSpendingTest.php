@@ -269,7 +269,7 @@ final class ConcurrentProofSpendingTest extends TestCase
             'changeable_identities',
             function () use ($identity, &$link): string {
                 $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'email.confirm');
-                $link    = $request->link();
+                $link    = $request->link()?->reveal();
 
                 return $request->status->value;
             },
@@ -639,7 +639,7 @@ final class ConcurrentProofSpendingTest extends TestCase
      */
     private function requestByLink(ChangeableIdentity $identity): string
     {
-        $link = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->link();
+        $link = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->link()?->reveal();
 
         self::assertIsString($link);
 
@@ -664,7 +664,7 @@ final class ConcurrentProofSpendingTest extends TestCase
 
         self::definePasswordChangeRoute('web');
 
-        return $session->tokens->accessToken;
+        return $session->tokens->accessToken->reveal();
     }
 
     /**
@@ -693,7 +693,7 @@ final class ConcurrentProofSpendingTest extends TestCase
 
         self::assertInstanceOf(IssuedCode::class, $issued);
 
-        return $issued->code;
+        return $issued->code();
     }
 
     /**

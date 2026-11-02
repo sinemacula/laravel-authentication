@@ -405,8 +405,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         self::assertInstanceOf(TokenPair::class, $retried);
         self::assertSame(
-            $this->tokens->parse($rotated->refreshToken, TokenType::REFRESH)[Claims::JWT_ID->value] ?? null,
-            $this->tokens->parse($retried->refreshToken, TokenType::REFRESH)[Claims::JWT_ID->value] ?? null,
+            $this->tokens->parse($rotated->refreshToken?->reveal(), TokenType::REFRESH)[Claims::JWT_ID->value] ?? null,
+            $this->tokens->parse($retried->refreshToken?->reveal(), TokenType::REFRESH)[Claims::JWT_ID->value] ?? null,
         );
         self::assertCount(2, array_filter($dispatched->getArrayCopy(), static fn (object $event): bool => $event instanceof Refreshed));
 

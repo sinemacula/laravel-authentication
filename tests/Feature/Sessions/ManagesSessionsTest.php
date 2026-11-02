@@ -140,7 +140,7 @@ final class ManagesSessionsTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken)->session);
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->session);
         self::assertSame(FailureReason::SESSION_REVOKED, $this->recordedEvent(AuthenticationFailed::class)->reason);
     }
 
@@ -382,7 +382,7 @@ final class ManagesSessionsTest extends TestCase
     {
         Auth::forgetGuards();
 
-        return $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->json($method, $path, $body);
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken->reveal()])->json($method, $path, $body);
     }
 
     /**

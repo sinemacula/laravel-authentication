@@ -709,7 +709,7 @@ final class CodeSignInTest extends TestCase
             [$proof->purpose, $proof->method, $proof->channel_kind, $proof->channel_reference, $proof->methods],
         );
 
-        $claims = Auth::manager()->jwt('mobile')->parse((string) $result->accessToken, TokenType::ACCESS);
+        $claims = Auth::manager()->jwt('mobile')->parse((string) $result->accessToken?->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
         self::assertSame([$later->getTimestamp(), ['sms']], [$claims['auth_time'] ?? null, $claims['amr'] ?? null]);

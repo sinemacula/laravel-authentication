@@ -218,7 +218,7 @@ final class TenantOptInIntegrationTest extends TestCase
         self::assertTrue($guard->attempt(['email' => 'user@example.test', 'password' => self::PASSWORD]));
         self::assertNull($guard->tenant());
 
-        $token = $this->authManager()->jwt($guardName)->issueAccessToken($user, $user, null, null);
+        $token = $this->authManager()->jwt($guardName)->issueAccessToken($user, $user, null, null)->reveal();
         $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]), $guardName);
 
         self::assertInstanceOf(Identity::class, $guard->user());

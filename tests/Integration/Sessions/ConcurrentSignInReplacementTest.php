@@ -182,7 +182,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
             $previous = $this->signIn($identity);
 
             [$refreshed, $second] = $this->race(
-                fn (): bool => self::sessionsOf($this->freshGuard())->refresh($previous->tokens->refreshToken)->isRefreshed(),
+                fn (): bool => self::sessionsOf($this->freshGuard())->refresh($previous->tokens->refreshToken?->reveal())->isRefreshed(),
                 fn (): string => $this->replacing($identity, $previous),
                 $commit,
             );
@@ -223,7 +223,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
 
             [$replacement, $second] = $this->race(
                 fn (): string => $this->replacing($identity, $previous),
-                fn (): ?string => self::sessionsOf($this->freshGuard())->refresh($previous->tokens->refreshToken)->reason?->value,
+                fn (): ?string => self::sessionsOf($this->freshGuard())->refresh($previous->tokens->refreshToken?->reveal())->reason?->value,
                 $commit,
             );
 
@@ -423,7 +423,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
      */
     private function replacing(IntegrationIdentity $identity, SignedInSession $previous): string
     {
-        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $previous->tokens->refreshToken);
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $previous->tokens->refreshToken?->reveal());
         $session = $this->sessions()->start($identity, null, 'sso', $context)->session;
 
         self::assertNotNull($session);

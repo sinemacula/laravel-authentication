@@ -164,8 +164,8 @@ abstract class JwtGuardTestCase extends TestCase
 
     /**
      * Define the Testbench environment: an in-memory sqlite connection (so the
-     * refresh path can hit a real Eloquent query) and the package config keys
-     * the guard reads.
+     * refresh path can hit a real Eloquent query), the guard's `auth.guards`
+     * entry, and the package config keys the guard reads.
      *
      * @param  mixed  $app
      * @return void
@@ -189,6 +189,16 @@ abstract class JwtGuardTestCase extends TestCase
 
         $config->set('authentication.session.model', StubSession::class);
         $config->set('authentication.session.table', 'stub_sessions');
+
+        // Every refresh reads the guard's transport, so the guard is configured
+        // as `auth.guards` would configure it, over the package's defaults.
+        $config->set('auth.guards.' . self::GUARD_NAME, ['driver' => 'jwt', 'provider' => 'users']);
+        $config->set('authentication.refresh_token', [
+            'transport'  => 'body',
+            'body_field' => 'refresh_token',
+            'header'     => 'X-Refresh-Token',
+            'cookie'     => ['name' => null, 'path' => null, 'allowed_origins' => [], 'csrf_header' => 'X-Requested-With'],
+        ]);
     }
 
     /**

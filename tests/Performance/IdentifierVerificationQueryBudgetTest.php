@@ -94,7 +94,7 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
     {
         $identity = self::seedVerifiableIdentity();
         $links    = app(VerificationLinks::class);
-        $link     = $links->create(self::GUARD, $identity, 'email', 'verify');
+        $link     = $links->create(self::GUARD, $identity, 'email', 'verify')->reveal();
 
         self::assertSame(VerificationLinkOutcome::VERIFIED, $this->assertQueryBudget(2, 1, static fn (): mixed => $links->consume(Request::create($link))));
         self::assertSame(VerificationLinkOutcome::INVALID, $this->assertQueryBudget(0, 0, static fn (): mixed => $links->consume(Request::create($link . 'x'))));

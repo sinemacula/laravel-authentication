@@ -540,7 +540,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
         $grace = $this->seedIdentity('grace@example.test');
 
         $result = $this->sessions('api')->signIn('password', self::credentials('grace@example.test'));
-        $token  = $result->session?->tokens->accessToken;
+        $token  = $result->session?->tokens->accessToken->reveal();
 
         self::assertIsString($token);
 

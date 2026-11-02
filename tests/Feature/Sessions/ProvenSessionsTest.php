@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\ProvenSessions;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
@@ -99,14 +100,14 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testTheCurrentRefreshTokenProvesItsSession(): void
     {
-        $proven = $this->prove($this->session->tokens->refreshToken);
+        $proven = $this->prove($this->session->tokens->refreshToken?->reveal());
 
         self::assertInstanceOf(Session::class, $proven);
         self::assertSame($this->session->record->getKey(), $proven->getKey());
 
         JWT::$timestamp = Carbon::now()->addYears(2)->getTimestamp();
 
-        self::assertSame($this->session->record->getKey(), $this->prove($this->session->tokens->refreshToken)?->getSessionIdentifier());
+        self::assertSame($this->session->record->getKey(), $this->prove($this->session->tokens->refreshToken?->reveal())?->getSessionIdentifier());
     }
 
     /**
@@ -117,7 +118,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testTheSessionMustBeLiveAndHoldTheRotationId(): void
     {
-        $token = $this->session->tokens->refreshToken;
+        $token = $this->session->tokens->refreshToken?->reveal();
 
         $this->updateSession(['refresh_key' => hash('sha256', 'another-rotation-id')]);
         self::assertNull($this->prove($token));
@@ -143,7 +144,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testASessionReturnedToPendingProvesNothing(): void
     {
-        $token = $this->session->tokens->refreshToken;
+        $token = $this->session->tokens->refreshToken?->reveal();
 
         $this->updateSession(['status' => 'pending', 'requires' => '["mfa"]']);
         self::assertNull($this->prove($token));
@@ -160,7 +161,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testTheSessionMustBeTheIdentitysForTheGuardAndPrincipal(): void
     {
-        $token = $this->session->tokens->refreshToken;
+        $token = $this->session->tokens->refreshToken?->reveal();
         $other = $this->seedIdentity('bea@example.test');
 
         self::assertNull($this->prove($token, $other));
@@ -187,7 +188,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testAProofWithoutAPrincipalIgnoresTheRecordedPrincipal(): void
     {
-        $token = $this->session->tokens->refreshToken;
+        $token = $this->session->tokens->refreshToken?->reveal();
         $proof = new ProvenSessions(Auth::manager()->jwt('api'));
 
         $this->updateSession(['principal_id' => '999']);
@@ -214,10 +215,10 @@ final class ProvenSessionsTest extends TestCase
         $admin = Auth::manager()->jwt('admin');
         $api   = Auth::manager()->jwt('api');
 
-        $claims = $this->claims($this->session->tokens->refreshToken);
+        $claims = $this->claims($this->session->tokens->refreshToken?->reveal());
 
         self::assertNull($this->prove('not-a-jwt'));
-        self::assertNull($this->prove($this->session->tokens->accessToken));
+        self::assertNull($this->prove($this->session->tokens->accessToken->reveal()));
         self::assertNull($this->prove($admin->issueRefreshToken($this->session->record, (string) $claims[Claims::JWT_ID->value], $this->identity))); // @phpstan-ignore cast.string
 
         $this->session->record->delete();
@@ -233,7 +234,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testARotationIdThatIsNotAStringProvesNothing(): void
     {
-        $claims = $this->claims($this->session->tokens->refreshToken);
+        $claims = $this->claims($this->session->tokens->refreshToken?->reveal());
 
         $claims[Claims::JWT_ID->value] = 12345;
 
@@ -263,12 +264,12 @@ final class ProvenSessionsTest extends TestCase
      * identity (the seeded one by default) acting as the principal (itself by
      * default).
      *
-     * @param  string  $token
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $token
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Session
      */
-    private function prove(#[\SensitiveParameter] string $token, ?Identity $identity = null, ?Principal $principal = null): ?SessionContract
+    private function prove(#[\SensitiveParameter] Secret|string $token, ?Identity $identity = null, ?Principal $principal = null): ?SessionContract
     {
         return (new ProvenSessions(Auth::manager()->jwt('api')))->provenSession('api', $this->admitted($identity ?? $this->identity, $principal), $token);
     }

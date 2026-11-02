@@ -180,25 +180,25 @@ final class MachineCredentialBenchHarness
         $machine = MachineClient::query()->firstOrCreate(['email' => 'bench-machine@example.test'], ['is_active' => true]);
         $keys    = new ApiKeyService($this->keyGuard(null)->context(), $this->app);
 
-        $this->usedKey = $keys->issue($machine, $machine, ['reports'])->key();
+        $this->usedKey = $keys->issue($machine, $machine, ['reports'])->key()->reveal();
 
         $this->keyGuard($this->usedKey)->user();
 
         $this->refusedKey = substr($this->usedKey, 0, -1) . (str_ends_with($this->usedKey, 'A') ? 'B' : 'A');
 
         for ($index = 0; $index < self::KEY_POOL_SIZE; $index++) {
-            $this->unusedKeys[] = $keys->issue($machine, $machine, ['reports'])->key();
+            $this->unusedKeys[] = $keys->issue($machine, $machine, ['reports'])->key()->reveal();
         }
 
-        $this->unusedCheckKey = $keys->issue($machine, $machine, ['reports'])->key();
+        $this->unusedCheckKey = $keys->issue($machine, $machine, ['reports'])->key()->reveal();
 
-        $client = (new ApiKeyService($this->tokenGuard(null)->context(), $this->app))->issue($machine, $machine, ['reports'])->key();
+        $client = (new ApiKeyService($this->tokenGuard(null)->context(), $this->app))->issue($machine, $machine, ['reports'])->key()->reveal();
 
         [$clientId, $clientSecret] = self::clientCredentialsOf($client);
 
         $granted = (new ClientCredentialsExchange($this->tokenGuard(null)->context(), $this->app))->exchange($clientId, $clientSecret);
 
-        $this->clientToken = $granted->accessToken ?? '';
+        $this->clientToken = $granted->accessToken?->reveal() ?? '';
     }
 
     /**

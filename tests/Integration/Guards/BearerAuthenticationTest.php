@@ -136,7 +136,7 @@ final class BearerAuthenticationTest extends TestCase
 
         $this->recordEvents(self::OBSERVED);
 
-        $this->bearer($session->tokens->accessToken)->assertOk()->assertJson(['identity' => $identity->getKey()]);
+        $this->bearer($session->tokens->accessToken->reveal())->assertOk()->assertJson(['identity' => $identity->getKey()]);
 
         self::assertSame([Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class], $this->recordedClasses());
 
@@ -169,7 +169,7 @@ final class BearerAuthenticationTest extends TestCase
 
         $this->recordEvents([PrincipalAssigned::class]);
 
-        $this->bearer($session->tokens->accessToken, '/members/me')->assertOk()->assertJson(['identity' => $member->getKey()]);
+        $this->bearer($session->tokens->accessToken->reveal(), '/members/me')->assertOk()->assertJson(['identity' => $member->getKey()]);
 
         $context = $this->recordedEvent(PrincipalAssigned::class)->context;
 
@@ -204,7 +204,7 @@ final class BearerAuthenticationTest extends TestCase
 
         $this->recordEvents([PrincipalAssigned::class]);
 
-        $this->bearer($session->tokens->accessToken, '/members/me')->assertOk()->assertJson(['identity' => $member->getKey()]);
+        $this->bearer($session->tokens->accessToken->reveal(), '/members/me')->assertOk()->assertJson(['identity' => $member->getKey()]);
 
         $assigned = $this->recordedEvent(PrincipalAssigned::class)->context;
 
@@ -243,7 +243,7 @@ final class BearerAuthenticationTest extends TestCase
 
         app()->instance(TenantAccess::class, $access);
 
-        $this->bearer($session->tokens->accessToken, '/members/me')->assertOk();
+        $this->bearer($session->tokens->accessToken->reveal(), '/members/me')->assertOk();
     }
 
     /**
@@ -295,7 +295,7 @@ final class BearerAuthenticationTest extends TestCase
 
             self::assertNotNull($tokens);
 
-            return $tokens->issueAccessToken($identity, $other, null, $session->record);
+            return $tokens->issueAccessToken($identity, $other, null, $session->record)->reveal();
         }, FailureReason::PRINCIPAL_MISMATCH];
         yield 'a deleted session' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
             Session::query()->whereKey($session->record->getKey())->delete();
@@ -375,7 +375,7 @@ final class BearerAuthenticationTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $session  = $this->signedIn();
-        $token    = $change($identity, $session) ?? $session->tokens->accessToken;
+        $token    = $change($identity, $session) ?? $session->tokens->accessToken->reveal();
 
         $this->recordEvents(self::OBSERVED);
 
@@ -412,7 +412,7 @@ final class BearerAuthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $this->bearer($session->tokens->accessToken)->assertUnauthorized();
+        $this->bearer($session->tokens->accessToken->reveal())->assertUnauthorized();
 
         $revoked = $this->recordedEvent(AuthenticationFailed::class)->context;
 
@@ -420,7 +420,7 @@ final class BearerAuthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $this->bearer($session->tokens->accessToken)->assertUnauthorized();
+        $this->bearer($session->tokens->accessToken->reveal())->assertUnauthorized();
 
         $missing = $this->recordedEvent(AuthenticationFailed::class)->context;
 
@@ -451,7 +451,7 @@ final class BearerAuthenticationTest extends TestCase
         $session   = $this->signedIn();
         $sessionId = $session->record->getKey();
         $recorded  = Session::query()->findOrFail($sessionId)->only(['principal_type', 'principal_id']);
-        $earlier   = $session->tokens->accessToken;
+        $earlier   = $session->tokens->accessToken->reveal();
 
         $this->moveClocksTo(Carbon::now()->addMinute());
 
@@ -473,7 +473,7 @@ final class BearerAuthenticationTest extends TestCase
 
         self::assertNotNull($tokens);
 
-        $this->bearer($tokens->issueAccessToken($identity, $identity, null, Session::query()->findOrFail($sessionId)))->assertOk();
+        $this->bearer($tokens->issueAccessToken($identity, $identity, null, Session::query()->findOrFail($sessionId))->reveal())->assertOk();
     }
 
     /**
@@ -496,7 +496,7 @@ final class BearerAuthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $this->bearer($session->tokens->accessToken, '/members/me')->assertUnauthorized();
+        $this->bearer($session->tokens->accessToken->reveal(), '/members/me')->assertUnauthorized();
 
         $failure = $this->recordedEvent(AuthenticationFailed::class);
 

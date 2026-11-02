@@ -561,13 +561,13 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         self::assertInstanceOf(TokenPair::class, $result);
 
-        $accessClaims = $this->tokens->parse($result->accessToken, TokenType::ACCESS);
+        $accessClaims = $this->tokens->parse($result->accessToken->reveal(), TokenType::ACCESS);
         self::assertIsArray($accessClaims);
         self::assertSame('7', $accessClaims[Claims::SUBJECT->value]);
         self::assertSame('p-1', $accessClaims[Claims::PRINCIPAL->value]);
         self::assertSame($session->id, $accessClaims[Claims::SESSION_ID->value]);
 
-        $refreshClaims = $this->tokens->parse($result->refreshToken, TokenType::REFRESH);
+        $refreshClaims = $this->tokens->parse($result->refreshToken?->reveal(), TokenType::REFRESH);
         self::assertIsArray($refreshClaims);
         self::assertSame($session->id, $refreshClaims[Claims::SESSION_ID->value]);
         self::assertSame('p-1', $refreshClaims[Claims::PRINCIPAL->value]);

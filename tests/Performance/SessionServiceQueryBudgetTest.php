@@ -113,6 +113,28 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * A cookie application's sign-in costs what a body application's does:
+     * delivering the refresh token in the cookie, with its expiry read from the
+     * session it has just written, adds no query.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationsSignInCostsWhatASignInCosts(): void
+    {
+        config()->set('auth.guards.admin.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
+
+        $this->seedIdentity();
+
+        $sessions = $this->sessions('admin');
+        $result   = $this->assertQueryBudget(4, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
+
+        self::assertNull($result->session?->tokens->refreshToken);
+        self::assertSame('__Secure-admin_refresh_token', $result->session?->tokens->refreshCookie?->name);
+    }
+
+    /**
      * Replacing a proven session reads the identity and the session, writes one
      * compare-and-swap that revokes it and one insert each of the new session
      * and its first proof, and reads what was left under the new session's key
@@ -133,7 +155,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($first);
 
         $sessions = $this->sessions();
-        $context  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
+        $context  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken?->reveal());
         $again    = $this->assertQueryBudget(5, 9, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), $context));
 
         self::assertNotSame($first->record->getKey(), $again->session?->record->getKey());
@@ -201,7 +223,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
 
-        $credential = $result->credential;
+        $credential = $result->credential->reveal();
         $sessions   = $this->sessions();
 
         self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?PendingSession => $sessions->pending($credential)));
@@ -233,7 +255,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
 
-        $credential = $result->credential;
+        $credential = $result->credential->reveal();
         $sessions   = $this->sessions('members');
 
         self::assertNotNull($this->assertQueryBudget(5, 0, static fn (): ?PendingSession => $sessions->pending($credential)));
@@ -263,13 +285,13 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         self::requireAFurtherFactor();
 
-        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken?->reveal());
         $pending = $this->sessions()->signIn('password', self::credentials(), $context);
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
 
-        $credential = $pending->credential;
+        $credential = $pending->credential->reveal();
         $proof      = self::proofFor($identity, $pending->pending->id);
         $sessions   = $this->sessions();
         $result     = $this->assertQueryBudget(5, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof));
@@ -292,7 +314,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         self::requireAFurtherFactor();
 
-        $credential = $this->sessions()->signIn('password', self::credentials())->credential;
+        $credential = $this->sessions()->signIn('password', self::credentials())->credential?->reveal();
 
         self::assertNotNull($credential);
 
@@ -323,7 +345,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
 
-        $credential = $result->credential;
+        $credential = $result->credential->reveal();
         $proof      = self::proofFor($identity, $result->pending->id);
 
         self::assertTrue($this->sessions()->satisfy($credential, $proof)->isSignedIn());

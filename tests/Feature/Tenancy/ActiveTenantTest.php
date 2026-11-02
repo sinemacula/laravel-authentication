@@ -123,7 +123,7 @@ final class ActiveTenantTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($descendant->getKey()), $this->accessClaims($session)['tenant_id'] ?? null);
         self::assertTrue($descendant->is(Auth::manager()->guard('members')->tenant())); // @phpstan-ignore method.notFound
 
-        $this->bearer($session->tokens->accessToken)->assertOk()->assertExactJson(['tenant' => $descendant->getKey()]);
+        $this->bearer($session->tokens->accessToken->reveal())->assertOk()->assertExactJson(['tenant' => $descendant->getKey()]);
     }
 
     /**
@@ -168,8 +168,8 @@ final class ActiveTenantTest extends TestCase
         $asked    = $this->tree->asked;
         $resolved = $this->tree->resolved;
 
-        $this->bearer($session->tokens->accessToken)->assertOk();
-        $this->bearer($session->tokens->accessToken)->assertOk();
+        $this->bearer($session->tokens->accessToken->reveal())->assertOk();
+        $this->bearer($session->tokens->accessToken->reveal())->assertOk();
 
         self::assertSame($asked, $this->tree->asked);
         self::assertSame($resolved + 2, $this->tree->resolved);
@@ -194,7 +194,7 @@ final class ActiveTenantTest extends TestCase
 
         Session::query()->update(['tenant_id' => IdentifierCoercion::stringify($own->getKey())]);
 
-        $this->bearer($session->tokens->accessToken)->assertUnauthorized();
+        $this->bearer($session->tokens->accessToken->reveal())->assertUnauthorized();
 
         self::assertSame(FailureReason::SESSION_TENANT_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
 
@@ -206,7 +206,7 @@ final class ActiveTenantTest extends TestCase
 
             $this->recordEvents([AuthenticationFailed::class]);
 
-            $this->bearer($session->tokens->accessToken)->assertUnauthorized();
+            $this->bearer($session->tokens->accessToken->reveal())->assertUnauthorized();
 
             self::assertSame(FailureReason::TENANT_INACTIVE, $this->recordedEvent(AuthenticationFailed::class)->reason);
 
@@ -217,7 +217,7 @@ final class ActiveTenantTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $this->bearer($session->tokens->accessToken)->assertUnauthorized();
+        $this->bearer($session->tokens->accessToken->reveal())->assertUnauthorized();
 
         self::assertSame(FailureReason::TENANT_INACTIVE, $this->recordedEvent(AuthenticationFailed::class)->reason);
     }
@@ -236,14 +236,14 @@ final class ActiveTenantTest extends TestCase
     {
         [$descendant, $session] = $this->signedInBelow();
 
-        $refreshed = self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken)->session;
+        $refreshed = self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal())->session;
 
         self::assertNotNull($refreshed);
         self::assertSame(IdentifierCoercion::stringify($descendant->getKey()), $this->accessClaims($refreshed)['tenant_id'] ?? null);
 
         app()->instance(TenantAccess::class, new DescendantTenants);
 
-        $refused = self::sessionsOf($this->freshGuard('members'))->refresh($refreshed->tokens->refreshToken);
+        $refused = self::sessionsOf($this->freshGuard('members'))->refresh($refreshed->tokens->refreshToken?->reveal());
 
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
         self::assertNull(Session::query()->sole()->getRevokedAt());
@@ -350,7 +350,7 @@ final class ActiveTenantTest extends TestCase
      */
     private function accessClaims(SignedInSession $session): array
     {
-        return Auth::jwt('members')->parse($session->tokens->accessToken, TokenType::ACCESS) ?? [];
+        return Auth::jwt('members')->parse($session->tokens->accessToken->reveal(), TokenType::ACCESS) ?? [];
     }
 
     /**

@@ -16,6 +16,9 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
+use Symfony\Component\VarDumper\Cloner\VarCloner;
+use Symfony\Component\VarDumper\Dumper\CliDumper;
+use Tests\Unit\Stubs\StubLookupIdentityProvider;
 
 /**
  * Unit tests for what a sign-in method is asked to verify.
@@ -45,8 +48,41 @@ final class SignInRequestTest extends TestCase
 
         self::assertSame('api', $request->guard);
         self::assertSame($provider, $request->provider);
-        self::assertSame(['email' => 'ada@example.test', 'password' => 'secret'], $request->input);
+        self::assertSame(['email' => 'ada@example.test', 'password' => 'secret'], $request->input());
         self::assertSame($client, $request->client);
+    }
+
+    /**
+     * The input holds the client's secrets, so no dump of the request shows
+     * them (Laravel's VarDumper, `print_r`, `var_export`), serialising the
+     * request throws, and the constructor's parameter is sensitive.
+     *
+     * @return void
+     */
+    public function testTheInputIsShownByNoDump(): void
+    {
+        $request = new SignInRequest(
+            'api',
+            new StubLookupIdentityProvider,
+            ['email' => 'ada@example.test', 'password' => 'p4ssw0rd-secret'],
+            new ClientContext('203.0.113.7', 'agent'),
+        );
+
+        $dumps = [
+            (string) (new CliDumper)->dump((new VarCloner)->cloneVar($request), true),
+            print_r($request, true),
+            var_export($request, true),
+        ];
+
+        foreach ($dumps as $dumped) {
+            self::assertStringNotContainsString('p4ssw0rd-secret', $dumped);
+        }
+
+        self::assertNotSame([], (new \ReflectionParameter([SignInRequest::class, '__construct'], 'input'))->getAttributes(\SensitiveParameter::class));
+
+        $this->expectException(\Exception::class);
+
+        serialize($request);
     }
 
     /**

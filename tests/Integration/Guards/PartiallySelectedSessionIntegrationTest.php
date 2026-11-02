@@ -114,7 +114,7 @@ final class PartiallySelectedSessionIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedIdentityWithRevokedSession();
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         Route::middleware('auth:api')->get('/me', static fn (): string => 'ok');
 
@@ -167,7 +167,7 @@ final class PartiallySelectedSessionIntegrationTest extends TestCase
 
         [$identity, $session] = $this->seedIdentityWithRevokedSession();
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
         $guard        = $this->guardForRequest(Request::create('/refresh', 'POST'));
 
         try {

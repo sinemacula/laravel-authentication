@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -16,6 +17,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * Claim-policy unit tests for `JwtTokenService`: the header `typ` that tells
@@ -69,6 +71,94 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $token  = JWT::encode([...$claims, 7 => 'numeric'], self::SECRET, self::ALGORITHM, self::KID, ['typ' => TokenType::ACCESS->value]);
 
         self::assertSame($claims, $this->makeService()->parse($token, TokenType::ACCESS));
+    }
+
+    /**
+     * Every token the service issues is a secret, revealed only where it is
+     * sent, and the service parses a token held as a secret as it parses one a
+     * request carried as a string.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testIssuedTokensAreSecretsAndParseEitherWay(): void
+    {
+        $service = $this->makeService();
+        $access  = $service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null);
+        $refresh = $service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id', $this->mockPrincipal('principal-3'));
+
+        self::assertInstanceOf(Secret::class, $access);
+        self::assertInstanceOf(Secret::class, $refresh);
+        self::assertSame($service->parse($access->reveal(), TokenType::ACCESS), $service->parse($access, TokenType::ACCESS));
+        self::assertSame($service->parseRefreshProof($refresh->reveal()), $service->parseRefreshProof($refresh));
+        self::assertNotNull($service->parse($refresh, TokenType::REFRESH));
+    }
+
+    /**
+     * The debug logger is never handed a token, nor any part of one: every
+     * parse that fails and logs (a bad signature, an expired token, the wrong
+     * header type, another guard's token, a missing claim) logs only why, and a
+     * successful parse logs nothing.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testTheLoggerIsNeverHandedAToken(): void
+    {
+        $logger = new class extends AbstractLogger {
+            /** @var list<array{0: mixed, 1: string, 2: array<array-key, mixed>}> The entries logged, in order. */
+            public array $records = [];
+
+            /**
+             * Record the entry.
+             *
+             * @param  mixed  $level
+             * @param  string|\Stringable  $message
+             * @param  array<array-key, mixed>  $context
+             * @return void
+             */
+            #[\Override]
+            public function log(mixed $level, string|\Stringable $message, array $context = []): void
+            {
+                $this->records[] = [$level, (string) $message, $context];
+            }
+        };
+
+        $service  = $this->makeServiceWithLogger($logger);
+        $access   = $service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null)->reveal();
+        $refresh  = $service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id', $this->mockPrincipal('principal-3'))->reveal();
+        $other    = $this->makeServiceFor(self::OTHER_GUARD)->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null)->reveal();
+        $claims   = $this->completeClaims(TokenType::ACCESS);
+        $tampered = substr($access, 0, -2) . (str_ends_with($access, 'AA') ? 'BB' : 'AA');
+
+        unset($claims[Claims::JWT_ID->value]);
+
+        $missing = $this->encode($claims);
+
+        self::assertNotNull($service->parse($access, TokenType::ACCESS));
+        self::assertCount(0, $logger->records);
+
+        $refused = [$tampered, $refresh, $other, $missing];
+
+        self::assertNull($service->parse($tampered, TokenType::ACCESS));
+        self::assertNull($service->parse($refresh, TokenType::ACCESS));
+        self::assertNull($service->parse($other, TokenType::ACCESS));
+        self::assertNull($service->parse($missing, TokenType::ACCESS));
+
+        $this->advanceClock(self::ACCESS_TTL_MINUTES + 5);
+
+        self::assertNull($service->parse($access, TokenType::ACCESS));
+        self::assertCount(5, $logger->records);
+
+        $logged = print_r($logger->records, true);
+
+        foreach ([$access, ...$refused] as $token) {
+            foreach (explode('.', $token) as $segment) {
+                self::assertStringNotContainsString($segment, $logged);
+            }
+        }
     }
 
     /**
@@ -458,8 +548,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     {
         $service = $this->makeServiceFor(self::OTHER_GUARD);
 
-        $access  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null), TokenType::ACCESS);
-        $refresh = $service->parse($service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id'), TokenType::REFRESH);
+        $access  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null)->reveal(), TokenType::ACCESS);
+        $refresh = $service->parse($service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')->reveal(), TokenType::REFRESH);
 
         self::assertIsArray($access);
         self::assertIsArray($refresh);
@@ -485,7 +575,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('principal-3');
         $principal->shouldNotReceive('getTenant');
 
-        $claims = $this->makeService()->parse($this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, null, null), TokenType::ACCESS);
+        $claims = $this->makeService()->parse($this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, null, null)->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
         self::assertSame('principal-3', $claims[Claims::PRINCIPAL->value]);
@@ -501,7 +591,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
      */
     public function testParseRejectsAnAccessTokenIssuedForAnotherGuard(): void
     {
-        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null);
+        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null)->reveal();
 
         self::assertNull($this->makeService()->parse($token, TokenType::ACCESS));
         self::assertNull($this->makeService()->parse($token));
@@ -515,7 +605,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
      */
     public function testParseRejectsARefreshTokenIssuedForAnotherGuard(): void
     {
-        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueRefreshToken($this->mockSession('session-42'), 'rotation-id');
+        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')->reveal();
 
         self::assertNull($this->makeService()->parse($token, TokenType::REFRESH));
     }
@@ -551,7 +641,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
         $verifier = $this->makeServiceWithLogger($logger);
 
-        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null);
+        $token = $this->makeServiceFor(self::OTHER_GUARD)->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null)->reveal();
 
         self::assertNull($verifier->parse($token, TokenType::ACCESS));
     }
@@ -601,7 +691,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     {
         $service = $this->makeService();
         $record  = $this->mockSessionEndingAt('session-42', $this->now->copy()->addMinutes(10), $this->now->copy()->addMinutes(20));
-        $token   = $service->issueRefreshToken($record, 'rotation-id', $this->mockPrincipal('principal-3'));
+        $token   = $service->issueRefreshToken($record, 'rotation-id', $this->mockPrincipal('principal-3'))->reveal();
         $live    = $service->parseRefreshProof($token);
 
         self::assertSame($service->parse($token, TokenType::REFRESH), $live);
@@ -644,9 +734,9 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
         $otherKey = new JwtTokenService($this->makeKeyring(str_repeat('k', 32)), self::GUARD, $service->lifetimes(), 30, self::ISSUER, self::AUDIENCE);
 
-        self::assertNull($service->parseRefreshProof($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null)));
-        self::assertNull($service->parseRefreshProof($this->makeServiceFor(self::OTHER_GUARD)->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')));
-        self::assertNull($service->parseRefreshProof($otherKey->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')));
+        self::assertNull($service->parseRefreshProof($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null)->reveal()));
+        self::assertNull($service->parseRefreshProof($this->makeServiceFor(self::OTHER_GUARD)->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')->reveal()));
+        self::assertNull($service->parseRefreshProof($otherKey->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')->reveal()));
         self::assertNull($service->parseRefreshProof($this->encode($future, TokenType::REFRESH)));
         self::assertNull($service->parseRefreshProof($this->encode($claims, TokenType::REFRESH)));
         self::assertNull($service->parseRefreshProof('not-a-jwt'));
@@ -679,7 +769,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         try {
             $service = $this->makeService();
 
-            $service->parseRefreshProof($service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id'));
+            $service->parseRefreshProof($service->issueRefreshToken($this->mockSession('session-42'), 'rotation-id')->reveal());
 
             self::assertSame(7, JWT::$leeway);
 
@@ -716,7 +806,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     {
         $record = $this->mockSessionEndingAt('session-42', $this->now->copy()->addHours(2), $this->now->copy()->addDays(10));
 
-        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($record, 'rotation-id'));
+        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($record, 'rotation-id')->reveal());
 
         self::assertSame($this->now->getTimestamp() + 7200, $claims[Claims::EXPIRES_AT->value]);
     }
@@ -731,7 +821,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     {
         $record = $this->mockSessionEndingAt('session-42', $this->now->copy()->addDays(400), null);
 
-        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($record, 'rotation-id'));
+        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($record, 'rotation-id')->reveal());
 
         self::assertSame($this->now->getTimestamp() + (400 * 86400), $claims[Claims::EXPIRES_AT->value]);
     }
@@ -746,7 +836,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     {
         $record = $this->mockSessionEndingAt('session-42', $this->now->copy()->addDays(10), $this->now->copy()->addDay());
 
-        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($record, 'rotation-id'));
+        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($record, 'rotation-id')->reveal());
 
         self::assertSame($this->now->getTimestamp() + 86400, $claims[Claims::EXPIRES_AT->value]);
     }
@@ -765,8 +855,11 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $service  = $this->makeService();
         $record   = $this->mockSession('session-42');
 
-        $access  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null, $issuedAt), TokenType::ACCESS);
-        $refresh = $this->refreshClaims($service->issueRefreshToken($record, 'rotation-id', null, $issuedAt));
+        $access = $service->parse(
+            $service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null, $issuedAt)->reveal(),
+            TokenType::ACCESS,
+        );
+        $refresh = $this->refreshClaims($service->issueRefreshToken($record, 'rotation-id', null, $issuedAt)->reveal());
 
         self::assertIsArray($access);
         self::assertSame($this->now->getTimestamp() - 10, $access[Claims::ISSUED_AT->value]);
@@ -812,7 +905,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle deadline.');
 
-        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, $record);
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, $record)->reveal();
     }
 
     /**
@@ -831,7 +924,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle deadline.');
 
-        $this->makeService()->issueRefreshToken($record, 'rotation-id');
+        $this->makeService()->issueRefreshToken($record, 'rotation-id')->reveal();
     }
 
     /**
@@ -848,13 +941,13 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $service = $this->makeService();
         $access  = ['iss', 'aud', 'client_id', 'sub', 'sub_type', 'principal', 'jti', 'iat', 'exp'];
 
-        $session = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null), TokenType::ACCESS);
+        $session = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null, null)->reveal(), TokenType::ACCESS);
 
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\MachineIdentity $machine */
         $machine = \Mockery::mock(MachineIdentity::class);
         $machine->shouldReceive('getAuthIdentifier')->andReturn('machine-7');
 
-        $client = $service->parse($service->issueClientAccessToken($machine, $this->mockPrincipal('principal-3'), null, self::KEY_ID, ['read']), TokenType::ACCESS);
+        $client = $service->parse($service->issueClientAccessToken($machine, $this->mockPrincipal('principal-3'), null, self::KEY_ID, ['read'])->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($session);
         self::assertIsArray($client);
@@ -889,7 +982,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('principal-3');
         $principal->shouldReceive('getTenant')->andReturn($tenant);
 
-        $client = $service->parse($service->issueClientAccessToken($machine, $principal, $tenant, self::KEY_ID, []), TokenType::ACCESS);
+        $client = $service->parse($service->issueClientAccessToken($machine, $principal, $tenant, self::KEY_ID, [])->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($client);
         self::assertSame('12', $client[Claims::TENANT_ID->value]);

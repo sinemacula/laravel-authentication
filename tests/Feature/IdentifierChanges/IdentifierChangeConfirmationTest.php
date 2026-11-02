@@ -629,7 +629,13 @@ final class IdentifierChangeConfirmationTest extends TestCase
         self::seedChangeable(self::EMAIL, self::PHONE);
 
         $identity = SuspendableChangeableIdentity::query()->sole();
-        $link     = $this->changes('suspendable')->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity, 'suspendable'), 'email.confirm')->link();
+        $link     = $this->changes('suspendable')->requestByLink(
+            $identity,
+            'email',
+            self::NEW_EMAIL,
+            self::freshSession($identity, 'suspendable'),
+            'email.confirm',
+        )->link()?->reveal();
 
         self::assertIsString($link);
         self::assertTrue($this->changes('suspendable')->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity, 'suspendable'))->isSent());
@@ -701,7 +707,13 @@ final class IdentifierChangeConfirmationTest extends TestCase
         self::seedChangeable(self::EMAIL, self::PHONE);
 
         $identity = SuspendableChangeableIdentity::query()->sole();
-        $link     = $this->changes('suspendable')->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity, 'suspendable'), 'email.confirm')->link();
+        $link     = $this->changes('suspendable')->requestByLink(
+            $identity,
+            'email',
+            self::NEW_EMAIL,
+            self::freshSession($identity, 'suspendable'),
+            'email.confirm',
+        )->link()?->reveal();
 
         self::assertIsString($link);
         self::assertTrue($this->changes('suspendable')->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity, 'suspendable'))->isSent());
@@ -814,7 +826,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     {
         $identity = self::seedChangeable(self::EMAIL, self::PHONE);
         $other    = self::seedChangeable('grace@example.test');
-        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->link();
+        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->link()?->reveal();
 
         self::assertIsString($link);
         self::assertTrue($this->changes('admin')->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity, 'admin'))->isSent());
@@ -858,7 +870,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     public function testAVerificationLinkForTheOldIdentifierIsDead(): void
     {
         $identity = $this->requestedByCode();
-        $link     = app(VerificationLinks::class)->create('web', $identity, 'email', 'email.verify');
+        $link     = app(VerificationLinks::class)->create('web', $identity, 'email', 'email.verify')->reveal();
 
         DB::table('changeable_identities')->update(['email_verified_at' => null]);
 
@@ -1080,7 +1092,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     private function requestedByLink(): array
     {
         $identity = self::seedChangeable();
-        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->link();
+        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->link()?->reveal();
 
         self::assertIsString($link);
 

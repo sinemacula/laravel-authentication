@@ -138,7 +138,9 @@ Session tracking and refresh are opt-in. For simple backends or short-lived toke
 2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, $tenant, null)`, passing the
    principal's own tenant (or `null`), which the token carries in `tenant_id`; any other tenant is refused
    with an `InvalidArgumentException`, and a principal whose tenant cannot be loaded (deleted, soft-deleted or hidden
-   by a scope) throws the `TenantUnavailableException` its `getTenant()` does.
+   by a scope) throws the `TenantUnavailableException` its `getTenant()` does. The token is a `Secret`: send it with
+   `SecretResponse::json(['access_token' => $token])`, which reveals it into a body that is never stored (see [Secrets
+   in responses](signing-in.md#secrets-in-responses)).
 3. Do not refresh (`Auth::sessions('api')->refresh(...)`) or start sessions through the session service (`signIn()`,
    `start()`), which throws a `LogicException` for an identity without `HasSessions`. Clients re-authenticate when the
    access token expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens

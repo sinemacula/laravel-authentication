@@ -171,7 +171,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame('password', $session->method);
 
         $record = Session::query()->whereKey($session->record->getKey())->firstOrFail();
-        $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken);
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken?->reveal());
 
         self::assertNotNull($claims);
         self::assertSame($record->getKey(), $claims['sid']);
@@ -1334,7 +1334,7 @@ final class SessionServiceTest extends TestCase
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
 
-        return [$result->credential, self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
+        return [$result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
     }
 
     /**

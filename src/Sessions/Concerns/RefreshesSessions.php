@@ -4,6 +4,9 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
 
@@ -54,31 +57,34 @@ trait RefreshesSessions
      * presented token inside the grace window gets the current credential;
      * after the window it is treated as a replay and revokes the session.
      *
-     * For a token the caller read itself; never pass it one read from the
-     * refresh cookie, whose cross-site checks only `refreshFromRequest()`
-     * makes.
+     * Only for a token a body application's own code read: a cookie
+     * application's token is read only from its cookie, whose cross-site checks
+     * only `refreshFromRequest()` makes, so on a cookie application this throws
+     * a `LogicException`.
      *
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
      *
      * @throws \Throwable
      */
-    public function refresh(#[\SensitiveParameter] string $refreshToken): RefreshResult
+    public function refresh(#[\SensitiveParameter] Secret|string $refreshToken): RefreshResult
     {
         return $this->refreshes->refresh($refreshToken);
     }
 
     /**
      * Refresh with the refresh token the request carries, read through the
-     * guard's refresh token transport, so it comes from the one source the
-     * guard allows and a cookie passes its cross-site checks.
+     * application's refresh token transport, so it comes by the application's
+     * own transport and a cookie passes its cross-site checks.
      *
      * Returns `null`, dispatching nothing, when the request carries no token
      * (nothing was attempted). A token the transport refuses fails with its
-     * reason (`refresh_token_conflict`, `cross_site_request`, `token_invalid`)
-     * after `Attempting`, `Failed` and `AuthenticationFailed`, touching no
-     * session; otherwise it is `refresh()`. The result says where the token was
-     * read from, so a cookie refresh can be answered with a cookie.
+     * reason (`refresh_token_conflict`, `refresh_transport_mismatch`,
+     * `cross_site_request`, `token_invalid`) after `Attempting`, `Failed` and
+     * `AuthenticationFailed`, touching no session; otherwise it is refreshed as
+     * `refresh()` refreshes. The result says where the token was read from; a
+     * cookie application's refreshed pair carries the cookie that sets the new
+     * refresh token, never the token itself.
      *
      * @return ?\SineMacula\Laravel\Authentication\Sessions\RefreshResult
      *
@@ -87,5 +93,29 @@ trait RefreshesSessions
     public function refreshFromRequest(): ?RefreshResult
     {
         return $this->refreshes->refreshFromRequest();
+    }
+
+    /**
+     * Who the refresh credential the request carries would sign in again,
+     * without rotating it or binding anything: `null` when the request carries
+     * none; the reason the transport, the session the token names (a replay
+     * revoking it, as a refresh does), the session's owner, admitted as a
+     * refresh admits it, or the tenant's authentication policy, judged as a
+     * refresh judges it but writing nothing, refuses it; or the
+     * `RefreshCredential` with the owner, the principal, the active tenant, the
+     * session and where the credential was read from. It dispatches nothing but
+     * a replay's `SessionRevoked`: its caller reports a refusal. The seam
+     * `Auth::caller()` reads a refresh credential through, not a way to
+     * authenticate.
+     *
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Sessions\RefreshCredential|null
+     *
+     * @throws \Throwable
+     *
+     * @internal
+     */
+    public function refreshCredentialFromRequest(): FailureReason|RefreshCredential|null
+    {
+        return $this->refreshes->credentialFromRequest();
     }
 }

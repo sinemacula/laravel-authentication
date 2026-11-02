@@ -75,7 +75,7 @@ final class JwtTokenServiceAlgorithmTest extends JwtTokenServiceTestCase
             $this->mockPrincipal('principal-3'),
             null,
             null,
-        );
+        )->reveal();
 
         self::assertSame($algorithm, $this->jwtHeader($token)['alg'] ?? null);
 

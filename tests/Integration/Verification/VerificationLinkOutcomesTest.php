@@ -112,7 +112,7 @@ final class VerificationLinkOutcomesTest extends TestCase
 
         DB::table('verifiable_identities')->update(['email_verified_at' => $verified ? self::VERIFIED_BEFORE : null]);
 
-        $link = $this->links()->create(self::GUARD, $identity, 'email', 'verify');
+        $link = $this->links()->create(self::GUARD, $identity, 'email', 'verify')->reveal();
 
         $change = static fn (): int => DB::table('verifiable_identities')->update(['email' => 'eve@example.com']);
 
@@ -140,7 +140,7 @@ final class VerificationLinkOutcomesTest extends TestCase
     public function testTheVerificationIsReportedOnlyOnceCommitted(): void
     {
         $identity = self::seedVerifiableIdentity();
-        $link     = $this->links()->create(self::GUARD, $identity, 'email', 'verify');
+        $link     = $this->links()->create(self::GUARD, $identity, 'email', 'verify')->reveal();
 
         $this->nameIdentities($identity);
 

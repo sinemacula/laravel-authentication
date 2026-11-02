@@ -135,23 +135,12 @@ final class RefreshTokenExchangeBenchHarness
         Carbon::setTestNow($now);
         JWT::$timestamp = $now->getTimestamp();
 
-        $config = new ConfigRepository([
-            'database'       => ['default' => BenchDatabase::CONNECTION],
-            'authentication' => [
-                'session' => [
-                    'model'                      => Session::class,
-                    'table'                      => 'authentication_sessions',
-                    'last_used_throttle_seconds' => 60,
-                ],
-                'timebox' => [
-                    'credentials_microseconds' => 400000,
-                ],
-            ],
-        ]);
+        $config = self::config();
 
         $container = new Container;
         $container->instance('config', $config);
         $container->instance(Repository::class, $config);
+        $container->instance(ConfigRepository::class, $config);
         Facade::setFacadeApplication($container);
         JwtBenchSetup::bindPackageDefaults($container);
 
@@ -379,7 +368,7 @@ final class RefreshTokenExchangeBenchHarness
 
             BenchSchema::recordFirstFactor($session);
 
-            $pool[] = $this->tokens->issueRefreshToken($session, $rotationId, $principal);
+            $pool[] = $this->tokens->issueRefreshToken($session, $rotationId, $principal)->reveal();
         }
 
         return $pool;
@@ -475,7 +464,7 @@ final class RefreshTokenExchangeBenchHarness
         // rather than the shape check that rejects malformed ids before it.
         $missingSession = new Session;
         $missingSession->forceFill([...BenchSchema::signedIn('api'), 'id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
-        $this->unknownSessionToken = $this->tokens->issueRefreshToken($missingSession, 'bench-missing-session-rotation');
+        $this->unknownSessionToken = $this->tokens->issueRefreshToken($missingSession, 'bench-missing-session-rotation')->reveal();
 
         if ($this->rotationMismatchTokens !== []) {
             return;
@@ -509,7 +498,7 @@ final class RefreshTokenExchangeBenchHarness
             'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
         ])->save();
 
-        return $this->tokens->issueRefreshToken($session, 'tampered-rotation-id');
+        return $this->tokens->issueRefreshToken($session, 'tampered-rotation-id')->reveal();
     }
 
     /**
@@ -575,6 +564,37 @@ final class RefreshTokenExchangeBenchHarness
             ),
             BenchRequest::refreshTransport(...),
         );
+    }
+
+    /**
+     * The configuration the harness's guard reads: the `api` guard, the session
+     * model, the credential timebox, and the package's refresh transport
+     * defaults, from which every refresh builds the guard's transport.
+     *
+     * @return \Illuminate\Config\Repository
+     */
+    private static function config(): ConfigRepository
+    {
+        return new ConfigRepository([
+            'auth'           => ['guards' => ['api' => ['driver' => 'jwt', 'provider' => 'users']]],
+            'database'       => ['default' => BenchDatabase::CONNECTION],
+            'authentication' => [
+                'session' => [
+                    'model'                      => Session::class,
+                    'table'                      => 'authentication_sessions',
+                    'last_used_throttle_seconds' => 60,
+                ],
+                'timebox' => [
+                    'credentials_microseconds' => 400000,
+                ],
+                'refresh_token' => [
+                    'transport'  => 'body',
+                    'body_field' => 'refresh_token',
+                    'header'     => 'X-Refresh-Token',
+                    'cookie'     => ['name' => null, 'path' => null, 'allowed_origins' => [], 'csrf_header' => 'X-Requested-With'],
+                ],
+            ],
+        ]);
     }
 
     /**

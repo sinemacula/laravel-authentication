@@ -130,7 +130,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     {
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity);
-        $token    = $this->tokens()->issueAccessToken($identity, $identity, null, $session);
+        $token    = $this->tokens()->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         match ($rejection) {
             'unknown'  => $identity->delete(),
@@ -181,7 +181,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     public function testBearerTokenFromAnotherGuardUsesNoQueries(): void
     {
         $identity = $this->seedIdentity();
-        $token    = $this->tokens(self::OTHER_GUARD)->issueAccessToken($identity, $identity, null, null);
+        $token    = $this->tokens(self::OTHER_GUARD)->issueAccessToken($identity, $identity, null, null)->reveal();
 
         $this->bindRequestWithBearer('/perf/foreign', $token);
 
@@ -226,7 +226,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     public function testRefreshTokenFromAnotherGuardTouchesOnlyTheIpAddressLimit(): void
     {
         $identity = $this->seedIdentity();
-        $token    = $this->tokens(self::OTHER_GUARD)->issueRefreshToken($this->seedSession($identity), self::ROTATION_ID, $identity);
+        $token    = $this->tokens(self::OTHER_GUARD)->issueRefreshToken($this->seedSession($identity), self::ROTATION_ID, $identity)->reveal();
 
         $guard = $this->refreshGuard();
 
@@ -266,7 +266,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     {
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity);
-        $token    = $this->tokens()->issueAccessToken($identity, $identity, null, $session);
+        $token    = $this->tokens()->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         $session->forceFill(['last_used_at' => $this->now])->save();
 

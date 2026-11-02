@@ -12,6 +12,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
@@ -81,7 +82,7 @@ final class SignInContextTest extends TestCase
 
         self::assertSame($client, $context->client);
         self::assertSame($principal, $context->principal);
-        self::assertSame('refresh-token', $context->refreshToken);
+        self::assertSame('refresh-token', $context->refreshToken?->reveal());
 
         $bare = new SignInContext($client);
 
@@ -168,7 +169,7 @@ final class SignInContextTest extends TestCase
 
         self::assertSame($keptIn === null ? null : $now->getTimestamp() + $keptIn, $capped->notAfter?->getTimestamp());
         self::assertSame(
-            [$client, 'Laptop', 'macOS', $principal, 'refresh-token'],
+            [$client, 'Laptop', 'macOS', $principal, $context->refreshToken],
             [$capped->client, $capped->clientName, $capped->platform, $capped->principal, $capped->refreshToken],
         );
         self::assertSame($contextIn === null ? null : $now->getTimestamp() + $contextIn, $context->notAfter?->getTimestamp());
@@ -225,7 +226,7 @@ final class SignInContextTest extends TestCase
         self::assertSame('Phone', $context->clientName);
         self::assertSame('iOS', $context->platform);
         self::assertSame($principal, $context->principal);
-        self::assertSame('refresh-token', $context->refreshToken);
+        self::assertSame('refresh-token', $context->refreshToken?->reveal());
 
         $bare = SignInContext::fromRequest($request);
 
@@ -248,5 +249,23 @@ final class SignInContextTest extends TestCase
 
             self::assertNotEmpty($parameter->getAttributes(\SensitiveParameter::class));
         }
+    }
+
+    /**
+     * The refresh token is held as a secret: one given as a secret is kept as
+     * it is, a string is wrapped, and an empty string is no token, so a dump of
+     * the context never shows it.
+     *
+     * @return void
+     */
+    public function testHoldsTheRefreshTokenAsASecret(): void
+    {
+        $client = new ClientContext('203.0.113.7', 'agent');
+        $secret = new Secret('refresh-token');
+
+        self::assertSame($secret, (new SignInContext($client, refreshToken: $secret))->refreshToken);
+        self::assertSame($secret, SignInContext::fromRequest(Request::create('/'), refreshToken: $secret)->refreshToken);
+        self::assertNull((new SignInContext($client, refreshToken: ''))->refreshToken);
+        self::assertStringNotContainsString('refresh-token', print_r(new SignInContext($client, refreshToken: 'refresh-token'), true));
     }
 }

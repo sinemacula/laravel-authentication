@@ -105,7 +105,7 @@ final class MisconfiguredIdentityIntegrationTest extends TestCase
     public function testBearerRequestAnswersWithServerError(): void
     {
         $identity = $this->seedIdentity();
-        $token    = $this->authManager()->jwt('api')->issueAccessToken($identity, new PlainPrincipalFixture(7), null, null);
+        $token    = $this->authManager()->jwt('api')->issueAccessToken($identity, new PlainPrincipalFixture(7), null, null)->reveal();
 
         Route::middleware('auth:api')->get('/me', static fn (): string => 'ok');
 
@@ -133,7 +133,7 @@ final class MisconfiguredIdentityIntegrationTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID)->reveal();
 
         Event::fake([AuthenticationFailed::class]);
 

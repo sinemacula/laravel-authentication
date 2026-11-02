@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Passwords\PasswordResetLink;
 use SineMacula\Laravel\Authentication\Passwords\ResetRequests;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
 use Tests\Concerns\InteractsWithPasswordResets;
 use Tests\TestCase;
@@ -109,7 +110,7 @@ final class NotifyingResetLinkSenderTest extends TestCase
      */
     public function testTheDefaultSenderNeedsCanResetPassword(): void
     {
-        $link = new PasswordResetLink('web', 'email', self::EMAIL, str_repeat('a', 43), CarbonImmutable::now(), new PlainIdentityFixture(1));
+        $link = new PasswordResetLink('web', 'email', self::EMAIL, new Secret(str_repeat('a', 43)), CarbonImmutable::now(), new PlainIdentityFixture(1));
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage(PlainIdentityFixture::class . ' cannot be sent a password reset link: it does not implement ' . CanResetPassword::class);

@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\ClientText;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
@@ -36,7 +37,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * only when it wants a re-sign-in to replace the client's previous session,
  * proves the client holds that session: the sign-in then revokes it
  * (`superseded`) as it creates the new one (see the session service). Without
- * it nothing else is revoked.
+ * it nothing else is revoked. It is held as a `Secret`; a string given is
+ * wrapped, and an empty one is no token.
  *
  * The deadline (`notAfter`, cut to the whole second) caps the session the
  * sign-in starts: its absolute deadline is the earlier of it and the
@@ -65,6 +67,9 @@ final readonly class SignInContext
     /** @var ?\Carbon\CarbonImmutable Latest the session may last, cut to the whole second. */
     public ?CarbonImmutable $notAfter;
 
+    /** @var ?\SineMacula\Laravel\Authentication\Secrets\Secret Refresh token of the client's previous session, which the sign-in replaces when it proves it. */
+    public ?Secret $refreshToken;
+
     /**
      * Constructor.
      *
@@ -72,7 +77,7 @@ final readonly class SignInContext
      * @param  ?string  $clientName
      * @param  ?string  $platform
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string|null  $refreshToken
      * @param  ?\Carbon\CarbonInterface  $notAfter
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $tenant
      */
@@ -90,8 +95,10 @@ final readonly class SignInContext
         /** Principal the sign-in asks to act as, verified before it is used. */
         public ?Principal $principal = null,
 
-        /** Refresh token of the client's previous session, which the sign-in replaces when it proves it. */
-        #[\SensitiveParameter] public ?string $refreshToken = null,
+        // Refresh token of the client's previous session, which the sign-in
+        // replaces when it proves it.
+        #[\SensitiveParameter]
+        Secret|string|null $refreshToken = null,
 
         // Latest the session may last, such as a provider's session deadline.
         ?CarbonInterface $notAfter = null,
@@ -99,9 +106,10 @@ final readonly class SignInContext
         /** Tenant the sign-in asks to act in, admitted before it is used; `null` for the principal's default. */
         public ?TenantSelection $tenant = null,
     ) {
-        $this->clientName = ClientText::clean($clientName, self::DESCRIPTION_MAX_LENGTH);
-        $this->platform   = ClientText::clean($platform, self::DESCRIPTION_MAX_LENGTH);
-        $this->notAfter   = $notAfter === null ? null : CarbonImmutable::instance($notAfter)->startOfSecond();
+        $this->clientName   = ClientText::clean($clientName, self::DESCRIPTION_MAX_LENGTH);
+        $this->platform     = ClientText::clean($platform, self::DESCRIPTION_MAX_LENGTH);
+        $this->notAfter     = $notAfter === null ? null : CarbonImmutable::instance($notAfter)->startOfSecond();
+        $this->refreshToken = self::secret($refreshToken);
     }
 
     /**
@@ -143,7 +151,7 @@ final readonly class SignInContext
      * @param  ?string  $clientName
      * @param  ?string  $platform
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string|null  $refreshToken
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $tenant
      * @return self
      */
@@ -152,9 +160,25 @@ final readonly class SignInContext
         ?string $clientName = null,
         ?string $platform = null,
         ?Principal $principal = null,
-        #[\SensitiveParameter] ?string $refreshToken = null,
+        #[\SensitiveParameter] Secret|string|null $refreshToken = null,
         ?TenantSelection $tenant = null,
     ): self {
         return new self(ClientContext::fromRequest($request), $clientName, $platform, $principal, $refreshToken, tenant: $tenant);
+    }
+
+    /**
+     * The refresh token as a secret: a string wrapped, an empty one read as no
+     * token, and a secret or none kept as it is.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string|null  $token
+     * @return ?\SineMacula\Laravel\Authentication\Secrets\Secret
+     */
+    private static function secret(#[\SensitiveParameter] Secret|string|null $token): ?Secret
+    {
+        return match (true) {
+            $token === ''     => null,
+            is_string($token) => new Secret($token),
+            default           => $token,
+        };
     }
 }

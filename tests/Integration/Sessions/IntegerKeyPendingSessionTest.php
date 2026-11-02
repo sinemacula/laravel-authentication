@@ -132,10 +132,10 @@ final class IntegerKeyPendingSessionTest extends TestCase
 
         self::assertNotNull($key);
         self::assertMatchesRegularExpression('/^\d+$/', $key);
-        self::assertStringStartsWith($key . '.', $result->credential);
-        self::assertSame($key, IdentifierCoercion::stringify($this->sessions()->pending($result->credential)?->id));
+        self::assertStringStartsWith($key . '.', $result->credential->reveal());
+        self::assertSame($key, IdentifierCoercion::stringify($this->sessions()->pending($result->credential->reveal())?->id));
 
-        $satisfied = $this->sessions()->satisfy($result->credential, self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN));
+        $satisfied = $this->sessions()->satisfy($result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN));
 
         self::assertTrue($satisfied->isSignedIn());
         self::assertSame($key, IdentifierCoercion::stringify($satisfied->session?->record->getKey()));
@@ -159,7 +159,7 @@ final class IntegerKeyPendingSessionTest extends TestCase
 
         self::assertNotNull($result->credential);
 
-        [, $secret] = explode('.', $result->credential, 2);
+        [, $secret] = explode('.', $result->credential->reveal(), 2);
 
         self::assertNull($this->sessions()->pending('not-a-number.' . $secret));
         $proof = self::adapterProof($identity, 'api', $result->pending?->id, Purpose::SIGN_IN);

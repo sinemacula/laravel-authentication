@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
+use SineMacula\Laravel\Authentication\Secrets\Secret;
+
 /**
  * An active session that returned to pending: the pending session it now is,
  * and the pending credential it now holds instead of its token pair.
@@ -19,7 +21,7 @@ final readonly class ReturnedToPending
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
-     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $credential
      */
     public function __construct(
 
@@ -27,7 +29,6 @@ final readonly class ReturnedToPending
         public PendingSession $pending,
 
         /** The pending credential it now holds. */
-        #[\SensitiveParameter]
-        public string $credential,
+        public Secret $credential,
     ) {}
 }

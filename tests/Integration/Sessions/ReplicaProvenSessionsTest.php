@@ -130,7 +130,7 @@ final class ReplicaProvenSessionsTest extends TestCase
 
         $this->revokeOnThePrimary($first);
 
-        $again = $this->signedIn($this->signIn($first->tokens->refreshToken));
+        $again = $this->signedIn($this->signIn($first->tokens->refreshToken?->reveal()));
 
         self::assertNotSame($first->record->getSessionIdentifier(), $again->record->getSessionIdentifier());
 
@@ -169,7 +169,7 @@ final class ReplicaProvenSessionsTest extends TestCase
             }
         });
 
-        $waiting = $this->signIn($first->tokens->refreshToken);
+        $waiting = $this->signIn($first->tokens->refreshToken?->reveal());
         $pending = $waiting->pending;
 
         self::assertNotNull($pending);
@@ -179,7 +179,7 @@ final class ReplicaProvenSessionsTest extends TestCase
         $this->revokeOnThePrimary($first);
 
         $proof     = self::adapterProof($first->identity, $this->guard()->getName(), $pending->id, Purpose::SIGN_IN);
-        $completed = $this->signedIn(Auth::sessions($this->guard()->getName())->satisfy($waiting->credential, $proof));
+        $completed = $this->signedIn(Auth::sessions($this->guard()->getName())->satisfy($waiting->credential->reveal(), $proof));
 
         self::assertNotSame($first->record->getSessionIdentifier(), $completed->record->getSessionIdentifier());
         self::assertNull(DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->where('id', $first->record->getSessionIdentifier())->value('revoked_reason'));

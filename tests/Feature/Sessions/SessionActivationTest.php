@@ -178,7 +178,7 @@ final class SessionActivationTest extends TestCase
         self::assertSame(SessionStatus::ACTIVE, $row->getStatus());
         self::assertSame([], $row->getRequires());
         self::assertNull($row->getPendingKey());
-        $rotationId = self::claimsOf($activated->tokens->refreshToken)[Claims::JWT_ID->value] ?? null;
+        $rotationId = self::claimsOf($activated->tokens->refreshToken?->reveal())[Claims::JWT_ID->value] ?? null;
 
         self::assertIsString($rotationId);
         self::assertSame(RefreshTokenHasher::hash($rotationId), $row->getRefreshKey());
@@ -194,7 +194,7 @@ final class SessionActivationTest extends TestCase
         self::assertNull($row->getRawOriginal('attempt_windows'));
         self::assertNull($row->getSwitchedAt());
 
-        $this->bearer($activated->tokens->accessToken)->assertOk()->assertExactJson(['session' => $row->getKey()]);
+        $this->bearer($activated->tokens->accessToken->reveal())->assertOk()->assertExactJson(['session' => $row->getKey()]);
     }
 
     /**
@@ -540,7 +540,7 @@ final class SessionActivationTest extends TestCase
 
         self::assertInstanceOf(SignedInSession::class, $active);
 
-        $pending = $this->pendingSession(new SignInContext(self::client(), refreshToken: $active->tokens->refreshToken));
+        $pending = $this->pendingSession(new SignInContext(self::client(), refreshToken: $active->tokens->refreshToken?->reveal()));
 
         self::assertSame($active->record->getKey(), $pending->getAttribute('supersedes_session_id'));
 

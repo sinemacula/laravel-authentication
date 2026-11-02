@@ -623,7 +623,7 @@ final class SessionRevocationsTest extends TestCase
             $resolved->getProvider(),
             $resolved->getPrincipalResolver(),
             app('events'),
-            Request::create('/logout', 'POST', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken]),
+            Request::create('/logout', 'POST', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken->reveal()]),
             new Timebox,
             Auth::jwt('api'),
             static function (GuardContext $context) use (&$built): SessionRevocations {
@@ -691,7 +691,7 @@ final class SessionRevocationsTest extends TestCase
     {
         return $this->freshGuard()->setRequest(Request::create('/logout', 'POST', server: [
             'REMOTE_ADDR'        => '198.51.100.40',
-            'HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken,
+            'HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken->reveal(),
         ]));
     }
 

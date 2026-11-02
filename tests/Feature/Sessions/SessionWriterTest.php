@@ -125,7 +125,7 @@ final class SessionWriterTest extends TestCase
             SignInProof::unattested('password', $this->now),
         );
         $record = Session::query()->whereKey($session->record->getKey())->firstOrFail();
-        $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken, TokenType::REFRESH);
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken?->reveal(), TokenType::REFRESH);
 
         self::assertSame('password', $session->method);
         self::assertSame('password', $record->getSignInMethod());
@@ -201,9 +201,9 @@ final class SessionWriterTest extends TestCase
         $tokens   = Auth::manager()->jwt('api');
 
         self::assertSame('7', Session::query()->whereKey($tenanted->record->getKey())->firstOrFail()->getTenantId());
-        self::assertSame('7', $tokens->parse($tenanted->tokens->accessToken, TokenType::ACCESS)['tenant_id'] ?? null);
+        self::assertSame('7', $tokens->parse($tenanted->tokens->accessToken->reveal(), TokenType::ACCESS)['tenant_id'] ?? null);
         self::assertNull(Session::query()->whereKey($bare->record->getKey())->firstOrFail()->getTenantId());
-        self::assertArrayNotHasKey('tenant_id', $tokens->parse($bare->tokens->accessToken, TokenType::ACCESS) ?? []);
+        self::assertArrayNotHasKey('tenant_id', $tokens->parse($bare->tokens->accessToken->reveal(), TokenType::ACCESS) ?? []);
     }
 
     /**
@@ -330,7 +330,7 @@ final class SessionWriterTest extends TestCase
         JWT::$timestamp = $later->getTimestamp();
 
         $record = Session::query()->whereKey($session->record->getKey())->firstOrFail();
-        $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken, TokenType::REFRESH);
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken?->reveal(), TokenType::REFRESH);
 
         self::assertNotNull($claims);
         self::assertSame($record->getKey(), $claims['sid']);
@@ -944,7 +944,7 @@ final class SessionWriterTest extends TestCase
             300,
         );
 
-        [$key, $secret] = explode('.', $credential, 2);
+        [$key, $secret] = explode('.', $credential->reveal(), 2);
 
         self::assertSame(IdentifierCoercion::stringify($record->getKey()), $key);
 

@@ -135,7 +135,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     {
         $identity = $this->seedPrincipal('staff@staff.test');
 
-        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueAccessToken($identity, $identity, null, null);
+        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueAccessToken($identity, $identity, null, null)->reveal();
 
         self::assertTrue($this->guardForBearer(self::STAFF_GUARD, $token)->check());
         self::assertFalse($this->guardForBearer(self::SUPPORT_GUARD, $token)->check());
@@ -155,7 +155,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
         $identity = $this->seedPrincipal('staff@staff.test');
         $session  = $this->seedSession($identity, self::STAFF_GUARD);
 
-        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueRefreshToken($session, self::ROTATION_ID, $identity);
+        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
 
         Event::fake([AuthenticationFailed::class]);
 
@@ -186,7 +186,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
         self::assertEquals($identity->getKey(), $partner->getKey());
 
-        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueAccessToken($identity, $identity, null, null);
+        $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueAccessToken($identity, $identity, null, null)->reveal();
 
         self::assertFalse($this->guardForBearer(self::PARTNER_GUARD, $token)->check());
     }
@@ -208,7 +208,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
         $this->seedPartner();
 
-        $token = $this->authManager()->jwt(self::PARTNER_GUARD)->issueRefreshToken($session, self::ROTATION_ID);
+        $token = $this->authManager()->jwt(self::PARTNER_GUARD)->issueRefreshToken($session, self::ROTATION_ID)->reveal();
 
         $this->assertRefreshFailsWith(self::PARTNER_GUARD, $token, FailureReason::IDENTITY_UNKNOWN);
     }
@@ -229,8 +229,8 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
         $jwt = $this->authManager()->jwt(self::CUSTOMER_GUARD);
 
-        $outsideToken = $jwt->issueRefreshToken($this->seedSession($outside, self::CUSTOMER_GUARD), self::ROTATION_ID);
-        $insideToken  = $jwt->issueRefreshToken($this->seedSession($inside, self::CUSTOMER_GUARD), self::ROTATION_ID);
+        $outsideToken = $jwt->issueRefreshToken($this->seedSession($outside, self::CUSTOMER_GUARD), self::ROTATION_ID)->reveal();
+        $insideToken  = $jwt->issueRefreshToken($this->seedSession($inside, self::CUSTOMER_GUARD), self::ROTATION_ID)->reveal();
 
         $this->assertRefreshFailsWith(self::CUSTOMER_GUARD, $outsideToken, FailureReason::IDENTITY_UNKNOWN);
 

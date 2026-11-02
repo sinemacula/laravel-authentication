@@ -4,11 +4,12 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\ClientCredentials;
 
-use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Contracts\Support\Responsable;
 use Illuminate\Http\JsonResponse;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Scopes\Scopes;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 /**
  * How a client credentials exchange ended: an access token with its lifetime
@@ -22,18 +23,20 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  * past its limit with, since RFC 6749 defines no rate-limit error.
  *
  * Routes are the application's: return the result from a controller, or read
- * its parts. `toArray()` and JSON give the response body alone, so the reason
- * the server-side event carries never reaches the client however the result is
- * encoded.
+ * its parts. The access token is a `Secret`: `toResponse()` reveals it into the
+ * body, and `toArray()` reveals it into the body's fields for a response the
+ * application builds itself, which it must not let be stored. Encoding a
+ * granted result as JSON any other way (`json_encode()`, `response()->json()`)
+ * throws `SecretNotRevealedException` rather than send the token without
+ * `no-store`; a failed one encodes as its error body. Either way the reason the
+ * server-side event carries never reaches the client.
  *
  * @api
- *
- * @implements \Illuminate\Contracts\Support\Arrayable<string, mixed>
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final readonly class ClientCredentialsResult implements \JsonSerializable, Arrayable, Responsable
+final readonly class ClientCredentialsResult implements \JsonSerializable, Responsable
 {
     /** @var string Error for a malformed request. */
     public const string INVALID_REQUEST = 'invalid_request';
@@ -56,7 +59,7 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Array
     /**
      * Constructor.
      *
-     * @param  ?string  $accessToken
+     * @param  ?\SineMacula\Laravel\Authentication\Secrets\Secret  $accessToken
      * @param  ?int  $expiresIn
      * @param  ?list<string>  $scopes
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -67,8 +70,7 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Array
     private function __construct(
 
         /** The access token, when one was issued. */
-        #[\SensitiveParameter]
-        public ?string $accessToken = null,
+        public ?Secret $accessToken = null,
 
         /** Seconds until the access token expires, when one was issued. */
         public ?int $expiresIn = null,
@@ -92,12 +94,12 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Array
     /**
      * An exchange that issued an access token.
      *
-     * @param  string  $accessToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $accessToken
      * @param  int  $expiresIn
      * @param  list<string>  $scopes
      * @return self
      */
-    public static function granted(#[\SensitiveParameter] string $accessToken, int $expiresIn, array $scopes): self
+    public static function granted(Secret $accessToken, int $expiresIn, array $scopes): self
     {
         return new self($accessToken, $expiresIn, $scopes);
     }
@@ -129,14 +131,61 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Array
     }
 
     /**
-     * The response body: RFC 6749 section 5.1 for a token, section 5.2 for an
-     * error. A token granting no scope has no `scope` member, since RFC 6749
-     * section 3.3 defines a scope value as one or more scope tokens.
+     * The response body, the access token revealed: RFC 6749 section 5.1 for a
+     * token, section 5.2 for an error. A token granting no scope has no `scope`
+     * member, since RFC 6749 section 3.3 defines a scope value as one or more
+     * scope tokens. A response carrying it must not be stored.
      *
      * @return array{access_token: string, token_type: string, expires_in: ?int, scope?: string}|array{error: ?string}
      */
-    #[\Override]
     public function toArray(): array
+    {
+        $body = $this->body();
+
+        return isset($body['access_token']) ? [...$body, 'access_token' => $body['access_token']->reveal()] : $body;
+    }
+
+    /**
+     * The result as JSON serialises it: the response body with the access token
+     * unrevealed, so a granted result refuses to encode
+     * (`SecretNotRevealedException`) and a failed one encodes as its error.
+     *
+     * @return array{access_token: \SineMacula\Laravel\Authentication\Secrets\Secret, token_type: string, expires_in: ?int, scope?: string}|array{error: ?string}
+     */
+    #[\Override]
+    public function jsonSerialize(): array
+    {
+        return $this->body();
+    }
+
+    /**
+     * The HTTP response, never cached.
+     *
+     * @param  mixed  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    #[\Override]
+    public function toResponse(mixed $request): JsonResponse
+    {
+        $response = SecretResponse::json($this->body(), $this->status());
+
+        if ($this->retryAfter !== null) {
+            $response->headers->set('Retry-After', (string) $this->retryAfter);
+        }
+
+        if ($this->basicRealm !== null) {
+            $response->headers->set('WWW-Authenticate', sprintf('Basic realm="%s"', $this->basicRealm));
+        }
+
+        return $response;
+    }
+
+    /**
+     * The response body, the access token held as the secret it is.
+     *
+     * @return array{access_token: \SineMacula\Laravel\Authentication\Secrets\Secret, token_type: string, expires_in: ?int, scope?: string}|array{error: ?string}
+     */
+    private function body(): array
     {
         if ($this->accessToken === null) {
             return ['error' => $this->error];
@@ -150,40 +199,6 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Array
         ];
 
         return $scopes === [] ? $body : [...$body, 'scope' => Scopes::format($scopes)];
-    }
-
-    /**
-     * The result as JSON serialises it: the response body, as `toArray()` gives
-     * it.
-     *
-     * @return array{access_token: string, token_type: string, expires_in: ?int, scope?: string}|array{error: ?string}
-     */
-    #[\Override]
-    public function jsonSerialize(): array
-    {
-        return $this->toArray();
-    }
-
-    /**
-     * The HTTP response, never cached.
-     *
-     * @param  mixed  $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-    #[\Override]
-    public function toResponse(mixed $request): JsonResponse
-    {
-        $response = new JsonResponse($this->toArray(), $this->status(), ['Cache-Control' => 'no-store', 'Pragma' => 'no-cache']);
-
-        if ($this->retryAfter !== null) {
-            $response->headers->set('Retry-After', (string) $this->retryAfter);
-        }
-
-        if ($this->basicRealm !== null) {
-            $response->headers->set('WWW-Authenticate', sprintf('Basic realm="%s"', $this->basicRealm));
-        }
-
-        return $response;
     }
 
     /**

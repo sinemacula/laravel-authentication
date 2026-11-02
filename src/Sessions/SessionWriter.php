@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -232,8 +233,9 @@ final readonly class SessionWriter
      * session ends. The first factor's proof and provenance are recorded with
      * it, so they carry to the active session unchanged.
      *
-     * The credential is `<session key>.<secret>`; only the secret's digest is
-     * stored, and the credential is never written anywhere else.
+     * The credential is `<session key>.<secret>`, held as a `Secret`; only the
+     * secret's digest is stored, and the credential is never written anywhere
+     * else.
      *
      * @formatter:off
      *
@@ -244,7 +246,7 @@ final readonly class SessionWriter
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
      * @param  \Carbon\CarbonImmutable  $now
      * @param  int  $ttlSeconds
-     * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 1: string}
+     * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 1: \SineMacula\Laravel\Authentication\Secrets\Secret}
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -264,18 +266,22 @@ final readonly class SessionWriter
 
         $session->forceFill(self::pendingState($session, $secret, $context, $lifetimes, $now, $draft->proven, $ttlSeconds));
 
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $held = new \SensitiveParameterValue($secret);
+
         PendingState::fill($session, [
             $session->getRequiresName()       => PendingState::requires($draft->requires),
             $session->getAttemptWindowsName() => $windows === null ? null : json_encode($windows, JSON_THROW_ON_ERROR),
         ]);
 
-        return $session->getConnection()->transaction(function () use ($session, $proof, $secret): array {
+        return $session->getConnection()->transaction(function () use ($session, $proof, $held): array {
 
             self::insert($session);
 
             $this->record($session, $proof);
 
-            return [$session, IdentifierCoercion::stringify($session->getSessionIdentifier()) . '.' . $secret];
+            return [$session, new Secret(IdentifierCoercion::stringify($session->getSessionIdentifier()) . '.' . $held->getValue())];
         });
     }
 

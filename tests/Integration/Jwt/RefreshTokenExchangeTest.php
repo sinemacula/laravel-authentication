@@ -131,13 +131,13 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->advance(5);
 
-        self::assertTrue($this->refresh($session->tokens->refreshToken)->isRefreshed());
+        self::assertTrue($this->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
 
         $this->requirements[self::keyOf($tenant)] = new TenantRequirement('v2', new Requirement(new RequirementPart));
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
-        $retried = $this->refresh($session->tokens->refreshToken);
+        $retried = $this->refresh($session->tokens->refreshToken?->reveal());
 
         self::assertTrue($retried->isPending());
         self::assertNull($retried->session);
@@ -162,11 +162,11 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->advance(5);
 
-        self::assertTrue($this->refresh($session->tokens->refreshToken)->isRefreshed());
+        self::assertTrue($this->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
 
         $this->requirements[self::keyOf($tenant)] = new TenantRequirement('v2', connections: ['conn-a']);
 
-        self::assertSame(FailureReason::SSO_REQUIRED, $this->refresh($session->tokens->refreshToken)->reason);
+        self::assertSame(FailureReason::SSO_REQUIRED, $this->refresh($session->tokens->refreshToken?->reveal())->reason);
         self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, DB::table('authentication_sessions')->value('revoked_reason'));
     }
 
@@ -192,10 +192,10 @@ final class RefreshTokenExchangeTest extends TestCase
         $switched = null;
 
         $this->beforeTheUpdate('previous_refresh_key', function () use ($session, $descendant, &$switched): void {
-            $switched = $this->switchTenant($session->tokens->refreshToken, $descendant);
+            $switched = $this->switchTenant($session->tokens->refreshToken?->reveal(), $descendant);
         });
 
-        $refused = $this->refresh($session->tokens->refreshToken);
+        $refused = $this->refresh($session->tokens->refreshToken?->reveal());
 
         self::assertInstanceOf(SwitchResult::class, $switched);
         self::assertTrue($switched->isSwitched());
@@ -229,12 +229,12 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->requirements[self::keyOf($tenant)] = new TenantRequirement('v2', new Requirement(new RequirementPart));
 
         $this->beforeTheUpdate('pending_key', function () use ($session, $descendant): void {
-            self::assertTrue($this->switchTenant($session->tokens->refreshToken, $descendant)->isSwitched());
+            self::assertTrue($this->switchTenant($session->tokens->refreshToken?->reveal(), $descendant)->isSwitched());
         });
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
-        $refused = $this->refresh($session->tokens->refreshToken);
+        $refused = $this->refresh($session->tokens->refreshToken?->reveal());
 
         self::assertSame(FailureReason::SESSION_TENANT_MISMATCH, $refused->reason);
         self::assertSame([], $this->recordedClasses());
@@ -276,14 +276,14 @@ final class RefreshTokenExchangeTest extends TestCase
 
             unset($this->requirements[$key]);
 
-            $rotated = $this->refresh($session->tokens->refreshToken)->session;
+            $rotated = $this->refresh($session->tokens->refreshToken?->reveal())->session;
 
             $this->requirements[$key] = $requirement;
         });
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
-        $refused = $this->refresh($session->tokens->refreshToken);
+        $refused = $this->refresh($session->tokens->refreshToken?->reveal());
 
         self::assertInstanceOf(SignedInSession::class, $rotated);
         self::assertSame(FailureReason::ROTATION_CONFLICT, $refused->reason);
@@ -291,13 +291,13 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame([], $this->recordedClasses());
 
         $row      = DB::table('authentication_sessions')->sole();
-        $rotation = self::rotationOf($rotated->tokens->refreshToken);
+        $rotation = self::rotationOf($rotated->tokens->refreshToken?->reveal());
 
         self::assertIsString($rotation);
         self::assertSame('active', $row->status);
         self::assertSame(RefreshTokenHasher::hash($rotation), $row->refresh_key);
 
-        self::assertTrue($this->refresh($session->tokens->refreshToken)->isPending());
+        self::assertTrue($this->refresh($session->tokens->refreshToken?->reveal())->isPending());
     }
 
     /**
@@ -325,12 +325,12 @@ final class RefreshTokenExchangeTest extends TestCase
         $switched = null;
 
         $this->beforeTheUpdate('revoked_reason', function () use ($session, $descendant, &$switched): void {
-            $switched = $this->switchTenant($session->tokens->refreshToken, $descendant);
+            $switched = $this->switchTenant($session->tokens->refreshToken?->reveal(), $descendant);
         });
 
         $this->recordEvents([SessionRevoked::class]);
 
-        $refused = $this->refresh($session->tokens->refreshToken);
+        $refused = $this->refresh($session->tokens->refreshToken?->reveal());
 
         self::assertInstanceOf(SwitchResult::class, $switched);
         self::assertTrue($switched->isSwitched());
@@ -375,14 +375,14 @@ final class RefreshTokenExchangeTest extends TestCase
 
             unset($this->requirements[$key]);
 
-            $rotated = $this->refresh($session->tokens->refreshToken)->session;
+            $rotated = $this->refresh($session->tokens->refreshToken?->reveal())->session;
 
             $this->requirements[$key] = $requirement;
         });
 
         $this->recordEvents([SessionRevoked::class]);
 
-        $refused = $this->refresh($session->tokens->refreshToken);
+        $refused = $this->refresh($session->tokens->refreshToken?->reveal());
 
         self::assertInstanceOf(SignedInSession::class, $rotated);
         self::assertSame(FailureReason::ROTATION_CONFLICT, $refused->reason);
@@ -390,7 +390,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame([], $this->recordedClasses());
 
         $row      = DB::table('authentication_sessions')->sole();
-        $rotation = self::rotationOf($rotated->tokens->refreshToken);
+        $rotation = self::rotationOf($rotated->tokens->refreshToken?->reveal());
 
         self::assertIsString($rotation);
         self::assertSame('active', $row->status);
@@ -423,7 +423,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
-        self::assertSame(FailureReason::SESSION_REVOKED, $this->refresh($session->tokens->refreshToken)->reason);
+        self::assertSame(FailureReason::SESSION_REVOKED, $this->refresh($session->tokens->refreshToken?->reveal())->reason);
         self::assertSame([], $this->recordedClasses());
 
         $row = DB::table('authentication_sessions')->sole();
@@ -459,10 +459,10 @@ final class RefreshTokenExchangeTest extends TestCase
 
             $this->requirements[$key] = new TenantRequirement('v2', new Requirement(new RequirementPart));
 
-            self::assertTrue($this->refresh($session->tokens->refreshToken, self::CAPPED)->isPending());
+            self::assertTrue($this->refresh($session->tokens->refreshToken?->reveal(), self::CAPPED)->isPending());
         });
 
-        $refused = $this->refresh($session->tokens->refreshToken, self::CAPPED);
+        $refused = $this->refresh($session->tokens->refreshToken?->reveal(), self::CAPPED);
 
         $row = DB::table('authentication_sessions')->sole();
 

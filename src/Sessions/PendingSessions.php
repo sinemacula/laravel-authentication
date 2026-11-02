@@ -25,6 +25,8 @@ use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Secrets\Plaintext;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
@@ -108,7 +110,7 @@ final readonly class PendingSessions
      * choose from are listed only while the choice is that requirement. Reads
      * only, on the write connection, with no lock.
      *
-     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction  $action
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?\SineMacula\Laravel\Authentication\Sessions\PendingSession
@@ -118,7 +120,7 @@ final readonly class PendingSessions
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function pending(#[\SensitiveParameter] string $credential, ?PendingAction $action, CarbonImmutable $now): ?PendingSession
+    public function pending(#[\SensitiveParameter] Secret|string $credential, ?PendingAction $action, CarbonImmutable $now): ?PendingSession
     {
         $found = $this->find($credential, $now, false);
 
@@ -162,18 +164,22 @@ final readonly class PendingSessions
      * proof is stored once per call, also when the session stays pending: a
      * verification is single use on the adapter's side.
      *
-     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
      * @param  \Carbon\CarbonImmutable  $now
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function satisfy(#[\SensitiveParameter] string $credential, ProofResult $proof, CarbonImmutable $now): Refused|SignInResult
+    public function satisfy(#[\SensitiveParameter] Secret|string $credential, ProofResult $proof, CarbonImmutable $now): Refused|SignInResult
     {
-        return $this->atomically(function () use ($credential, $proof, $now): Refused|SignInResult {
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $held = new \SensitiveParameterValue($credential);
 
-            $found = $this->find($credential, $now, true);
+        return $this->atomically(function () use ($held, $proof, $now): Refused|SignInResult {
+
+            $found = $this->find($held->getValue(), $now, true);
 
             if ($found === null) {
                 return new Refused(FailureReason::PENDING_INVALID);
@@ -206,7 +212,7 @@ final readonly class PendingSessions
      * policy now asks for one), and it records the principal and tenant and
      * waits for it.
      *
-     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $chosen
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $selection
      * @param  \Carbon\CarbonImmutable  $now
@@ -214,11 +220,13 @@ final readonly class PendingSessions
      *
      * @throws \Throwable
      */
-    public function choose(#[\SensitiveParameter] string $credential, Principal $chosen, ?TenantSelection $selection, CarbonImmutable $now): Refused|SignInResult
+    public function choose(#[\SensitiveParameter] Secret|string $credential, Principal $chosen, ?TenantSelection $selection, CarbonImmutable $now): Refused|SignInResult
     {
-        return $this->atomically(function () use ($credential, $chosen, $selection, $now): Refused|SignInResult {
+        $held = new \SensitiveParameterValue($credential);
 
-            $found = $this->find($credential, $now, true);
+        return $this->atomically(function () use ($held, $chosen, $selection, $now): Refused|SignInResult {
+
+            $found = $this->find($held->getValue(), $now, true);
 
             if ($found === null) {
                 return new Refused(FailureReason::PENDING_INVALID);
@@ -245,7 +253,7 @@ final readonly class PendingSessions
      * committed. Returns whether the credential named one, which this call
      * ended.
      *
-     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \Carbon\CarbonImmutable  $now
      * @return bool
      *
@@ -253,11 +261,13 @@ final readonly class PendingSessions
      *
      * @imperative
      */
-    public function discard(#[\SensitiveParameter] string $credential, CarbonImmutable $now): bool
+    public function discard(#[\SensitiveParameter] Secret|string $credential, CarbonImmutable $now): bool
     {
-        return SessionLookup::model()->getConnection()->transaction(function () use ($credential, $now): bool {
+        $held = new \SensitiveParameterValue($credential);
 
-            $found = $this->find($credential, $now, true);
+        return SessionLookup::model()->getConnection()->transaction(function () use ($held, $now): bool {
+
+            $found = $this->find($held->getValue(), $now, true);
 
             if ($found === null) {
                 return false;
@@ -514,7 +524,7 @@ final readonly class PendingSessions
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @param  string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \Carbon\CarbonImmutable  $now
      * @param  bool  $lock
      * @return ?array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 1: \SineMacula\Laravel\Authentication\Contracts\Identity, 2: ?\SineMacula\Laravel\Authentication\Contracts\Principal}
@@ -527,11 +537,12 @@ final readonly class PendingSessions
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function find(#[\SensitiveParameter] string $credential, CarbonImmutable $now, bool $lock): ?array
+    private function find(#[\SensitiveParameter] Secret|string $credential, CarbonImmutable $now, bool $lock): ?array
     {
-        $dot    = strrpos($credential, '.');
-        $key    = $dot === false ? '' : substr($credential, 0, $dot);
-        $secret = $dot === false ? '' : substr($credential, $dot + 1);
+        $plain  = Plaintext::of($credential);
+        $dot    = strrpos($plain, '.');
+        $key    = $dot === false ? '' : substr($plain, 0, $dot);
+        $secret = $dot === false ? '' : substr($plain, $dot + 1);
 
         if ($key === '' || $secret === '' || mb_strlen($key) > self::KEY_MAX_LENGTH) {
             return null;
@@ -564,10 +575,11 @@ final readonly class PendingSessions
     private function isLive(EloquentSession&Model $session, #[\SensitiveParameter] string $secret, CarbonImmutable $now): bool
     {
         $guard = $this->context->name();
+        $held  = new \SensitiveParameterValue($secret);
 
-        return WriteConnection::during($session, static function () use ($session, $secret, $guard, $now): bool {
+        return WriteConnection::during($session, static function () use ($session, $held, $guard, $now): bool {
 
-            if (!RefreshTokenHasher::verify($secret, $session->getPendingKey() ?? '') || $session->getGuard() !== $guard) {
+            if (!RefreshTokenHasher::verify($held->getValue(), $session->getPendingKey() ?? '') || $session->getGuard() !== $guard) {
                 return false;
             }
 

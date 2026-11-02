@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * The outcome of stepping a session up or reauthenticating it: a new access
@@ -18,7 +19,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  * passkey's sign counter that did not advance) is answered as
  * `invalid_credentials`, with no wait, as a sign-in's is; only the server-side
  * `AuthenticationFailed` says why. `retryAfter` carries the wait of a
- * `rate_limited` refusal.
+ * `rate_limited` refusal. The token is a `Secret`, revealed only into the
+ * response that hands it to the client.
  *
  * @api
  *
@@ -30,7 +32,7 @@ final readonly class AccessTokenResult
     /**
      * Constructor.
      *
-     * @param  ?string  $accessToken
+     * @param  ?\SineMacula\Laravel\Authentication\Secrets\Secret  $accessToken
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $session
      * @param  ?\Carbon\CarbonImmutable  $expiresAt
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -39,7 +41,7 @@ final readonly class AccessTokenResult
     private function __construct(
 
         /** The new access token, when one was issued. */
-        #[\SensitiveParameter] public ?string $accessToken = null,
+        public ?Secret $accessToken = null,
 
         /** The session it was issued for, when one was. */
         public (EloquentSession&Model)|null $session = null,
@@ -57,12 +59,12 @@ final readonly class AccessTokenResult
     /**
      * A new access token for the session, expiring when given.
      *
-     * @param  string  $accessToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $accessToken
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \Carbon\CarbonImmutable  $expiresAt
      * @return self
      */
-    public static function issued(#[\SensitiveParameter] string $accessToken, EloquentSession&Model $session, CarbonImmutable $expiresAt): self
+    public static function issued(Secret $accessToken, EloquentSession&Model $session, CarbonImmutable $expiresAt): self
     {
         return new self($accessToken, $session, $expiresAt);
     }

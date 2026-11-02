@@ -40,7 +40,8 @@ are caught on the server.
 
 - **JWT guard** with guard-bound, kid-rotated HMAC tokens in a private profile that borrows RFC 9068's claims
   (`client_id`, `auth_time`, `amr`, an `at+jwt` header type) and OpenID Connect's `sid`, refresh rotation with replay
-  detection, and a browser refresh cookie with CSRF checks.
+  detection, and a refresh transport per application: the body, or for a browser application a host-only `HttpOnly`
+  cookie named after it, with CSRF checks, whose results never hand its code the plain refresh token.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
   custom methods plug into.
 - **Pending sessions**: a sign-in that still owes a further factor or a choice of principal waits as a pending session,
@@ -48,7 +49,12 @@ are caught on the server.
   sign-on of the sessions acting in it.
 - **Sessions**: timestamped proofs of every sign-in and an external provider's provenance on each session, step-up and
   reauthentication with `auth_time` and `amr` derived from the proofs, per-operation freshness judged on the proof that
-  meets it, list, sign out, sign out everywhere, revoke on security changes, and switch principal or active tenant.
+  meets it, list and get one, sign out (by the access token, or by the refresh credential once the access token has
+  expired), sign out everywhere, revoke on security changes, and list, get and switch to the principals an identity may
+  use, or switch its active tenant.
+- **The caller of a request**: `Auth::caller()` reads who a request is from the access, refresh or pending credential
+  its route authenticates with, and says whether a session, identity or principal is the caller's, so an application can
+  scope its own route bindings.
 - **Machine credentials**: API keys and OAuth 2.0 client credentials for non-human identities, with scopes.
 - **Account lifecycle**: password policy, password reset, identifier verification and changing an email or phone.
 - **Per-application settings**: which sign-in methods and machine credentials each application allows (none until it
@@ -56,6 +62,9 @@ are caught on the server.
 - **Access contracts**: whether a principal may use an application and whether it may act in a tenant, answered by your
   application from its own tree and roles (by default any principal may use any application, in its own tenant only).
 - **Database rate limits**, enumeration-resistant responses, and read-replica and Octane safety.
+- **Secrets held, never stored**: every token, pending credential, API key, code and link the package hands out is a
+  `Secret` that refuses to be cast to a string, encoded, serialised or dumped until your code reveals it, and
+  `SecretResponse::json()` and the `authentication.no-store` route middleware answer with `Cache-Control: no-store`.
 - **Events** for every sign-in, refresh, revocation and failure, with one shared context and never a secret.
 - **Localisable messages**: the `401` and `429` messages translate through your `lang/{locale}.json`, and every other
   answer is a code your application words.
@@ -138,6 +147,7 @@ Sign in through the guard's session service, and protect routes as with any Lara
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 Route::post('/login', function (Request $request) {
@@ -150,10 +160,11 @@ Route::post('/login', function (Request $request) {
 
     abort_unless($result->isSignedIn(), 401);
 
-    return [
+    // The tokens are secrets: SecretResponse reveals them into the body and marks it not to be stored.
+    return SecretResponse::json([
         'access_token'  => $result->session->tokens->accessToken,
         'refresh_token' => $result->session->tokens->refreshToken,
-    ];
+    ]);
 });
 
 Route::middleware('auth:api')->get('/me', fn () => Auth::identity());
@@ -167,7 +178,7 @@ Route::middleware('auth:api')->get('/me', fn () => Auth::identity());
 | [Identity models](docs/guides/identity-models.md)         | 2D and 3D models, identifiers, verification, activity                                                                  |
 | [Signing in](docs/guides/signing-in.md)                   | The session service, pending sessions, one-time codes, passkeys, custom methods, factors                               |
 | [Refreshing](docs/guides/refreshing.md)                   | Refresh, the refresh cookie and replay detection                                                                       |
-| [Sessions](docs/guides/sessions.md)                       | Proofs, step-up, reauthentication, freshness, switching principal or tenant, signing out, listing sessions, revocation |
+| [Sessions](docs/guides/sessions.md)                       | Proofs, step-up, reauthentication, freshness, switching, signing out, listing sessions, revocation, the caller         |
 | [Passwords](docs/guides/passwords.md)                     | Password policy, setting a password and password reset                                                                 |
 | [Changing identifiers](docs/guides/identifier-changes.md) | Changing an email address or phone number                                                                              |
 | [Machine credentials](docs/guides/machine-credentials.md) | Non-human identities, scopes, API keys and client credentials                                                          |

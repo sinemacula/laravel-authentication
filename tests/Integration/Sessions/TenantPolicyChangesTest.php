@@ -14,11 +14,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -49,6 +51,7 @@ use Tests\TestCase;
  */
 #[CoversClass(TenantPolicyChanges::class)]
 #[CoversClass(SessionService::class)]
+#[CoversTrait(SwitchesSessions::class)]
 final class TenantPolicyChangesTest extends TestCase
 {
     use InteractsWithSessions;
@@ -251,7 +254,7 @@ final class TenantPolicyChangesTest extends TestCase
             self::assertSame(1, $this->sessions('members')->tenantPolicyChanged($tenant));
         });
 
-        $refused = self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken);
+        $refused = self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal());
 
         self::assertSame(FailureReason::SESSION_REVOKED, $refused->reason);
         self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, DB::table('authentication_sessions')->value('revoked_reason'));
@@ -280,7 +283,7 @@ final class TenantPolicyChangesTest extends TestCase
             self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($tenant));
         });
 
-        $refused = self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken);
+        $refused = self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal());
 
         $row = DB::table('authentication_sessions')->sole();
 
@@ -288,7 +291,7 @@ final class TenantPolicyChangesTest extends TestCase
         self::assertSame('v9', $row->tenant_policy_version);
         self::assertSame($digest, $row->refresh_key);
         self::assertNull($row->revoked_at);
-        self::assertTrue(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken)->isRefreshed());
+        self::assertTrue(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
     }
 
     /**
@@ -315,7 +318,7 @@ final class TenantPolicyChangesTest extends TestCase
             self::assertSame(1, $this->sessions('members')->tenantPolicyChanged($tenant));
         });
 
-        $refused = $this->sessions('members')->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target));
+        $refused = $this->sessions('members')->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target));
 
         $row = DB::table('authentication_sessions')->sole();
 
@@ -340,7 +343,7 @@ final class TenantPolicyChangesTest extends TestCase
         $target  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
         $session = $this->signIn($first);
 
-        self::assertTrue($this->sessions('members')->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))->isSwitched());
+        self::assertTrue($this->sessions('members')->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target))->isSwitched());
 
         $this->policy->requirement = new TenantRequirement('v2', connections: ['conn-a']);
 

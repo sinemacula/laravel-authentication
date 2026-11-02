@@ -85,19 +85,19 @@ final class OneTimeCodesTest extends TestCase
         $issued  = self::codes()->issue($binding, $this->now);
 
         self::assertInstanceOf(IssuedCode::class, $issued);
-        self::assertMatchesRegularExpression('/^[0-9]{6}$/', $issued->code);
+        self::assertMatchesRegularExpression('/^[0-9]{6}$/', $issued->code());
         self::assertTrue($this->now->addSeconds(600)->equalTo($issued->expiresAt));
 
         $row = (array) DB::table('one_time_codes')->sole();
 
         self::assertSame(self::bindingDigest($binding), $row['id']);
         self::assertSame(['sign_in', 'mobile', $issued->issueId, 0], [$row['purpose'], $row['guard'], $row['issue_id'], (int) $row['attempts']]);
-        self::assertSame(self::codeHash($binding, $issued->issueId, $issued->code), $row['code_hash']);
+        self::assertSame(self::codeHash($binding, $issued->issueId, $issued->code()), $row['code_hash']);
         self::assertSame(['2026-04-06 12:00:00', '2026-04-06 12:10:00', null], [$row['issued_at'], $row['expires_at'], $row['consumed_at']]);
 
         foreach ($row as $value) {
             self::assertStringNotContainsString(self::PHONE, (string) $value);
-            self::assertNotSame($issued->code, $value);
+            self::assertNotSame($issued->code(), $value);
         }
     }
 
@@ -241,9 +241,9 @@ final class OneTimeCodesTest extends TestCase
         $binding = self::binding();
         $issued  = self::issued($binding);
 
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->code, $this->now));
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code, $this->now));
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code, $this->now->addSeconds(600)));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->code(), $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code(), $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code(), $this->now->addSeconds(600)));
     }
 
     /**
@@ -280,7 +280,7 @@ final class OneTimeCodesTest extends TestCase
         $issued = self::codes()->issue(self::binding(), $this->now);
 
         self::assertInstanceOf(IssuedCode::class, $issued);
-        self::assertMatchesRegularExpression('/^[0-9]{10}$/', $issued->code);
+        self::assertMatchesRegularExpression('/^[0-9]{10}$/', $issued->code());
         self::assertSame('2026-04-06 12:02:00', DB::table('one_time_codes')->value('expires_at'));
     }
 
@@ -305,9 +305,9 @@ final class OneTimeCodesTest extends TestCase
             $issued = $engine->issue(self::binding(), $this->now);
 
             self::assertInstanceOf(IssuedCode::class, $issued);
-            self::assertSame(6, strlen($issued->code));
+            self::assertSame(6, strlen($issued->code()));
 
-            foreach (str_split($issued->code) as $digit) {
+            foreach (str_split($issued->code()) as $digit) {
                 $counts[(int) $digit]++;
             }
         }
@@ -331,10 +331,10 @@ final class OneTimeCodesTest extends TestCase
         $binding = self::binding();
         $issued  = self::issued($binding);
 
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->code, $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->code(), $this->now));
         self::assertSame('2026-04-06 12:00:00', DB::table('one_time_codes')->value('consumed_at'));
         self::assertSame(1, self::attempts());
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code, $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code(), $this->now));
         self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, '000000', $this->now));
         self::assertSame(1, self::attempts());
     }
@@ -360,7 +360,7 @@ final class OneTimeCodesTest extends TestCase
             self::assertSame($attempt + 1, self::attempts());
         }
 
-        self::assertSame(CodeCheck::EXHAUSTED, self::codes()->check($binding, $issued->code, $this->now));
+        self::assertSame(CodeCheck::EXHAUSTED, self::codes()->check($binding, $issued->code(), $this->now));
         self::assertSame(3, self::attempts());
         self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
     }
@@ -380,7 +380,7 @@ final class OneTimeCodesTest extends TestCase
         $issued  = self::issued($binding, '123456');
 
         self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, '654321', $this->now));
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->code, $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->code(), $this->now));
     }
 
     /**
@@ -399,11 +399,11 @@ final class OneTimeCodesTest extends TestCase
         $binding = self::binding();
         $issued  = self::issued($binding, '123456');
 
-        self::assertSame(CodeCheck::EXPIRED, self::codes()->check($binding, $issued->code, $this->now->addSeconds(600)));
+        self::assertSame(CodeCheck::EXPIRED, self::codes()->check($binding, $issued->code(), $this->now->addSeconds(600)));
         self::assertSame(0, self::attempts());
         self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, '000000', $this->now->addSeconds(599)));
-        self::assertSame(CodeCheck::EXHAUSTED, self::codes()->check($binding, $issued->code, $this->now->addSeconds(599)));
-        self::assertSame(CodeCheck::EXPIRED, self::codes()->check($binding, $issued->code, $this->now->addSeconds(600)));
+        self::assertSame(CodeCheck::EXHAUSTED, self::codes()->check($binding, $issued->code(), $this->now->addSeconds(599)));
+        self::assertSame(CodeCheck::EXPIRED, self::codes()->check($binding, $issued->code(), $this->now->addSeconds(600)));
     }
 
     /**
@@ -436,9 +436,9 @@ final class OneTimeCodesTest extends TestCase
     {
         $issued = self::issued(self::binding());
 
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($other, $issued->code, $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($other, $issued->code(), $this->now));
         self::assertSame(0, self::attempts());
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check(self::binding(), $issued->code, $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check(self::binding(), $issued->code(), $this->now));
     }
 
     /**
@@ -460,7 +460,7 @@ final class OneTimeCodesTest extends TestCase
 
         self::assertInstanceOf(IssuedCode::class, $first);
         self::assertInstanceOf(IssuedCode::class, $second);
-        self::assertSame($first->code, $second->code);
+        self::assertSame($first->code(), $second->code());
         self::assertNotSame(self::codeHash($binding, $first->issueId, '424242'), DB::table('one_time_codes')->value('code_hash'));
         self::assertFalse($codes->isCurrent($binding, $first->issueId, $later));
         self::assertTrue($codes->isCurrent($binding, $second->issueId, $later));
@@ -559,7 +559,7 @@ final class OneTimeCodesTest extends TestCase
             $change === [] ? DB::table('one_time_codes')->delete() : DB::table('one_time_codes')->update($change);
         });
 
-        self::assertSame($answer, self::codes()->check($binding, $issued->code, $this->now));
+        self::assertSame($answer, self::codes()->check($binding, $issued->code(), $this->now));
         self::assertNotSame('2026-04-06 12:00:01', DB::table('one_time_codes')->value('consumed_at'));
     }
 
@@ -581,7 +581,7 @@ final class OneTimeCodesTest extends TestCase
             DB::table('one_time_codes')->update(['consumed_at' => '2026-04-06 11:59:59']);
         });
 
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code, $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code(), $this->now));
         self::assertSame('2026-04-06 11:59:59', DB::table('one_time_codes')->value('consumed_at'));
     }
 
@@ -615,7 +615,7 @@ final class OneTimeCodesTest extends TestCase
         self::assertFalse(self::codes()->isCurrent($binding, 'another-issuance', $this->now));
         self::assertFalse(self::codes()->isCurrent(CodeBinding::signIn('web', 'phone', self::PHONE), $issued->issueId, $this->now));
 
-        self::codes()->check($binding, $issued->code, $this->now);
+        self::codes()->check($binding, $issued->code(), $this->now);
 
         self::assertFalse(self::codes()->isCurrent($binding, $issued->issueId, $this->now));
     }
@@ -668,7 +668,7 @@ final class OneTimeCodesTest extends TestCase
         $issued = app(OneTimeCodes::class)->issue(self::binding(), $this->now);
 
         self::assertInstanceOf(IssuedCode::class, $issued);
-        self::assertSame(self::codeHash(self::binding(), $issued->issueId, $issued->code), DB::table('one_time_codes')->value('code_hash'));
+        self::assertSame(self::codeHash(self::binding(), $issued->issueId, $issued->code()), DB::table('one_time_codes')->value('code_hash'));
     }
 
     /**
@@ -682,7 +682,7 @@ final class OneTimeCodesTest extends TestCase
     public function testACallersRollbackGivesTheAttemptBack(): void
     {
         $binding = self::binding();
-        $wrong   = self::issued($binding)->code === '000000' ? '111111' : '000000';
+        $wrong   = self::issued($binding)->code() === '000000' ? '111111' : '000000';
 
         DB::beginTransaction();
 
@@ -709,18 +709,18 @@ final class OneTimeCodesTest extends TestCase
         $issued  = self::codes()->issueToken($binding, $this->now, 900);
 
         self::assertInstanceOf(IssuedCode::class, $issued);
-        self::assertMatchesRegularExpression('/^[A-Za-z0-9_-]{43}$/D', $issued->code);
-        self::assertSame(32, strlen((string) base64_decode(strtr($issued->code, '-_', '+/'), true)));
+        self::assertMatchesRegularExpression('/^[A-Za-z0-9_-]{43}$/D', $issued->code());
+        self::assertSame(32, strlen((string) base64_decode(strtr($issued->code(), '-_', '+/'), true)));
         self::assertTrue($this->now->addSeconds(900)->equalTo($issued->expiresAt));
 
         $row = (array) DB::table('one_time_codes')->sole();
 
         self::assertSame([self::bindingDigest($binding), 'password_reset_link', 'mobile'], [$row['id'], $row['purpose'], $row['guard']]);
-        self::assertSame(self::codeHash($binding, $issued->issueId, $issued->code), $row['code_hash']);
+        self::assertSame(self::codeHash($binding, $issued->issueId, $issued->code()), $row['code_hash']);
         self::assertSame(['2026-04-06 12:00:00', '2026-04-06 12:15:00'], [$row['issued_at'], $row['expires_at']]);
 
         foreach ($row as $value) {
-            self::assertNotSame($issued->code, $value);
+            self::assertNotSame($issued->code(), $value);
         }
 
         $tokens = [];
@@ -731,7 +731,7 @@ final class OneTimeCodesTest extends TestCase
 
             self::assertInstanceOf(IssuedCode::class, $other);
 
-            $tokens[] = $other->code;
+            $tokens[] = $other->code();
         }
 
         self::assertCount(20, array_unique($tokens));
@@ -757,8 +757,8 @@ final class OneTimeCodesTest extends TestCase
         $second = self::codes()->issueToken($binding, $this->now->addSeconds(60), 900);
 
         self::assertInstanceOf(IssuedCode::class, $second);
-        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, $first->code, $this->now->addSeconds(60)));
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $second->code, $this->now->addSeconds(60)));
+        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, $first->code(), $this->now->addSeconds(60)));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $second->code(), $this->now->addSeconds(60)));
     }
 
     /**
@@ -781,9 +781,9 @@ final class OneTimeCodesTest extends TestCase
         }
 
         self::assertSame(0, self::attempts());
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $issued->code, $this->now));
-        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, $issued->code, $this->now));
-        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, $issued->code, $this->now->addSeconds(900)));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $issued->code(), $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, $issued->code(), $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, $issued->code(), $this->now->addSeconds(900)));
         self::assertSame('2026-04-06 12:00:00', DB::table('one_time_codes')->value('consumed_at'));
     }
 
@@ -801,10 +801,10 @@ final class OneTimeCodesTest extends TestCase
         $issued  = self::codes()->issueToken($binding, $this->now, 900);
 
         self::assertInstanceOf(IssuedCode::class, $issued);
-        self::assertSame(CodeCheck::EXPIRED, self::codes()->checkToken($binding, $issued->code, $this->now->addSeconds(900)));
+        self::assertSame(CodeCheck::EXPIRED, self::codes()->checkToken($binding, $issued->code(), $this->now->addSeconds(900)));
         self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, str_repeat('A', 43), $this->now->addSeconds(900)));
-        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken(CodeBinding::passwordResetLink('web', 'email', 'ada@example.test'), $issued->code, $this->now));
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $issued->code, $this->now->addSeconds(899)));
+        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken(CodeBinding::passwordResetLink('web', 'email', 'ada@example.test'), $issued->code(), $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $issued->code(), $this->now->addSeconds(899)));
     }
 
     /**
@@ -829,10 +829,10 @@ final class OneTimeCodesTest extends TestCase
         ];
 
         foreach ($others as $other) {
-            self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($other, $issued->code, $this->now));
+            self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($other, $issued->code(), $this->now));
         }
 
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $issued->code, $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $issued->code(), $this->now));
     }
 
     /**
@@ -853,10 +853,10 @@ final class OneTimeCodesTest extends TestCase
         self::assertInstanceOf(IssuedCode::class, $issued);
 
         $this->afterTheCheckReads(static function () use ($codes, $binding, $issued, &$other): void {
-            $other = $codes->checkToken($binding, $issued->code, CarbonImmutable::now());
+            $other = $codes->checkToken($binding, $issued->code(), CarbonImmutable::now());
         });
 
-        self::assertSame(CodeCheck::INVALID, $codes->checkToken($binding, $issued->code, $this->now));
+        self::assertSame(CodeCheck::INVALID, $codes->checkToken($binding, $issued->code(), $this->now));
         self::assertSame(CodeCheck::ACCEPTED, $other);
     }
 

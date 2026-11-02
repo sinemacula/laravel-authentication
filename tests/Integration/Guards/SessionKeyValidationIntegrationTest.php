@@ -132,12 +132,12 @@ final class SessionKeyValidationIntegrationTest extends TestCase
         $valid    = $this->seedSession($identity, self::VALID_KEY);
         $legacy   = $this->seedSession($identity, self::LEGACY_KEY);
 
-        $guard = $this->bearerGuard($this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $valid));
+        $guard = $this->bearerGuard($this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $valid)->reveal());
 
         self::assertTrue($identity->is($guard->user()));
         self::assertSame(self::VALID_KEY, $guard->session()?->getSessionIdentifier());
 
-        self::assertNull($this->bearerGuard($this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $legacy))->user());
+        self::assertNull($this->bearerGuard($this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $legacy)->reveal())->user());
     }
 
     /**
@@ -161,8 +161,12 @@ final class SessionKeyValidationIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNotNull(GuardSessions::of($this->refreshGuard())->refresh($this->authManager()->jwt('api')->issueRefreshToken($valid, self::ROTATION_ID, $identity))->session);
-        self::assertNull(GuardSessions::of($this->refreshGuard())->refresh($this->authManager()->jwt('api')->issueRefreshToken($legacy, self::ROTATION_ID, $identity))->session);
+        self::assertNotNull(
+            GuardSessions::of($this->refreshGuard())->refresh($this->authManager()->jwt('api')->issueRefreshToken($valid, self::ROTATION_ID, $identity)->reveal())->session,
+        );
+        self::assertNull(
+            GuardSessions::of($this->refreshGuard())->refresh($this->authManager()->jwt('api')->issueRefreshToken($legacy, self::ROTATION_ID, $identity)->reveal())->session,
+        );
         self::assertSame([FailureReason::SESSION_UNKNOWN], $reasons);
 
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), PrefixedKeySession::query()->findOrFail(self::LEGACY_KEY)->getRefreshKey());

@@ -104,7 +104,7 @@ final class UncastRevokedSessionIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedIdentityWithSession();
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session)->reveal();
 
         self::assertTrue($this->guardForRequest($this->bearerRequest($token))->check());
 
@@ -156,7 +156,7 @@ final class UncastRevokedSessionIntegrationTest extends TestCase
     {
         [, $session] = $this->seedIdentityWithSession();
 
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID);
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID)->reveal();
 
         $this->revoke($session);
 

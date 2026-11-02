@@ -92,6 +92,73 @@ final class PendingStateTest extends TestCase
     }
 
     /**
+     * Rows of `[configured field, field read]`.
+     *
+     * @return iterable<string, array{0: mixed, 1: string}>
+     */
+    public static function provideCredentialFields(): iterable
+    {
+        yield 'unset' => [null, 'pending_credential'];
+        yield 'a field of its own' => ['pending', 'pending'];
+        yield 'with dashes and digits' => ['x-pending-2', 'x-pending-2'];
+    }
+
+    /**
+     * The pending credential is read from the configured body field,
+     * `pending_credential` when the configuration names none, read from its own
+     * key.
+     *
+     * @param  mixed  $configured
+     * @param  string  $field
+     * @return void
+     */
+    #[DataProvider('provideCredentialFields')]
+    public function testThePendingCredentialIsReadFromTheConfiguredField(mixed $configured, string $field): void
+    {
+        $config = new Repository($configured === null ? [] : ['authentication' => ['session' => ['pending_credential_field' => $configured]]]);
+
+        self::assertSame('authentication.session.pending_credential_field', PendingState::FIELD_KEY);
+        self::assertSame($field, PendingState::credentialField($config));
+    }
+
+    /**
+     * Rows of `[configured field]` PHP would file under another key in a form
+     * body, or that are not a name.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function provideMalformedCredentialFields(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'dotted' => ['pending.credential'];
+        yield 'spaced' => ['pending credential'];
+        yield 'bracketed' => ['pending[credential]'];
+        yield 'an opening bracket' => ['pending['];
+        yield 'a tab' => ["pending\tcredential"];
+        yield 'a trailing newline' => ["pending\n"];
+        yield 'a control character' => ["pending\x00"];
+        yield 'a delete character' => ["pending\x7F"];
+        yield 'null' => [null];
+        yield 'not a string' => [['pending']];
+    }
+
+    /**
+     * A malformed field fails closed when a route reads the pending credential,
+     * naming the setting.
+     *
+     * @param  mixed  $configured
+     * @return void
+     */
+    #[DataProvider('provideMalformedCredentialFields')]
+    public function testAMalformedCredentialFieldFailsClosed(mixed $configured): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('authentication.session.pending_credential_field must be a field name without `.`, spaces or brackets.');
+
+        PendingState::credentialField(new Repository(['authentication' => ['session' => ['pending_credential_field' => $configured]]]));
+    }
+
+    /**
      * The credential expires its lifetime later, or at the session's absolute
      * deadline when that comes first.
      *

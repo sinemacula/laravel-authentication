@@ -461,6 +461,6 @@ final class OutdatedProofsTest extends TestCase
 
         self::assertInstanceOf(IssuedCode::class, $issued);
 
-        return $issued->code;
+        return $issued->code();
     }
 }

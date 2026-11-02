@@ -69,7 +69,7 @@ final class AccessTokenIssueQueryBudgetTest extends PerformanceContractTestCase
     {
         [$identity, $membership] = $this->seedMembership();
 
-        $token = $this->assertQueryBudget(0, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, null, null));
+        $token = $this->assertQueryBudget(0, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, null, null)->reveal());
 
         self::assertNotSame('', $token);
         self::assertFalse($membership->relationLoaded('tenant'));
@@ -90,11 +90,11 @@ final class AccessTokenIssueQueryBudgetTest extends PerformanceContractTestCase
         $tenant = $membership->getTenant();
 
         self::assertNotNull($tenant);
-        self::assertNotSame('', $this->assertQueryBudget(0, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, $tenant, null)));
+        self::assertNotSame('', $this->assertQueryBudget(0, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, $tenant, null)->reveal()));
 
         $membership->unsetRelation('tenant');
 
-        self::assertNotSame('', $this->assertQueryBudget(1, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, $tenant, null)));
+        self::assertNotSame('', $this->assertQueryBudget(1, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, $tenant, null)->reveal()));
         self::assertTrue($membership->relationLoaded('tenant'));
     }
 
@@ -112,7 +112,7 @@ final class AccessTokenIssueQueryBudgetTest extends PerformanceContractTestCase
     {
         [$identity, $membership] = $this->seedMembership();
 
-        $this->bindRequestWithBearer('/perf/typed', $this->tokens()->issueAccessToken($identity, $membership, null, null));
+        $this->bindRequestWithBearer('/perf/typed', $this->tokens()->issueAccessToken($identity, $membership, null, null)->reveal());
 
         $guard = $this->freshJwtGuard(self::GUARD);
 

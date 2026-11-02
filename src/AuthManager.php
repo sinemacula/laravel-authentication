@@ -5,8 +5,12 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use Illuminate\Contracts\Config\Repository;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
+use SineMacula\Laravel\Authentication\Callers\Caller;
+use SineMacula\Laravel\Authentication\Callers\CallerCredentials;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
@@ -33,10 +37,11 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * (`identity`, `principal`, `session`, `tenant`, `scopes`), guard-scoped
  * `jwt()` issuance, each JWT guard's `sessions()`, `codes()`, `passwords()`,
  * `passkeys()`, `identifierChanges()`, `refreshTransport()` and
- * `clientCredentials()`, and the API keys of an `api_key` or JWT guard
- * (`apiKeys()`) directly on the manager. Each contextual accessor forwards to
- * the active guard when it implements `ContextualGuard`, otherwise returns
- * `null`. Bound to the `auth` container key by `AuthenticationServiceProvider`.
+ * `clientCredentials()`, the API keys of an `api_key` or JWT guard
+ * (`apiKeys()`), and the caller of a request (`caller()`) directly on the
+ * manager. Each contextual accessor forwards to the active guard when it
+ * implements `ContextualGuard`, otherwise returns `null`. Bound to the `auth`
+ * container key by `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -179,7 +184,8 @@ class AuthManager extends IlluminateAuthManager
     /**
      * Return the refresh token transport of the named JWT guard, or of the
      * current default guard when the name is omitted, to read a refresh token
-     * from a request through the one source the guard allows.
+     * from a request by the application's own transport, check that a request
+     * is same-site, or clear a cookie application's refresh cookie.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport
@@ -257,6 +263,35 @@ class AuthManager extends IlluminateAuthManager
     public function clientCredentials(?string $guard = null): ClientCredentialsExchange
     {
         return new ClientCredentialsExchange($this->jwtGuard($guard, 'client credentials exchange')->context(), $this->app);
+    }
+
+    /**
+     * Return the caller of the request being served: who it is, as the
+     * credential its route authenticates with proves it (the guard's access
+     * credential, unless the route declares the refresh credential with
+     * `authentication.refresh` or the pending one with
+     * `authentication.pending`), with the guard, the identity, and the
+     * principal, active tenant and session the credential holds. `null` when
+     * the request carries no such credential or it is refused; a refused
+     * refresh or pending credential is reported once with
+     * `AuthenticationFailed`. Read at most once per request for a guard and a
+     * credential, so asking again proves nothing again.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Callers\Caller
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Throwable
+     */
+    public function caller(): ?Caller
+    {
+        /** @var \Illuminate\Http\Request $request */
+        $request = $this->app->make('request');
+
+        $callers = new CallerCredentials($this, $this->app->make(Repository::class), $this->app->make(Dispatcher::class));
+
+        return $callers->caller($request);
     }
 
     /**

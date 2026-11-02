@@ -76,7 +76,7 @@ final class JwtGuardRequestsTest extends TestCase
             $session = Auth::sessions($guard)->signIn('password', self::credentials(request()->string('email')->value()))->session;
 
             return [
-                'access'  => $session?->tokens->accessToken,
+                'access'  => $session?->tokens->accessToken->reveal(),
                 'context' => self::contextOf($guard),
             ];
         });

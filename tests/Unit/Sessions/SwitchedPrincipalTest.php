@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal;
 
 /**
@@ -72,6 +73,13 @@ final class SwitchedPrincipalTest extends TestCase
     {
         $record = \Mockery::mock(Model::class, EloquentSession::class);
 
-        return new ExchangedRefresh(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $record, new TokenPair('access', 'refresh'), null, 'password');
+        return new ExchangedRefresh(
+            \Mockery::mock(Identity::class),
+            \Mockery::mock(Principal::class),
+            $record,
+            new TokenPair(new Secret('access'), new Secret('refresh')),
+            null,
+            'password',
+        );
     }
 }

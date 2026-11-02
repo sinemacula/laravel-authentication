@@ -64,8 +64,9 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   records it and waits on `mfa`); at activation (either refuses, the session left pending); at every refresh (a
   connection revokes the session as `tenant_policy_changed` and refuses as `sso_required`; a factor returns it to
   pending); at a switch (a connection refuses and changes nothing; a factor returns it to pending with the destination
-  recorded); and at `attempt()`, which cannot wait (`sso_required` or `additional_factor_required`). Never on a bearer
-  request.
+  recorded); at `attempt()`, which cannot wait (`sso_required` or `additional_factor_required`); and when
+  `Auth::caller()` reads a refresh credential, which cannot wait either and writes nothing (the same two reasons). Never
+  on a bearer request.
 - The version answered is recorded on the session (`tenant_policy_version`) at activation, at a refresh and at a switch,
   and is part of the refresh's and the switch's compare-and-swap, so a version written by the helper in between makes
   them judge the session again.

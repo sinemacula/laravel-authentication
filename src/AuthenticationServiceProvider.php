@@ -16,9 +16,13 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Exceptions\Handler;
+use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
@@ -49,6 +53,9 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
+use SineMacula\Laravel\Authentication\Http\Middleware\NoStore;
+use SineMacula\Laravel\Authentication\Http\Middleware\UsePendingCredential;
+use SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
@@ -154,6 +161,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->registerGuardDrivers();
         $this->registerListeners();
         $this->registerUnauthenticatedResponse();
+        $this->registerMiddleware($this->app->make(Router::class));
         $this->registerPublishing();
         $this->registerCommands();
     }
@@ -433,6 +441,38 @@ final class AuthenticationServiceProvider extends ServiceProvider
         }
 
         $this->commands([CheckConfigurationCommand::class]);
+    }
+
+    /**
+     * Register the package's route middleware aliases, each opt-in per route,
+     * and order them in the HTTP kernel's middleware priority:
+     * `authentication.no-store` first, so on a route that lists it, it wraps
+     * every other route middleware the kernel sorts; `authentication.refresh`
+     * and `authentication.pending`, with which a route declares the credential
+     * it authenticates with, before `SubstituteBindings`, so the declaration is
+     * in place before any parameter is bound. The priority is changed once the
+     * kernel is resolved, after the application's own `withMiddleware()`
+     * settings.
+     *
+     * @param  \Illuminate\Routing\Router  $router
+     * @return void
+     */
+    private function registerMiddleware(Router $router): void
+    {
+        $router->aliasMiddleware('authentication.no-store', NoStore::class);
+        $router->aliasMiddleware('authentication.refresh', UseRefreshCredential::class);
+        $router->aliasMiddleware('authentication.pending', UsePendingCredential::class);
+
+        $this->callAfterResolving(HttpKernel::class, static function (mixed $kernel): void {
+
+            if (!$kernel instanceof Kernel) {
+                return;
+            }
+
+            $kernel->prependToMiddlewarePriority(NoStore::class);
+            $kernel->addToMiddlewarePriorityBefore(SubstituteBindings::class, UseRefreshCredential::class);
+            $kernel->addToMiddlewarePriorityBefore(SubstituteBindings::class, UsePendingCredential::class);
+        });
     }
 
     /**

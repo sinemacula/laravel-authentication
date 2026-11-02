@@ -4,23 +4,35 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
+use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
+use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 
 /**
  * Refreshes a session of one guard: exchanges the refresh token, reports the
@@ -46,6 +58,10 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
  */
 final readonly class SessionRefresh
 {
+    /** @var string Why a cookie application's refresh token is not handed in by the caller. */
+    public const string COOKIE_ONLY = 'This application\'s refresh token travels in its cookie, which only the *FromRequest() methods read,'
+        . ' with the cookie\'s cross-site checks: call them instead of passing a token your code read.';
+
     /**
      * Constructor.
      *
@@ -54,6 +70,7 @@ final readonly class SessionRefresh
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchange
      * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      * @param  \Illuminate\Contracts\Container\Container  $container
+     * @param  \SineMacula\Laravel\Authentication\Sessions\RefreshProof  $proof
      */
     public function __construct(
 
@@ -71,16 +88,18 @@ final readonly class SessionRefresh
 
         /** Container the configuration the refresh token transport reads is resolved from. */
         private Container $container,
+
+        /** Proves the session a refresh credential holds, without rotating it. */
+        private RefreshProof $proof,
     ) {}
 
     /**
-     * Refresh with a refresh token the caller read itself. A session that no
-     * longer meets its tenant's authentication policy for want of a further
-     * factor returns to pending: the result is pending, with the pending
-     * credential instead of a pair, nothing is bound, and a binding to that
-     * session is forgotten.
+     * Refresh with a refresh token the caller read itself, for a body
+     * application only: a cookie application's token is read from its cookie,
+     * with the cookie's cross-site checks, by `refreshFromRequest()` alone, so
+     * a token handed in here is a misconfiguration (`LogicException`).
      *
-     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -89,7 +108,173 @@ final readonly class SessionRefresh
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function refresh(#[\SensitiveParameter] string $refreshToken): RefreshResult
+    public function refresh(#[\SensitiveParameter] Secret|string $refreshToken): RefreshResult
+    {
+        $transport = $this->transport();
+
+        self::refuseHandedIn($transport);
+
+        return $this->exchange($refreshToken, $transport);
+    }
+
+    /**
+     * Refuse a refresh token the caller read and handed in when the
+     * application's token travels in its cookie, which only the
+     * `*FromRequest()` methods read, with the cookie's cross-site checks.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    public static function refuseHandedIn(RefreshTokenTransport $transport): void
+    {
+        if ($transport->usesCookie()) {
+            throw new \LogicException(self::COOKIE_ONLY);
+        }
+    }
+
+    /**
+     * Refresh with the refresh token the request carries, read through the
+     * application's refresh token transport: `null`, dispatching nothing, when
+     * the request carries none; a refusal of the transport's, after
+     * `Attempting`, `Failed` and `AuthenticationFailed`, touching no session;
+     * otherwise the exchange of the token, its result saying where it was read
+     * from.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Sessions\RefreshResult
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function refreshFromRequest(): ?RefreshResult
+    {
+        $transport = $this->transport();
+        $presented = $transport->read($this->context->request());
+
+        if ($presented instanceof PresentedRefreshToken) {
+            return $this->exchange($presented->token, $transport)->withSource($presented->source);
+        }
+
+        if ($presented === null) {
+            return null;
+        }
+
+        $this->context->dispatch(new Attempting($this->context->name(), [], false));
+
+        return $this->refuse(new AuthenticationFailed(new EventContext($this->context->name(), $this->context->client()), AuthenticationFlow::REFRESH, $presented));
+    }
+
+    /**
+     * Who the refresh credential the request carries would sign in again,
+     * without rotating it: `null` when the request carries none; the
+     * transport's refusal; the refusal of the proof (a replay revoking the
+     * session); then the session's owner admitted as a refresh admits it (the
+     * owner, reloaded through the guard's provider and active, as the principal
+     * the token names, which must be the one the session records, in the
+     * session's active tenant, still admitted by the application policy and
+     * `ApplicationAccess`); then the session judged against its tenant's
+     * authentication policy, as a refresh judges it: `sso_required` for one the
+     * next refresh would revoke, `additional_factor_required` for one it would
+     * return to pending, neither written here. Dispatches nothing but a
+     * replay's `SessionRevoked`, and binds nothing; the caller reports a
+     * refusal.
+     *
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Sessions\RefreshCredential|null
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function credentialFromRequest(): FailureReason|RefreshCredential|null
+    {
+        $presented = $this->transport()->read($this->context->request());
+
+        return $presented instanceof PresentedRefreshToken ? $this->credentialOf($presented) : $presented;
+    }
+
+    /**
+     * Who the refresh token the request carried would sign in again: the
+     * proof's refusal, the admission's, the tenant policy's, or the credential.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\PresentedRefreshToken  $presented
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Sessions\RefreshCredential
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    private function credentialOf(PresentedRefreshToken $presented): FailureReason|RefreshCredential
+    {
+        $now    = CarbonImmutable::now()->startOfSecond();
+        $proven = $this->proof->prove($presented->token, AuthenticationFlow::REFRESH, $now);
+
+        if ($proven instanceof AuthenticationFailed) {
+            return $proven->reason;
+        }
+
+        $session  = $proven->session;
+        $admitted = (new RefreshAdmission($this->context->name(), $this->context->provider(), $this->context->resolver()))->admit($session, $proven->principalHint);
+
+        if ($admitted instanceof Refused) {
+            return $admitted->reason;
+        }
+
+        return PrincipalReference::isRecordedOn($session, $admitted->principal)
+            ? $this->underTenantPolicy($admitted, $session, $presented->source, $now)
+            : FailureReason::SESSION_PRINCIPAL_MISMATCH;
+    }
+
+    /**
+     * The credential of the admitted session when it meets its tenant's
+     * authentication policy, judged as a refresh judges it but writing nothing:
+     * `sso_required` for a session the next refresh would revoke,
+     * `additional_factor_required` for one it would return to pending.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Sessions\RefreshCredential
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    private function underTenantPolicy(Admitted $admitted, EloquentSession&Model $session, RefreshTokenSource $source, CarbonImmutable $now): FailureReason|RefreshCredential
+    {
+        return match (TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now)->standing) {
+            TenantPolicyStanding::SSO_REQUIRED    => FailureReason::SSO_REQUIRED,
+            TenantPolicyStanding::FACTOR_REQUIRED => FailureReason::ADDITIONAL_FACTOR_REQUIRED,
+            TenantPolicyStanding::MET             => new RefreshCredential($admitted->identity, $admitted->principal, $admitted->tenant, $session, $source),
+        };
+    }
+
+    /**
+     * Exchange the refresh token and bind the guard to the refreshed session,
+     * its pair delivered by the application's transport. A session that no
+     * longer meets its tenant's authentication policy for want of a further
+     * factor returns to pending: the result is pending, with the pending
+     * credential instead of a pair, nothing is bound, and a binding to that
+     * session is forgotten.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    private function exchange(#[\SensitiveParameter] Secret|string $refreshToken, RefreshTokenTransport $transport): RefreshResult
     {
         $this->context->dispatch(new Attempting($this->context->name(), [], false));
 
@@ -109,42 +294,24 @@ final readonly class SessionRefresh
 
         $this->report($outcome, $client);
 
+        $tokens = $transport->deliver($outcome->tokens, $outcome->record);
+
         $this->binding->loginVerified($outcome->identity, $outcome->principal, $outcome->record, $outcome->tenant, $outcome->method);
 
-        return RefreshResult::refreshed(new SignedInSession($outcome->identity, $outcome->principal, $outcome->record, $outcome->tokens, (string) $outcome->method));
+        return RefreshResult::refreshed(new SignedInSession($outcome->identity, $outcome->principal, $outcome->record, $tokens, (string) $outcome->method));
     }
 
     /**
-     * Refresh with the refresh token the request carries, read through the
-     * guard's refresh token transport: `null`, dispatching nothing, when the
-     * request carries none; a refusal of the transport's, after `Attempting`,
-     * `Failed` and `AuthenticationFailed`, touching no session; otherwise
-     * `refresh()` with the token, its result saying where it was read from.
+     * The application's refresh token transport, from the configuration.
      *
-     * @return ?\SineMacula\Laravel\Authentication\Sessions\RefreshResult
+     * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \LogicException
-     * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function refreshFromRequest(): ?RefreshResult
+    private function transport(): RefreshTokenTransport
     {
-        $presented = RefreshTokenTransport::forGuard($this->context->name(), $this->container->make(ConfigRepository::class))
-            ->read($this->context->request());
-
-        if ($presented instanceof PresentedRefreshToken) {
-            return $this->refresh($presented->token)->withSource($presented->source);
-        }
-
-        if ($presented === null) {
-            return null;
-        }
-
-        $this->context->dispatch(new Attempting($this->context->name(), [], false));
-
-        return $this->refuse(new AuthenticationFailed(new EventContext($this->context->name(), $this->context->client()), AuthenticationFlow::REFRESH, $presented));
+        return RefreshTokenTransport::forGuard($this->context->name(), $this->container->make(ConfigRepository::class));
     }
 
     /**

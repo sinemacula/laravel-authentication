@@ -119,7 +119,7 @@ final class SecurityChangeEndToEndTest extends TestCase
 
             $identity->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
 
-            $this->bearer($session->tokens->accessToken)->assertOk();
+            $this->bearer($session->tokens->accessToken->reveal())->assertOk();
         });
 
         $this->assertSessionEnded($session);
@@ -178,7 +178,7 @@ final class SecurityChangeEndToEndTest extends TestCase
         $this->assertSessionEnded($before);
         $this->assertSessionEnded($between);
 
-        $this->bearer($after->tokens->accessToken)->assertOk();
+        $this->bearer($after->tokens->accessToken->reveal())->assertOk();
     }
 
     /**
@@ -234,7 +234,7 @@ final class SecurityChangeEndToEndTest extends TestCase
         self::assertTrue($guard->attempt(self::credentials()));
         self::assertNotSame($outdated, DB::table('integration_identities')->value('password'));
 
-        $this->bearer($session->tokens->accessToken)->assertOk();
+        $this->bearer($session->tokens->accessToken->reveal())->assertOk();
 
         AttributeObservedIdentity::query()->firstOrFail()->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
 
@@ -291,7 +291,7 @@ final class SecurityChangeEndToEndTest extends TestCase
 
         self::assertNotNull($session);
 
-        $this->bearer($session->tokens->accessToken)->assertOk();
+        $this->bearer($session->tokens->accessToken->reveal())->assertOk();
         $this->moveClocksTo(CarbonImmutable::now()->addMinute());
 
         return $session;
@@ -306,9 +306,9 @@ final class SecurityChangeEndToEndTest extends TestCase
      */
     private function assertSessionEnded(SignedInSession $session): void
     {
-        $this->bearer($session->tokens->accessToken)->assertUnauthorized();
+        $this->bearer($session->tokens->accessToken->reveal())->assertUnauthorized();
 
-        $this->postJson('/refresh', ['refresh_token' => $session->tokens->refreshToken])->assertOk()->assertExactJson(['refreshed' => false]);
+        $this->postJson('/refresh', ['refresh_token' => $session->tokens->refreshToken?->reveal()])->assertOk()->assertExactJson(['refreshed' => false]);
     }
 
     /**

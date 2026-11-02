@@ -256,7 +256,7 @@ final class IdentifierChangeRoutesTest extends TestCase
         $result = Auth::identifierChanges('web')->requestByLink($identity, 'email', $input['email'], Reauthentication::password($input['password']), 'email.confirm');
 
         if ($result->isSent()) {
-            self::$mailed[] = [$input['email'], (string) $result->link()];
+            self::$mailed[] = [$input['email'], (string) $result->link()?->reveal()];
         }
 
         return self::answer($result);
@@ -346,7 +346,7 @@ final class IdentifierChangeRoutesTest extends TestCase
      */
     private function signIn(): string
     {
-        $access = $this->sessions('web')->signIn('password', self::credentials(self::EMAIL))->session?->tokens->accessToken;
+        $access = $this->sessions('web')->signIn('password', self::credentials(self::EMAIL))->session?->tokens->accessToken->reveal();
 
         self::assertIsString($access);
 

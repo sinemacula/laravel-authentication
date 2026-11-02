@@ -16,6 +16,7 @@ JWT settings are read once and kept (see [Configuration lifetimes](operations.md
 | `session.last_used_throttle_seconds`                | `60`                                                                         | `AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS`       |           | [Session](#session)                                                   |
 | `session.prune_after_days`                          | `30`                                                                         | `AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS`                 |           | [Pruning](operations.md#pruning)                                      |
 | `session.pending_ttl_seconds`                       | `300`                                                                        | `AUTHENTICATION_SESSION_PENDING_TTL_SECONDS`              |           | [Pending sessions](#pending-sessions)                                 |
+| `session.pending_credential_field`                  | `pending_credential`                                                         | `AUTHENTICATION_SESSION_PENDING_CREDENTIAL_FIELD`         |           | [The caller of a request](sessions.md#the-caller-of-a-request)        |
 | `proofs.table`                                      | `authentication_proofs`                                                      | `AUTHENTICATION_PROOFS_TABLE`                             |           | [Proofs](#proofs)                                                     |
 | `proofs.provenance_table`                           | `authentication_provenance`                                                  | `AUTHENTICATION_PROOFS_PROVENANCE_TABLE`                  |           | [Proofs](#proofs)                                                     |
 | `sign_in.password_identifier`                       | `email`                                                                      | `AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER`              | yes       | [Sign-in](#sign-in)                                                   |
@@ -52,12 +53,11 @@ JWT settings are read once and kept (see [Configuration lifetimes](operations.md
 | `rate_limits.password_reset.per_ip`                 | 50 per 900 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
 | `rate_limits.identifier_change.per_identifier`      | 5 per 3600 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
 | `rate_limits.identifier_change.per_ip`              | 50 per 3600 s                                                                |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `refresh_token.sources`                             | `['body', 'header']`                                                         |                                                           | yes       | [Refreshing](refreshing.md)                                           |
+| `refresh_token.transport`                           | `body`                                                                       |                                                           | yes       | [Refreshing](refreshing.md)                                           |
 | `refresh_token.body_field`                          | `refresh_token`                                                              |                                                           | yes       | [Refreshing](refreshing.md)                                           |
 | `refresh_token.header`                              | `X-Refresh-Token`                                                            |                                                           | yes       | [Refreshing](refreshing.md)                                           |
-| `refresh_token.cookie.name`                         | `__Secure-refresh_token`                                                     |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
+| `refresh_token.cookie.name`                         | `null` (derived from the guard)                                              |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
 | `refresh_token.cookie.path`                         | `null`                                                                       |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
-| `refresh_token.cookie.domain`                       | `null`                                                                       |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
 | `refresh_token.cookie.allowed_origins`              | `[]`                                                                         |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
 | `refresh_token.cookie.csrf_header`                  | `X-Requested-With`                                                           |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
 | `api_keys.table`                                    | `api_keys`                                                                   | `AUTHENTICATION_API_KEYS_TABLE`                           |           | [API key settings](#api-key-settings)                                 |
@@ -361,7 +361,8 @@ Precedence: guard-local `principal_resolver` → app-wide `PrincipalResolver::cl
 ## Session
 
 The published `authentication.php` config controls the session model, table, how often a session's last use is written,
-how long a session that ended is kept before pruning, and how long a pending credential lives:
+how long a session that ended is kept before pruning, how long a pending credential lives, and the body field it is read
+from on a route that authenticates with it:
 
 ```php
 'session' => [
@@ -370,6 +371,7 @@ how long a session that ended is kept before pruning, and how long a pending cre
     'last_used_throttle_seconds' => 60,
     'prune_after_days'           => 30,
     'pending_ttl_seconds'        => 300,
+    'pending_credential_field'   => 'pending_credential',
 ],
 ```
 
@@ -474,6 +476,12 @@ session with it, ends `pending_ttl_seconds` after it is issued (an integer from 
 when a session becomes pending, and `authentication:check` reports it under `[session]`), and never after the session's
 absolute deadline. A pending session is never listed, and its access and refresh tokens, if it had any, are refused as
 `session_pending` until it activates.
+
+On a route that authenticates with the pending credential (`authentication.pending:<action>`, see
+[The caller of a request](sessions.md#the-caller-of-a-request)), `Auth::caller()` reads it from the body field
+`pending_credential_field`, in a JSON or form body, never the query string or a header. It must be a field name without
+`.`, spaces or brackets, as PHP files such a name under another key; anything else fails closed when the caller is read,
+and `authentication:check` reports it under `[session]`.
 
 ## Proofs
 
@@ -638,10 +646,11 @@ final class SmsCodeSender implements OneTimeCodeSender
 
     public function send(OneTimeCodeMessage $message): void
     {
-        // $message->identifier is the recipient's own number or address; $message->code is in clear: never log it.
+        // $message->identifier is the recipient's own number or address; $message->code is a Secret: reveal it
+        // only into the message, never into a log.
         match ($message->type) {
-            'phone' => $this->sms->send($message->identifier, "Your code is {$message->code}."),
-            'email' => Mail::to($message->identifier)->send(new CodeMail($message->code, $message->expiresAt)),
+            'phone' => $this->sms->send($message->identifier, "Your code is {$message->code->reveal()}."),
+            'email' => Mail::to($message->identifier)->send(new CodeMail($message->code->reveal(), $message->expiresAt)),
         };
     }
 }

@@ -103,7 +103,7 @@ final class JwtGuardCoexistenceQueryBudgetTest extends PerformanceContractTestCa
             $twoDimensionalIdentity,
             null,
             null,
-        );
+        )->reveal();
 
         $threeDimensionalJwt = PackageAuth::jwt(self::GUARD_3D);
         self::assertNotNull($threeDimensionalJwt);
@@ -113,7 +113,7 @@ final class JwtGuardCoexistenceQueryBudgetTest extends PerformanceContractTestCa
             $threeDimensionalPrincipal,
             null,
             null,
-        );
+        )->reveal();
 
         $result = $this->assertQueryBudget(3, 0, function () use (
             $twoDimensionalToken,

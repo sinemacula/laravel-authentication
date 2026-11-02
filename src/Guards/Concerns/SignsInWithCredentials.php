@@ -92,10 +92,15 @@ trait SignsInWithCredentials
             return $attempt;
         }
 
-        $outcome = $this->context->timebox()->run(
-            function (Timebox $timebox) use ($password, $credentials, $principal, $session, $client, $type, $attempt): Admitted|Refused {
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $held = new \SensitiveParameterValue($credentials);
 
-                $user = $this->verifyAttemptedCredentials($password, $credentials, $attempt->accounts);
+        $outcome = $this->context->timebox()->run(
+            function (Timebox $timebox) use ($password, $held, $principal, $session, $client, $type, $attempt): Admitted|Refused {
+
+                $credentials = $held->getValue();
+                $user        = $this->verifyAttemptedCredentials($password, $credentials, $attempt->accounts);
 
                 if ($user === null) {
                     return $attempt->accountRefusal() ?? new Refused(FailureReason::INVALID_CREDENTIALS);

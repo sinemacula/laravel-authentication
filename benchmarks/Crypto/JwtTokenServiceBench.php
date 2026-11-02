@@ -66,7 +66,7 @@ final readonly class JwtTokenServiceBench
 
         $this->identity    = new PlainIdentityFixture('bench-identity');
         $this->principal   = new PlainPrincipalFixture('bench-principal', $this->identity);
-        $this->accessToken = $this->service->issueAccessToken($this->identity, $this->principal, null, null);
+        $this->accessToken = $this->service->issueAccessToken($this->identity, $this->principal, null, null)->reveal();
 
         BenchOutcome::assert('access token parse', $this->service->parse($this->accessToken, TokenType::ACCESS) !== null);
     }
@@ -82,7 +82,7 @@ final readonly class JwtTokenServiceBench
     #[Revs(100)]
     public function benchIssueAccessToken(): void
     {
-        $this->service->issueAccessToken($this->identity, $this->principal, null, null);
+        $this->service->issueAccessToken($this->identity, $this->principal, null, null)->reveal();
     }
 
     /**

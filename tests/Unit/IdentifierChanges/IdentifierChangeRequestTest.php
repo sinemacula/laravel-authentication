@@ -40,7 +40,7 @@ final class IdentifierChangeRequestTest extends TestCase
 
         foreach ([[$byCode, null], [$byLink, self::LINK]] as [$request, $link]) {
             self::assertSame([IdentifierChangeRequestStatus::SENT, true], [$request->status, $request->isSent()]);
-            self::assertSame([$expiresAt, null, $link], [$request->expiresAt, $request->retryAfter, $request->link()]);
+            self::assertSame([$expiresAt, null, $link], [$request->expiresAt, $request->retryAfter, $request->link()?->reveal()]);
         }
     }
 

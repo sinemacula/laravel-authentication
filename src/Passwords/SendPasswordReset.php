@@ -89,14 +89,14 @@ final class SendPasswordReset implements ShouldBeEncrypted, ShouldQueue
         if ($binding->purpose === CodePurpose::PASSWORD_RESET_LINK) {
 
             $container->make(PasswordResetLinkSender::class)->send(
-                new PasswordResetLink($binding->guard, $binding->type, $binding->identifier, $this->issued->code, $this->issued->expiresAt, $recipient),
+                new PasswordResetLink($binding->guard, $binding->type, $binding->identifier, $this->issued->secret(), $this->issued->expiresAt, $recipient),
             );
 
             return;
         }
 
         $container->make(OneTimeCodeSender::class)->send(
-            new OneTimeCodeMessage($binding->guard, $binding->purpose, $binding->type, $binding->identifier, $this->issued->code, $this->issued->expiresAt, $recipient),
+            new OneTimeCodeMessage($binding->guard, $binding->purpose, $binding->type, $binding->identifier, $this->issued->secret(), $this->issued->expiresAt, $recipient),
         );
     }
 

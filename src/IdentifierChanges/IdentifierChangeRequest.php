@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\IdentifierChanges;
 
 use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRequestStatus;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * How a request to change an identifier ended: sent, with when the change
@@ -15,9 +16,8 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRe
  * new identifier is invalid or unchanged.
  *
  * The link is the proof of the change, so it goes only to the new identifier,
- * never back to the client that asked: it is held as a
- * `\SensitiveParameterValue` and read through `link()`, so no dump of the
- * object shows it, and serialising the object throws.
+ * never back to the client that asked: it is a `Secret`, read through `link()`,
+ * so no dump of the object shows it, and serialising the object throws.
  *
  * @api
  *
@@ -26,8 +26,8 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRe
  */
 final readonly class IdentifierChangeRequest
 {
-    /** @var ?\SensitiveParameterValue The signed link that confirms the change, for a change proven by link. */
-    private ?\SensitiveParameterValue $link;
+    /** @var ?\SineMacula\Laravel\Authentication\Secrets\Secret The signed link that confirms the change, for a change proven by link. */
+    private ?Secret $link;
 
     /**
      * Constructor.
@@ -36,6 +36,8 @@ final readonly class IdentifierChangeRequest
      * @param  ?\Carbon\CarbonImmutable  $expiresAt
      * @param  ?int  $retryAfter
      * @param  ?string  $link
+     *
+     * @throws \InvalidArgumentException
      */
     private function __construct(
 
@@ -53,7 +55,7 @@ final readonly class IdentifierChangeRequest
         #[\SensitiveParameter]
         ?string $link = null,
     ) {
-        $this->link = $link === null ? null : new \SensitiveParameterValue($link);
+        $this->link = $link === null ? null : new Secret($link);
     }
 
     /**
@@ -63,6 +65,8 @@ final readonly class IdentifierChangeRequest
      * @param  \Carbon\CarbonImmutable  $expiresAt
      * @param  ?string  $link
      * @return self
+     *
+     * @throws \InvalidArgumentException
      */
     public static function sent(CarbonImmutable $expiresAt, #[\SensitiveParameter] ?string $link = null): self
     {
@@ -122,12 +126,13 @@ final readonly class IdentifierChangeRequest
 
     /**
      * The signed link that confirms the change, for a `sent` change proven by
-     * link; `null` otherwise. Send it to the new identifier only.
+     * link; `null` otherwise. Reveal it only into the message to the new
+     * identifier.
      *
-     * @return ?string
+     * @return ?\SineMacula\Laravel\Authentication\Secrets\Secret
      */
-    public function link(): ?string
+    public function link(): ?Secret
     {
-        return $this->link?->getValue();
+        return $this->link;
     }
 }

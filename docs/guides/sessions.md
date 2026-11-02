@@ -1,4 +1,4 @@
-# Sessions: proofs, stepping up, freshness, switching principal and signing out
+# Sessions: proofs, stepping up, freshness, switching principal, signing out and the caller of a request
 
 ## Proofs and provenance
 
@@ -50,13 +50,14 @@ proof on the session and issues the session a new access token, and nothing else
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 Route::middleware('auth:api')->post('/step-up', function (Request $request) {
     $proof  = $factors->verify(Auth::identity(), Auth::session(), $request->input('code')); // your adapter's ProofResult
     $result = Auth::sessions('api')->stepUp($proof);
 
     return $result->isIssued()
-        ? response()->json(['access_token' => $result->accessToken, 'expires_at' => $result->expiresAt->toIso8601String()])
+        ? SecretResponse::json(['access_token' => $result->accessToken, 'expires_at' => $result->expiresAt->toIso8601String()])
         : response()->json(['message' => 'The code was not accepted.'], 403);
 });
 ```
@@ -87,12 +88,13 @@ and the input the client sent:
 ```php
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 Route::middleware('auth:api')->post('/reauthenticate', function (Request $request) {
     $result = Auth::sessions('api')->reauthenticate(Auth::session(), 'password', $request->only('email', 'password'));
 
     return match (true) {
-        $result->isIssued()                                => response()->json(['access_token' => $result->accessToken]),
+        $result->isIssued()                                => SecretResponse::json(['access_token' => $result->accessToken]),
         $result->reason === FailureReason::RATE_LIMITED    => response()->json([], 429, ['Retry-After' => $result->retryAfter]),
         default                                            => response()->json(['message' => 'Those details are not correct.'], 403),
     };
@@ -183,7 +185,7 @@ active tenant the same way. A `SwitchTarget` says where the session goes:
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
@@ -207,15 +209,14 @@ if ($result->isFailed()) {
 
 if ($result->isPending()) {
     // The destination's tenant asks for a further factor the session lacks.
-    return response()->json(['pending' => $result->credential, 'actions' => $result->pending->actions()]);
+    return SecretResponse::json(['pending_credential' => $result->credential, 'actions' => $result->pending->actions()]);
 }
 
 $tokens = $result->session->tokens;
 
-return $result->source === RefreshTokenSource::COOKIE
-    ? response()->json(['access_token' => $tokens->accessToken])
-        ->withCookie(Auth::refreshTransport('api')->cookie($tokens->refreshToken, $result->session->record))
-    : response()->json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
+// A cookie application's pair carries the cookie that sets the new refresh token; a body application's, the token.
+return $tokens->refreshCookie?->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken]))
+    ?? SecretResponse::json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
 ```
 
 `SwitchTarget::principal($principal)` switches to another principal of the identity in its default tenant (its own),
@@ -224,15 +225,35 @@ return $result->source === RefreshTokenSource::COOKIE
 named (`TenantSelection::principalDefault()` back to its own, `TenantSelection::none()` to none, which only a principal
 that belongs to no tenant may by default).
 
+A switch screen lists the destinations with `principals()` and gets one of them by its id with `principal()`:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+$sessions = Auth::sessions('api');
+$type     = Auth::session()?->getSignInIdentifierType();
+
+$destinations = $sessions->principals(Auth::identity(), $type);
+$destination  = $sessions->principal(Auth::identity(), $request->input('membership'), $type) ?? abort(404);
+```
+
+`principal($identity, $principalId, $identifierType)` answers the principal `principals()` would list with that
+principal identifier, or `null` when it is not the identity's, is not admitted (inactive, in an inactive tenant, refused
+by `ApplicationAccess`, or the identity refused with the identifier type) or two of the identity's principals share the
+identifier, without saying which. It reads the very candidates `principals()` reads (the identity's `principals()` on
+the write connection, or the resolver's default for an identity that is its own principal), in one query, and admits
+only the one the id names, so it is found exactly when the list holds it. The switch checks its destination again.
+
 The refresh token proves the session, never an access token: a stolen access token lives minutes and must not mint a
 refresh credential. `switchFromRequest()` reads it as the session service's `refreshFromRequest()` does (see
-[Refreshing](refreshing.md)), through the guard's refresh token transport, so it comes from the one source the guard
-allows and a token from the refresh cookie gets the cookie's cross-site checks; put the switch route under the cookie's
-path. It returns `null` when the request carries no token, and a token the transport refuses fails with its reason
-(`refresh_token_conflict`, `cross_site_request`, `token_invalid`, reported as an `AuthenticationFailed` of flow
-`switch`) without the session being touched. The result's `source` says where the token came from, so a switch read from
-the cookie answers with the new refresh token in the cookie, as a refresh does. `switchTo($refreshToken, $target)`
-remains for a token your code reads itself; never pass it one read from the refresh cookie.
+[Refreshing](refreshing.md)), through the application's refresh token transport, so it comes by the application's own
+transport and a token from the refresh cookie gets the cookie's cross-site checks; put the switch route under the
+cookie's path. It returns `null` when the request carries no token, and a token the transport refuses fails with its
+reason (`refresh_token_conflict`, `refresh_transport_mismatch`, `cross_site_request`, `token_invalid`, reported as an
+`AuthenticationFailed` of flow `switch`) without the session being touched. The result's `source` says where the token
+came from, and a cookie application's switched pair carries the cookie that sets the new refresh token, never the
+token, as a refresh does. `switchTo($refreshToken, $target)` remains for a body application's token your code reads
+itself; on a cookie application it throws a `LogicException`.
 
 A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`, with the wait in the
 result's `retryAfter`: a switch returns its refusal, as a refresh does, so answer it with `Retry-After` as above), the
@@ -295,9 +316,53 @@ the bind events, and a rollback drops it.
 is revoked with reason `signed_out`, `SessionRevoked` reports it once committed, Laravel's `Logout` follows, and the
 guard stays signed out for the rest of the request. The session's access and refresh tokens stop at once. A request
 without a persisted session (an access-only token) has nothing to revoke and is only forgotten; a guest request does
-nothing. `Auth::sessions('api')->signOut()` does the same and returns whether it revoked a session. `logout()` cannot
-reach the response, so clear a browser's refresh cookie on it with `Auth::refreshTransport('api')->forgetCookie()` (see
-[Refresh token cookie](refreshing.md#refresh-token-cookie)).
+nothing. `Auth::sessions('api')->signOut()` does the same and returns whether it revoked a session.
+
+Both need a live access token. A client whose access token has expired, or that holds none, signs out with its refresh
+credential instead, and a logout route answers either way with `signOutFromRequest()`:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::post('/auth/logout', function () {
+    $result = Auth::sessions('browser')->signOutFromRequest();
+
+    // The expired cookie, when the result carries one, clears the browser's either way.
+    return $result->attachTo($result->isFailed() ? response()->json(['reason' => $result->reason?->value], 401) : response()->noContent());
+});
+```
+
+A request whose access token is bound to a stored session is signed out as `signOut()` signs it out, and its refresh
+credential is not read. Otherwise any binding is forgotten first (an access-only token's, with `Logout`, the guard
+staying signed out), and the refresh credential is read through the application's transport, as a refresh reads it:
+the cookie of a cookie application, with its cross-site checks, or the body field or header of a body application. The
+session it proves is revoked (`signed_out`, `SessionRevoked` once committed), `Logout` fires for its owner when the
+guard's provider still returns it and none fired already, and a binding to it is forgotten. The token is judged as a
+refresh judges it, short of rotating it: one the transport refuses fails with its reason (`refresh_token_conflict`,
+`refresh_transport_mismatch`, `cross_site_request`, `token_invalid`), and so does one whose session is unknown, of
+another guard, revoked, pending, expired or no longer recording the principal the token names; a replayed token revokes
+its session as `rotation_reuse`, as a refresh does, and a token inside the grace window of a rotation still signs its
+session out. A refusal is reported by `AuthenticationFailed` with the flow `sign_out` and its reason, and by no
+`Failed`: a sign-out is not an attempt to authenticate. No attempt limit applies, since nothing is issued and a refresh
+token cannot be guessed.
+
+The `Sessions\SignOutResult` says whether this call revoked a session (`isSignedOut()`, `signedOut`), why the refresh
+credential was refused when it was (`isFailed()`, `reason`), where it was read from (`source`), and, for a cookie
+application, carries the expired cookie (`forgetCookie`), which `attachTo($response)` adds. It carries the cookie when
+the access token signed its session out, which a cross-site page cannot send, and otherwise only when the request passes
+the cookie's same-site checks (its `Origin` and the custom header, as a refresh from the cookie needs them) and was not
+refused as `refresh_token_conflict`. So a cross-site page that auto-submits a form to the logout route clears nothing,
+though a browser keeps a cookie the response to such a navigation sets, and a request that fails the checks leaves the
+cookie in place with the session it still proves; a failed result is answered as a failure, as above.
+`signOutWith($refreshToken)` signs out with a body application's token your code read itself, and forgets only a binding
+to the session it revoked: a guard bound to another session stays bound to it, whether the token is refused or proves
+another session. On a cookie application it throws a `LogicException`. `logout()` and `signOut()` cannot reach the
+response either, so a route that calls them clears a cookie application's cookie with
+`Auth::refreshTransport('browser')->forgetCookie()` only when `signOut()` returned `true` (or `Auth::check()` held
+before `logout()`): a cross-site page cannot send the access token, but it can make a browser post to the route, and a
+response that clears the cookie whatever the request carried lets any site sign the browser out. A route that must also
+clear for a request without an access token checks `isSameSiteRequest($request)` first, or uses `signOutFromRequest()`,
+which makes both checks (see [Refresh token cookie](refreshing.md#refresh-token-cookie)).
 
 The session service also revokes sessions for the application's own screens and flows:
 
@@ -384,6 +449,21 @@ page is the request's `page` parameter unless you pass one. The list is read on 
 identity's `sessions()` relation, in two queries (a count and a select), so a session revoked a moment ago is never
 shown. An identity that does not implement `HasSessions`, or whose `sessions()` relation queries a model that is not an
 `EloquentSession`, is a `LogicException`.
+
+`session()` gets one of them by its id, for a detail screen or before a "sign out" button revokes it:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::middleware('auth:api')->get('/sessions/{session}', fn (string $session) => Auth::sessions('api')->session(Auth::identity(), $session) ?? abort(404));
+```
+
+It answers the very `SessionSummary` the list gives for that session, `current` marked the same way, or `null` when the
+session is not the identity's, is not active (pending, revoked or past a deadline) or does not exist, without saying
+which. It reads the identity's `sessions()` relation on the write connection with the list's rule, in one query, and an
+id that cannot be a key of the session model (not a UUID, for the shipped model) is answered `null` without one, so
+every session the list shows on any of its pages is found as it shows it, and no other. The identity must implement
+`HasSessions`, as for the list.
 
 The same rule is a query scope on any model that uses `ActsAsSession`, for your own queries:
 
@@ -523,20 +603,22 @@ must be loaded, or reading it throws a `LogicException`, and the column name com
 ### Tenant authentication policies
 
 A tenant may ask more of the sessions active in it than the identity's own sign-in did: a further factor, or a sign-in
-through one of its connections (single sign-on). The package asks the bound `Contracts\TenantAuthenticationPolicy`
-(the default, `RequireNothingOfTenants`, asks nothing; see [Tenant authentication
+through one of its connections (single sign-on). The package asks the bound `Contracts\TenantAuthenticationPolicy` (the
+default, `RequireNothingOfTenants`, asks nothing; see [Tenant authentication
 policies](extending.md#tenant-authentication-policies)) whenever a session comes to act in a tenant or keeps acting in
 it: at sign-in once a principal is selected, at a choice of principal, when a pending session activates, at every
-refresh, and for the destination of a switch, never on a bearer request. A session that falls short:
+refresh, for the destination of a switch, and when `Auth::caller()` reads a refresh credential, never on a bearer
+request. A session that falls short:
 
-| Where                       | Needs a connection                                                       | Lacks a further factor                                                   |
-|-----------------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------|
-| Sign-in                     | refused as `sso_required`, nothing written                               | written pending on `mfa`                                                 |
-| Choice of principal         | that principal refused as `sso_required`, the session stays pending      | the principal recorded, the session pending on `mfa`                     |
-| Satisfying a further factor | refused as `sso_required`, the session stays pending until it expires    | stays pending                                                            |
-| Refresh                     | refused as `sso_required`, the session revoked (`tenant_policy_changed`) | returned to pending: the result `isPending()`, with a pending credential |
-| Switch                      | refused as `sso_required`, the session unchanged                         | returned to pending with the destination recorded, as for a refresh      |
-| `attempt()`                 | refused as `sso_required`                                                | refused as `additional_factor_required`                                  |
+| Where                                 | Needs a connection                                                       | Lacks a further factor                                                   |
+|---------------------------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------|
+| Sign-in                               | refused as `sso_required`, nothing written                               | written pending on `mfa`                                                 |
+| Choice of principal                   | that principal refused as `sso_required`, the session stays pending      | the principal recorded, the session pending on `mfa`                     |
+| Satisfying a further factor           | refused as `sso_required`, the session stays pending until it expires    | stays pending                                                            |
+| Refresh                               | refused as `sso_required`, the session revoked (`tenant_policy_changed`) | returned to pending: the result `isPending()`, with a pending credential |
+| Switch                                | refused as `sso_required`, the session unchanged                         | returned to pending with the destination recorded, as for a refresh      |
+| `attempt()`                           | refused as `sso_required`                                                | refused as `additional_factor_required`                                  |
+| The caller of a refresh credential    | no caller (`sso_required`), nothing written                              | no caller (`additional_factor_required`), nothing written                |
 
 A further factor is met only as the bound `Contracts\RequirementCheck` judges the session's proofs (the default,
 `MeetNoRequirement`, meets nothing, so a tenant that requires a further factor admits no session until a factor package
@@ -579,10 +661,10 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 
 | Reason                  | Recorded when                                                                                                                 |
 |-------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`                                                      |
+| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutFromRequest()`, `signOutWith()`             |
 | `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                           |
 | `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                |
-| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh or a switch                                                                |
+| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch, a sign-out or the caller of a refresh credential                |
 | `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session            |
 | `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeSessionsOnPasswordChange`  |
 | `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`              |
@@ -594,3 +676,77 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 
 `revokeSession()`, `revokeSessions()` and `revokePrincipalSessions()` take the reason as an argument (`REVOKED` in the
 examples above); the others set their own.
+
+## The caller of a request
+
+`Auth::caller()` answers who the request being served is, as the credential its route authenticates with proves it: a
+`Callers\Caller` with the `guard`, the `credential` it was read from (`CallerCredential::ACCESS`, `REFRESH` or
+`PENDING`), the `identity`, and the `principal`, `tenant` and `session` that credential holds, with the `pending`
+session a pending credential names; or `null` when the request carries no such credential or it is refused. An
+access-only token or an API key holds no session, and a pending session that waits for the choice acts as no principal
+yet.
+
+A route authenticates with the access credential of its guard (the one `auth:<guard>` makes the default) unless it
+declares another. `authentication.refresh[:<guard>]` declares the refresh credential: the one the guard's refresh token
+transport reads (see [Refreshing](refreshing.md)), proven and admitted as a refresh would be, without rotating it, and
+judged against the tenant's authentication policy as a refresh judges it, without writing: a session the next refresh
+would revoke has no caller (`sso_required`), nor does one it would return to pending (`additional_factor_required`). A
+replayed refresh token revokes its session as `rotation_reuse`, as a refresh does, so a read route behind
+`authentication.refresh` can revoke one. A cookie application's route lives under its cookie's path, where the browser
+sends the cookie. `authentication.pending:<action>[,<guard>]` declares the pending credential for a pending action by
+its stable name (`mfa.verify`, `choose_principal`, ...), read from the `session.pending_credential_field` body field
+(`pending_credential`; a JSON or form body, never the query string or a header): there is a caller only while it names a
+live pending session of the guard that allows that action now, and the operation the route then takes (`satisfy()`,
+`choose()`, an adapter's action after `pending()`) makes its own checks. An action that is not a pending action is an
+`InvalidArgumentException`. Each makes a guard it names the default for the request, as `auth:<guard>` does, and records
+the declaration, nothing else: the credential is never inferred from what a request carries, so a refresh cookie that
+rides on every request does not turn a read route into one a refresh token authenticates. The package orders both before
+`SubstituteBindings` in the HTTP kernel's middleware priority once the kernel is resolved, so the declaration is in
+place before any route parameter is bound however a route lists them, also when the application sets the whole list with
+`withMiddleware()`'s `priority()`, as long as that list holds `SubstituteBindings`; one that replaces the list later
+must put `SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential` and `UsePendingCredential` before
+`SubstituteBindings` itself.
+
+The caller is read only when it is asked for, and once per request for a guard and a credential, so asking twice proves
+a refresh credential once. A refresh or pending credential the request carries and that is refused is reported once with
+`AuthenticationFailed`: flow `refresh` with the reason the refresh would give (`additional_factor_required` where the
+refresh would return the session to pending), or flow `sign_in` with `pending_invalid` or `pending_action_not_allowed`,
+never the credential; a request that carries none is not reported. A guard that is not one of the package's is a
+`LogicException`.
+
+`$caller->owns($model)` says whether a session, identity or principal model is the caller's: a session of the caller's
+guard that its identity owns and, for a refresh or a pending credential, the very session the credential proves (with
+the access credential any session of the identity on that guard, so a screen can revoke another one); the caller's
+identity; or the principal it acts as, one its pending session offers for the choice, or, for a guard that keeps
+sessions, one its identity may use the application as (`Auth::sessions()->principal()`, with the type of identifier its
+session's sign-in used, read on the write connection). Each is judged by its class and key, and any other model is not
+the caller's. It judges the model as it is given, so look the model up on the write connection
+(`Database\WriteConnection`), where a revocation or a deletion the replica has not seen yet is already visible.
+
+The package binds no route parameter and reserves no keyword: the word that means the caller's own (`me`, `self`,
+`current`), and how a model binds, are the application's. An application that wants `current` for the caller's own
+session, and every other id scoped to the caller, might bind its own:
+
+```php
+use Illuminate\Auth\AuthenticationException;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Models\Session;
+
+Route::bind('session', function (string $value): Session {
+    $caller = Auth::caller() ?? throw new AuthenticationException;
+
+    if ($value === 'current') {
+        return $caller->session instanceof Session ? $caller->session : abort(404);
+    }
+
+    $session = WriteConnection::query(Session::query())->find($value);
+
+    return $session instanceof Session && $caller->owns($session) ? $session : abort(404);
+});
+
+Route::middleware('auth:api')->get('/sessions/{session}', fn (Session $session) => $session);
+Route::middleware('authentication.refresh:api')->post('/auth/sessions/{session}', fn (Session $session) => $session);
+```
+
+A request without a caller is an `AuthenticationException`, which the package's guards answer `401` as JSON.

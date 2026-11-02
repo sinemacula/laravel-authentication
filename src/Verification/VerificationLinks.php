@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 
@@ -89,7 +90,8 @@ final readonly class VerificationLinks
      * cannot verify identifiers is a misconfiguration (`LogicException`), and
      * so is a route whose path takes a reserved name as a placeholder
      * (`InvalidArgumentException`): the link's fields must reach `consume()` in
-     * its query string.
+     * its query string. The link is a `Secret`: reveal it only into the message
+     * to the identifier it verifies.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -97,11 +99,11 @@ final readonly class VerificationLinks
      * @param  string  $route
      * @param  array<string, mixed>  $parameters
      * @param  ?int  $ttlMinutes
-     * @return string
+     * @return \SineMacula\Laravel\Authentication\Secrets\Secret
      *
      * @throws \InvalidArgumentException
      */
-    public function create(string $guard, Identity $identity, string $type, string $route, array $parameters = [], ?int $ttlMinutes = null): string
+    public function create(string $guard, Identity $identity, string $type, string $route, array $parameters = [], ?int $ttlMinutes = null): Secret
     {
         $this->guardConfig($guard);
 
@@ -136,7 +138,7 @@ final readonly class VerificationLinks
             throw new \InvalidArgumentException("Verification route [{$route}] may not use the reserved names as placeholders: " . implode(', ', $placeholders) . '.');
         }
 
-        return $link;
+        return new Secret($link);
     }
 
     /**

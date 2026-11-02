@@ -28,8 +28,9 @@ authorisation package decides what they allow.
 - Every bound context's events carry the credential's id (`credentialId`) and its scopes (`scopes`) as plain strings.
 - An API key is `<prefix>_<public>_<secret>`; only `<prefix>_<public>` (the key's public id, column `public_id`, which
   is also its OAuth client id) and the SHA-256 digest of the secret are stored, so the key exists in plaintext only in
-  the `IssuedApiKey` the issuing call returns, which holds it as a `SensitiveParameterValue` read through `key()`, so
-  no dump shows it and serialising it throws. The exchange holds a presented client secret the same way.
+  the `IssuedApiKey` the issuing call returns, whose `key()` is a `Secret` (revealed only where it is shown), so no
+  dump shows it and casting, encoding or serialising it throws. The exchange holds a presented client secret in a
+  `SensitiveParameterValue`, and its grant's access token is a `Secret` too.
 - A key belongs to one guard, one non-human identity, one principal and that principal's tenant, each of the last three
   recorded by type (morph class, else class name) and identifier, so a tenant of another type under the same identifier
   is not the key's. Every keyed operation of the service matches the principal's morph type and identifier, and the

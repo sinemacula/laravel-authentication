@@ -77,7 +77,7 @@ final class MachineCredentialRequestsTest extends TestCase
             /** @var list<string> $scopes */
             $scopes = request()->array('scopes');
 
-            return ['key' => $keys->issue($machine, $machine, $scopes)->key()];
+            return ['key' => $keys->issue($machine, $machine, $scopes)->key()->reveal()];
         });
 
         Route::post('/oauth/token', function (): array {
@@ -85,13 +85,13 @@ final class MachineCredentialRequestsTest extends TestCase
 
             $this->recordInThisRequest([ClientCredentialsGranted::class]);
 
-            return ['access' => $exchange->fromRequest()->accessToken];
+            return ['access' => $exchange->fromRequest()->accessToken?->reveal()];
         });
 
         Route::post('/sign-in', static function (): array {
             $session = Auth::sessions('api')->signIn('password', request()->only('email', 'password'))->session;
 
-            return ['access' => $session?->tokens->accessToken];
+            return ['access' => $session?->tokens->accessToken->reveal()];
         });
 
         $this->bootOctaneWorker();

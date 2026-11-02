@@ -147,7 +147,7 @@ final class EmptyApplicationIntegrationTest extends TestCase
 
         self::assertNull($this->stored($session)->getRevokedAt());
 
-        $this->bearer($session->tokens->accessToken)->assertOk()->assertExactJson(['identity' => $session->identity->getAuthIdentifier()]);
+        $this->bearer($session->tokens->accessToken->reveal())->assertOk()->assertExactJson(['identity' => $session->identity->getAuthIdentifier()]);
 
         config()->set('auth.guards.api.application', ['methods' => ['password']]);
 
@@ -214,7 +214,7 @@ final class EmptyApplicationIntegrationTest extends TestCase
     {
         Auth::forgetGuards();
 
-        return $this->postJson('/refresh', ['refresh_token' => $session->tokens->refreshToken]);
+        return $this->postJson('/refresh', ['refresh_token' => $session->tokens->refreshToken?->reveal()]);
     }
 
     /**

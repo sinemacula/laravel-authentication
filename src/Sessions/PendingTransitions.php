@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SwitchFloor;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
@@ -145,7 +146,7 @@ final readonly class PendingTransitions
 
         $this->report($session, $pending, $flow, $loaded, $values);
 
-        return new ReturnedToPending($pending, IdentifierCoercion::stringify($session->getSessionIdentifier()) . '.' . $secret);
+        return new ReturnedToPending($pending, new Secret(IdentifierCoercion::stringify($session->getSessionIdentifier()) . '.' . $secret));
     }
 
     /**

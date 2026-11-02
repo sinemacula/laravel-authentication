@@ -16,9 +16,10 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
- * Proves the session list is read from the write connection: a session the
- * primary has just revoked is no longer listed, and one the primary has just
- * created is, while the replica still holds the old state.
+ * Proves the session list, and the lookup of one session, are read from the
+ * write connection: a session the primary has just revoked is no longer listed
+ * or found, and one the primary has just created is, while the replica still
+ * holds the old state.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -97,6 +98,41 @@ final class ReplicaSessionListingTest extends TestCase
 
         self::assertSame([IdentifierCoercion::stringify($created->record->getSessionIdentifier())], $ids);
         self::assertSame(1, $listed->total());
+    }
+
+    /**
+     * One session is found as the primary holds it: the revoked session is not
+     * found and the new one is, though the replica still holds the revoked one
+     * live and lacks the new one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testFindsOneSessionAsThePrimaryHoldsIt(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->copyRowToReplica('integration_identities', $identity->getKey());
+
+        $revoked = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($revoked);
+
+        $this->copyRowToReplica('authentication_sessions', $revoked->record->getKey());
+
+        DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->update(['revoked_at' => now(), 'revoked_reason' => 'revoked']);
+
+        $created = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($created);
+        self::assertSame(1, DB::connection(self::REPLICA_CONNECTION)->table('authentication_sessions')->whereNull('revoked_at')->count());
+
+        $sessions = $this->sessions();
+        $id       = IdentifierCoercion::stringify($created->record->getSessionIdentifier());
+
+        self::assertNull($sessions->session($identity, $revoked->record->getSessionIdentifier()));
+        self::assertSame($id, $sessions->session($identity, $id)?->id);
     }
 
     /**

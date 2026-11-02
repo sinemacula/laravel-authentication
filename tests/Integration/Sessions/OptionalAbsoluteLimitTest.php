@@ -119,11 +119,11 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         self::assertNull($this->stored($session)->getAbsoluteExpiresAt());
         self::assertSame($idle->getTimestamp(), $this->stored($session)->getIdleExpiresAt()?->getTimestamp());
-        self::assertSame($idle->getTimestamp(), $this->expiryOf($session->tokens->refreshToken));
+        self::assertSame($idle->getTimestamp(), $this->expiryOf($session->tokens->refreshToken?->reveal()));
 
         $this->moveClocksTo($this->now->addDays(29));
 
-        $refreshed = $this->sessions(self::UNLIMITED)->refresh($session->tokens->refreshToken)->session;
+        $refreshed = $this->sessions(self::UNLIMITED)->refresh($session->tokens->refreshToken?->reveal())->session;
 
         self::assertNotNull($refreshed);
         self::assertNull($this->stored($session)->getAbsoluteExpiresAt());
@@ -192,7 +192,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         $this->moveClocksTo($this->now->addHour());
 
-        self::assertNotNull($this->sessions(self::UNLIMITED)->refresh($unlimited->tokens->refreshToken)->session);
+        self::assertNotNull($this->sessions(self::UNLIMITED)->refresh($unlimited->tokens->refreshToken?->reveal())->session);
         self::assertSame($deadline->getTimestamp(), $this->stored($unlimited)->getAbsoluteExpiresAt()?->getTimestamp());
         self::assertSame($deadline->getTimestamp(), $this->stored($unlimited)->getIdleExpiresAt()?->getTimestamp());
 
@@ -200,7 +200,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         Event::fake([AuthenticationFailed::class]);
 
-        self::assertNull($this->sessions(self::LIMITED)->refresh($limited->tokens->refreshToken)->session);
+        self::assertNull($this->sessions(self::LIMITED)->refresh($limited->tokens->refreshToken?->reveal())->session);
 
         Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::SESSION_EXPIRED);
     }
@@ -256,14 +256,17 @@ final class OptionalAbsoluteLimitTest extends TestCase
         self::assertSame($deadline->getTimestamp(), $early->pending->expiresAt->getTimestamp());
         self::assertSame($deadline->getTimestamp(), $early->pending->session->getAbsoluteExpiresAt()?->getTimestamp());
 
-        $session = $this->sessions(self::UNLIMITED)->satisfy($early->credential, self::adapterProof($identity, self::UNLIMITED, $early->pending->id, Purpose::SIGN_IN))->session;
+        $session = $this->sessions(self::UNLIMITED)->satisfy(
+            $early->credential->reveal(),
+            self::adapterProof($identity, self::UNLIMITED, $early->pending->id, Purpose::SIGN_IN),
+        )->session;
 
         self::assertNotNull($session);
         self::assertSame($deadline->getTimestamp(), $this->stored($session)->getAbsoluteExpiresAt()?->getTimestamp());
 
         $this->moveClocksTo($deadline);
 
-        $refused = $this->sessions(self::UNLIMITED)->satisfy($late->credential, self::adapterProof($identity, self::UNLIMITED, $late->pending->id, Purpose::SIGN_IN));
+        $refused = $this->sessions(self::UNLIMITED)->satisfy($late->credential->reveal(), self::adapterProof($identity, self::UNLIMITED, $late->pending->id, Purpose::SIGN_IN));
 
         self::assertTrue($refused->isFailed());
         self::assertSame(FailureReason::PENDING_INVALID, $refused->reason);

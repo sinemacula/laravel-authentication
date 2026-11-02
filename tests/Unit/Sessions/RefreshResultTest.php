@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
@@ -93,15 +94,16 @@ final class RefreshResultTest extends TestCase
             CarbonImmutable::now(),
             \Mockery::mock(Session::class),
         );
-        $returned = RefreshResult::pending($pending, 'session-1.secret');
-        $read     = $returned->withSource(RefreshTokenSource::COOKIE);
+        $credential = new Secret('session-1.secret');
+        $returned   = RefreshResult::pending($pending, $credential);
+        $read       = $returned->withSource(RefreshTokenSource::COOKIE);
 
         foreach ([$returned, $read] as $result) {
             self::assertTrue($result->isPending());
             self::assertFalse($result->isRefreshed());
             self::assertFalse($result->isFailed());
             self::assertSame($pending, $result->pending);
-            self::assertSame('session-1.secret', $result->credential);
+            self::assertSame($credential, $result->credential);
             self::assertNull($result->session);
             self::assertNull($result->reason);
         }
@@ -132,6 +134,12 @@ final class RefreshResultTest extends TestCase
     {
         $record = \Mockery::mock(Model::class, EloquentSession::class);
 
-        return new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $record, new TokenPair('access', 'refresh'), 'password');
+        return new SignedInSession(
+            \Mockery::mock(Identity::class),
+            \Mockery::mock(Principal::class),
+            $record,
+            new TokenPair(new Secret('access'), new Secret('refresh')),
+            'password',
+        );
     }
 }

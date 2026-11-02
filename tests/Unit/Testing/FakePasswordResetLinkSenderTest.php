@@ -10,6 +10,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Passwords\PasswordResetLink;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
@@ -109,6 +110,6 @@ final class FakePasswordResetLinkSenderTest extends TestCase
      */
     private static function link(string $identifier, string $token, string $guard = 'web'): PasswordResetLink
     {
-        return new PasswordResetLink($guard, 'email', $identifier, $token, CarbonImmutable::createStrict(2026, 10, 29, 10, 30, 0), new PlainIdentityFixture(1));
+        return new PasswordResetLink($guard, 'email', $identifier, new Secret($token), CarbonImmutable::createStrict(2026, 10, 29, 10, 30, 0), new PlainIdentityFixture(1));
     }
 }

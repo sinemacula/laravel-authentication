@@ -5,16 +5,27 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Http;
 
 use Illuminate\Config\Repository as ConfigRepository;
-use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Config\JwtGuards;
+use SineMacula\Laravel\Authentication\Http\Enums\Transport;
 
 /**
- * A guard's refresh token transport: its `refresh_token` block over the package
- * defaults in `authentication.refresh_token`.
+ * An application's refresh token transport: its guard's `refresh_token` block
+ * over the package defaults in `authentication.refresh_token`.
  *
  * A key the guard's block sets wins over the package's, inside `cookie` too.
  * Nothing falls back to a literal: a value missing at both levels where one is
  * required, a malformed value, or an unknown key fails closed with an
  * `InvalidArgumentException` naming the guard and the key.
+ *
+ * The `transport` is `body` (the body field, or the header when one is set) or
+ * `cookie`. The cookie is always host-only. Its name, unless the application
+ * sets one, is derived from the guard, so two applications on one host never
+ * share a cookie: `__Host-<guard>_refresh_token` for a cookie application on
+ * the path `/`, otherwise `__Secure-<guard>_refresh_token`. A body application
+ * derives a name too, since it refuses its own cookie when a request brings
+ * one; when its guard's name makes no cookie name and it sets none, it looks
+ * for no cookie, since it never sets one. Two cookie applications whose names
+ * are equal fail closed, naming both guards.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,28 +35,28 @@ use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 final readonly class RefreshTokenSettings
 {
     /** @var list<string> Keys of a `refresh_token` block. */
-    private const array KEYS = ['sources', 'body_field', 'header', 'cookie'];
+    private const array KEYS = ['transport', 'body_field', 'header', 'cookie'];
 
     /** @var list<string> Keys of a `refresh_token` block's `cookie` block. */
-    private const array COOKIE_KEYS = ['name', 'path', 'domain', 'allowed_origins', 'csrf_header'];
+    private const array COOKIE_KEYS = ['name', 'path', 'allowed_origins', 'csrf_header'];
 
     /** @var string A header or cookie name: an HTTP token without `.`, which PHP files as `_`, so the name would never be found. */
     private const string NAME_PATTERN = '/^[!#$%&\'*+^_`|~0-9A-Za-z-]+$/D';
 
-    /** @var string A body field: no `.` or space, which PHP files as `_` in a form body, and no bracket, which nests it. */
-    private const string FIELD_PATTERN = '/^[^\s.\[\]\x00-\x1F\x7F]+$/D';
-
     /** @var string A cookie path: starts with `/`, with no separator, space or control character. */
     private const string PATH_PATTERN = '/^\/[^;,\s\x00-\x1F\x7F]*$/D';
-
-    /** @var string A cookie domain: a host name, optionally with a leading dot. */
-    private const string DOMAIN_PATTERN = '/^\.?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$/D';
 
     /** @var string An origin: `http` or `https`, a lower-case host name or bracketed IPv6 address, and an optional port. */
     private const string ORIGIN_PATTERN = '/^https?:\/\/(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?$/D';
 
     /** @var string The prefix of a cookie a browser keeps only with `Path=/` and no `Domain`. */
     private const string HOST_PREFIX = '__Host-';
+
+    /** @var string The prefix of a cookie a browser keeps only when it was set over HTTPS with `Secure`. */
+    private const string SECURE_PREFIX = '__Secure-';
+
+    /** @var string What a derived cookie name ends with, after the guard's name. */
+    private const string DERIVED_SUFFIX = '_refresh_token';
 
     /** @var list<string> Headers a cross-site form or simple request carries unset by the page: CORS-safelisted, browser-set, or cached credentials. */
     private const array BROWSER_HEADERS = [
@@ -62,34 +73,30 @@ final readonly class RefreshTokenSettings
     /**
      * Constructor.
      *
-     * @param  list<\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource>  $sources
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
      * @param  string  $bodyField
-     * @param  string  $header
-     * @param  string  $cookieName
+     * @param  ?string  $header
+     * @param  ?string  $cookieName
      * @param  ?string  $cookiePath
-     * @param  ?string  $cookieDomain
      * @param  list<string>  $allowedOrigins
      * @param  string  $csrfHeader
      */
     public function __construct(
 
-        /** The sources a refresh token is read from. */
-        public array $sources,
+        /** How the application's refresh token travels. */
+        public Transport $transport,
 
-        /** The body field that carries the token. */
+        /** The body field that carries a body application's token. */
         public string $bodyField,
 
-        /** The header that carries the token. */
-        public string $header,
+        /** The header that may carry a body application's token instead, or `null` for the body field only. */
+        public ?string $header,
 
-        /** The name of the refresh cookie. */
-        public string $cookieName,
+        /** The name of the application's refresh cookie, or `null` for a body application whose guard's name makes none. */
+        public ?string $cookieName,
 
-        /** The path the cookie is scoped to, or `null` when the cookie is not a source. */
+        /** The path the cookie is scoped to, or `null` for a body application, which sets none. */
         public ?string $cookiePath,
-
-        /** The domain the cookie is scoped to, or `null` for the request's host only. */
-        public ?string $cookieDomain,
 
         /** Origins, besides the request's own, a cookie refresh may come from. */
         public array $allowedOrigins,
@@ -99,7 +106,8 @@ final readonly class RefreshTokenSettings
     ) {}
 
     /**
-     * Read the guard's settings from the configuration.
+     * Read the guard's settings from the configuration, and refuse a cookie
+     * application whose cookie name another cookie application uses.
      *
      * @param  string  $guard
      * @param  \Illuminate\Config\Repository  $config
@@ -114,45 +122,142 @@ final readonly class RefreshTokenSettings
         /** @var array<array-key, mixed> $cookie */
         $cookie = $settings['cookie'] ?? [];
 
-        $sources     = self::sources($guard, $settings['sources'] ?? null);
-        $readsCookie = in_array(RefreshTokenSource::COOKIE, $sources, true);
-        $name        = self::name($guard, 'cookie.name', $cookie['name'] ?? null);
-        $path        = self::path($guard, $cookie['path'] ?? null, $readsCookie);
-        $domain      = self::domain($guard, $cookie['domain'] ?? null);
-
-        self::assertHostCookie($guard, $readsCookie, $name, $path, $domain);
+        $transport = self::transport($guard, $settings['transport'] ?? null);
+        $path      = self::path($guard, $cookie['path'] ?? null, $transport === Transport::COOKIE);
+        $name      = self::cookieName($guard, $cookie['name'] ?? null, $transport, $path, $config);
 
         return new self(
-            $sources,
+            $transport,
             self::bodyField($guard, $settings['body_field'] ?? null),
-            self::name($guard, 'header', $settings['header'] ?? null),
+            self::header($guard, $settings['header'] ?? null),
             $name,
             $path,
-            $domain,
             self::origins($guard, $cookie['allowed_origins'] ?? null),
             self::csrfHeader($guard, $cookie['csrf_header'] ?? null),
         );
     }
 
     /**
-     * Reject a `__Host-` cookie a browser would not keep: one with a path other
-     * than `/`, or a domain. Only a guard that reads the cookie sets it, so a
-     * guard that does not is never held to this.
+     * The transport: `body` or `cookie`.
      *
      * @param  string  $guard
-     * @param  bool  $readsCookie
-     * @param  string  $name
+     * @param  mixed  $value
+     * @return \SineMacula\Laravel\Authentication\Http\Enums\Transport
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function transport(string $guard, mixed $value): Transport
+    {
+        return (is_string($value) ? Transport::tryFrom($value) : null)
+            ?? throw new \InvalidArgumentException(self::message($guard, 'transport', 'must be `body` or `cookie`'));
+    }
+
+    /**
+     * The cookie's name: the one the application sets, or the one derived from
+     * its guard, `__Host-` only for a cookie application on the path `/`. A
+     * cookie application needs a name: one whose guard's name makes none must
+     * set one, a `__Host-` name it sets needs that path too, or the browser
+     * would not keep the cookie, and no other cookie application may use it. A
+     * body application never sets the cookie, so when its guard's name makes
+     * none and it sets none, it looks for no cookie (`null`).
+     *
+     * @param  string  $guard
+     * @param  mixed  $value
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
      * @param  ?string  $path
-     * @param  ?string  $domain
+     * @param  \Illuminate\Config\Repository  $config
+     * @return ?string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function cookieName(string $guard, mixed $value, Transport $transport, ?string $path, ConfigRepository $config): ?string
+    {
+        if ($transport === Transport::BODY) {
+            return $value === null ? self::derivedName($guard, null) : self::name($guard, 'cookie.name', $value);
+        }
+
+        $name = $value === null ? self::derivedName($guard, $path) : self::name($guard, 'cookie.name', $value);
+
+        if ($name === null) {
+            throw new \InvalidArgumentException(self::message($guard, 'cookie.name', 'must be set: the guard\'s name does not make a cookie name'));
+        }
+
+        if (str_starts_with($name, self::HOST_PREFIX) && $path !== '/') {
+            throw new \InvalidArgumentException(self::message($guard, 'cookie.name', 'may start with `__Host-` only with `cookie.path` set to `/`'));
+        }
+
+        self::assertUniqueCookie($guard, $name, $config);
+
+        return $name;
+    }
+
+    /**
+     * The cookie name derived from the guard for a cookie on the path, or
+     * `null` when the guard's name does not make a cookie name.
+     *
+     * @param  string  $guard
+     * @param  ?string  $path
+     * @return ?string
+     */
+    private static function derivedName(string $guard, ?string $path): ?string
+    {
+        $derived = ($path === '/' ? self::HOST_PREFIX : self::SECURE_PREFIX) . $guard . self::DERIVED_SUFFIX;
+
+        return preg_match(self::NAME_PATTERN, $derived) === 1 ? $derived : null;
+    }
+
+    /**
+     * Refuse a cookie name another `jwt` guard that also travels by cookie
+     * uses, naming both guards: two applications on one host would overwrite
+     * each other's cookie. Only the other guards' `transport`, `cookie.name`
+     * and `cookie.path` are read; a value of theirs that is malformed fails
+     * when their own transport is read.
+     *
+     * @param  string  $guard
+     * @param  string  $name
+     * @param  \Illuminate\Config\Repository  $config
      * @return void
      *
      * @throws \InvalidArgumentException
      */
-    private static function assertHostCookie(string $guard, bool $readsCookie, string $name, ?string $path, ?string $domain): void
+    private static function assertUniqueCookie(string $guard, string $name, ConfigRepository $config): void
     {
-        if ($readsCookie && str_starts_with($name, self::HOST_PREFIX) && ($path !== '/' || $domain !== null)) {
-            throw new \InvalidArgumentException(self::message($guard, 'cookie.name', 'may start with `__Host-` only with `cookie.path` set to `/` and no `cookie.domain`'));
+        foreach (JwtGuards::names($config) as $other) {
+
+            if ($other !== $guard && self::cookieOf($other, $config) === $name) {
+                $message = "Refresh token transport for guard [{$guard}]: its refresh cookie `{$name}` is also guard [{$other}]'s;"
+                    . ' give one of them another `refresh_token.cookie.name`.';
+
+                throw new \InvalidArgumentException($message);
+            }
         }
+    }
+
+    /**
+     * The cookie name a guard that travels by cookie uses, read leniently from
+     * its `transport`, `cookie.name` and `cookie.path`, or `null` for a guard
+     * that does not.
+     *
+     * @param  string  $guard
+     * @param  \Illuminate\Config\Repository  $config
+     * @return ?string
+     */
+    private static function cookieOf(string $guard, ConfigRepository $config): ?string
+    {
+        $read = static fn (string $key): mixed => $config->get("auth.guards.{$guard}.refresh_token.{$key}", $config->get("authentication.refresh_token.{$key}"));
+
+        if ($read('transport') !== Transport::COOKIE->value) {
+            return null;
+        }
+
+        $name = $read('cookie.name');
+        $path = $read('cookie.path');
+
+        if (is_string($name)) {
+            return $name;
+        }
+
+        return self::derivedName($guard, is_string($path) ? $path : null);
     }
 
     /**
@@ -211,28 +316,6 @@ final readonly class RefreshTokenSettings
     }
 
     /**
-     * The sources: a non-empty list of distinct source names.
-     *
-     * @param  string  $guard
-     * @param  mixed  $value
-     * @return list<\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource>
-     *
-     * @throws \InvalidArgumentException
-     */
-    private static function sources(string $guard, mixed $value): array
-    {
-        $names   = is_array($value) && array_is_list($value) ? $value : [];
-        $sources = array_map(static fn (mixed $source): ?RefreshTokenSource => RefreshTokenSource::tryFrom(is_string($source) ? $source : ''), $names);
-
-        if ($sources === [] || in_array(null, $sources, true) || count(array_unique(array_column($sources, 'value'))) !== count($sources)) {
-            throw new \InvalidArgumentException(self::message($guard, 'sources', 'must be a non-empty list of distinct sources: cookie, body, header'));
-        }
-
-        /** @var list<\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource> $sources */
-        return $sources;
-    }
-
-    /**
      * The body field: a name PHP keeps as it is in a form body.
      *
      * @param  string  $guard
@@ -243,7 +326,7 @@ final readonly class RefreshTokenSettings
      */
     private static function bodyField(string $guard, mixed $value): string
     {
-        if (!is_string($value) || preg_match(self::FIELD_PATTERN, $value) !== 1) {
+        if (!RequestBody::isFieldName($value)) {
             throw new \InvalidArgumentException(self::message($guard, 'body_field', 'must be a field name without `.`, spaces or brackets'));
         }
 
@@ -295,8 +378,22 @@ final readonly class RefreshTokenSettings
     }
 
     /**
-     * The cookie path: required when the cookie is a source, and a path when
-     * set.
+     * The header that may carry a body application's token: `null` for the body
+     * field only, or a header name PHP keeps as it is.
+     *
+     * @param  string  $guard
+     * @param  mixed  $value
+     * @return ?string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function header(string $guard, mixed $value): ?string
+    {
+        return $value === null ? null : self::name($guard, 'header', $value);
+    }
+
+    /**
+     * The cookie path: required for a cookie application, and a path when set.
      *
      * @param  string  $guard
      * @param  mixed  $value
@@ -312,25 +409,7 @@ final readonly class RefreshTokenSettings
         }
 
         if (!is_string($value) || preg_match(self::PATH_PATTERN, $value) !== 1) {
-            throw new \InvalidArgumentException(self::message($guard, 'cookie.path', 'must be the path of the refresh route, starting with `/`, when the cookie is a source'));
-        }
-
-        return $value;
-    }
-
-    /**
-     * The cookie domain: `null` for the request's host only, or a host name.
-     *
-     * @param  string  $guard
-     * @param  mixed  $value
-     * @return ?string
-     *
-     * @throws \InvalidArgumentException
-     */
-    private static function domain(string $guard, mixed $value): ?string
-    {
-        if ($value !== null && (!is_string($value) || preg_match(self::DOMAIN_PATTERN, $value) !== 1)) {
-            throw new \InvalidArgumentException(self::message($guard, 'cookie.domain', 'must be null or a host name'));
+            throw new \InvalidArgumentException(self::message($guard, 'cookie.path', 'must be the path of the refresh route, starting with `/`, for a cookie application'));
         }
 
         return $value;

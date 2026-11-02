@@ -207,7 +207,7 @@ final class CodeRoutesTest extends TestCase
     {
         $identity = self::seedCodeIdentity(email: null, verified: false);
 
-        $access = Auth::sessions('mobile')->start($identity, null, 'phone_code')->session?->tokens->accessToken;
+        $access = Auth::sessions('mobile')->start($identity, null, 'phone_code')->session?->tokens->accessToken->reveal();
 
         self::assertIsString($access);
 
@@ -284,8 +284,8 @@ final class CodeRoutesTest extends TestCase
         abort_unless($result->isSignedIn(), 401);
 
         return [
-            'access_token'  => $result->session?->tokens->accessToken,
-            'refresh_token' => $result->session?->tokens->refreshToken,
+            'access_token'  => $result->session?->tokens->accessToken->reveal(),
+            'refresh_token' => $result->session?->tokens->refreshToken?->reveal(),
         ];
     }
 

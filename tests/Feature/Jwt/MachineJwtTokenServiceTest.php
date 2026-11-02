@@ -92,7 +92,7 @@ final class MachineJwtTokenServiceTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage(self::REFUSAL);
 
-        $this->tokens()->issueAccessToken($machine, $machine, null, null);
+        $this->tokens()->issueAccessToken($machine, $machine, null, null)->reveal();
     }
 
     /**
@@ -109,7 +109,7 @@ final class MachineJwtTokenServiceTest extends TestCase
 
         foreach ([[self::record(MachineClient::class), null], [$human, $machine]] as [$session, $principal]) {
             try {
-                $tokens->issueRefreshToken($session, 'rotation-id', $principal);
+                $tokens->issueRefreshToken($session, 'rotation-id', $principal)->reveal();
 
                 self::fail('Expected the token service to refuse the machine.');
             } catch (\LogicException $exception) {
@@ -122,8 +122,8 @@ final class MachineJwtTokenServiceTest extends TestCase
         $plain->shouldReceive('getIdleExpiresAt')->andReturn(CarbonImmutable::now()->addDay());
         $plain->shouldReceive('getAbsoluteExpiresAt')->andReturn(CarbonImmutable::now()->addDays(2));
 
-        self::assertNotSame('', $tokens->issueRefreshToken($human, 'rotation-id', (new IntegrationIdentity)->forceFill(['id' => 7])));
-        self::assertNotSame('', $tokens->issueRefreshToken($plain, 'rotation-id'));
+        self::assertNotSame('', $tokens->issueRefreshToken($human, 'rotation-id', (new IntegrationIdentity)->forceFill(['id' => 7]))->reveal());
+        self::assertNotSame('', $tokens->issueRefreshToken($plain, 'rotation-id')->reveal());
     }
 
     /**
@@ -140,7 +140,7 @@ final class MachineJwtTokenServiceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Cannot issue a token for a session that has ended or that has no idle deadline.');
 
-        $this->tokens()->issueRefreshToken($session, 'rotation-id');
+        $this->tokens()->issueRefreshToken($session, 'rotation-id')->reveal();
     }
 
     /**
@@ -159,7 +159,7 @@ final class MachineJwtTokenServiceTest extends TestCase
         $machine = self::machine();
         $now     = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
 
-        $claims = $tokens->parse($tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, ['read', 'write', 'read'], null, $now->addMilliseconds(400)));
+        $claims = $tokens->parse($tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, ['read', 'write', 'read'], null, $now->addMilliseconds(400))->reveal());
 
         self::assertNotNull($claims);
         self::assertSame(self::KEY_ID, $claims[Claims::CREDENTIAL_ID->value]);
@@ -172,7 +172,7 @@ final class MachineJwtTokenServiceTest extends TestCase
         self::assertSame($now->getTimestamp(), $claims[Claims::ISSUED_AT->value]);
         self::assertSame($now->addMinutes(15)->getTimestamp(), $claims[Claims::EXPIRES_AT->value]);
 
-        $bounded = $tokens->parse($tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, [], $now->addMinutes(2), $now));
+        $bounded = $tokens->parse($tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, [], $now->addMinutes(2), $now)->reveal());
 
         self::assertNotNull($bounded);
         self::assertSame('', $bounded[Claims::SCOPE->value]);
@@ -193,8 +193,8 @@ final class MachineJwtTokenServiceTest extends TestCase
         $machine = self::machine();
         $now     = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
 
-        $pastBound = static fn (): string => $tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, [], $now, $now->addMilliseconds(999));
-        $notUuid   = static fn (): string => $tokens->issueClientAccessToken($machine, $machine, null, 'key-1', []);
+        $pastBound = static fn (): string => $tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, [], $now, $now->addMilliseconds(999))->reveal();
+        $notUuid   = static fn (): string => $tokens->issueClientAccessToken($machine, $machine, null, 'key-1', [])->reveal();
         $refusals  = [
             'Cannot issue a token whose latest expiry is not after its issue time.'                           => $pastBound,
             'Cannot issue a client credentials token without its `cid` claim: the API key id must be a UUID.' => $notUuid,
@@ -212,7 +212,7 @@ final class MachineJwtTokenServiceTest extends TestCase
 
         $this->expectException(InvalidScopeException::class);
 
-        $tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, ['a b']);
+        $tokens->issueClientAccessToken($machine, $machine, null, self::KEY_ID, ['a b'])->reveal();
     }
 
     /**

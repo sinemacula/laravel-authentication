@@ -69,6 +69,13 @@ return [
     | session that falls short of a further factor during a refresh or a switch
     | returns to pending with a new credential of the same lifetime.
     |
+    | A route that authenticates with the pending credential
+    | (`authentication.pending:<action>`) has `Auth::caller()` read it from
+    | the body field `pending_credential_field` (a JSON or form body, never
+    | the query string or a header): a field name without `.`, spaces or
+    | brackets; anything else fails closed when the caller is read, and
+    | `authentication:check` reports it.
+    |
     | `table` may be up to 47 characters: the migration names its indexes
     | after it (`<table>_owner_index` and so on), and PostgreSQL cuts a longer
     | index name short.
@@ -79,6 +86,7 @@ return [
         'model'                      => env('AUTHENTICATION_SESSION_MODEL', Session::class),
         'table'                      => env('AUTHENTICATION_SESSION_TABLE', 'authentication_sessions'),
         'pending_ttl_seconds'        => env('AUTHENTICATION_SESSION_PENDING_TTL_SECONDS', 300),
+        'pending_credential_field'   => env('AUTHENTICATION_SESSION_PENDING_CREDENTIAL_FIELD', 'pending_credential'),
         'last_used_throttle_seconds' => (int) env('AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS', 60),
         'prune_after_days'           => env('AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS', 30),
     ],
@@ -409,41 +417,48 @@ return [
     | Refresh token transport
     |---------------------------------------------------------------------------
     |
-    | Where `Auth::sessions()->refreshFromRequest()` reads a refresh token from:
-    | any of `cookie`, `body` (`body_field` of the JSON or form body, never the
-    | query string) and `header`. Only the listed sources are read, and a
-    | request that carries a token in more than one of them, or the cookie
-    | twice, is refused (`refresh_token_conflict`), so the cookie's cross-site
-    | checks cannot be side-stepped by also sending the token another way. A
-    | token read from the cookie must come with an `Origin` that is the
-    | request's own or one of `allowed_origins` (each exactly
-    | `scheme://host[:port]`, in lower case) and a non-empty `csrf_header`
-    | header (a custom one: a header a browser sends on its own is refused),
-    | else `cross_site_request`. The cookie's `path`, the path the sign-in,
-    | refresh and switch routes live under, is required when the cookie is a
-    | source; `domain` is `null` for the request's host only. A `__Host-` name
-    | needs the `path` `/` and no `domain` on a guard that reads the cookie.
-    | Names PHP renames in a request are refused: a `.` in a header or cookie
-    | name, and a `.`, a space or a bracket in `body_field`.
-    | `Auth::refreshTransport($guard)->cookie()` makes the cookie (`HttpOnly`,
-    | `Secure`, `SameSite=Strict`, expiring with the session) and
-    | `forgetCookie()` the one that clears it. A guard overrides any key in a
-    | `refresh_token` block on its `config/auth.php` entry, where a key that is
-    | present wins, inside `cookie` too. A malformed value or an unknown key
-    | fails closed with an `InvalidArgumentException` naming the guard and the
-    | key.
+    | How each application's refresh token travels: `transport` is `body` (the
+    | `body_field` of the JSON or form body, never the query string, or the
+    | `header` when one is set; `null` for the body field only) or `cookie` (an
+    | `HttpOnly` cookie only, for a browser application, which no script can
+    | read). A sign-in, refresh, switch or activation of a cookie application
+    | never hands its result the refresh token: its pair carries a
+    | `RefreshCookie` to attach instead. Every request is read in all three
+    | carriers whatever the transport: a token in more than one of them, or the
+    | cookie twice, is refused (`refresh_token_conflict`), and one in a carrier
+    | that is not the application's transport is refused
+    | (`refresh_transport_mismatch`), so the cookie's cross-site checks cannot
+    | be side-stepped by sending the token another way. A token read from the
+    | cookie must come with an `Origin` that is the request's own or one of
+    | `allowed_origins` (each exactly `scheme://host[:port]`, in lower case) and
+    | a non-empty `csrf_header` header (a custom one: a header a browser sends
+    | on its own is refused), else `cross_site_request`. The cookie is host-only
+    | (no `Domain`). Its `name` is the application's own:
+    | `__Host-<guard>_refresh_token` for a cookie application whose `path` is
+    | `/`, otherwise `__Secure-<guard>_refresh_token`, unless a name is set (a
+    | cookie application whose guard name makes no cookie name needs one; a body
+    | application with such a name looks for no cookie); two cookie applications
+    | with the same name fail closed. The `path`, the path every route that
+    | reads the cookie lives under (sign-in, refresh, switch, the logout route
+    | that signs out by it, and every `authentication.refresh` route), is
+    | required for a cookie application, and a `__Host-` name needs it to be
+    | `/`. Names PHP renames in a request are refused: a `.` in a header or
+    | cookie name, and a `.`, a space or a bracket in `body_field`. A guard
+    | overrides any key in a `refresh_token` block on its `config/auth.php`
+    | entry, where a key that is present wins, inside `cookie` too. A malformed
+    | value or an unknown key fails closed with an `InvalidArgumentException`
+    | naming the guard and the key, and `authentication:check` reports it.
     |
     */
 
     'refresh_token' => [
-        'sources'    => ['body', 'header'],
+        'transport'  => 'body',
         'body_field' => 'refresh_token',
         'header'     => 'X-Refresh-Token',
 
         'cookie' => [
-            'name'            => '__Secure-refresh_token',
+            'name'            => null,
             'path'            => null,
-            'domain'          => null,
             'allowed_origins' => [],
             'csrf_header'     => 'X-Requested-With',
         ],

@@ -301,7 +301,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     {
         $identity = self::seedChangeable();
         $changes  = Auth::identifierChanges('web');
-        $link     = (string) $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'confirm')->link();
+        $link     = (string) $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'confirm')->link()?->reveal();
 
         $outcome = $this->assertQueryBudget(5, 3, static fn (): IdentifierChangeOutcome => $changes->confirmByLink(Request::create($link)));
 

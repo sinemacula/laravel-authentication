@@ -27,6 +27,10 @@ enum AuthenticationFlow: string
     // the session service's switchTo() and switchFromRequest()
     case SWITCH = 'switch';
 
+    // A sign-out by refresh credential: the session service's
+    // signOutFromRequest() and signOutWith()
+    case SIGN_OUT = 'sign_out';
+
     // A request for a one-time code: a sign-in code or an identifier
     // verification code
     case CODE_REQUEST = 'code_request';

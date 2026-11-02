@@ -82,7 +82,7 @@ final class MachineInteractsWithAuthenticationContextTest extends TestCase
 
         $this->stopActing();
 
-        $this->withToken($issued->key())->getJson('/machine/me')->assertOk()->assertJsonPath('scopes', ['reports:read']);
+        $this->withToken($issued->key()->reveal())->getJson('/machine/me')->assertOk()->assertJsonPath('scopes', ['reports:read']);
 
         $this->assertBoundIdentity($robot)->assertBoundScopes(['reports:read']);
     }

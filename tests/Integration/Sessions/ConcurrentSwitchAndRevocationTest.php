@@ -191,7 +191,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
 
             [, $second] = $this->race(
                 fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target))),
                 $commit,
             );
 
@@ -231,8 +231,8 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
             $session = $this->signIn($first);
 
             [$refreshed, $second] = $this->race(
-                fn (): bool => self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken)->isRefreshed(),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
+                fn (): bool => self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken?->reveal())->isRefreshed(),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target))),
                 $commit,
             );
 
@@ -276,8 +276,8 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
             $session = $this->signIn($default);
 
             [$first, $second] = $this->race(
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken, SwitchTarget::principal($target))),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target))),
+                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target))),
                 $commit,
             );
 

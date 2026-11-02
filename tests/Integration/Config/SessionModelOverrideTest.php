@@ -162,15 +162,15 @@ final class SessionModelOverrideTest extends TestCase
 
         $jwtService = PackageAuth::jwt('custom-jwt');
 
-        $refreshToken = $jwtService->issueRefreshToken($session, $plainRotationId);
+        $refreshToken = $jwtService->issueRefreshToken($session, $plainRotationId)->reveal();
 
         $guard = $this->makeJwtGuard();
 
         $result = GuardSessions::of($guard)->refresh($refreshToken)->session?->tokens;
 
         self::assertInstanceOf(TokenPair::class, $result);
-        self::assertNotSame('', $result->accessToken);
-        self::assertNotSame('', $result->refreshToken);
+        self::assertNotSame('', $result->accessToken->reveal());
+        self::assertNotSame('', $result->refreshToken?->reveal());
         self::assertInstanceOf($this->customModel, $guard->session());
     }
 

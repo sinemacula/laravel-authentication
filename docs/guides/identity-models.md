@@ -300,8 +300,9 @@ use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 
-// Send it: a signed link to your route, valid for `verification.link_ttl_minutes` (60 by default).
-$url = app(VerificationLinks::class)->create('api', $user, 'email', 'verification.verify');
+// Send it: a signed link to your route, valid for `verification.link_ttl_minutes` (60 by default), held as a
+// Secret until you reveal it into the message.
+$url = app(VerificationLinks::class)->create('api', $user, 'email', 'verification.verify')->reveal();
 
 // Your route: verified, already_verified, mismatch, invalid or expired.
 Route::get('/verify-email', function (Request $request, VerificationLinks $links) {

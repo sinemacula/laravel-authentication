@@ -88,6 +88,7 @@ principals on one guard. Issue keys through the guard's key service, `Auth::apiK
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 $issued = Auth::apiKeys('machine')->issue(
     identity: $client,                 // a MachineIdentity
@@ -97,23 +98,26 @@ $issued = Auth::apiKeys('machine')->issue(
     expiresAt: now()->addYear(),       // optional; never expires without it
 );
 
-$issued->key();    // ak_k3j9x0m2p8q4r7t1_9fJ2kL8mN3pQ7rS1tV5wX0yZ4aB6cD8eF2gH4iJ6 - show it once
+$issued->key();    // a Secret: reveal() gives ak_k3j9x0m2p8q4r7t1_9fJ2kL8mN3pQ7rS1tV5wX0yZ4aB6cD8eF2gH4iJ6 - show it once
 $issued->summary;  // ApiKeySummary: id, public id, guard, name, scopes, expiry, last use, rotation, revocation
+
+return SecretResponse::json(['key' => $issued->key(), 'summary' => $issued->summary->toArray()], 201);
 ```
 
 A key is `<prefix>_<public>_<secret>`: the configured prefix (`ak` by default), 16 random lower-case letters or digits,
 and a 40-character random secret. Only `<prefix>_<public>` (the summary's `publicId`) and the SHA-256 digest of the
 secret are stored, so the key is shown once and cannot be shown again; a secret of about 238 bits needs no password hash
-to resist guessing. `IssuedApiKey` holds the key as a `SensitiveParameterValue`, so no dump of it (`dump()`, `print_r`,
-`var_export`) shows the key, and serialising it throws. The principal must be one the identity acts as on the guard
-(resolved through the guard's principal resolver, as a pinned principal is) and one the application admits; the key
-records the identity, the principal and the principal's tenant, each by type and identifier, and the guard, and
-authenticates only as them, on that guard. A tenant's type is its morph class, or its class name when it is not an
-Eloquent model, so a tenant of another type that shares the identifier is not the recorded one. A malformed or past
-expiry, a principal the identity does not act as or the application does not admit, a name that is empty, longer than
-255 characters, not valid UTF-8 or holds a NUL byte, and a malformed or rejected scope (see
-[Credential scopes](#credential-scopes)) are each an `InvalidArgumentException`: issuing is a trusted, programmatic
-action.
+to resist guessing. `IssuedApiKey` holds the key as a `Secret` (see [Secrets in
+responses](signing-in.md#secrets-in-responses)), so no dump of it (`dump()`, `print_r`, `var_export`) shows the key,
+casting, encoding or serialising it throws, and `SecretResponse::json()` reveals it into a response that is never
+stored. The principal must be one the identity acts as on the guard (resolved through the guard's principal resolver, as
+a pinned principal is) and one the application admits; the key records the identity, the principal and the principal's
+tenant, each by type and identifier, and the guard, and authenticates only as them, on that guard. A tenant's type is
+its morph class, or its class name when it is not an Eloquent model, so a tenant of another type that shares the
+identifier is not the recorded one. A malformed or past expiry, a principal the identity does not act as or the
+application does not admit, a name that is empty, longer than 255 characters, not valid UTF-8 or holds a NUL byte, and a
+malformed or rejected scope (see [Credential scopes](#credential-scopes)) are each an `InvalidArgumentException`:
+issuing is a trusted, programmatic action.
 
 A request presents the key as a bearer credential, `Authorization: Bearer <key>`, on a route the guard protects
 (`auth:machine`). The guard reads the key's public part with one indexed lookup on the write connection, compares the
@@ -211,9 +215,11 @@ the client authenticated with HTTP Basic (`client_id:client_secret`, each form-u
 `client_secret` in the body, never both. A parameter in the query string, given twice or not a string is refused
 rather than ignored, so a credential in a URL never works. `exchange($clientId, $clientSecret, $scope)` does the same
 for a client id and secret your code read itself. The result is `Responsable`, answered with `Cache-Control: no-store`
-and `Pragma: no-cache`, or read with `isGranted()`, `accessToken`, `expiresIn`, `scopes`, `error` and `reason`. Its
-`toArray()` and JSON form are the response body alone, so `reason`, which only your code and the event should see, never
-reaches a client however you encode the result:
+and `Pragma: no-cache`, or read with `isGranted()`, `accessToken` (a `Secret`), `expiresIn`, `scopes`, `error` and
+`reason`. Its `toArray()` is the response body alone with the token revealed, for a response you build yourself and must
+not let be stored; a granted result encoded as JSON any other way (`json_encode()`, `response()->json()`) throws
+`SecretNotRevealedException` rather than send the token without `no-store`, and a failed one encodes as its error body.
+Either way `reason`, which only your code and the event should see, never reaches a client:
 
 | Outcome                                                                                 | Response                       |
 |-----------------------------------------------------------------------------------------|--------------------------------|

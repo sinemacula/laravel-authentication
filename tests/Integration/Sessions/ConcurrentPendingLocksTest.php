@@ -306,7 +306,7 @@ final class ConcurrentPendingLocksTest extends TestCase
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
 
-        return [$result->credential, self::adapterProof($result->pending->identity, self::GUARD, $result->pending->id, Purpose::SIGN_IN)];
+        return [$result->credential->reveal(), self::adapterProof($result->pending->identity, self::GUARD, $result->pending->id, Purpose::SIGN_IN)];
     }
 
     /**

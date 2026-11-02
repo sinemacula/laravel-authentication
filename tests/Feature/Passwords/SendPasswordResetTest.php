@@ -80,7 +80,7 @@ final class SendPasswordResetTest extends TestCase
 
         (new SendPasswordReset($binding, $second))->handle(app());
 
-        self::assertSame($second->code, $this->links->lastTokenFor(self::EMAIL));
+        self::assertSame($second->code(), $this->links->lastTokenFor(self::EMAIL));
     }
 
     /**
@@ -167,7 +167,7 @@ final class SendPasswordResetTest extends TestCase
 
         self::assertNotNull($link);
         self::assertSame(1, $this->links->count());
-        self::assertSame(['web', $job->issued->code], [$link->guard, $link->token()]);
+        self::assertSame(['web', $job->issued->code()], [$link->guard, $link->token()->reveal()]);
         self::assertTrue($identity->is($link->identity));
     }
 

@@ -58,7 +58,7 @@ final readonly class ProvenIdentitySignIn implements SignInMethod
     #[\Override]
     public function authenticate(SignInRequest $request): FailureReason|FirstFactor
     {
-        $email    = $this->identifier($request->guard, $request->input);
+        $email    = $this->identifier($request->guard, $request->input());
         $identity = $email === null ? null : $request->provider->retrieveByCredentials(['email' => $email]);
 
         return $identity instanceof Identity ? new FirstFactor($identity, new Channel(ChannelKind::UNKNOWN)) : FailureReason::INVALID_CREDENTIALS;

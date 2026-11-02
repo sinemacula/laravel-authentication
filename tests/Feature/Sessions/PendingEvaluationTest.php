@@ -7,6 +7,8 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -16,6 +18,7 @@ use SineMacula\Laravel\Authentication\Applications\AdmitAnyPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -37,6 +40,7 @@ use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
@@ -297,6 +301,153 @@ final class PendingEvaluationTest extends TestCase
         $evaluation = new PendingEvaluation($this->freshGuard()->setPrincipalResolver($resolver)->context(), app());
 
         self::assertSame([[], null], $evaluation->principals($identity));
+    }
+
+    /**
+     * One principal is found by its identifier exactly when the list holds it:
+     * each of the identity's admitted principals is found as the very principal
+     * listed, another identity's is not, one whose tenant went inactive or that
+     * the application access refuses drops out of both, and with an identifier
+     * type the policy refuses none is found.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnePrincipalIsFoundExactlyWhenTheListHoldsIt(): void
+    {
+        [$member, $first, $second] = $this->seedChooser();
+
+        $stranger = ChoosingMember::query()->create(['email' => 'stranger@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+        $foreign  = ChoosingMembership::query()->create(['identity_id' => $stranger->getKey(), 'tenant_id' => $first->tenant_id]);
+
+        $agrees = function (string $state, ?string $identifierType = null) use ($member, $first, $second, $foreign): void {
+
+            $evaluation = $this->evaluation(self::CHOOSERS);
+            $listed     = array_map(static fn (Principal $principal): mixed => $principal->getPrincipalIdentifier(), $evaluation->principals($member, $identifierType)[0]);
+
+            foreach ([$first, $second, $foreign] as $membership) {
+
+                $found = $evaluation->principal($member, $membership->getKey(), $identifierType);
+
+                self::assertSame(in_array($membership->getKey(), $listed, true), $found !== null, $state);
+                self::assertTrue($found === null || ($found instanceof ChoosingMembership && $found->is($membership)), $state);
+            }
+
+            self::assertNull($evaluation->principal($member, 'unknown', $identifierType), $state);
+        };
+
+        $agrees('all admitted');
+
+        self::assertNotNull($this->evaluation(self::CHOOSERS)->principal($member, IdentifierCoercion::stringify($first->getKey())));
+
+        ActivatableTenant::query()->whereKey($first->tenant_id)->update(['is_active' => false]);
+
+        $agrees('the first tenant inactive');
+
+        $refuses = static fn (string $application, mixed $principal): bool => $principal instanceof ChoosingMembership && $principal->is($second);
+
+        app()->instance(ApplicationAccess::class, new RefusingApplicationAccess($refuses));
+
+        $agrees('the second refused');
+
+        self::assertNull($this->evaluation(self::CHOOSERS)->principal($member, $second->getKey()));
+
+        ActivatableTenant::query()->whereKey($first->tenant_id)->update(['is_active' => true]);
+
+        $this->refuseIdentifiers();
+
+        $agrees('the identifier type refused', 'email');
+
+        self::assertNull($this->evaluation(self::CHOOSERS)->principal($member, $first->getKey(), 'email'));
+        self::assertNotNull($this->evaluation(self::CHOOSERS)->principal($member, $first->getKey()));
+    }
+
+    /**
+     * Without an identifier type the identity is not held to one, as the list
+     * does not hold it: a policy that refuses every identifier, even none, is
+     * asked only when a type is given.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testWithoutAnIdentifierTypeTheIdentityIsNotHeldToOne(): void
+    {
+        [$member, $first] = $this->seedChooser();
+
+        $evaluation = $this->evaluation(self::CHOOSERS);
+        $policy     = \Mockery::mock(ApplicationPolicy::class);
+
+        $policy->shouldReceive('admitIdentifier')->once()->with(self::CHOOSERS, $member, 'email')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
+        $policy->shouldReceive('admitIdentifier')->with(self::CHOOSERS, $member, null)->never();
+
+        app()->instance(ApplicationPolicy::class, $policy);
+
+        self::assertSame($first->getKey(), $evaluation->principal($member, $first->getKey())?->getPrincipalIdentifier());
+        self::assertNull($evaluation->principal($member, $first->getKey(), 'email'));
+    }
+
+    /**
+     * Two of the identity's principals that share the identifier name no one
+     * principal, so neither is found, and neither is asked whether it may use
+     * the application; one with an identifier of its own still is.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTwoPrincipalsSharingTheIdentifierNameNone(): void
+    {
+        $twin    = \Mockery::mock(Principal::class);
+        $other   = \Mockery::mock(Principal::class);
+        $unique  = \Mockery::mock(Principal::class);
+        $access  = \Mockery::mock(ApplicationAccess::class);
+        $query   = \Mockery::mock(EloquentBuilder::class);
+        $members = \Mockery::mock(Identity::class, HasPrincipals::class);
+
+        $twin->shouldReceive('getPrincipalIdentifier')->andReturn('shared');
+        $other->shouldReceive('getPrincipalIdentifier')->andReturn('shared');
+        $unique->shouldReceive('getPrincipalIdentifier')->andReturn('unique');
+        $unique->shouldReceive('getTenant')->andReturnNull();
+        $query->shouldReceive('useWritePdo')->andReturnSelf();
+        $query->shouldReceive('get')->andReturn(new Collection([$twin, 'not a principal', $other, $unique]));
+        $members->shouldReceive('principals')->andReturn($query);
+        $access->shouldReceive('mayUse')->once()->with('api', $unique)->andReturnTrue();
+
+        app()->instance(ApplicationAccess::class, $access);
+
+        self::assertNull($this->evaluation()->principal($members, 'shared'));
+        self::assertSame($unique, $this->evaluation()->principal($members, 'unique'));
+    }
+
+    /**
+     * An identity that is its own principal is found through the resolver's
+     * default, never its hinted path, which an application's resolver may
+     * answer differently: only the default principal's own identifier finds it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityThatIsItsOwnPrincipalIsFoundThroughTheResolversDefault(): void
+    {
+        $identity = $this->seedIdentity();
+        $other    = $this->seedIdentity('grace@example.test');
+        $resolver = \Mockery::mock(PrincipalResolver::class);
+
+        $resolver->shouldReceive('resolve')->with($identity)->andReturn($identity);
+        $resolver->shouldReceive('resolve')->with($identity, \Mockery::any())->never();
+
+        $evaluation = new PendingEvaluation($this->freshGuard()->setPrincipalResolver($resolver)->context(), app());
+
+        self::assertSame($identity, $evaluation->principal($identity, $identity->getKey()));
+        self::assertSame($identity, $evaluation->principal($identity, IdentifierCoercion::stringify($identity->getKey())));
+        self::assertNull($evaluation->principal($identity, $other->getKey()));
+
+        $identity->is_active = false;
+
+        self::assertNull($evaluation->principal($identity, $identity->getKey()));
     }
 
     /**

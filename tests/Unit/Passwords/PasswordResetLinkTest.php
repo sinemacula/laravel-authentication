@@ -7,7 +7,9 @@ namespace Tests\Unit\Passwords;
 use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Exceptions\SecretNotRevealedException;
 use SineMacula\Laravel\Authentication\Passwords\PasswordResetLink;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use Symfony\Component\VarDumper\Cloner\VarCloner;
 use Symfony\Component\VarDumper\Dumper\CliDumper;
 use Tests\Unit\Stubs\PlainIdentityFixture;
@@ -26,9 +28,9 @@ final class PasswordResetLinkTest extends TestCase
 {
     /**
      * The link carries its guard, type, destination, expiry and identity, and
-     * the token through `token()`; no dump shows the token (Laravel's
-     * VarDumper, `print_r`, `var_export`), `json_encode()` leaves it out,
-     * serialising throws, and the constructor's parameter is sensitive.
+     * the token through `token()`, as a secret; no dump shows the token
+     * (Laravel's VarDumper, `print_r`, `var_export`), `json_encode()` leaves it
+     * out, serialising throws, and the destination is a sensitive parameter.
      *
      * @return void
      */
@@ -37,9 +39,9 @@ final class PasswordResetLinkTest extends TestCase
         $token     = str_repeat('Tk_-', 10) . 'abc';
         $expiresAt = CarbonImmutable::createStrict(2026, 10, 29, 10, 30, 0);
         $identity  = new PlainIdentityFixture(7);
-        $link      = new PasswordResetLink('web', 'email', 'ada@example.test', $token, $expiresAt, $identity);
+        $link      = new PasswordResetLink('web', 'email', 'ada@example.test', new Secret($token), $expiresAt, $identity);
 
-        self::assertSame(['web', 'email', 'ada@example.test', $token], [$link->guard, $link->type, $link->identifier, $link->token()]);
+        self::assertSame(['web', 'email', 'ada@example.test', $token], [$link->guard, $link->type, $link->identifier, $link->token()->reveal()]);
         self::assertSame([$expiresAt, $identity], [$link->expiresAt, $link->identity]);
 
         $dumps = [
@@ -54,11 +56,9 @@ final class PasswordResetLinkTest extends TestCase
             self::assertStringContainsString('ada@example.test', $dumped);
         }
 
-        foreach (['identifier', 'token'] as $name) {
-            self::assertNotSame([], (new \ReflectionParameter([PasswordResetLink::class, '__construct'], $name))->getAttributes(\SensitiveParameter::class));
-        }
+        self::assertNotSame([], (new \ReflectionParameter([PasswordResetLink::class, '__construct'], 'identifier'))->getAttributes(\SensitiveParameter::class));
 
-        $this->expectExceptionMessage('Serialization of \'SensitiveParameterValue\' is not allowed');
+        $this->expectException(SecretNotRevealedException::class);
 
         serialize($link);
     }

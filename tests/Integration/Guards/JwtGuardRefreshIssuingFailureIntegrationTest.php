@@ -151,7 +151,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
-        return [$identity, $session, $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID)];
+        return [$identity, $session, $this->authManager()->jwt('api')->issueRefreshToken($session, self::ROTATION_ID)->reveal()];
     }
 
     /**

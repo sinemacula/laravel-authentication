@@ -133,7 +133,8 @@ Route::middleware('auth:api')->post('/email/change/link', function (Request $req
     $result = Auth::identifierChanges('api')->requestByLink(Auth::identity(), 'email', $input['email'], Reauthentication::password($input['password']), 'email.change.confirm');
 
     if ($result->isSent()) {
-        Mail::to($input['email'])->send(new ConfirmNewEmailAddress($result->link()));
+        // The link is a Secret: reveal it only into the message to the new address.
+        Mail::to($input['email'])->send(new ConfirmNewEmailAddress($result->link()->reveal()));
     }
 
     return response()->json(['status' => $result->status->value], $result->isSent() ? 202 : 422);

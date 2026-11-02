@@ -11,6 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use Tests\Unit\Stubs\StubSession;
 
 /**
@@ -45,7 +46,7 @@ final class ExchangedRefreshTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
 
         $session = new StubSession;
-        $tokens  = new TokenPair('access-token', 'refresh-token');
+        $tokens  = new TokenPair(new Secret('access-token'), new Secret('refresh-token'));
 
         $result = new ExchangedRefresh($identity, $principal, $session, $tokens);
 

@@ -150,7 +150,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
 
         $identity = WriteConnection::query(VerifiableIdentity::query())->findOrFail(1);
         $links    = app(VerificationLinks::class);
-        $link     = $links->create('querying', $identity, 'email', 'verify');
+        $link     = $links->create('querying', $identity, 'email', 'verify')->reveal();
 
         DB::connection(self::REPLICA_CONNECTION)->table('verifiable_identities')->update(['email' => 'old@example.com']);
 
@@ -175,7 +175,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
 
         $identity = (new QueryingVerifiableIdentity)->newFromBuilder(['id' => 1]);
         $links    = app(VerificationLinks::class);
-        $link     = $links->create('querying', $identity, 'email', 'verify');
+        $link     = $links->create('querying', $identity, 'email', 'verify')->reveal();
 
         self::assertSame(VerificationLinkOutcome::VERIFIED, $links->consume(Request::create($link)));
         self::assertNotNull(DB::connection(self::PRIMARY_CONNECTION)->table('verifiable_identities')->value('email_verified_at'));

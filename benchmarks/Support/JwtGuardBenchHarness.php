@@ -303,7 +303,7 @@ final class JwtGuardBenchHarness
             $identity->save();
         }
 
-        $this->accessOnlyToken = $this->tokens->issueAccessToken($identity, $identity, null, null);
+        $this->accessOnlyToken = $this->tokens->issueAccessToken($identity, $identity, null, null)->reveal();
     }
 
     /**
@@ -329,7 +329,7 @@ final class JwtGuardBenchHarness
             $identity->save();
         }
 
-        $this->coexistTwoDToken = $this->tokens->issueAccessToken($identity, $identity, null, null);
+        $this->coexistTwoDToken = $this->tokens->issueAccessToken($identity, $identity, null, null)->reveal();
     }
 
     /**
@@ -356,16 +356,21 @@ final class JwtGuardBenchHarness
         $freshSession = Session::query()->where('client_name', 'bench-session-fresh')->first();
         $freshSession = $freshSession instanceof Session ? $freshSession : $this->seedSession($identity, 'bench-session-fresh', Carbon::now());
 
-        $this->sessionFreshToken = $this->tokens->issueAccessToken($identity, $identity, null, $freshSession);
+        $this->sessionFreshToken = $this->tokens->issueAccessToken($identity, $identity, null, $freshSession)->reveal();
 
         if ($this->sessionWriteTokens !== []) {
             return;
         }
 
-        $this->sessionWriteCheckToken = $this->tokens->issueAccessToken($identity, $identity, null, $this->seedSession($identity, 'bench-session-write-check', null));
+        $this->sessionWriteCheckToken = $this->tokens->issueAccessToken($identity, $identity, null, $this->seedSession($identity, 'bench-session-write-check', null))->reveal();
 
         for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
-            $this->sessionWriteTokens[] = $this->tokens->issueAccessToken($identity, $identity, null, $this->seedSession($identity, 'bench-session-write-' . $index, null));
+            $this->sessionWriteTokens[] = $this->tokens->issueAccessToken(
+                $identity,
+                $identity,
+                null,
+                $this->seedSession($identity, 'bench-session-write-' . $index, null),
+            )->reveal();
         }
     }
 
@@ -436,7 +441,7 @@ final class JwtGuardBenchHarness
             $principal->save();
         }
 
-        $this->threeDToken = $this->tokens->issueAccessToken($identity, $principal, null, null);
+        $this->threeDToken = $this->tokens->issueAccessToken($identity, $principal, null, null)->reveal();
     }
 
     /**
@@ -472,8 +477,8 @@ final class JwtGuardBenchHarness
             'bench-tenant-3d-secondary-principal',
         );
 
-        $this->tenantAwareThreeDToken    = $this->tokens->issueAccessToken($identity, $principal, null, null);
-        $this->tenantAwareSecondaryToken = $this->tokens->issueAccessToken($identity, $secondaryPrincipal, null, null);
+        $this->tenantAwareThreeDToken    = $this->tokens->issueAccessToken($identity, $principal, null, null)->reveal();
+        $this->tenantAwareSecondaryToken = $this->tokens->issueAccessToken($identity, $secondaryPrincipal, null, null)->reveal();
     }
 
     /**

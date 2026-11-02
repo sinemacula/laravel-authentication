@@ -140,7 +140,7 @@ final class ResetRecipientTest extends TestCase
                 self::assertNotNull($link);
                 self::assertTrue($identity->is($link->identity));
 
-                $result = $this->passwords($guard)->reset(['email' => self::EMAIL, 'token' => $link->token(), 'password' => self::NEW_PASSWORD]);
+                $result = $this->passwords($guard)->reset(['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD]);
 
                 self::assertSame(ResetStatus::RESET, $result->status, $guard);
 
@@ -177,7 +177,7 @@ final class ResetRecipientTest extends TestCase
             self::assertNotNull($link);
             self::assertTrue($identity->is($link->identity));
 
-            $result = $this->passwords('lookalike_plain')->reset(['email' => self::EMAIL, 'token' => $link->token(), 'password' => self::NEW_PASSWORD]);
+            $result = $this->passwords('lookalike_plain')->reset(['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD]);
 
             self::assertSame(ResetStatus::RESET, $result->status);
         } finally {
@@ -207,7 +207,7 @@ final class ResetRecipientTest extends TestCase
             self::assertNotNull($link);
             self::assertTrue($identity->is($link->identity));
 
-            $result = $this->passwords('mapped')->reset(['email' => self::EMAIL, 'token' => $link->token(), 'password' => self::NEW_PASSWORD]);
+            $result = $this->passwords('mapped')->reset(['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD]);
 
             self::assertSame(ResetStatus::RESET, $result->status);
         } finally {

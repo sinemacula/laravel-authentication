@@ -5,12 +5,15 @@ declare(strict_types = 1);
 namespace Tests\Unit\ClientCredentials;
 
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsResult;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Exceptions\SecretNotRevealedException;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * Unit tests for the RFC 6749 shapes a client credentials exchange answers in:
@@ -32,7 +35,7 @@ final class ClientCredentialsResultTest extends TestCase
      */
     public function testAGrantIsTheTokenResponse(): void
     {
-        $result   = ClientCredentialsResult::granted('token-value', 300, ['read', 'write']);
+        $result   = ClientCredentialsResult::granted(new Secret('token-value'), 300, ['read', 'write']);
         $response = $result->toResponse(Request::create('/'));
 
         self::assertTrue($result->isGranted());
@@ -45,7 +48,7 @@ final class ClientCredentialsResultTest extends TestCase
         self::assertSame('no-cache', $response->headers->get('Pragma'));
         self::assertFalse($response->headers->has('Retry-After'));
         self::assertFalse($response->headers->has('WWW-Authenticate'));
-        self::assertSame(['access_token' => 't', 'token_type' => 'Bearer', 'expires_in' => 1], ClientCredentialsResult::granted('t', 1, [])->toArray());
+        self::assertSame(['access_token' => 't', 'token_type' => 'Bearer', 'expires_in' => 1], ClientCredentialsResult::granted(new Secret('t'), 1, [])->toArray());
     }
 
     /**
@@ -88,20 +91,47 @@ final class ClientCredentialsResultTest extends TestCase
     }
 
     /**
-     * Encoded as JSON, a result is its response body alone: a grant its token
-     * response, and every failure of a client the same `invalid_client` body,
-     * so the reason only the server-side event carries never reaches the
+     * Encoded as JSON, a grant refuses: its token is a secret, which only
+     * `toResponse()` (never stored) or `toArray()` reveals, so neither
+     * `json_encode()` nor a JSON response built from the result can send the
+     * token without `no-store`; nor does the result offer itself as an
+     * `Arrayable`, which a JSON response would read without asking.
+     *
+     * @return void
+     */
+    public function testAGrantRefusesToEncodeAsJson(): void
+    {
+        $granted = ClientCredentialsResult::granted(new Secret('token-value'), 300, ['read']);
+
+        self::assertNotInstanceOf(Arrayable::class, $granted);
+
+        $this->expectException(SecretNotRevealedException::class);
+
+        json_encode($granted, JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * A JSON response built from a grant refuses too, rather than send the
+     * token without `no-store`.
+     *
+     * @return void
+     */
+    public function testAJsonResponseOfAGrantRefuses(): void
+    {
+        $this->expectException(SecretNotRevealedException::class);
+
+        new JsonResponse(ClientCredentialsResult::granted(new Secret('token-value'), 300, ['read']));
+    }
+
+    /**
+     * Encoded as JSON, every failure of a client is the same `invalid_client`
+     * body, so the reason only the server-side event carries never reaches the
      * client, alone or nested in another body.
      *
      * @return void
      */
-    public function testAsJsonAResultIsItsBodyAlone(): void
+    public function testAsJsonAFailureIsItsErrorBodyAlone(): void
     {
-        $granted = ClientCredentialsResult::granted('token-value', 300, ['read']);
-
-        self::assertInstanceOf(Arrayable::class, $granted);
-        self::assertSame('{"access_token":"token-value","token_type":"Bearer","expires_in":300,"scope":"read"}', json_encode($granted));
-
         $bodies = array_map(
             static fn (FailureReason $reason): false|string => json_encode(['result' => ClientCredentialsResult::failed($reason, ClientCredentialsResult::INVALID_CLIENT)]),
             [FailureReason::CREDENTIAL_INVALID, FailureReason::CREDENTIAL_REVOKED, FailureReason::CREDENTIAL_EXPIRED, FailureReason::IDENTITY_INACTIVE],
@@ -129,15 +159,21 @@ final class ClientCredentialsResultTest extends TestCase
     }
 
     /**
-     * A dump of a grant shows the token only as the caller holds it; the token
-     * is a constructor's sensitive parameter.
+     * A grant holds its token as a secret, so no dump of the result shows it
+     * and serialising the result throws.
      *
      * @return void
      */
-    public function testTheTokenIsASensitiveParameter(): void
+    public function testAGrantHoldsItsTokenAsASecret(): void
     {
-        $parameter = new \ReflectionParameter([ClientCredentialsResult::class, '__construct'], 'accessToken');
+        $granted = ClientCredentialsResult::granted(new Secret('token-value'), 300, ['read']);
 
-        self::assertNotSame([], $parameter->getAttributes(\SensitiveParameter::class));
+        self::assertInstanceOf(Secret::class, $granted->accessToken);
+        self::assertSame('token-value', $granted->accessToken->reveal());
+        self::assertStringNotContainsString('token-value', print_r($granted, true));
+
+        $this->expectException(SecretNotRevealedException::class);
+
+        serialize($granted);
     }
 }

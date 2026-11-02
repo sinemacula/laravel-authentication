@@ -111,8 +111,8 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
         $staffJwt    = PackageAuth::jwt(self::STAFF_GUARD);
         $customerJwt = PackageAuth::jwt(self::CUSTOMER_GUARD);
 
-        $staffToken    = $staffJwt->issueAccessToken($principal, $principal, null, null);
-        $customerToken = $customerJwt->issueAccessToken($principal, $principal, null, null);
+        $staffToken    = $staffJwt->issueAccessToken($principal, $principal, null, null)->reveal();
+        $customerToken = $customerJwt->issueAccessToken($principal, $principal, null, null)->reveal();
 
         self::assertTrue($this->guardForBearer(self::STAFF_GUARD, $staffToken)->check());
         self::assertFalse($this->guardForBearer(self::CUSTOMER_GUARD, $staffToken)->check());
@@ -148,14 +148,14 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
 
         $jwtService = PackageAuth::jwt(self::STAFF_GUARD);
 
-        $refreshToken = $jwtService->issueRefreshToken($session, $plainRotationId);
+        $refreshToken = $jwtService->issueRefreshToken($session, $plainRotationId)->reveal();
 
         $staffGuard = $this->guard(self::STAFF_GUARD);
         $result     = GuardSessions::of($staffGuard)->refresh($refreshToken)->session?->tokens;
 
         self::assertInstanceOf(TokenPair::class, $result);
-        self::assertTrue($this->guardForBearer(self::STAFF_GUARD, $result->accessToken)->check());
-        self::assertFalse($this->guardForBearer(self::CUSTOMER_GUARD, $result->accessToken)->check());
+        self::assertTrue($this->guardForBearer(self::STAFF_GUARD, $result->accessToken->reveal())->check());
+        self::assertFalse($this->guardForBearer(self::CUSTOMER_GUARD, $result->accessToken->reveal())->check());
     }
 
     /**

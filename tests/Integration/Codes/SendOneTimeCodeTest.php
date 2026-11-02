@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
+use Tests\Concerns\InspectsTraces;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\Integration\Fixtures\CodeMachineClient;
@@ -57,7 +58,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 #[CoversClass(QueuedDelivery::class)]
 final class SendOneTimeCodeTest extends TestCase
 {
-    use InteractsWithCodeIdentities;
+    use InspectsTraces, InteractsWithCodeIdentities;
 
     /** @var string The code the engine issues first. */
     private const string CODE = '135790';
@@ -124,9 +125,54 @@ final class SendOneTimeCodeTest extends TestCase
 
         self::assertInstanceOf(OneTimeCodeMessage::class, $message);
         self::assertSame(['mobile', CodePurpose::SIGN_IN, 'phone'], [$message->guard, $message->purpose, $message->type]);
-        self::assertSame([self::PHONE, self::CODE], [$message->identifier, $message->code]);
+        self::assertSame([self::PHONE, self::CODE], [$message->identifier, $message->code->reveal()]);
         self::assertTrue($this->now->addSeconds(600)->equalTo($message->expiresAt));
         self::assertTrue($identity->is($message->identity));
+    }
+
+    /**
+     * A sender that throws while delivering leaves no plaintext code in the
+     * trace: neither as an argument nor a closure's capture, nor anywhere in
+     * the dumped objects of its frames (the container, the job and the message
+     * among them), which hold the code only as a secret. The code is a real one
+     * of ten digits, so no other value in the dump matches it by chance.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASenderThatThrowsLeavesNoCodeInTheTrace(): void
+    {
+        self::seedCodeIdentity();
+
+        config()->set('authentication.codes.length', 10);
+
+        app()->forgetInstance(OneTimeCodes::class);
+
+        app()->instance(OneTimeCodeSender::class, new class implements OneTimeCodeSender {
+            /**
+             * Fail while delivering, as a broken gateway client would.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Codes\OneTimeCodeMessage  $message
+             * @return void
+             *
+             * @throws \RuntimeException
+             */
+            #[\Override]
+            public function send(OneTimeCodeMessage $message): void
+            {
+                throw new \RuntimeException('the gateway refused the message for ' . $message->type);
+            }
+        });
+
+        $job       = $this->job();
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, static function () use ($job): void {
+            $job->handle(app());
+        });
+
+        self::assertSame('the gateway refused the message for phone', $exception->getMessage());
+        self::assertMatchesRegularExpression('/^[0-9]{10}$/', $job->issued->code());
+        self::assertFalse(self::dumpsInTrace($exception, $job->issued->code()));
     }
 
     /**
@@ -447,7 +493,7 @@ final class SendOneTimeCodeTest extends TestCase
         $message = $this->sender->sent()[0] ?? null;
 
         self::assertInstanceOf(OneTimeCodeMessage::class, $message);
-        self::assertSame(['mobile', self::CODE], [$message->guard, $message->code]);
+        self::assertSame(['mobile', self::CODE], [$message->guard, $message->code->reveal()]);
         self::assertTrue($identity->is($message->identity));
     }
 

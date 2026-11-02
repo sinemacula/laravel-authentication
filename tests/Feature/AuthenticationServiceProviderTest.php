@@ -17,11 +17,15 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Console\Application as ConsoleApplication;
 use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
@@ -57,6 +61,9 @@ use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
+use SineMacula\Laravel\Authentication\Http\Middleware\NoStore;
+use SineMacula\Laravel\Authentication\Http\Middleware\UsePendingCredential;
+use SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -935,6 +942,41 @@ final class AuthenticationServiceProviderTest extends TestCase
     public function testAuthMiddlewareResolvesToThePackageAwareSubclass(): void
     {
         self::assertInstanceOf(Authenticate::class, app(IlluminateAuthenticate::class));
+    }
+
+    /**
+     * The credential middleware a route declares its `me` bindings' credential
+     * with are aliased, and ordered before `SubstituteBindings` in the HTTP
+     * kernel's middleware priority, as the router sorts route middleware by it;
+     * `authentication.no-store` is aliased too, and comes first, so it wraps
+     * every other route middleware the kernel sorts.
+     *
+     * @return void
+     */
+    public function testTheRouteMiddlewareAreAliasedAndOrderedInThePriority(): void
+    {
+        $router = app(Router::class);
+        $kernel = app(HttpKernel::class);
+
+        self::assertInstanceOf(Kernel::class, $kernel);
+        self::assertSame(NoStore::class, $router->getMiddleware()['authentication.no-store'] ?? null);
+        self::assertSame(UseRefreshCredential::class, $router->getMiddleware()['authentication.refresh'] ?? null);
+        self::assertSame(UsePendingCredential::class, $router->getMiddleware()['authentication.pending'] ?? null);
+
+        foreach ([$kernel->getMiddlewarePriority(), $router->middlewarePriority] as $priority) {
+
+            self::assertSame(NoStore::class, $priority[0] ?? null);
+
+            $bindings = array_search(SubstituteBindings::class, $priority, true);
+            $refresh  = array_search(UseRefreshCredential::class, $priority, true);
+            $pending  = array_search(UsePendingCredential::class, $priority, true);
+
+            self::assertIsInt($bindings);
+            self::assertIsInt($refresh);
+            self::assertIsInt($pending);
+            self::assertLessThan($bindings, $refresh);
+            self::assertLessThan($bindings, $pending);
+        }
     }
 
     /**

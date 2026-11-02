@@ -215,7 +215,7 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
      */
     private function accessToken(RelationSessionsIdentity $identity, Session $session): string
     {
-        return $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session);
+        return $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session)->reveal();
     }
 
     /**

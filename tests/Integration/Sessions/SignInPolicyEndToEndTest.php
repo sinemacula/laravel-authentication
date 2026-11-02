@@ -127,7 +127,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
             abort_if($result->session === null, 401);
 
-            return ['refresh_token' => $result->session->tokens->refreshToken];
+            return ['refresh_token' => $result->session->tokens->refreshToken?->reveal()];
         });
 
         Route::get('/verify', static fn (Request $request): array => ['outcome' => app(VerificationLinks::class)->consume($request)->value])->name('verify');
@@ -429,7 +429,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         foreach ([['api', self::credentials()], ['by_number', $byNumber]] as [$guard, $credentials]) {
             for ($guess = 0; $guess < ($guard === 'api' ? 3 : 2); $guess++) {
 
-                $credential = $this->sessions($guard)->signIn('password', $credentials)->credential;
+                $credential = $this->sessions($guard)->signIn('password', $credentials)->credential?->reveal();
 
                 self::assertNotNull($credential, "Expected a pending session through {$guard}");
                 self::assertTrue($this->sessions($guard)->discard($credential));
@@ -568,8 +568,8 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $proof = self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN);
 
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential, $proof)->reason);
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential, $proof)->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential->reveal(), $proof)->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential->reveal(), $proof)->reason);
         self::assertSame(1, Session::query()->where('status', 'pending')->whereNull('revoked_at')->count());
         self::assertSame(0, Session::query()->where('status', 'active')->count());
         self::assertSame(1, SessionProof::query()->count());
@@ -594,8 +594,8 @@ final class SignInPolicyEndToEndTest extends TestCase
         foreach (['client@example.test' => 'client_staff', 'staff@example.test' => 'staff'] as $email => $type) {
 
             $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember($email, $type)));
-            $access  = $tokens->parse($session->tokens->accessToken, TokenType::ACCESS);
-            $refresh = $tokens->parse($session->tokens->refreshToken, TokenType::REFRESH);
+            $access  = $tokens->parse($session->tokens->accessToken->reveal(), TokenType::ACCESS);
+            $refresh = $tokens->parse($session->tokens->refreshToken?->reveal(), TokenType::REFRESH);
 
             self::assertNotNull($access);
             self::assertNotNull($refresh);
@@ -606,7 +606,7 @@ final class SignInPolicyEndToEndTest extends TestCase
             self::assertSame($now->addMinutes(self::MEMBERS_ABSOLUTE_MINUTES)->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
             self::assertSame($now->addMinutes(self::MEMBERS_IDLE_MINUTES)->getTimestamp(), $refresh[Claims::EXPIRES_AT->value]);
 
-            $this->bearer($session->tokens->accessToken)->assertOk()->assertExactJson(['principal' => $session->principal->getPrincipalIdentifier()]);
+            $this->bearer($session->tokens->accessToken->reveal())->assertOk()->assertExactJson(['principal' => $session->principal->getPrincipalIdentifier()]);
         }
     }
 
@@ -634,7 +634,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken)->session);
+        self::assertNull(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal())->session);
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull(self::stored($session)->getRevokedAt());
     }
@@ -670,7 +670,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $this->signedIn($this->sessions('verified')->start($identity, null, 'sso'));
 
-        $link = app(VerificationLinks::class)->create('verified', $identity, 'email', 'verify');
+        $link = app(VerificationLinks::class)->create('verified', $identity, 'email', 'verify')->reveal();
 
         $this->getJson($link)->assertOk()->assertExactJson(['outcome' => 'verified']);
 
@@ -699,7 +699,7 @@ final class SignInPolicyEndToEndTest extends TestCase
             $this->refresh($token)->assertUnauthorized();
         }
 
-        $this->refresh($session->tokens->refreshToken)
+        $this->refresh($session->tokens->refreshToken?->reveal())
             ->assertStatus(429)
             ->assertHeader('Retry-After', '40');
 
@@ -712,7 +712,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         JWT::$timestamp = $later->getTimestamp();
 
-        $this->refresh($session->tokens->refreshToken)->assertOk();
+        $this->refresh($session->tokens->refreshToken?->reveal())->assertOk();
     }
 
     /**

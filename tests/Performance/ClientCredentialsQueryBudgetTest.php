@@ -84,7 +84,7 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
         $issued  = $this->apiKeys('m2m')->issue($machine, $machine);
 
         $public = $issued->summary->publicId;
-        $secret = substr($issued->key(), 20);
+        $secret = substr($issued->key()->reveal(), 20);
 
         $this->startMachineRequest();
 
@@ -122,12 +122,12 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
         $issued = $this->apiKeys('m2m_accounts')->issue($account, $membership);
         $public = $issued->summary->publicId;
-        $secret = substr($issued->key(), 20);
+        $secret = substr($issued->key()->reveal(), 20);
 
         $this->startMachineRequest();
 
         $granted = $this->assertQueryBudget(5, 1, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m_accounts')->exchange($public, $secret));
-        $claims  = PackageAuth::manager()->jwt('m2m_accounts')->parse((string) $granted->accessToken);
+        $claims  = PackageAuth::manager()->jwt('m2m_accounts')->parse((string) $granted->accessToken?->reveal());
 
         self::assertTrue($granted->isGranted());
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $claims[Claims::TENANT_ID->value] ?? null);
@@ -148,7 +148,7 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
         $this->startMachineRequest();
 
-        $token = PackageAuth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key(), 20))->accessToken;
+        $token = PackageAuth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key()->reveal(), 20))->accessToken?->reveal();
 
         self::assertNotNull($token);
 

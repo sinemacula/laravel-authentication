@@ -72,11 +72,11 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
         $machine = $this->seedMachine();
         $issued  = $this->apiKeys()->issue($machine, $machine);
 
-        $this->startMachineRequest($issued->key());
+        $this->startMachineRequest($issued->key()->reveal());
 
         self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => PackageAuth::guard('machine')->check()));
 
-        $this->startMachineRequest($issued->key());
+        $this->startMachineRequest($issued->key()->reveal());
 
         self::assertTrue($this->assertQueryBudget(2, 0, static fn (): bool => PackageAuth::guard('machine')->check()));
     }
@@ -93,11 +93,11 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $issued = $this->apiKeys('accounts')->issue($account, $membership);
 
-        $this->startMachineRequest($issued->key());
+        $this->startMachineRequest($issued->key()->reveal());
 
         self::assertTrue($this->assertQueryBudget(4, 1, static fn (): bool => PackageAuth::guard('accounts')->check()));
 
-        $this->startMachineRequest($issued->key());
+        $this->startMachineRequest($issued->key()->reveal());
 
         self::assertTrue($this->assertQueryBudget(4, 0, static fn (): bool => PackageAuth::guard('accounts')->check()));
     }
@@ -125,7 +125,7 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
             self::assertFalse($this->assertQueryBudget($reads, 0, static fn (): bool => PackageAuth::guard('machine')->check()));
         }
 
-        foreach ([$issued->summary->publicId . '_' . str_repeat('a', 40), $revoked->key()] as $key) {
+        foreach ([$issued->summary->publicId . '_' . str_repeat('a', 40), $revoked->key()->reveal()] as $key) {
             $this->startMachineRequest($key);
 
             self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => PackageAuth::guard('machine')->check()));
@@ -133,7 +133,7 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
 
         config()->set('auth.guards.machine.application.methods', []);
 
-        $this->startMachineRequest($issued->key());
+        $this->startMachineRequest($issued->key()->reveal());
 
         self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => PackageAuth::guard('machine')->check()));
 

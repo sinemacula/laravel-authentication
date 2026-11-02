@@ -9,6 +9,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
@@ -31,6 +32,8 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
@@ -111,8 +114,11 @@ final class SessionRoutesTest extends TestCase
     {
         $this->seedIdentity();
 
-        $tokens = $this->send('/sign-in', self::credentials() + ['client_name' => 'Phone'])->assertOk()->json();
+        $response = $this->send('/sign-in', self::credentials() + ['client_name' => 'Phone'])->assertOk();
+        $tokens   = $response->json();
 
+        self::assertTrue($response->baseResponse->headers->hasCacheControlDirective('no-store'));
+        self::assertSame('no-cache', $response->baseResponse->headers->get('Pragma'));
         self::assertIsArray($tokens);
         self::assertIsString($tokens['access_token']);
         self::assertIsString($tokens['refresh_token']);
@@ -289,14 +295,14 @@ final class SessionRoutesTest extends TestCase
      * The documented sign-in route: validate, sign in through the session
      * service, answer a throttled sign-in 429 with the wait and any other
      * failure 401, and hand out the pending session's id, what it waits on and
-     * its pending credential, in the body, or the token pair.
+     * its pending credential, in the body, or the token pair, never stored.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return array<string, mixed>
+     * @return \Illuminate\Http\JsonResponse
      *
      * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
      */
-    private static function signIn(Request $request): array
+    private static function signIn(Request $request): JsonResponse
     {
         $input = $request->validate([ // @phpstan-ignore staticMethod.dynamicCall
             'email'         => ['required', 'string'],
@@ -327,13 +333,13 @@ final class SessionRoutesTest extends TestCase
         }
 
         if ($result->pending !== null) {
-            return self::pendingBody($result->pending, $result->credential);
+            return SecretResponse::json(self::pendingBody($result->pending, $result->credential));
         }
 
-        return [
+        return SecretResponse::json([
             'access_token'  => $result->session?->tokens->accessToken,
             'refresh_token' => $result->session?->tokens->refreshToken,
-        ];
+        ]);
     }
 
     /**
@@ -341,10 +347,10 @@ final class SessionRoutesTest extends TestCase
      * on, and its pending credential.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
-     * @param  ?string  $credential
+     * @param  ?\SineMacula\Laravel\Authentication\Secrets\Secret  $credential
      * @return array<string, mixed>
      */
-    private static function pendingBody(PendingSession $pending, #[\SensitiveParameter] ?string $credential): array
+    private static function pendingBody(PendingSession $pending, ?Secret $credential): array
     {
         return [
             'status'             => 'pending',
@@ -359,14 +365,15 @@ final class SessionRoutesTest extends TestCase
      * runs it: validate, check the pending credential allows verifying a
      * factor, verify the code for the session's identity, discard the session
      * on a wrong code, and on the right one hand the verification's proof,
-     * bound to the session, to `satisfy()`.
+     * bound to the session, to `satisfy()`, and answer with the new access
+     * token, never stored.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return array<string, mixed>
+     * @return \Illuminate\Http\JsonResponse
      *
      * @throws \Throwable
      */
-    private static function satisfyWithAFactor(Request $request): array
+    private static function satisfyWithAFactor(Request $request): JsonResponse
     {
         ['pending_credential' => $credential, 'code' => $code] = $request->validate([ // @phpstan-ignore staticMethod.dynamicCall
             'pending_credential' => ['required', 'string'],
@@ -404,7 +411,7 @@ final class SessionRoutesTest extends TestCase
 
         abort_if(!$result->isSignedIn(), 401);
 
-        return ['id' => $result->session?->record->getSessionIdentifier(), 'access_token' => $result->session?->tokens->accessToken];
+        return SecretResponse::json(['id' => $result->session?->record->getSessionIdentifier(), 'access_token' => $result->session?->tokens->accessToken]);
     }
 
     /**

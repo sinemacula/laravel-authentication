@@ -18,8 +18,9 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
  * switch returned to pending carries the pending session and its credential,
  * which only ever goes in the response's body; the session's tokens are then
  * refused until it is satisfied. A switch read from the request
- * (`switchFromRequest()`) says where the refresh token came from (`source`), so
- * one read from the cookie can be answered with a cookie.
+ * (`switchFromRequest()`) says where the refresh token came from (`source`). A
+ * cookie application's switched pair carries the cookie that sets the new
+ * refresh token, never the token itself.
  *
  * `switched()` makes a switch that succeeded and `isSwitched()` says whether it
  * did; `pending()` makes one returned to pending and `isPending()` says whether

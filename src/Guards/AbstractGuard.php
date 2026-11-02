@@ -207,9 +207,13 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     {
         $password = self::signInCollaborator(PasswordSignIn::class);
 
-        return $this->context->timebox()->run(function (Timebox $timebox) use ($password, $credentials): bool {
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $held = new \SensitiveParameterValue($credentials);
 
-            $identity = $password->verifyCredentials($this->context->provider(), $credentials);
+        return $this->context->timebox()->run(function (Timebox $timebox) use ($password, $held): bool {
+
+            $identity = $password->verifyCredentials($this->context->provider(), $held->getValue());
 
             if ($identity === null) {
                 return false;

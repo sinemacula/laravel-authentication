@@ -36,6 +36,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static \SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService identifierChanges(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService apiKeys(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange clientCredentials(?string $guard = null)
+ * @method static \SineMacula\Laravel\Authentication\Callers\Caller|null caller()
  * @method static void inheritStateFrom(\Illuminate\Auth\AuthManager $replaced)
  * @method static void forgetGuardState()
  */
