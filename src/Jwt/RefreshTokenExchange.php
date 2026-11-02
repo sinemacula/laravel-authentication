@@ -365,8 +365,9 @@ final readonly class RefreshTokenExchange
         }
 
         $transitions = new PendingTransitions($this->context, $this->afterCommit, Container::getInstance()->make(Repository::class));
+        $outstanding = $transitions->outstanding($record, $session->identity, $policy->factor, $now);
 
-        return $transitions->returnToPending($record, $session, $policy->version, $policy->factor, AuthenticationFlow::REFRESH, $now)
+        return $transitions->returnToPending($record, $session, $policy->version, $outstanding, AuthenticationFlow::REFRESH, $now)
             ?? $this->afterLostRotation($record, $session, $rotationId, $now, $client, true);
     }
 

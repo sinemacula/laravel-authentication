@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -22,6 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\LevelRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
@@ -32,6 +34,7 @@ use SineMacula\Laravel\Authentication\Sessions\ReturnedToPending;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
 
@@ -144,6 +147,33 @@ final class PendingTransitionsTest extends TestCase
         self::assertNull($event->previousPrincipalId);
         self::assertNull($event->previousPrincipalType);
         self::assertNull($event->previousTenantId);
+    }
+
+    /**
+     * What an active session falls short of is the tenant's requirement alone
+     * while the identity owes nothing, and the strictest of both once the
+     * identity's own factor policy asks for more than the session has, judged
+     * on the session as it records its sign-in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testWhatASessionFallsShortOfIsTheStrictestOfTheTenantsAndTheIdentitys(): void
+    {
+        [$member] = $this->seedMember();
+
+        $session = $this->signedIn();
+        $tenant  = new Requirement(multifactor: new RequirementPart(300));
+
+        self::assertEquals($tenant, $this->transitions()->outstanding($session, $member, $tenant, $this->now));
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $outstanding = $this->transitions()->outstanding($session, $member, $tenant, $this->now);
+
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $outstanding->kinds());
+        self::assertSame(300, $outstanding->multifactor?->maxAgeSeconds);
     }
 
     /**

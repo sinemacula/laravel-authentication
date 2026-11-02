@@ -379,7 +379,9 @@ final readonly class SessionSwitch
         TenantPolicyVerdict $verdict,
         CarbonImmutable $now,
     ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
-        return $this->transitions->returnToPending($session, $destination, $verdict->version, $verdict->factor, AuthenticationFlow::SWITCH, $now)
+        $outstanding = $this->transitions->outstanding($session, $destination->identity, $verdict->factor, $now);
+
+        return $this->transitions->returnToPending($session, $destination, $verdict->version, $outstanding, AuthenticationFlow::SWITCH, $now)
             ?? $this->afterLostSwitch($session, $destination, $presented, $now);
     }
 
@@ -465,8 +467,14 @@ final readonly class SessionSwitch
 
         return match ($verdict->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => self::refused(FailureReason::SSO_REQUIRED, $this->eventContext($session, $admitted)),
-            TenantPolicyStanding::FACTOR_REQUIRED => $this->transitions->returnToPending($session, $admitted, $verdict->version, $verdict->factor, AuthenticationFlow::SWITCH, $now)
-                ?? self::refused(FailureReason::ROTATION_CONFLICT, $this->eventContext($session, $admitted)),
+            TenantPolicyStanding::FACTOR_REQUIRED => $this->transitions->returnToPending(
+                $session,
+                $admitted,
+                $verdict->version,
+                $this->transitions->outstanding($session, $admitted->identity, $verdict->factor, $now),
+                AuthenticationFlow::SWITCH,
+                $now,
+            ) ?? self::refused(FailureReason::ROTATION_CONFLICT, $this->eventContext($session, $admitted)),
             TenantPolicyStanding::MET => new SwitchedPrincipal(
                 self::exchanged($admitted, $session, $this->issue($admitted, $session, RefreshTokenHasher::successor($presented[0]), $now)),
                 PrincipalReference::type($admitted->principal),

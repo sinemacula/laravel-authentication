@@ -42,6 +42,7 @@ use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
@@ -69,6 +70,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
@@ -1612,6 +1614,58 @@ final class SessionSwitchTest extends TestCase
         $this->bearer($active->session->tokens->accessToken->reveal())->assertOk()->assertJson(['principal' => $second->getKey()]);
         $this->tenantOf($active->session->tokens->accessToken->reveal())->assertOk()->assertJson(['tenant' => IdentifierCoercion::stringify($second->tenant_id)]);
         $this->assertRefusedAs(FailureReason::SESSION_TENANT_MISMATCH, $session->tokens->accessToken->reveal());
+    }
+
+    /**
+     * A switch that returns the session to pending names the strictest of what
+     * the destination tenant asks and what the identity's own factor policy,
+     * tightened since the session activated, still asks of it, as a look-up of
+     * the pending session does; so does a grace retry the tenant's policy now
+     * holds pending.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReturnToPendingNamesTheIdentitysRequirementToo(): void
+    {
+        [, $second, , $own] = $this->seedMemberships();
+
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $session = $this->signIn();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $this->scriptPolicy([IdentifierCoercion::stringify($second->tenant_id) => new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart))]);
+
+        $this->advance(5);
+
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+
+        self::assertNotNull($result->credential);
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $result->pending?->requirement->kinds());
+        self::assertEquals($result->pending->requirement, $this->sessions(self::GUARD)->pending($result->credential)?->requirement);
+
+        DB::table('authentication_sessions')->delete();
+
+        app()->instance(AdditionalFactorPolicy::class, new NeverRequireAdditionalFactor);
+
+        $retried = $this->signIn();
+
+        $this->advance(5);
+
+        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($retried->tokens->refreshToken?->reveal())->session);
+
+        $this->advance(1);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $this->scriptPolicy([IdentifierCoercion::stringify($own->getKey()) ?? '' => new TenantRequirement('v2', new Requirement(phishingResistance: new RequirementPart))]);
+
+        $returned = $this->sessions(self::GUARD)->switchTo($retried->tokens->refreshToken?->reveal(), SwitchTarget::tenant(TenantSelection::principalDefault()));
+
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::PHISHING_RESISTANCE], $returned->pending?->requirement->kinds());
     }
 
     /**

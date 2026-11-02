@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -50,6 +51,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -321,6 +323,35 @@ final class TenantAuthenticationPolicyTest extends TestCase
         Auth::forgetGuards();
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $active->session->tokens->accessToken->reveal()])->getJson('/me')->assertOk();
+    }
+
+    /**
+     * A refresh that returns a session to pending names the strictest of what
+     * its tenant asks and what the identity's own factor policy, tightened
+     * since the session activated, still asks of it, the same requirement a
+     * look-up of the pending session answers, so the factor package verifies
+     * against what the next action is judged by.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshReturningToPendingNamesTheIdentitysRequirementToo(): void
+    {
+        $this->seedMember();
+
+        $session = $this->signedIn();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $this->policy->requirement = new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart));
+
+        $returned = $this->sessions('members')->refresh($session->tokens->refreshToken?->reveal());
+
+        self::assertNotNull($returned->pending);
+        self::assertNotNull($returned->credential);
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $returned->pending->requirement->kinds());
+        self::assertEquals($returned->pending->requirement, $this->sessions('members')->pending($returned->credential)?->requirement);
     }
 
     /**

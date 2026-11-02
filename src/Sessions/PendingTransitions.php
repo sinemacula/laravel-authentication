@@ -5,10 +5,12 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\EventContext;
@@ -70,6 +72,31 @@ final readonly class PendingTransitions
         /** Configuration the pending credential's lifetime is read from. */
         private Repository $config,
     ) {}
+
+    /**
+     * What an active session's authentication falls short of once its tenant's
+     * policy asks for a further factor: the strictest of that requirement and
+     * the identity-level one while the session still owes it, judged on the
+     * session's recorded origin, client name, platform and first factor (see
+     * `PendingEvaluation::owedFactorOn()`), so a session returned to pending
+     * names everything its next action is judged against.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $tenant
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public function outstanding(EloquentSession&Model $session, Identity $identity, Requirement $tenant, CarbonImmutable $now): Requirement
+    {
+        $owed = (new PendingEvaluation($this->context, Container::getInstance()))->owedFactorOn($session, $identity, PendingEvaluation::firstFactorOf($session), null, $now);
+
+        return Requirement::strictest($owed, $tenant);
+    }
 
     /**
      * Return the active session to pending instead of re-issuing its pair,

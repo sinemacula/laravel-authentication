@@ -214,7 +214,8 @@ is made, in that same transaction, the factor package ends the sessions it affec
 factors](#sign-in-factors)).
 
 A pending session never goes through the gate: its first factor is enrolled through its pending credential's
-`start_bootstrap_enrollment` and `confirm_bootstrap_enrollment` actions while the factor is its first outstanding
+`PendingAction::START_BOOTSTRAP_ENROLLMENT` and `CONFIRM_BOOTSTRAP_ENROLLMENT` actions
+(`mfa.start_bootstrap_enrollment`, `mfa.confirm_bootstrap_enrollment`) while the factor is its first outstanding
 requirement (see [Pending sessions](signing-in.md#pending-sessions)).
 
 ## Switching principal or tenant

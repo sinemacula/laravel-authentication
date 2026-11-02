@@ -679,7 +679,7 @@ return [
             'proofs'          => ['additional_factor', 'recovery_code'],
         ],
         'first_additional_factor' => [
-            'max_age_seconds' => env('AUTHENTICATION_FRESHNESS_FIRST_ADDITIONAL_SECONDS', 900),
+            'max_age_seconds' => env('AUTHENTICATION_FRESHNESS_FIRST_ADDITIONAL_FACTOR_SECONDS', 900),
             'proofs'          => ['first_factor_reauthentication', 'external_reauthentication'],
         ],
     ],

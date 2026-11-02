@@ -38,8 +38,8 @@ trait GatesFactorChanges
      * `session_pending`, `session_expired`) and a person's
      * (`machine_identity`). A pending session's bootstrap enrolment is not a
      * change made here: it goes through the pending credential's actions
-     * (`pending()` with `start_bootstrap_enrollment` or
-     * `confirm_bootstrap_enrollment`), while enrolment is its first requirement
+     * (`pending()` with `PendingAction::START_BOOTSTRAP_ENROLLMENT` or
+     * `CONFIRM_BOOTSTRAP_ENROLLMENT`), while enrolment is its first requirement
      * and until the credential expires. Then the session must be fresh for the
      * change: an identity's first additional factor (`ADD_FIRST`, which the
      * factor package names, knowing the identity has none) for

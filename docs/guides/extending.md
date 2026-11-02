@@ -385,19 +385,18 @@ seam has a default that works alone.
   pending session.
 - Before it adds, replaces or removes one of an identity's further factors, or generates its recovery codes, from an
   active session, the factor package asks the gate inside the transaction that makes the change, on the storage
-  connection, after its own identity and factor locks:
-  `Auth::sessions()->factorChange($session, FactorChange::REMOVE, $requirement, $factor)`
-  (`Factors\Enums\FactorChange`: `add_factor`, `add_first_factor`, `replace_factor`, `remove_factor`,
-  `generate_recovery_codes`). It locks the session's row until that transaction ends, checks it is still the session
-  given, one of this guard's live, active sessions, and a person's, then asks the freshness policy: every change takes a
-  fresh step-up (`factor_change`, refused as `step_up_required`), except an identity's first additional factor
-  (`ADD_FIRST`, which the factor package names, knowing the identity has none), which takes a fresh reauthentication
-  with the first factor (`first_additional_factor`, refused as `reauthentication_required`): the sign-in's own first
-  factor never counts, so whoever holds a session cannot enrol a factor on it without proving the first factor again.
-  A replacement or removal names its factor (required for those, refused for the others), whose own proofs never count
-  for its change. The answer, a `Factors\FactorChangeVerdict`, carries the fresh proof and `freshUntil` (when the
-  session stops being fresh for it, for a grant that outlives the request), or the reason; it writes and reports
-  nothing.
+  connection, after its own identity and factor locks: `Auth::sessions()->factorChange($session, FactorChange::REMOVE,
+  $requirement, $factor)` (`Factors\Enums\FactorChange`: `mfa.add_factor`, `mfa.add_first_additional_factor`,
+  `mfa.replace_factor`, `mfa.remove_factor`, `mfa.generate_recovery_codes`). It locks the session's row until that
+  transaction ends, checks it is still the session given, one of this guard's live, active sessions, and a person's,
+  then asks the freshness policy: every change takes a fresh step-up (`factor_change`, refused as `step_up_required`),
+  except an identity's first additional factor (`ADD_FIRST`, which the factor package names, knowing the identity has
+  none), which takes a fresh reauthentication with the first factor (`first_additional_factor`, refused as
+  `reauthentication_required`): the sign-in's own first factor never counts, so whoever holds a session cannot enrol a
+  factor on it without proving the first factor again. A replacement or removal names its factor (required for those,
+  refused for the others), whose own proofs never count for its change. The answer, a `Factors\FactorChangeVerdict`,
+  carries the fresh proof and `freshUntil` (when the session stops being fresh for it, for a grant that outlives the
+  request), or the reason; it writes and reports nothing.
 - A factor removed, inside the same transaction and after the same locks:
   `Auth::sessions()->factorRemoved($identity, $factor->reference(), Auth::session())` ends the identity's other
   sessions, voids the current session's proofs made with that factor, and judges the current session again: it stays

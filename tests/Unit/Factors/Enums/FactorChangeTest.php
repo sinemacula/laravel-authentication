@@ -29,7 +29,7 @@ final class FactorChangeTest extends TestCase
     public function testTheChangesCarryTheirValues(): void
     {
         self::assertSame(
-            ['add_factor', 'add_first_factor', 'replace_factor', 'remove_factor', 'generate_recovery_codes'],
+            ['mfa.add_factor', 'mfa.add_first_additional_factor', 'mfa.replace_factor', 'mfa.remove_factor', 'mfa.generate_recovery_codes'],
             array_map(static fn (FactorChange $change): string => $change->value, FactorChange::cases()),
         );
     }
