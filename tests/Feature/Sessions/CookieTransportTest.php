@@ -9,9 +9,11 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -542,6 +544,65 @@ final class CookieTransportTest extends TestCase
             self::assertTrue($cookie->isCleared(), $reason);
             self::assertSame(self::COOKIES[self::BROWSER], [$cookie->getName(), $cookie->getPath()], $reason);
             self::assertSame([$cookie], $result->attachTo(new Response)->headers->getCookies(), $reason);
+        }
+    }
+
+    /**
+     * A cookie application's sign-out that finds nothing left to revoke still
+     * clears the cookie, under the application's name and path: a guard bound
+     * to a session revoked since, and a cookie whose session another writer
+     * revokes between the proof's read and the sign-out's write.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationsSignOutClearsTheCookieWhenNothingIsLeftToRevoke(): void
+    {
+        $this->seedIdentity();
+
+        $bound = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
+        $raced = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($bound);
+        self::assertNotNull($raced);
+
+        Session::query()->whereKey($bound->record->getKey())->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'revoked']);
+
+        $guard = $this->freshGuard(self::BROWSER);
+
+        $guard->setSession(Session::query()->findOrFail($bound->record->getKey()));
+
+        $results = ['bound' => self::sessionsOf($guard)->signOutFromRequest()];
+        $armed   = new \ArrayObject(['armed' => true]);
+        $service = $this->fromCookie(self::BROWSER, self::cookieValue($raced->tokens));
+
+        DB::listen(static function (QueryExecuted $query) use ($armed): void {
+
+            if ($armed['armed'] !== true || !str_starts_with(strtolower(ltrim($query->sql)), 'select') || !str_contains($query->sql, 'authentication_sessions')) {
+                return;
+            }
+
+            $armed['armed'] = false;
+
+            DB::table('authentication_sessions')->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'revoked']);
+        });
+
+        $results['raced'] = $service->signOutFromRequest();
+
+        self::assertFalse($armed['armed']);
+        self::assertSame('revoked', Session::query()->whereKey($raced->record->getKey())->value('revoked_reason'));
+
+        foreach ($results as $case => $result) {
+
+            $cookie = $result->forgetCookie;
+
+            self::assertFalse($result->isSignedOut(), $case);
+            self::assertFalse($result->isFailed(), $case);
+            self::assertNotNull($cookie, $case);
+            self::assertTrue($cookie->isCleared(), $case);
+            self::assertSame(self::COOKIES[self::BROWSER], [$cookie->getName(), $cookie->getPath()], $case);
+            self::assertSame([$cookie], $result->attachTo(new Response)->headers->getCookies(), $case);
         }
     }
 
