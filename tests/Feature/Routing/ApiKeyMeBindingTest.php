@@ -79,7 +79,7 @@ final class ApiKeyMeBindingTest extends TestCase
 
         Auth::forgetGuards();
 
-        $key = Auth::apiKeys('machine')->issue($machine, $machine)->key();
+        $key = Auth::apiKeys('machine')->issue($machine, $machine)->key()->reveal();
 
         $this->withKey('/machines/me', $key)->assertOk()->assertExactJson(['id' => $machine->getKey()]);
         $this->withKey('/machines/' . IdentifierCoercion::stringify($machine->getKey()), $key)->assertOk()->assertExactJson(['id' => $machine->getKey()]);

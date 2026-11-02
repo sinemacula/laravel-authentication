@@ -108,14 +108,14 @@ final class LooksUpSessionsTest extends TestCase
         $laptop = $this->signIn('api', 'Laptop');
         $admin  = $this->signIn('admin', 'Console');
 
-        $current = $this->show($laptop->tokens->accessToken, self::idOf($laptop))->assertOk();
+        $current = $this->show($laptop->tokens->accessToken->reveal(), self::idOf($laptop))->assertOk();
 
         self::assertSame(array_keys(SessionSummary::of($laptop->record, true)->toArray()), array_keys((array) $current->json()));
 
         $current->assertJsonPath('id', self::idOf($laptop))->assertJsonPath('client_name', 'Laptop')->assertJsonPath('current', true);
 
-        $this->show($laptop->tokens->accessToken, self::idOf($phone))->assertOk()->assertJsonPath('client_name', 'Phone')->assertJsonPath('current', false);
-        $this->show($laptop->tokens->accessToken, self::idOf($admin))->assertOk()->assertJsonPath('guard', 'admin')->assertJsonPath('current', false);
+        $this->show($laptop->tokens->accessToken->reveal(), self::idOf($phone))->assertOk()->assertJsonPath('client_name', 'Phone')->assertJsonPath('current', false);
+        $this->show($laptop->tokens->accessToken->reveal(), self::idOf($admin))->assertOk()->assertJsonPath('guard', 'admin')->assertJsonPath('current', false);
     }
 
     /**
@@ -140,7 +140,7 @@ final class LooksUpSessionsTest extends TestCase
         Session::query()->whereKey($pending->record->getKey())->update(['status' => 'pending', 'requires' => '["mfa"]']);
 
         foreach ([$revoked, $pending, $other] as $session) {
-            $this->show($current->tokens->accessToken, self::idOf($session))->assertNotFound();
+            $this->show($current->tokens->accessToken->reveal(), self::idOf($session))->assertNotFound();
         }
     }
 
@@ -167,7 +167,7 @@ final class LooksUpSessionsTest extends TestCase
 
         self::assertNotNull($session);
 
-        $token = $session->tokens->accessToken;
+        $token = $session->tokens->accessToken->reveal();
 
         $this->principal($token, $membership->getKey())->assertOk()->assertExactJson(['id' => $membership->getKey()]);
         $this->principal($token, $second->getKey())->assertOk()->assertExactJson(['id' => $second->getKey()]);

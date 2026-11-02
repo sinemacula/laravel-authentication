@@ -93,7 +93,7 @@ final class CallerCredentialsTest extends TestCase
         [$member, [$membership]] = $this->seedMember('ada@example.test');
 
         $session = $this->signedIn('ada@example.test');
-        $request = $this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken]);
+        $request = $this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken->reveal()]);
         $callers = self::callers();
         $caller  = $callers->caller($request);
 
@@ -130,7 +130,7 @@ final class CallerCredentialsTest extends TestCase
         $this->seedMember('ada@example.test');
 
         $session = $this->signedIn('ada@example.test');
-        $request = $this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken]);
+        $request = $this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken->reveal()]);
         $callers = self::callers();
         $caller  = $callers->caller($request);
 
@@ -174,7 +174,7 @@ final class CallerCredentialsTest extends TestCase
         [$member, [$membership]] = $this->seedMember('ada@example.test');
 
         $session = $this->signedIn('ada@example.test');
-        $request = $this->request('POST', body: ['refresh_token' => $session->tokens->refreshToken]);
+        $request = $this->request('POST', body: ['refresh_token' => $session->tokens->refreshToken?->reveal()]);
 
         DeclaredCredential::refresh(null)->declareOn($request);
 
@@ -254,7 +254,7 @@ final class CallerCredentialsTest extends TestCase
 
         foreach ([true, false] as $json) {
 
-            $request = $this->request('POST', body: ['pending_credential' => $result->credential], json: $json);
+            $request = $this->request('POST', body: ['pending_credential' => $result->credential?->reveal()], json: $json);
 
             DeclaredCredential::pending(PendingAction::CHOOSE_PRINCIPAL->value, null)->declareOn($request);
 
@@ -292,7 +292,7 @@ final class CallerCredentialsTest extends TestCase
 
         self::assertNotNull($result->pending);
 
-        $credential = (string) $result->credential;
+        $credential = (string) $result->credential?->reveal();
 
         self::assertNull($this->pendingCaller(PendingAction::VERIFY, ['pending_credential' => $credential]));
         self::assertCount(1, $this->failures);

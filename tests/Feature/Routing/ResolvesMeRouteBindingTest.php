@@ -90,7 +90,7 @@ final class ResolvesMeRouteBindingTest extends TestCase
         $current = $this->signedIn('ada@example.test');
         $deleted = $this->signedIn('ada@example.test');
         $theirs  = $this->signedIn('grace@example.test');
-        $token   = $current->tokens->accessToken;
+        $token   = $current->tokens->accessToken->reveal();
         $id      = self::key($deleted->record->getKey());
 
         $deleted->record->delete();
@@ -120,7 +120,7 @@ final class ResolvesMeRouteBindingTest extends TestCase
         $current = $this->signedIn('ada@example.test');
         $deleted = $this->signedIn('ada@example.test');
         $theirs  = $this->signedIn('grace@example.test');
-        $token   = $current->tokens->accessToken;
+        $token   = $current->tokens->accessToken->reveal();
         $id      = self::key($deleted->record->getKey());
         $key     = $member->getKey();
 

@@ -78,7 +78,7 @@ final class MeBindingQueryBudgetTest extends PerformanceContractTestCase
         $session = $this->signedIn('ada@example.test');
         $another = $this->signedIn('ada@example.test');
 
-        $this->bindRequestWithBearer('/members/me', $session->tokens->accessToken);
+        $this->bindRequestWithBearer('/members/me', $session->tokens->accessToken->reveal());
 
         Auth::forgetGuards();
 
@@ -115,7 +115,7 @@ final class MeBindingQueryBudgetTest extends PerformanceContractTestCase
         $this->seedMember('ada@example.test');
 
         $session = $this->signedIn('ada@example.test');
-        $body    = (string) json_encode(['refresh_token' => $session->tokens->refreshToken]);
+        $body    = (string) json_encode(['refresh_token' => $session->tokens->refreshToken?->reveal()]);
         $request = Request::create('/refresh/sessions/me/me', 'POST', server: ['CONTENT_TYPE' => 'application/json'], content: $body);
 
         DeclaredCredential::refresh(null)->declareOn($request);

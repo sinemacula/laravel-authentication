@@ -118,7 +118,7 @@ final class MeBindingTest extends TestCase
         [$member, [$membership]] = $this->seedMember('ada@example.test');
 
         $session = $this->signedIn('ada@example.test');
-        $token   = $session->tokens->accessToken;
+        $token   = $session->tokens->accessToken->reveal();
 
         $this->bearer('GET', '/members/me', $token)->assertOk()->assertExactJson(['id' => $member->getKey()]);
         $this->bearer('GET', '/sessions/me', $token)->assertOk()->assertExactJson(['id' => $session->record->getKey()]);
@@ -144,7 +144,7 @@ final class MeBindingTest extends TestCase
         $current = $this->signedIn('ada@example.test', $first);
         $another = $this->signedIn('ada@example.test', $first);
         $theirs  = $this->signedIn('grace@example.test');
-        $token   = $current->tokens->accessToken;
+        $token   = $current->tokens->accessToken->reveal();
 
         $trashed->delete();
 
@@ -177,7 +177,7 @@ final class MeBindingTest extends TestCase
 
         $current = $this->signedIn('ada@example.test');
         $deleted = $this->signedIn('ada@example.test');
-        $token   = $current->tokens->accessToken;
+        $token   = $current->tokens->accessToken->reveal();
         $id      = self::key($deleted->record);
 
         $deleted->record->delete();
@@ -215,7 +215,7 @@ final class MeBindingTest extends TestCase
     {
         [$member, [$membership]] = $this->seedMember('ada@example.test');
 
-        $token = Auth::jwt(self::MEMBERS)->issueAccessToken($member, $membership, null, null);
+        $token = Auth::jwt(self::MEMBERS)->issueAccessToken($member, $membership, null, null)->reveal();
 
         $this->bearer('GET', '/sessions/me', $token)->assertUnauthorized();
         $this->bearer('GET', '/members/me', $token)->assertOk()->assertExactJson(['id' => $member->getKey()]);
@@ -237,7 +237,7 @@ final class MeBindingTest extends TestCase
 
         $proven = $this->signedIn('ada@example.test');
         $other  = $this->signedIn('ada@example.test');
-        $body   = ['refresh_token' => $proven->tokens->refreshToken];
+        $body   = ['refresh_token' => $proven->tokens->refreshToken?->reveal()];
         $id     = self::key($proven->record);
 
         $this->send('/refresh/sessions/me', $body)->assertOk()->assertExactJson(['id' => $id]);
@@ -277,7 +277,7 @@ final class MeBindingTest extends TestCase
         self::assertStringNotContainsString('not-a-refresh-token', serialize($this->failures()[0]));
 
         $this->send('/refresh/sessions/me')->assertUnauthorized();
-        $this->bearer('POST', '/refresh/sessions/me', $session->tokens->accessToken)->assertUnauthorized();
+        $this->bearer('POST', '/refresh/sessions/me', $session->tokens->accessToken->reveal())->assertUnauthorized();
 
         self::assertCount(1, $this->failures());
     }
@@ -302,7 +302,7 @@ final class MeBindingTest extends TestCase
         self::assertTrue($result->isPending());
         self::assertNotNull($result->pending);
 
-        $body = ['pending_credential' => $result->credential];
+        $body = ['pending_credential' => $result->credential?->reveal()];
         $id   = (string) IdentifierCoercion::stringify($result->pending->session->getSessionIdentifier());
 
         $this->send('/pending/sessions/me', $body)->assertOk()->assertExactJson(['id' => $id]);
@@ -335,7 +335,7 @@ final class MeBindingTest extends TestCase
 
         self::assertNotNull($result->pending);
 
-        $credential = (string) $result->credential;
+        $credential = (string) $result->credential?->reveal();
 
         $this->send('/verify/sessions/me', ['pending_credential' => $credential])->assertUnauthorized();
 
@@ -380,7 +380,7 @@ final class MeBindingTest extends TestCase
 
         self::assertNotNull($result->pending);
 
-        $body = ['pending_credential' => $result->credential];
+        $body = ['pending_credential' => $result->credential?->reveal()];
 
         $this->send('/verify/sessions/me', $body)->assertOk()->assertExactJson(['id' => $result->pending->session->getSessionIdentifier()]);
         $this->send('/pending/sessions/me', $body)->assertUnauthorized();
@@ -406,7 +406,7 @@ final class MeBindingTest extends TestCase
         $current = $this->signedIn('ada@example.test', $first);
         $another = $this->signedIn('ada@example.test', $second);
         $theirs  = $this->signedIn('grace@example.test');
-        $token   = $current->tokens->accessToken;
+        $token   = $current->tokens->accessToken->reveal();
         $key     = $member->getKey();
 
         $this->bearer('GET', '/members/me/sessions/me', $token)->assertOk()->assertExactJson(['member' => $key, 'session' => $current->record->getKey()]);
@@ -433,7 +433,7 @@ final class MeBindingTest extends TestCase
         $this->seedMember('ada@example.test');
 
         $session = $this->signedIn('ada@example.test');
-        $token   = $session->tokens->accessToken;
+        $token   = $session->tokens->accessToken->reveal();
         $id      = self::key($session->record);
 
         $this->bearer('GET', '/members/me/old-sessions/me', $token)->assertNotFound();
@@ -458,7 +458,7 @@ final class MeBindingTest extends TestCase
         [$member] = $this->seedMember('ada@example.test');
 
         $session = $this->signedIn('ada@example.test', guard: self::OTHERS);
-        $token   = $session->tokens->accessToken;
+        $token   = $session->tokens->accessToken->reveal();
 
         $this->bearer('GET', '/open/members/me', $token)->assertUnauthorized();
         $this->bearer('GET', '/others/members/me', $token)->assertOk()->assertExactJson(['id' => $member->getKey()]);
@@ -522,7 +522,7 @@ final class MeBindingTest extends TestCase
 
         $session = $this->signedIn('ada@example.test');
 
-        $this->bearerRequest($session->tokens->accessToken);
+        $this->bearerRequest($session->tokens->accessToken->reveal());
 
         self::assertSame($session->record->getKey(), MeBinding::current()->resolve(new MeSession, 'me', static fn (): never => self::fail('The lookup ran.'))?->getKey());
 
@@ -556,7 +556,7 @@ final class MeBindingTest extends TestCase
 
         self::assertNull(MeBinding::current()->resolve(new MeSession, self::key($session->record), static fn (): never => self::fail('The lookup ran without a caller.')));
 
-        $this->bearerRequest($session->tokens->accessToken);
+        $this->bearerRequest($session->tokens->accessToken->reveal());
 
         self::assertNull(MeBinding::current()->resolve(new MeSession, self::key($session->record), static fn (): MeMember => $member));
         $record = $session->record;

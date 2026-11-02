@@ -86,7 +86,7 @@ final class ReplicaMeBindingTest extends TestCase
 
         $current = $this->signedIn('ada@example.test', $first);
         $another = $this->signedIn('ada@example.test', $second);
-        $token   = $current->tokens->accessToken;
+        $token   = $current->tokens->accessToken->reveal();
         $id      = (string) IdentifierCoercion::stringify($another->record->getKey());
 
         self::assertFalse(DB::connection(self::REPLICA_CONNECTION)->table(self::SESSIONS)->exists());
@@ -119,7 +119,7 @@ final class ReplicaMeBindingTest extends TestCase
 
         self::assertTrue(DB::connection(self::REPLICA_CONNECTION)->table(self::SESSIONS)->where('id', $id)->whereNull('deleted_at')->exists());
 
-        $this->bearer('/sessions/' . $id, $current->tokens->accessToken)->assertNotFound();
+        $this->bearer('/sessions/' . $id, $current->tokens->accessToken->reveal())->assertNotFound();
     }
 
     /**
