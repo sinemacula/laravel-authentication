@@ -180,8 +180,8 @@ final class EventSequenceTest extends TestCase
     }
 
     /**
-     * A refresh rolled back with the caller's transaction binds the guard but
-     * reports no rotation, and the presented token still refreshes.
+     * A refresh rolled back with the caller's transaction neither reports its
+     * rotation nor binds the guard, and the presented token still refreshes.
      *
      * @return void
      *
@@ -202,7 +202,8 @@ final class EventSequenceTest extends TestCase
 
         DB::rollBack();
 
-        self::assertSame(['Attempting api', ...self::BIND], $this->recordedSequence());
+        self::assertSame(['Attempting api'], $this->recordedSequence());
+        self::assertFalse($guard->hasUser());
         self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($refresh)->session);
     }
 

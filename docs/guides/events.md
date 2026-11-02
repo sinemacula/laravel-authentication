@@ -162,9 +162,9 @@ session's write (`SessionCreated`, `SignedIn`, `Refreshed` or `PrincipalSwitched
 bound to the session, so a listener that throws on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or
 `SessionAuthenticated` cannot keep it from being reported (its exception still reaches the caller). Outside a
 transaction it is therefore dispatched before those bind events: read the event's context in its listener, not the
-guard, which may not be bound to the new session yet. A sign-in's bind itself waits for the session's commit, so inside
-your transaction its bind events follow the commit, after the events that report the session, and a rollback withdraws
-both.
+guard, which may not be bound to the new session yet. The bind of a sign-in, a refresh or a switch itself waits for the
+session's commit, so inside your transaction its bind events follow the commit, after the events that report the
+session, and a rollback withdraws both.
 
 `Auth::caller()` reports a refresh or pending credential the request carries and that is refused once per request, with
 `AuthenticationFailed` alone: flow `refresh` with the reason a refresh would give (`additional_factor_required` for a

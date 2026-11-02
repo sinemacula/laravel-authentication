@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -78,7 +79,7 @@ final class SessionRefreshTest extends TestCase
         AuthenticationFailed::class,
     ];
 
-    /** @var list<class-string> The events of a refresh outside a transaction, in order. */
+    /** @var list<class-string> The events of a refresh, in order, inside a transaction or outside one. */
     private const array REFRESHED = [
         Attempting::class,
         Refreshed::class,
@@ -439,45 +440,94 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * Inside the caller's transaction the rotation's report waits for the
-     * commit, so it follows the bind events, and a rollback drops it.
+     * Inside the caller's transaction the rotation's report and then the bind
+     * wait for the commit, in that order, as with no transaction open, and a
+     * rollback drops both, leaving the guard unbound.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheReportWaitsForTheCallersCommit(): void
+    public function testTheReportAndTheBindWaitForTheCallersCommit(): void
     {
         $this->seedIdentity();
 
         $committed  = $this->signedIn();
         $rolledBack = $this->signedIn();
+        $guard      = $this->freshGuard();
+        $bound      = null;
 
         $this->recordEvents(self::EVENTS);
 
-        DB::transaction(fn (): bool => self::sessionsOf($this->freshGuard())->refresh($committed->tokens->refreshToken?->reveal())->isRefreshed());
+        DB::transaction(function () use ($guard, $committed, &$bound): void {
+            self::assertTrue(self::sessionsOf($guard)->refresh($committed->tokens->refreshToken?->reveal())->isRefreshed());
+            self::assertSame([Attempting::class], $this->recordedClasses());
 
-        self::assertSame([
-            Attempting::class,
-            Validated::class,
-            Login::class,
-            Authenticated::class,
-            PrincipalAssigned::class,
-            SessionAuthenticated::class,
-            Refreshed::class,
-            SignedIn::class,
-        ], $this->recordedClasses());
+            $bound = $guard->hasUser();
+        });
+
+        self::assertFalse($bound);
+        self::assertSame(self::REFRESHED, $this->recordedClasses());
+        self::assertSame($committed->record->getKey(), $guard->session()?->getSessionIdentifier());
+
+        $guard = $this->freshGuard();
 
         $this->recordEvents(self::EVENTS);
 
         DB::beginTransaction();
 
-        self::assertTrue(self::sessionsOf($this->freshGuard())->refresh($rolledBack->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue(self::sessionsOf($guard)->refresh($rolledBack->tokens->refreshToken?->reveal())->isRefreshed());
 
         DB::rollBack();
 
-        self::assertNotContains(Refreshed::class, $this->recordedClasses());
-        self::assertNotContains(SignedIn::class, $this->recordedClasses());
+        self::assertSame([Attempting::class], $this->recordedClasses());
+        self::assertFalse($guard->hasUser());
+    }
+
+    /**
+     * Rows of `[what the caller's transaction wrote to the refreshed session
+     * before its commit]`.
+     *
+     * @return iterable<string, array{0: array<string, mixed>}>
+     */
+    public static function provideChangesBeforeTheCommit(): iterable
+    {
+        yield 'revoked' => [['revoked_at' => '2026-04-06 12:00:00', 'revoked_reason' => 'signed_out']];
+        yield 'returned to pending' => [['status' => 'pending']];
+        yield 'another session put under its key' => [['generation' => '00000000-0000-7000-8000-000000000000']];
+        yield 'switched to another principal' => [['principal_id' => '999999']];
+        yield 'switched to another tenant' => [['tenant_id' => 'another-tenant']];
+    }
+
+    /**
+     * A refresh's bind that waited for the commit reads the session again
+     * first: one the same transaction revoked, returned to pending, replaced or
+     * switched to another principal or tenant is never bound, though its
+     * rotation is reported.
+     *
+     * @param  array<string, mixed>  $change
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideChangesBeforeTheCommit')]
+    public function testADeferredBindIsNotMadeForASessionChangedBeforeTheCommit(array $change): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn();
+        $guard   = $this->freshGuard();
+
+        $this->recordEvents([Refreshed::class, Login::class]);
+
+        DB::transaction(static function () use ($guard, $session, $change): void {
+            self::assertTrue(self::sessionsOf($guard)->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
+
+            DB::table('authentication_sessions')->update($change);
+        });
+
+        self::assertFalse($guard->hasUser());
+        self::assertSame([Refreshed::class], $this->recordedClasses());
     }
 
     /**

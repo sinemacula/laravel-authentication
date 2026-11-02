@@ -25,9 +25,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   that throws (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated`) cannot withhold
   them; its exception still reaches the caller. With no transaction open on that connection they are therefore
   dispatched before the bind events, and a listener on them reads the event's context, not the guard, which is not yet
-  bound to the new session (a switch's listener would see the previous principal). Inside a transaction a sign-in's
-  bind (`signIn()`, `start()`, `satisfy()`, `choose()`) waits for the commit too, after the events, and never runs on a
-  rollback; a switch's or a refresh's binds at once, so there the bind events come first. A lifecycle listener that
+  bound to the new session (a switch's listener would see the previous principal). Inside a transaction the bind
+  (`signIn()`, `start()`, `satisfy()`, `choose()`, a refresh and a switch) waits for the commit too, after the events,
+  and never runs on a rollback. A lifecycle listener that
   throws propagates as any listener does, and with no transaction open stops the bind.
 - A bind sets the identity, principal and session before it dispatches anything after `Login`: `Authenticated`,
   `PrincipalAssigned` and `SessionAuthenticated` all describe the whole bound context (see `event-model.md`).

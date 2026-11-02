@@ -14,6 +14,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -22,11 +23,13 @@ use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionActivated;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SessionPending;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
@@ -409,6 +412,107 @@ final class CookieTransportTest extends TestCase
         self::assertNotNull($switched->session);
         self::assertSame($second->getPrincipalIdentifier(), $switched->session->principal->getPrincipalIdentifier());
         self::assertCookiePair(self::MEMBERS, $switched->session->tokens, $switched->session->record);
+    }
+
+    /**
+     * Inside a caller's transaction a refresh's result carries the new cookie
+     * at once, for the application to attach, while the package queues none and
+     * binds the guard only once the transaction commits, once: a rollback
+     * leaves the guard unbound with nothing queued, and the old cookie still
+     * refreshes.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshInsideATransactionQueuesNoCookieAndBindsOnCommit(): void
+    {
+        $this->seedIdentity();
+
+        $first = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session?->tokens;
+        $binds = $this->countBinds();
+
+        self::assertNotNull($first);
+
+        $sessions = $this->fromCookie(self::BROWSER, self::cookieValue($first));
+        $guard    = app('auth')->guard(self::BROWSER);
+
+        DB::beginTransaction();
+
+        $refreshed = $sessions->refreshFromRequest()?->session;
+
+        self::assertNotNull($refreshed);
+        self::assertNotNull($refreshed->tokens->refreshCookie);
+        self::assertFalse($guard->hasUser());
+
+        DB::rollBack();
+
+        self::assertCount(0, $binds);
+        self::assertFalse($guard->hasUser());
+        self::assertSame([], app('cookie')->getQueuedCookies());
+
+        $sessions  = $this->fromCookie(self::BROWSER, self::cookieValue($first));
+        $guard     = app('auth')->guard(self::BROWSER);
+        $committed = DB::transaction(static fn (): ?SignedInSession => $sessions->refreshFromRequest()?->session);
+
+        self::assertNotNull($committed);
+        self::assertCookiePair(self::BROWSER, $committed->tokens, $committed->record);
+        self::assertCount(1, $binds);
+        self::assertInstanceOf(JwtGuard::class, $guard);
+        self::assertSame($committed->record->getKey(), $guard->session()?->getSessionIdentifier());
+        self::assertSame([], app('cookie')->getQueuedCookies());
+    }
+
+    /**
+     * Inside a caller's transaction a switch's result carries the new cookie at
+     * once, while the package queues none and binds the guard to the
+     * destination only once the transaction commits, once: a rollback leaves
+     * the guard unbound with nothing queued and the session as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchInsideATransactionQueuesNoCookieAndBindsOnCommit(): void
+    {
+        [$member, $first] = $this->seedMember();
+
+        $other   = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+        $second  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
+        $context = SignInContext::fromRequest(request(), principal: $first);
+        $tokens  = $this->sessions(self::MEMBERS)->signIn('password', self::credentials('member@example.test'), $context)->session?->tokens;
+        $binds   = $this->countBinds();
+
+        self::assertNotNull($tokens);
+
+        $sessions = $this->fromCookie(self::MEMBERS, self::cookieValue($tokens));
+        $guard    = app('auth')->guard(self::MEMBERS);
+
+        DB::beginTransaction();
+
+        $switched = $sessions->switchFromRequest(SwitchTarget::principal($second))?->session;
+
+        self::assertNotNull($switched);
+        self::assertNotNull($switched->tokens->refreshCookie);
+        self::assertFalse($guard->hasUser());
+
+        DB::rollBack();
+
+        self::assertCount(0, $binds);
+        self::assertFalse($guard->hasUser());
+        self::assertSame([], app('cookie')->getQueuedCookies());
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), IdentifierCoercion::stringify(Session::query()->value('principal_id')));
+
+        $sessions  = $this->fromCookie(self::MEMBERS, self::cookieValue($tokens));
+        $guard     = app('auth')->guard(self::MEMBERS);
+        $committed = DB::transaction(static fn (): ?SignedInSession => $sessions->switchFromRequest(SwitchTarget::principal($second))?->session);
+
+        self::assertNotNull($committed);
+        self::assertCookiePair(self::MEMBERS, $committed->tokens, $committed->record);
+        self::assertCount(1, $binds);
+        self::assertInstanceOf(JwtGuard::class, $guard);
+        self::assertSame($second->getPrincipalIdentifier(), $guard->principal()?->getPrincipalIdentifier());
+        self::assertSame([], app('cookie')->getQueuedCookies());
     }
 
     /**
@@ -808,6 +912,24 @@ final class CookieTransportTest extends TestCase
         self::assertIsString($value);
 
         return $value;
+    }
+
+    /**
+     * Count the binds from here on, by the `SessionAuthenticated` each
+     * dispatches.
+     *
+     * @return \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\SessionAuthenticated>
+     */
+    private function countBinds(): \ArrayObject
+    {
+        /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\SessionAuthenticated> $binds */
+        $binds = new \ArrayObject;
+
+        Event::listen(SessionAuthenticated::class, static function (SessionAuthenticated $event) use ($binds): void {
+            $binds->append($event);
+        });
+
+        return $binds;
     }
 
     /**

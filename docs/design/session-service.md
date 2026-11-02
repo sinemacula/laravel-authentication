@@ -121,7 +121,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   connection, is still that one (generation and owner), of this guard, unrevoked, active and not ended; with no
   transaction open it binds at once, with no extra query. The bind is deferred because the factor package satisfies a
   pending session inside its own transaction, re-entrantly inside a passkey registration's too, and a refusal there
-  must undo the bind with the writes. Refresh and switch binds are not deferred.
+  must undo the bind with the writes. A refresh's and a switch's binds wait for the commit in the same way, through the
+  same `Sessions\DeferredBind`, after the report each scheduled first (`Refreshed` and `SignedIn`, `PrincipalSwitched`),
+  so the guard and the pair a caller attaches follow the commit wherever the call happens.
 - The service holds no state between calls. It runs on the guard's context (`Runtime\GuardContext`), reading the
   provider, resolver, dispatcher and request, and the sign-in method manager and policies from the container, each time
   it needs them, and reaches the guard's bound state only through its binding; it names no `Guards` class. The guard
@@ -138,8 +140,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   read and forget. The guard's `logout()` and the password writer use the same revocations without a session service.
 - Refreshing is the service's too, beside switching principal or tenant: `refresh()` and `refreshFromRequest()` delegate
   to `SessionRefresh`, which runs the refresh exchange the service builds on the guard's context and token service,
-  schedules `Refreshed` and `SignedIn` (a refresh) for the rotation's commit, and only then binds the guard as a sign-in
-  through the binding's `loginVerified()`, with the tenant and the sign-in method the exchange established. Every
+  schedules `Refreshed` and `SignedIn` (a refresh) for the rotation's commit, and only then, at the same commit, binds
+  the guard as a sign-in through the binding's `loginVerified()`, with the tenant and the sign-in method the exchange
+  established. Every
   refusal is a failed `RefreshResult` with the exchange's or the transport's reason, `rate_limited` with its wait, never
   a thrown 429; `refreshFromRequest()` answers `null` only for a request without a token, and says where it read one
   (see `refresh-rotation-and-replay.md` and `refresh-token-transport.md`).
@@ -204,6 +207,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   (see `proofs-and-freshness.md`).
 - `src/Sessions/SessionEstablishment.php`: `select()`, `proceed()`, `establish()`, `wait()`, `write()`, `signedIn()`:
   the session, the factor policy and the scheduled reports, never the bind.
+- `src/Sessions/DeferredBind.php`: the bind of a sign-in, a refresh and a switch once the session commits, and the
+  re-read of a bind that waited.
 - `src/Sessions/PendingEvaluation.php` (the gate), `src/Sessions/PendingSessions.php`,
   `src/Sessions/SessionActivation.php`, `src/Sessions/PendingTransitions.php`, `src/Sessions/PendingState.php`,
   `src/Sessions/PendingSession.php` and `src/Sessions/Enums/{PendingRequirement,PendingAction,SessionStatus}.php`.
@@ -229,6 +234,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   with its answer, events, timebox, rehash and slots; `tests/Feature/Sessions/CredentialAttemptTest.php`
 - `tests/Feature/Sessions/SessionEstablishmentTest.php`: establishment on its own (what it writes, returns and
   schedules, and that it never binds)
+- `tests/Feature/Sessions/DeferredBindTest.php`: the bind on its own, at once with no query, at the commit, and never
+  for another request, a rollback or a session changed before the commit
 - `tests/Feature/AuthManagerTest.php`: the service built per call on the guard's context, binding and token service
 - `tests/Feature/Sessions/SessionRefreshTest.php`, `tests/Unit/Sessions/RefreshResultTest.php`: the refresh, its events
   and bind, and every refusal returned

@@ -664,8 +664,9 @@ final class SessionServiceTest extends TestCase
 
     /**
      * A refresh whose bind listener throws is reported once its rotation
-     * commits, and not at all when the caller rolls it back, which leaves the
-     * session's rotation as it was.
+     * commits, and its bind, which follows the report at the commit, throws
+     * from the caller's commit; a refresh the caller rolls back is neither
+     * reported nor bound, and leaves the session's rotation as it was.
      *
      * @return void
      *
@@ -684,7 +685,7 @@ final class SessionServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', $this->failedRefresh($session->tokens->refreshToken?->reveal()));
+        self::assertTrue(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
         self::assertSame([], $this->recordedClasses());
 
         DB::rollBack();
@@ -694,9 +695,14 @@ final class SessionServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', $this->failedRefresh($session->tokens->refreshToken?->reveal()));
+        self::assertTrue(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
 
-        DB::commit();
+        try {
+            DB::commit();
+            self::fail('Expected the bind listener to throw from the commit.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener failed', $exception->getMessage());
+        }
 
         self::assertSame([Refreshed::class, SignedIn::class], $this->recordedClasses());
         self::assertNotSame($before, Session::query()->whereKey($session->record->getKey())->firstOrFail()->getRefreshKey());
@@ -824,25 +830,6 @@ final class SessionServiceTest extends TestCase
     {
         try {
             $this->sessions()->signIn('password', self::credentials());
-        } catch (\RuntimeException $exception) {
-            return $exception->getMessage();
-        }
-
-        self::fail('Expected the listener to throw.');
-    }
-
-    /**
-     * Refresh, expecting a listener to throw, and return its message.
-     *
-     * @param  string  $refreshToken
-     * @return string
-     *
-     * @throws \Throwable
-     */
-    private function failedRefresh(#[\SensitiveParameter] string $refreshToken): string
-    {
-        try {
-            self::sessionsOf($this->freshGuard())->refresh($refreshToken);
         } catch (\RuntimeException $exception) {
             return $exception->getMessage();
         }

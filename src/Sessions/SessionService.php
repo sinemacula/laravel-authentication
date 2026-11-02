@@ -36,9 +36,6 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
-use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
-use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
-use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsConnectionSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\GatesFactorChanges;
@@ -48,7 +45,6 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
-use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
@@ -128,8 +124,11 @@ final readonly class SessionService
     /** @var \SineMacula\Laravel\Authentication\Sessions\PendingSessions Reads, satisfies, chooses for and discards pending sessions. */
     private PendingSessions $pendings;
 
-    /** @var \SineMacula\Laravel\Authentication\Database\AfterCommit Defers the report of a switch or a refresh, and a sign-in's bind, until it commits. */
+    /** @var \SineMacula\Laravel\Authentication\Database\AfterCommit Defers the report of a switch or a refresh until it commits. */
     private AfterCommit $afterCommit;
+
+    /** @var \SineMacula\Laravel\Authentication\Sessions\DeferredBind Binds the guard to a signed-in, refreshed or switched session once it commits. */
+    private DeferredBind $binds;
 
     /** @var \SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore The guarded switch write and its locking re-read. */
     private RefreshRotationStore $rotations;
@@ -169,6 +168,7 @@ final readonly class SessionService
         $writer   = new SessionWriter($context->name(), $tokens, $connections);
 
         $this->afterCommit       = new AfterCommit($transactions);
+        $this->binds             = new DeferredBind($context, $this->afterCommit);
         $this->rotations         = new RefreshRotationStore($connections);
         $this->evaluation        = new PendingEvaluation($context, $container);
         $this->establishment     = new SessionEstablishment($context, $writer, $proof, $this->evaluation, $this->afterCommit, $container);
@@ -181,7 +181,7 @@ final readonly class SessionService
         $refreshProof = new RefreshProof($context, $tokens, $this->rotations, $this->afterCommit);
         $exchange     = new RefreshTokenExchange($tokens, $context, $connections, $transactions);
 
-        $this->refreshes = new SessionRefresh($context, $binding, $exchange, $this->afterCommit, $container, $refreshProof);
+        $this->refreshes = new SessionRefresh($context, $binding, $exchange, $this->afterCommit, $this->binds, $container, $refreshProof);
         $this->signOuts  = new SessionSignOut($context, $binding, $this->revocations, $sessions, $refreshProof, $container);
 
         $this->connectionRevocations = new ConnectionRevocations($context, $binding, $sessions, $this->afterCommit, $container);
@@ -673,23 +673,15 @@ final readonly class SessionService
      * Answer the result with the session's pair delivered as the application's
      * transport says (a cookie application's refresh token only in its cookie),
      * and bind the guard to the session once the writes on the session's
-     * connection commit, through `AfterCommit`, after what reports the session
-     * (`SessionCreated`, `SignedIn`), which was scheduled first: at once with
-     * no transaction open there, otherwise at the commit, and never when it
-     * rolls back. Only once the bind returned are the attempt-limit slots the
-     * sign-in took given back (the attempt's, for a sign-in that started
-     * active, or the ones a pending session held), so a bind listener that
+     * connection commit, as `DeferredBind` binds it, after what reports the
+     * session (`SessionCreated`, `SignedIn`), which was scheduled first. Only
+     * once the bind returned are the attempt-limit slots the sign-in took given
+     * back (the attempt's, for a sign-in that started active, or the ones a
+     * pending session held), whether or not it bound, so a bind listener that
      * throws leaves them counted and a rolled-back sign-in gives nothing back.
-     * A bind that waited for the commit binds only while the guard still serves
-     * the request that signed in (a request rebound meanwhile is another's),
-     * and reads the session again on the write connection first, binding it
-     * only while it is still that session, live, active and acting as the
-     * principal in the tenant it was signed in to: a session revoked, returned
-     * to pending or switched later in the same transaction is never bound (a
-     * switch binds the guard to its destination itself). A result without a
-     * session binds nothing and is answered as it is. The transport is built
-     * before the sign-in or the action begins, so one that is misconfigured
-     * fails it before anything is written or reported.
+     * A result without a session binds nothing and is answered as it is. The
+     * transport is built before the sign-in or the action begins, so one that
+     * is misconfigured fails it before anything is written or reported.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
@@ -706,42 +698,16 @@ final readonly class SessionService
             return $result;
         }
 
-        $tokens   = $transport->deliver($session->tokens, $session->record);
-        $deferred = $this->afterCommit->defers($session->record);
-        $request  = $this->context->request();
+        $tokens = $transport->deliver($session->tokens, $session->record);
 
-        $this->afterCommit->run($session->record, function () use ($session, $deferred, $request, $attempt): void {
-
-            if (!$deferred || ($this->context->request() === $request && $this->isStillActive($session))) {
-                $this->binding->login($session->identity, $session->principal, $session->record);
-            }
-
-            $this->giveBack($session->heldSlots, $attempt);
-        });
+        $this->binds->run(
+            $session->record,
+            $session->principal,
+            fn () => $this->binding->login($session->identity, $session->principal, $session->record),
+            fn () => $this->giveBack($session->heldSlots, $attempt),
+        );
 
         return SignInResult::signedIn(new SignedInSession($session->identity, $session->principal, $session->record, $tokens, $session->method));
-    }
-
-    /**
-     * Whether the committed session is still the one a sign-in started, read
-     * again on the write connection: the same row (generation and owner),
-     * recording the same principal and tenant, of this guard, unrevoked, active
-     * and not ended.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
-     * @return bool
-     *
-     * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
-     */
-    private function isStillActive(SignedInSession $session): bool
-    {
-        $stored = SessionLookup::find($session->record->getSessionIdentifier());
-
-        return SessionOwnership::isSameSession($session->record, $stored)
-            && PrincipalReference::isRecordedOn($stored, $session->principal)
-            && OwnedSession::actsIn($stored, $session->record->getTenantId())
-            && OwnedSession::refusal($stored, $this->context->name(), CarbonImmutable::now()->startOfSecond()) === null;
     }
 
     /**

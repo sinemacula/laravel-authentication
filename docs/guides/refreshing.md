@@ -108,8 +108,12 @@ window ends in `retryAfter`; answer it with Laravel's `ThrottleRequestsException
 A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
 token valid for a retry. Once the rotation is written, the refresh schedules `Refreshed` for its commit on the session's
 connection (dispatched at once outside a transaction, after your transaction commits inside one, and never when it is
-rolled back) before it binds the new context, so a listener that throws on a bind event cannot keep `Refreshed` from
-being reported; an exception from a listener on any of those events still loses the new pair, but a retry with the
+rolled back) and then the bind of the new context for the same commit, so a listener that throws on a bind event cannot
+keep `Refreshed` from being reported, and a refresh you roll back never binds the guard. The result carries the new
+pair at once either way (a cookie application's refresh cookie in it, which the package never queues: attach it only
+once your transaction has committed). A bind that waited for your commit binds only while the guard still serves the
+request and the session, read again, is still the one refreshed, live and active, acting as the same principal in the
+same tenant. An exception from a listener on any of those events still loses the new pair, but a retry with the
 presented token inside the grace window still gets the current credential (see [Refresh token
 replay](#refresh-token-replay)). Keep those listeners from throwing or queue them, so a retry is never needed.
 

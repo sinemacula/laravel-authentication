@@ -1899,8 +1899,9 @@ final class SessionSwitchTest extends TestCase
     /**
      * A bind listener that throws fails a switch after it was written, but
      * `PrincipalSwitched` was scheduled before the bind, so the switch is
-     * reported; inside a caller's transaction it waits for the commit, and a
-     * rollback withdraws it and leaves the session as it was.
+     * reported. Inside a caller's transaction both wait for the commit, so the
+     * switch itself returns, and a rollback withdraws them and leaves the
+     * session as it was and the guard unbound.
      *
      * @return void
      *
@@ -1919,14 +1920,17 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class]);
 
+        $guard = $this->freshGuard(self::GUARD);
+
         DB::beginTransaction();
 
-        self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken?->reveal(), $second));
+        self::assertTrue(self::sessionsOf($guard)->switchTo((string) $session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
         self::assertSame([], $this->recordedClasses());
 
         DB::rollBack();
 
         self::assertSame([], $this->recordedClasses());
+        self::assertFalse($guard->hasUser());
         self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
 
         self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken?->reveal(), $second));
@@ -1935,9 +1939,9 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction that catches a switch's throwing bind
-     * listener and commits, `PrincipalSwitched` follows the commit, once, and
-     * the session stays switched.
+     * Inside a caller's transaction a switch's report and its bind follow the
+     * commit, in that order, once: a bind listener that throws then throws from
+     * the commit, after `PrincipalSwitched`, and the session stays switched.
      *
      * @return void
      *
@@ -1957,10 +1961,15 @@ final class SessionSwitchTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken?->reveal(), $second));
+        self::assertTrue($this->sessions(self::GUARD)->switchTo((string) $session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
         self::assertSame([], $this->recordedClasses());
 
-        DB::commit();
+        try {
+            DB::commit();
+            self::fail('Expected the bind listener to throw from the commit.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener failed', $exception->getMessage());
+        }
 
         self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
         self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('principal_id')));

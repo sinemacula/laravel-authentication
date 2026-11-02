@@ -61,14 +61,15 @@ trait SwitchesSessions
      *
      * On success `PrincipalSwitched` is scheduled for once the switch is
      * committed on the session's connection (at once when no transaction is
-     * open there, so before the bind), and then the guard is bound to the
-     * session as the destination principal in the destination tenant
-     * (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no
-     * `Login`); a bind listener that throws cannot withhold the switch's
-     * report. A switch to the principal and tenant the session already records
-     * rotates the credential like a refresh and reports no switch. A
-     * destination whose tenant's authentication policy asks for a further
-     * factor the session lacks returns the session to pending with the
+     * open there), and then, once it commits too, as `DeferredBind` binds, the
+     * guard is bound to the session as the destination principal in the
+     * destination tenant (`Authenticated`, `PrincipalAssigned`,
+     * `SessionAuthenticated`, no `Login`); a bind listener that throws cannot
+     * withhold the switch's report, and a switch inside a transaction that
+     * rolls back binds nothing. A switch to the principal and tenant the
+     * session already records rotates the credential like a refresh and reports
+     * no switch. A destination whose tenant's authentication policy asks for a
+     * further factor the session lacks returns the session to pending with the
      * destination recorded: the result carries the pending session and its
      * credential, binds nothing, and forgets a binding to that session. A
      * refused switch reports `AuthenticationFailed` (flow `switch`) and leaves
@@ -184,8 +185,9 @@ trait SwitchesSessions
     /**
      * Report the switch once committed when the principal or the tenant
      * changed, then bind the guard to the switched session in its destination
-     * tenant, and answer it. The report is scheduled before the bind, so a bind
-     * listener that throws cannot withhold it from the switch it already wrote.
+     * tenant once it commits too, and answer it, its pair delivered at once.
+     * The report is scheduled before the bind, so a bind listener that throws
+     * cannot withhold it from the switch it already wrote.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal  $switched
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -215,7 +217,11 @@ trait SwitchesSessions
 
         $tokens = $transport->deliver($session->tokens, $session->record);
 
-        $this->binding->authenticateAs($session->identity, $session->principal, $session->record, null, $session->tenant);
+        $this->binds->run(
+            $session->record,
+            $session->principal,
+            fn () => $this->binding->authenticateAs($session->identity, $session->principal, $session->record, null, $session->tenant),
+        );
 
         return SwitchResult::switched(new SignedInSession($session->identity, $session->principal, $session->record, $tokens, (string) $session->method));
     }

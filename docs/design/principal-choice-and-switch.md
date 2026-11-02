@@ -124,7 +124,7 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
    connection before it binds the guard to the destination in the destination tenant (`Authenticated`,
    `PrincipalAssigned`, `SessionAuthenticated`), so a bind listener that throws cannot withhold the report. With no
    transaction open there `PrincipalSwitched` is dispatched at once, before the bind events; inside a caller's
-   transaction the bind events come first, and it follows the commit or is dropped on a rollback. Every access token
+   transaction both follow the commit, in that order, or are dropped on a rollback. Every access token
    issued before the switch fails on the bearer path from then on.
 
 ## Failure / Edge Cases
