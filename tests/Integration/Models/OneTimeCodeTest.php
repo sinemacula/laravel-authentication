@@ -106,7 +106,7 @@ final class OneTimeCodeTest extends TestCase
     {
         Carbon::setTestNow(Carbon::parse('2026-04-06 12:00:00'));
 
-        config()->set('authentication.codes.max_lifetime_seconds', 3600);
+        config()->set('authentication.codes.delivery_window_seconds', 3600);
 
         self::insertCode('a', '2026-04-06 11:00:00');
         self::insertCode('b', '2026-04-06 12:00:00');

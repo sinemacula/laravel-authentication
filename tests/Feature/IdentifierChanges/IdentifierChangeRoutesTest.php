@@ -280,7 +280,7 @@ final class IdentifierChangeRoutesTest extends TestCase
 
         abort_unless($identity instanceof Identity, 401);
 
-        return self::confirmed(Auth::identifierChanges('web')->confirmByCode($identity, 'email', $input['challenge'], $input['code']));
+        return self::confirmed(Auth::identifierChanges('web')->confirmByCode($identity, 'email', $input['challenge'], $input['code'])->outcome);
     }
 
     /**
@@ -306,7 +306,7 @@ final class IdentifierChangeRoutesTest extends TestCase
      */
     private static function confirmByLink(Request $request): Response
     {
-        return self::confirmed(Auth::identifierChanges('web')->confirmByLink($request));
+        return self::confirmed(Auth::identifierChanges('web')->confirmByLink($request)->outcome);
     }
 
     /**

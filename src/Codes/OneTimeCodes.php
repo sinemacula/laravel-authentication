@@ -23,17 +23,17 @@ use SineMacula\Laravel\Authentication\Models\OneTimeCode;
  * attempts kept) while it is live and its transaction is the one given, or of a
  * new challenge otherwise; either way with a new code and issuance that
  * invalidate the previous code. The deliveries belong to the key's delivery
- * window, which lasts `max_lifetime_seconds` from its first delivery and allows
- * `max_deliveries`, across every challenge it holds; no code outlives it, so a
- * resend never extends a challenge past it. A check counts an attempt against
- * the issuance it read before it compares anything, so concurrent checks never
- * exceed `max_attempts`, and uses the code up only with a second conditional
- * statement, so of two correct submissions exactly one is accepted. A password
- * reset link's token is a key's live secret in the same way, 256 random bits
- * under the same cooldown and delivery cap, checked without counting attempts,
- * with the lifetime its caller gives. Every change is one statement the
- * database applies atomically, conditional on the issuance it read, and a
- * database error propagates.
+ * window, which lasts `delivery_window_seconds` from its first delivery and
+ * allows `max_deliveries`, across every challenge it holds; no code outlives
+ * it, so a resend never extends a challenge past it. A check counts an attempt
+ * against the issuance it read before it compares anything, so concurrent
+ * checks never exceed `max_attempts`, and uses the code up only with a second
+ * conditional statement, so of two correct submissions exactly one is accepted.
+ * A password reset link's token is a key's live secret in the same way, 256
+ * random bits under the same cooldown and delivery cap, checked without
+ * counting attempts, with the lifetime its caller gives. Every change is one
+ * statement the database applies atomically, conditional on the issuance it
+ * read, and a database error propagates.
  *
  * The engine keeps no state between calls: the settings and the key are read
  * from the configuration each time.

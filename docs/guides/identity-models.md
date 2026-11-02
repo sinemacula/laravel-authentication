@@ -364,9 +364,9 @@ $request = Auth::codes('mobile')->sendVerification(Auth::identity(), 'phone');  
 $request->challengeId;                                                            // hand it to the client with the request
 
 // Check it: verified, already_verified, mismatch, invalid, expired, exhausted or rate_limited.
-$outcome = Auth::codes('mobile')->verify(Auth::identity(), 'phone', $input['challenge'], $input['code']);
+$result = Auth::codes('mobile')->verify(Auth::identity(), 'phone', $input['challenge'], $input['code']);
 
-abort_unless(in_array($outcome, [VerificationOutcome::VERIFIED, VerificationOutcome::ALREADY_VERIFIED], true), 422);
+abort_unless(in_array($result->outcome, [VerificationOutcome::VERIFIED, VerificationOutcome::ALREADY_VERIFIED], true), 422);
 ```
 
 A verification code is bound to its purpose, its guard, its identity and the identifier in its normal form, so it
@@ -377,29 +377,30 @@ longer the one the code is bound to. Requests are held to the `code_request` lim
 delivery cap, and the code to the same lifetime, attempts and single use as a sign-in code, a resend keeping its
 challenge (see [One-time codes](configuration.md#one-time-codes)). Each check of a well-formed code and challenge id
 counts against the identity's account and the IP address (`rate_limits.identifier_verification`), and a correct one
-gives its slots back; an identity or address out of checks answers `rate_limited`, reported with the wait. `verify()`
-answers a `VerificationOutcome`: `verified` when this call recorded the identifier verified, `already_verified` when it
-was before. A refused check answers `invalid`, `expired` or `exhausted` as it is (the caller already holds the
-identity), and reports `invalid_credentials`, `code_expired` or `code_exhausted` with `AuthenticationFailed` on the
+gives its slots back; an identity or address out of checks answers `rate_limited`, with the wait on the result and on
+the report. `verify()` answers a `RateLimiting\LimitedOutcome`, whose `outcome`, a `VerificationOutcome`, is `verified`
+when this call recorded the identifier verified (`is(VerificationOutcome::VERIFIED)`), `already_verified` when it was
+before. A refused check answers `invalid`, `expired` or `exhausted` as it is (the caller already holds the identity),
+and reports `invalid_credentials`, `code_expired` or `code_exhausted` with `AuthenticationFailed` on the
 `identifier_verification` flow. A right code whose identifier changed after the identity you passed was loaded is used
 up and answers `mismatch`, as a link does: nothing is recorded or reported, and the identity can request a code for its
 new identifier. An identity with no identifier of the type, or one its normaliser rejects, is `identifier_invalid` when
 a code is sent and `invalid` when one is checked; an identity that cannot verify identifiers throws a `LogicException`,
 and a machine identity, which has none to verify, an `InvalidArgumentException`.
 
-`verify()` answers one enum, `VerificationOutcome`. Match it:
+Match the result's `outcome`, and answer `rate_limited` with its `retryAfter`:
 
 ```php
 use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 
-$outcome = Auth::codes('mobile')->verify($identity, 'phone', $challenge, $code);
+$result = Auth::codes('mobile')->verify($identity, 'phone', $challenge, $code);
 
-return match ($outcome) {
+return match ($result->outcome) {
     VerificationOutcome::VERIFIED, VerificationOutcome::ALREADY_VERIFIED => response()->noContent(),
     VerificationOutcome::EXPIRED, VerificationOutcome::EXHAUSTED         => abort(422, 'Request a new code.'),
     VerificationOutcome::MISMATCH, VerificationOutcome::INVALID          => abort(422, 'The code is not valid.'),
-    VerificationOutcome::RATE_LIMITED                                    => abort(429),
+    VerificationOutcome::RATE_LIMITED                                    => response()->json(['message' => 'Too many attempts.'], 429)->header('Retry-After', (string) $result->retryAfter),
 };
 ```
 

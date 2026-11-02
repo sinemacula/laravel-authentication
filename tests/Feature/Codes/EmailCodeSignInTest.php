@@ -312,7 +312,7 @@ final class EmailCodeSignInTest extends TestCase
 
         self::assertSame(self::CODE, $code);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn($code)->reason);
-        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'email', self::challenge(), $code));
+        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'email', self::challenge(), $code)->outcome);
 
         $this->sender->forget();
 

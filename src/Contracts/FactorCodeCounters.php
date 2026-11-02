@@ -25,11 +25,14 @@ use SineMacula\Laravel\Authentication\Codes\FactorCodeBinding;
  * `admit()` is asked before each delivery and each check, and `report()` once
  * for each attempt a check counts, with whether the code matched. Both are
  * asked inside the package's transaction on the storage connection (a savepoint
- * of the caller's, when it opened one), before the challenge's row is locked or
- * written, so the factor package takes its own locks first (the identity's
- * state, then its factors, then the challenge, then the session). Their writes
- * and locks must be on that same connection, so the attempt and its count
- * commit, or roll back, as one. An exception either throws propagates and rolls
+ * of the caller's, when it opened one). `admit()` comes before the challenge's
+ * row is locked or written, so the factor package takes its own locks there
+ * (the identity's state, then its factors, then the challenge, then the
+ * session). `report()` comes after the row is locked and the attempt counted,
+ * so it must take no lock that comes before the challenge in that order: the
+ * locks `admit()` took are still held, and the counts it writes are of rows
+ * those locks already cover. Their writes and locks must be on that same
+ * connection, so the attempt and its count commit, or roll back, as one. An exception either throws propagates and rolls
  * the whole send or check back; never catch it to commit. `report()`'s answer
  * is authoritative: a matching code is verified only when it answers
  * `admitted`.

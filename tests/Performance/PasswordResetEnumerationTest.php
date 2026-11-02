@@ -219,6 +219,49 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
+     * A reset by code for an address no one holds and one with a wrong code,
+     * each naming the challenge its code was sent for, run the same statements
+     * in the same order with the same answer, but for the row lock a holder
+     * adds; each reaches the code's check, which counts the attempt.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedCodeResetRunsTheSameStatementsForAnyAddress(): void
+    {
+        config()->set('authentication.codes.resend_cooldown_seconds', 0);
+
+        self::seedPasswordIdentity(self::EMAIL);
+
+        $inputs = [];
+
+        foreach ([self::EMAIL, self::UNKNOWN_EMAIL] as $email) {
+            $inputs[$email] = ['email' => $email, ...self::wrongCode($email), 'password' => self::NEW_PASSWORD];
+        }
+
+        $knownClient   = new ClientContext('198.51.100.1', 'Browser/1.0');
+        $unknownClient = new ClientContext('198.51.100.2', 'Browser/1.0');
+
+        $reset = fn (string $email, ClientContext $client): ResetResult => $this->passwords()->resetWithCode('email', $inputs[$email], $client);
+
+        [$known, $knownSql]     = $this->recorded(static fn (): ResetResult => $reset(self::EMAIL, $knownClient));
+        [$unknown, $unknownSql] = $this->recorded(static fn (): ResetResult => $reset(self::UNKNOWN_EMAIL, $unknownClient));
+
+        $lock = (new PasswordIdentity)->newModelQuery()->whereKey(1)->lockForUpdate()->limit(1)->toSql();
+        $at   = array_search($lock, $knownSql, true);
+
+        self::assertEquals($known, $unknown);
+        self::assertSame(ResetStatus::INVALID, $known->status);
+        self::assertIsInt($at);
+        self::assertSame($unknownSql, [...array_slice($knownSql, 0, $at), ...array_slice($knownSql, $at + 1)]);
+        self::assertSame(
+            [1, 1],
+            array_map(static fn (mixed $attempts): int => is_numeric($attempts) ? (int) $attempts : -1, DB::table('one_time_codes')->orderBy('id')->pluck('attempts')->all()),
+        );
+    }
+
+    /**
      * Rows of how a reset fails.
      *
      * @return iterable<string, array{0: string}>
@@ -470,8 +513,9 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
 
         for ($sample = 0; $sample < self::TIMING_SAMPLES; $sample++) {
 
-            $wrong = $proof === 'link' ? self::wrongToken($email) : self::wrongCode($email);
-            $input = ['email' => $email, $proof === 'link' ? 'token' : 'code' => $wrong, 'password' => self::NEW_PASSWORD];
+            $input = $proof === 'link'
+                ? ['email' => $email, 'token' => self::wrongToken($email), 'password' => self::NEW_PASSWORD]
+                : ['email' => $email, ...self::wrongCode($email), 'password' => self::NEW_PASSWORD];
 
             $passwords = $this->passwords();
             $started   = hrtime(true);
@@ -503,15 +547,16 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * Issue a live reset code for the address on the slow guard, and return a
-     * well-formed code that is not it.
+     * Issue a live reset code for the address on the slow guard, and return the
+     * challenge it was sent for with a well-formed code that is not it, as a
+     * reset's input names them, so the reset reaches the lookup and the check.
      *
      * @param  string  $email
-     * @return string
+     * @return array{challenge: string, code: string}
      *
      * @throws \Throwable
      */
-    private static function wrongCode(string $email): string
+    private static function wrongCode(string $email): array
     {
         $issued = app(OneTimeCodes::class)->issue(CodeBinding::passwordReset('slow', 'email', $email), CarbonImmutable::now());
 
@@ -519,7 +564,7 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
 
         $zeros = str_repeat('0', strlen($issued->code()));
 
-        return $issued->code() === $zeros ? str_repeat('1', strlen($issued->code())) : $zeros;
+        return ['challenge' => $issued->challengeId, 'code' => $issued->code() === $zeros ? str_repeat('1', strlen($issued->code())) : $zeros];
     }
 
     /**

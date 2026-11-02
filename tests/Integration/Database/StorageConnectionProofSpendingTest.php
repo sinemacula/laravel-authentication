@@ -156,7 +156,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
         $identity = $this->seedStored();
         $code     = $this->requestChange($identity);
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
         self::assertSame(self::NEW_EMAIL, $this->stored()->value('email'));
         self::assertSame(0, $this->storage('identifier_changes')->count());
         self::assertSame(0, $this->unspentCodes());
@@ -179,7 +179,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
 
         $this->failAfterWriting = 'stored_identities';
 
-        $this->assertFails(fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code));
+        $this->assertFails(fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
 
         self::assertSame(self::EMAIL, $this->stored()->value('email'));
         self::assertSame(1, $this->storage('identifier_changes')->count());
@@ -187,9 +187,9 @@ final class StorageConnectionProofSpendingTest extends TestCase
 
         $this->failAfterWriting = null;
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
         self::assertSame(self::NEW_EMAIL, $this->stored()->value('email'));
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
     }
 
     /**

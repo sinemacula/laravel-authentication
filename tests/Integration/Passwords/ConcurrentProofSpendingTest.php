@@ -140,7 +140,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'delete from',
             'identifier_changes',
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
             static fn (): string => Auth::passwords('web')->set(self::reloaded($identity), self::NEW_PASSWORD, PasswordFlow::CHANGE)->isSet() ? 'set' : 'rejected',
         );
 
@@ -167,7 +167,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'delete from',
             'one_time_codes',
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
             static fn (): string => Auth::passwords('web')->set(self::reloaded($identity), self::NEW_PASSWORD, PasswordFlow::CHANGE)->isSet() ? 'set' : 'rejected',
         );
 
@@ -192,7 +192,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'delete from',
             'identifier_changes',
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
             static fn (): string => Auth::passwords('web')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status->value,
         );
 
@@ -242,7 +242,7 @@ final class ConcurrentProofSpendingTest extends TestCase
             'delete from',
             'identifier_changes',
             static fn (): string => (string) Auth::sessions('web')->revokeSessions(self::reloaded($identity), RevocationReason::REVOKED),
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
         );
 
         self::assertSame(['1', 'invalid'], [$first, $second['result']]);
@@ -281,7 +281,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertSame(0, DB::table('identifier_changes')->count());
         self::assertIsString($link);
-        self::assertSame('invalid', $this->changes()->confirmByLink(Request::create($link))->value);
+        self::assertSame('invalid', $this->changes()->confirmByLink(Request::create($link))->outcome->value);
         self::assertSame(self::EMAIL, self::reloaded($identity)->email);
     }
 
@@ -516,7 +516,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'update',
             'one_time_codes',
-            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->value,
+            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome->value,
             fn (): string => $this->changes()->cancel(self::reloaded($identity), 'email') ? 'canceled' : 'none',
         );
 
@@ -546,7 +546,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'update',
             'one_time_codes',
-            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->value,
+            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome->value,
             fn (): string => $this->changes()->requestByLink(self::reloaded($identity), 'email', 'ada@later.example.test', $proof, 'email.confirm')->status->value,
         );
 

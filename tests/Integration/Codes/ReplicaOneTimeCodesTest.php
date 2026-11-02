@@ -202,7 +202,7 @@ final class ReplicaOneTimeCodesTest extends TestCase
         (new SendOneTimeCode($binding, new IssuedCode(self::CODE, $issueId, CarbonImmutable::now()->addSeconds(600), $challenge), $this->identity))->handle(app());
 
         self::assertSame(self::CODE, $this->sender->lastCodeFor(self::CHANGED_PHONE));
-        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'phone', $challenge, self::CODE));
+        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'phone', $challenge, self::CODE)->outcome);
     }
 
     /**

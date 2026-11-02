@@ -102,7 +102,7 @@ final class OneTimeCode extends Model
     public function prunable(): Builder
     {
         $now    = Carbon::now();
-        $window = (new CodeSettings(Container::getInstance()->make(Repository::class)))->maxLifetimeSeconds();
+        $window = (new CodeSettings(Container::getInstance()->make(Repository::class)))->deliveryWindowSeconds();
 
         return self::query()
             ->where('expires_at', '<=', $this->fromDateTime($now))

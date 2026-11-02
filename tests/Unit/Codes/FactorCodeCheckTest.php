@@ -37,7 +37,7 @@ final class FactorCodeCheckTest extends TestCase
 
         self::assertSame(
             [FactorCodeOutcome::LOCKED, 'challenge-1', null, $until, FactorCodeRefusal::NOT_ACCEPTED, 30],
-            [$check->outcome, $check->challengeId, $check->verifiedAt, $check->lockedUntil, $check->reason, $check->retryAfter],
+            [$check->outcome, $check->challengeId, $check->verifiedAt, $check->lockedUntil, $check->refusal, $check->retryAfter],
         );
         self::assertTrue((new FactorCodeCheck(FactorCodeOutcome::VERIFIED, 'challenge-1', $at))->isVerified());
 

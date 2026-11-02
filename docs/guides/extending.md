@@ -420,18 +420,20 @@ seam has a default that works alone.
   `Codes\FactorCodeCheck`. The `Codes\FactorCodeBinding` names the `ProofBinding` (identity, this guard, the session's
   key, and `sign_in` or `step_up` for an `mfa` challenge, `enrollment` for an enrolment's), the factor's reference, the
   `Channel` (`sms` or `email`, with the destination in its normal form) and, for an enrolment, its grant. A code is
-  accepted only for that very binding: another session, factor, purpose or grant, and an `mfa` code as an
-  `enrollment` one or the reverse, is `invalid`. The delivery key is the destination and the identity, never the factor,
-  so the cooldown and the delivery cap hold across an enrolment restarted with a new factor and grant. Bind
+  accepted only for that very binding: another session, factor, purpose or grant, and an `mfa` code as an `enrollment`
+  one or the reverse, is `invalid`. The delivery key is the destination and the identity, never the factor, so the
+  cooldown and the delivery cap hold across an enrolment restarted with a new factor and grant. Bind
   `Contracts\FactorCodeCounters` (the default, `RefuseFactorCodes`, refuses every code): `admit()` is asked before each
   delivery and each check, and `report($binding, $challengeId, $passed)` exactly once for each attempt a check counts,
-  both inside the package's transaction on the storage connection (a savepoint of yours, when you opened one) and before
-  the challenge's row is locked, so take your identity and factor locks there first, on that same connection. The
-  report's answer stands: a matching code is `verified` only when it answers `admitted`. This package counts per
-  challenge, per destination and per IP address (`codes.max_attempts`, `codes.max_deliveries`, the `code_request` and
-  `factor_code` limits); the per-factor and per-identity counts and lockouts are yours. Turn a verified check into a
-  `ProofResult` (its method, the channel, the factor, the binding) and hand it to `satisfy()` or `stepUp()`, inside the
-  same transaction when both are to commit together.
+  both inside the package's transaction on the storage connection (a savepoint of yours, when you opened one). `admit()`
+  runs before the challenge's row is locked, so take your identity and factor locks there, on that same connection;
+  `report()` runs after the row is locked and the attempt counted, so it must take no lock that comes before the
+  challenge (it writes the counts of rows `admit()` already locked). The report's answer stands: a matching code is
+  `verified` only when it answers `admitted`. This package counts per challenge, per destination and per IP address
+  (`codes.max_attempts`, `codes.max_deliveries`, the `code_request` and `factor_code` limits); the per-factor and
+  per-identity counts and lockouts are yours. Turn a verified check into a `ProofResult` (its method, the channel, the
+  factor, the binding) and hand it to `satisfy()` or `stepUp()`, inside the same transaction when both are to commit
+  together.
 - A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see [Proofs and
   provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session service as a
   `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart), method,
@@ -470,7 +472,7 @@ seam has a default that works alone.
 
 ```php
 $result = Auth::passkeys()->verifyFactor($identity, $binding, $challenge, $credential);
-$passed = $result->isVerified();   // else $result->reason
+$passed = $result->isVerified();   // else $result->refusal
 ```
 
 ### Authorisation (`laravel-authorization`)

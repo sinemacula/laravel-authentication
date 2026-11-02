@@ -103,10 +103,12 @@ Route::middleware('auth:api')->post('/reauthenticate', function (Request $reques
 Any sign-in method the guard allows can reauthenticate, with the input its sign-in takes. A code method (`phone_code`,
 `email_code`) takes the identifier and a code sent for it: request one first with `Auth::codes('api')->send()`, as for a
 sign-in and counted under the same code request limits (see [Signing in with a one-time
-code](signing-in.md#signing-in-with-a-one-time-code)), then pass the identifier and the code
-(`['phone' => $phone, 'code' => $code]`); the code is used up as a sign-in's is. A passkey takes the `challenge` and
-`credential` of a ceremony begun with `Auth::passkeys('api')->signInOptions()` (see [Using
-passkeys](signing-in.md#using-passkeys)). Whichever the method, the identity it verifies must be the session's owner.
+code](signing-in.md#signing-in-with-a-one-time-code)), then pass the identifier, the challenge id the request answered
+(`CodeRequest::$challengeId`) and the code (`['phone' => $phone, 'challenge' => $challengeId, 'code' => $code]`); input
+without a well-formed challenge id is refused as `invalid_credentials`, and the code is used up as a sign-in's is. A
+passkey takes the `challenge` and `credential` of a ceremony begun with `Auth::passkeys('api')->signInOptions()` (see
+[Using passkeys](signing-in.md#using-passkeys)). Whichever the method, the identity it verifies must be the session's
+owner.
 
 The method must be one the guard's application allows (`method_not_allowed`, nothing counted) and not a machine
 credential's (an `InvalidArgumentException`). The session must still be the one given, as stored (a session put under

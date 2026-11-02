@@ -99,7 +99,7 @@ JWT settings are read once and kept (see [Configuration lifetimes](operations.md
 | `codes.max_attempts`                                 | `5`                                                                          | `AUTHENTICATION_CODES_MAX_ATTEMPTS`                        |           | [One-time codes](#one-time-codes)                                     |
 | `codes.resend_cooldown_seconds`                      | `60`                                                                         | `AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS`             |           | [One-time codes](#one-time-codes)                                     |
 | `codes.max_deliveries`                               | `3`                                                                          | `AUTHENTICATION_CODES_MAX_DELIVERIES`                      |           | [One-time codes](#one-time-codes)                                     |
-| `codes.max_lifetime_seconds`                         | `1800`                                                                       | `AUTHENTICATION_CODES_MAX_LIFETIME_SECONDS`                |           | [One-time codes](#one-time-codes)                                     |
+| `codes.delivery_window_seconds`                      | `1800`                                                                       | `AUTHENTICATION_CODES_DELIVERY_WINDOW_SECONDS`             |           | [One-time codes](#one-time-codes)                                     |
 | `delivery.queue.connection`                          | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE_CONNECTION`                 |           | [One-time codes](#one-time-codes)                                     |
 | `delivery.queue.name`                                | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE`                            |           | [One-time codes](#one-time-codes)                                     |
 | `passkeys.table`                                     | `passkeys`                                                                   | `AUTHENTICATION_PASSKEYS_TABLE`                            |           | [Passkeys](#passkeys)                                                 |
@@ -621,7 +621,7 @@ a password sign-in runs. A sign-in that needs a further factor or a choice of pr
     'max_attempts'            => 5,
     'resend_cooldown_seconds' => 60,
     'max_deliveries'          => 3,
-    'max_lifetime_seconds'    => 1800,
+    'delivery_window_seconds' => 1800,
 ],
 
 'delivery' => [
@@ -629,21 +629,24 @@ a password sign-in runs. A sign-in that needs a further factor or a choice of pr
 ],
 ```
 
-The `phone_code` and `email_code` sign-in methods, verification by code (see
-[Signing in with a one-time code](signing-in.md#signing-in-with-a-one-time-code)), reset and identifier-change codes,
-and a factor package's further-factor and enrolment codes (see [Extending](extending.md)) each send a challenge: a code
-of `length` digits (6 to 10), drawn uniformly with `random_int()`, that works once, for `ttl_seconds` (60 to 3600), and
-for at most `max_attempts` checks (1 to 20); after that it is locked until another is requested. Every challenge has an
-id, which the request answers and the check must name: a code naming another challenge is refused with no attempt
-spent. Another code for the same number may be requested `resend_cooldown_seconds` (0 to `ttl_seconds`) after the last:
-while the challenge lives, that is a resend of the same challenge, its id and its attempts kept, with a new code that
-replaces the earlier one at once; otherwise it is a new challenge. Deliveries to one number (for one owner, where the
-purpose has one: a verification, a factor code) are capped at `max_deliveries` (1 to 10) in each delivery window of
-`max_lifetime_seconds` (`ttl_seconds` to 86400) from the window's first delivery, across every challenge the window
+The `phone_code` and `email_code` sign-in methods, verification by code (see [Signing in with a one-time
+code](signing-in.md#signing-in-with-a-one-time-code)), reset and identifier-change codes, and a factor package's
+further-factor and enrolment codes (see [Extending](extending.md)) each send a challenge: a code of `length` digits (6
+to 10), drawn uniformly with `random_int()`, that works once, for `ttl_seconds` (60 to 3600), and for at most
+`max_attempts` checks (1 to 20); after that it is locked until another is requested. Every challenge has an id, which
+the request answers and the check must name: a code naming another challenge is refused with no attempt spent. Another
+code for the same number may be requested `resend_cooldown_seconds` (0 to `ttl_seconds`) after the last: while the
+challenge lives, that is a resend of the same challenge, its id and its attempts kept, with a new code that replaces the
+earlier one at once; otherwise it is a new challenge. Deliveries to one number (for one owner, where the purpose has
+one: a verification, a factor code) are capped at `max_deliveries` (1 to 10) in each delivery window of
+`delivery_window_seconds` (`ttl_seconds` to 86400) from the window's first delivery, across every challenge the window
 holds (`deliveries_exhausted` until it ends), and no code outlives its window, so a resend never extends a challenge
-past it; a reset link's token works for its own lifetime but counts against the cap. Each number is an integer, or a
-digit string as `env()` returns one; anything else fails closed with an `InvalidArgumentException` naming the key when a
-code is first issued, and `authentication:check` reports it. The settings are global, not per guard.
+past it. Nor is a code delivered with less than `resend_cooldown_seconds` left of its window: it could expire before
+another may be asked for, so the request is answered `rate_limited` with the seconds until the window ends, after which
+the next starts a new window. A reset link's token works for its own lifetime but counts against the cap. Each number is
+an integer, or a digit string as `env()` returns one; anything else fails closed with an `InvalidArgumentException`
+naming the key when a code is first issued, and `authentication:check` reports it. The settings are global, not per
+guard.
 
 Codes live in `table` (`authentication-migrations` creates `one_time_codes`), on the storage connection, one row per
 delivery key: the purpose (a sign-in, a verification, a further factor's code, an enrolment's, a password reset code or

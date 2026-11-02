@@ -103,8 +103,8 @@ final readonly class ChallengeDeliveries
     private function replace(OneTimeCode $row, CodeDelivery $delivery, bool $capped): DeliveryRefusal|IssuedCode|null
     {
         $now        = $delivery->now->getTimestamp();
-        $windowEnds = $row->window_started_at->getTimestamp() + $this->settings->maxLifetimeSeconds();
-        $refusal    = $this->refusal($row, $now, $windowEnds);
+        $windowEnds = $row->window_started_at->getTimestamp() + $this->settings->deliveryWindowSeconds();
+        $refusal    = $this->refusal($row, $now, $windowEnds, $capped);
 
         if ($refusal !== null) {
             return $refusal;
@@ -124,25 +124,35 @@ final readonly class ChallengeDeliveries
     /**
      * Why no delivery may be made to the row's key at the second given, or
      * `null` when one may: the cooldown since its last delivery has not passed,
-     * or its delivery window, ending at the second given, has not ended and has
-     * had all its deliveries.
+     * its delivery window, ending at the second given, has not ended and has
+     * had all its deliveries, or a code the window would cut short (`$capped`)
+     * would have less than the cooldown left of it, so it could expire before
+     * another may be asked for; that one waits for the window to end.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\OneTimeCode  $row
      * @param  int  $now
      * @param  int  $windowEnds
+     * @param  bool  $capped
      * @return ?\SineMacula\Laravel\Authentication\Codes\DeliveryRefusal
      *
      * @throws \InvalidArgumentException
      */
-    private function refusal(OneTimeCode $row, int $now, int $windowEnds): ?DeliveryRefusal
+    private function refusal(OneTimeCode $row, int $now, int $windowEnds, bool $capped): ?DeliveryRefusal
     {
-        $wait = $row->issued_at->getTimestamp() + $this->settings->cooldownSeconds() - $now;
+        $cooldown = $this->settings->cooldownSeconds();
+        $wait     = $row->issued_at->getTimestamp() + $cooldown - $now;
 
-        return match (true) {
-            $wait       > 0                                                            => DeliveryRefusal::cooldown($wait),
-            $windowEnds > $now && $row->deliveries >= $this->settings->maxDeliveries() => DeliveryRefusal::exhausted($windowEnds - $now),
-            default                                                                    => null,
-        };
+        if ($wait > 0) {
+            return DeliveryRefusal::cooldown($wait);
+        }
+
+        $left = $windowEnds - $now;
+
+        if ($left > 0 && $row->deliveries >= $this->settings->maxDeliveries()) {
+            return DeliveryRefusal::exhausted($left);
+        }
+
+        return $capped && $left > 0 && $left < $cooldown ? DeliveryRefusal::cooldown($left) : null;
     }
 
     /**

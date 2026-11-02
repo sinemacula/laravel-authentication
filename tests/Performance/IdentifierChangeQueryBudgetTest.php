@@ -287,7 +287,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $changes->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD));
 
         $challenge = self::changeChallenge($identity, 'email');
-        $outcome   = $this->assertQueryBudget(5, 9, static fn (): IdentifierChangeOutcome => $changes->confirmByCode($identity, 'email', $challenge, '135790'));
+        $outcome   = $this->assertQueryBudget(5, 9, static fn (): IdentifierChangeOutcome => $changes->confirmByCode($identity, 'email', $challenge, '135790')->outcome);
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $outcome);
     }
@@ -306,7 +306,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $changes  = Auth::identifierChanges('web');
         $link     = (string) $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'confirm')->link()?->reveal();
 
-        $outcome = $this->assertQueryBudget(5, 3, static fn (): IdentifierChangeOutcome => $changes->confirmByLink(Request::create($link)));
+        $outcome = $this->assertQueryBudget(5, 3, static fn (): IdentifierChangeOutcome => $changes->confirmByLink(Request::create($link))->outcome);
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $outcome);
     }

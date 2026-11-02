@@ -34,10 +34,10 @@ final readonly class CodeSettings
     ];
 
     /** @var int Default length of a delivery window, in seconds. */
-    private const int DEFAULT_LIFETIME_SECONDS = 1800;
+    private const int DEFAULT_WINDOW_SECONDS = 1800;
 
     /** @var int Longest a delivery window may last, in seconds. */
-    private const int MAX_LIFETIME_SECONDS = 86400;
+    private const int MAX_WINDOW_SECONDS = 86400;
 
     /**
      * Constructor.
@@ -122,9 +122,9 @@ final readonly class CodeSettings
      *
      * @throws \InvalidArgumentException
      */
-    public function maxLifetimeSeconds(): int
+    public function deliveryWindowSeconds(): int
     {
-        return IntegerSetting::read($this->config, self::PREFIX . 'max_lifetime_seconds', self::DEFAULT_LIFETIME_SECONDS, $this->ttlSeconds(), self::MAX_LIFETIME_SECONDS);
+        return IntegerSetting::read($this->config, self::PREFIX . 'delivery_window_seconds', self::DEFAULT_WINDOW_SECONDS, $this->ttlSeconds(), self::MAX_WINDOW_SECONDS);
     }
 
     /**
@@ -141,7 +141,7 @@ final readonly class CodeSettings
         $this->maxAttempts();
         $this->cooldownSeconds();
         $this->maxDeliveries();
-        $this->maxLifetimeSeconds();
+        $this->deliveryWindowSeconds();
     }
 
     /**

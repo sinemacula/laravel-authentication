@@ -35,7 +35,7 @@ final class FactorCodeAdmissionTest extends TestCase
     {
         $admission = FactorCodeAdmission::admitted();
 
-        self::assertSame([FactorCodeStanding::ADMITTED, null, null], [$admission->standing, $admission->lockedUntil, $admission->reason]);
+        self::assertSame([FactorCodeStanding::ADMITTED, null, null], [$admission->standing, $admission->lockedUntil, $admission->refusal]);
         self::assertTrue($admission->isAdmitted());
     }
 
@@ -50,7 +50,7 @@ final class FactorCodeAdmissionTest extends TestCase
         $until  = CarbonImmutable::createStrict(2026, 4, 6, 12, 15, 0);
         $locked = FactorCodeAdmission::locked($until);
 
-        self::assertSame([FactorCodeStanding::LOCKED, $until, null], [$locked->standing, $locked->lockedUntil, $locked->reason]);
+        self::assertSame([FactorCodeStanding::LOCKED, $until, null], [$locked->standing, $locked->lockedUntil, $locked->refusal]);
         self::assertNull(FactorCodeAdmission::locked()->lockedUntil);
         self::assertFalse($locked->isAdmitted());
     }
@@ -64,7 +64,7 @@ final class FactorCodeAdmissionTest extends TestCase
     {
         $refused = FactorCodeAdmission::refused(FactorCodeRefusal::SENDING_CAPPED);
 
-        self::assertSame([FactorCodeStanding::REFUSED, null, FactorCodeRefusal::SENDING_CAPPED], [$refused->standing, $refused->lockedUntil, $refused->reason]);
+        self::assertSame([FactorCodeStanding::REFUSED, null, FactorCodeRefusal::SENDING_CAPPED], [$refused->standing, $refused->lockedUntil, $refused->refusal]);
         self::assertFalse($refused->isAdmitted());
     }
 

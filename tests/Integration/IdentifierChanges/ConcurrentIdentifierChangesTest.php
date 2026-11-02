@@ -112,8 +112,8 @@ final class ConcurrentIdentifierChangesTest extends TestCase
         $link = $this->requestByLink(self::seedChangeable(), self::NEW_EMAIL);
 
         [$first, $second] = $this->race(
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->value,
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
             commitFirst: true,
         );
 
@@ -138,8 +138,8 @@ final class ConcurrentIdentifierChangesTest extends TestCase
         $second = $this->requestByLink(self::seedChangeable('bea@example.test'), self::NEW_EMAIL);
 
         [$won, $lost] = $this->race(
-            fn (): string => $this->changes()->confirmByLink(Request::create($first))->value,
-            fn (): string => $this->changes()->confirmByLink(Request::create($second))->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($first))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($second))->outcome->value,
             commitFirst: true,
         );
 
@@ -164,8 +164,8 @@ final class ConcurrentIdentifierChangesTest extends TestCase
         $second = $this->requestByLink(self::seedChangeable('bea@example.test'), self::NEW_EMAIL);
 
         [, $outcome] = $this->race(
-            fn (): string => $this->changes()->confirmByLink(Request::create($first))->value,
-            fn (): string => $this->changes()->confirmByLink(Request::create($second))->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($first))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($second))->outcome->value,
             commitFirst: false,
         );
 

@@ -42,7 +42,7 @@ final class RefuseFactorCodesTest extends TestCase
         $binding  = new FactorCodeBinding($proof, 'factor-1', new Channel(ChannelKind::SMS, '+447700900123'));
 
         foreach ([$counters->admit($binding), $counters->report($binding, 'challenge-1', true), $counters->report($binding, 'challenge-1', false)] as $answer) {
-            self::assertSame([FactorCodeStanding::REFUSED, FactorCodeRefusal::TYPE_NOT_ENABLED, null], [$answer->standing, $answer->reason, $answer->lockedUntil]);
+            self::assertSame([FactorCodeStanding::REFUSED, FactorCodeRefusal::TYPE_NOT_ENABLED, null], [$answer->standing, $answer->refusal, $answer->lockedUntil]);
         }
     }
 }

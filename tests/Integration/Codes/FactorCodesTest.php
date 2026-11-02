@@ -259,7 +259,7 @@ final class FactorCodesTest extends TestCase
 
         $check = $this->verify($this->binding(), $challenge, self::CODE);
 
-        self::assertSame([FactorCodeOutcome::REFUSED, FactorCodeRefusal::TYPE_NOT_ENABLED], [$check->outcome, $check->reason]);
+        self::assertSame([FactorCodeOutcome::REFUSED, FactorCodeRefusal::TYPE_NOT_ENABLED], [$check->outcome, $check->refusal]);
         self::assertSame([0, null], [self::column('attempts'), DB::table('one_time_codes')->value('consumed_at')]);
     }
 
@@ -312,7 +312,7 @@ final class FactorCodesTest extends TestCase
         $challenge = (string) $this->send($binding)->challengeId;
         $check     = $this->verify($binding, $challenge, self::CODE);
 
-        self::assertSame([FactorCodeOutcome::VERIFIED, $challenge, null, null], [$check->outcome, $check->challengeId, $check->lockedUntil, $check->reason]);
+        self::assertSame([FactorCodeOutcome::VERIFIED, $challenge, null, null], [$check->outcome, $check->challengeId, $check->lockedUntil, $check->refusal]);
         self::assertTrue($check->isVerified());
         self::assertTrue($this->now->equalTo($check->verifiedAt));
         self::assertCount(1, $this->counters->reports);
@@ -354,7 +354,7 @@ final class FactorCodesTest extends TestCase
 
         self::assertSame(
             [FactorCodeOutcome::INVALID, FactorCodeRefusal::NOT_ACCEPTED],
-            [$this->verify($binding, $challenge, '000001')->outcome, $this->verify($binding, $challenge, '000002')->reason],
+            [$this->verify($binding, $challenge, '000001')->outcome, $this->verify($binding, $challenge, '000002')->refusal],
         );
     }
 

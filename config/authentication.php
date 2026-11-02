@@ -702,8 +702,9 @@ return [
     | and its attempts, and its new code replaces the previous one at once.
     | Deliveries to one destination (for one owner, where the purpose has one)
     | are capped at `max_deliveries` (1 to 10) in each delivery window of
-    | `max_lifetime_seconds` (`ttl_seconds` to 86400) from its first delivery,
-    | across every challenge the window holds, and no code outlives its window.
+    | `delivery_window_seconds` (`ttl_seconds` to 86400) from its first delivery,
+    | across every challenge the window holds, and no code outlives its window
+    | (none is delivered with less than the cooldown left of it).
     | Each number is an integer, or a digit string as `env()` returns one. Codes
     | are stored in `table`, on the storage connection, as an HMAC keyed with
     | `key` (at least 32 bytes), or with a key derived from `app.key` when `key`
@@ -723,7 +724,7 @@ return [
         'ttl_seconds'             => env('AUTHENTICATION_CODES_TTL_SECONDS', 600),
         'max_attempts'            => env('AUTHENTICATION_CODES_MAX_ATTEMPTS', 5),
         'max_deliveries'          => env('AUTHENTICATION_CODES_MAX_DELIVERIES', 3),
-        'max_lifetime_seconds'    => env('AUTHENTICATION_CODES_MAX_LIFETIME_SECONDS', 1800),
+        'delivery_window_seconds' => env('AUTHENTICATION_CODES_DELIVERY_WINDOW_SECONDS', 1800),
         'resend_cooldown_seconds' => env('AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS', 60),
     ],
 

@@ -332,7 +332,7 @@ final class ChallengeDeliveriesTest extends TestCase
      */
     public function testAResendNeverOutlivesTheWindow(): void
     {
-        config()->set('authentication.codes.max_lifetime_seconds', 900);
+        config()->set('authentication.codes.delivery_window_seconds', 900);
 
         $binding = self::binding();
         $first   = self::codes()->issue($binding, $this->now);
@@ -344,6 +344,49 @@ final class ChallengeDeliveriesTest extends TestCase
         self::assertTrue($this->now->addSeconds(900)->equalTo($resent->expiresAt));
         self::assertSame('2026-04-06 12:15:00', DB::table('one_time_codes')->value('expires_at'));
         self::assertSame(CodeCheck::EXPIRED, self::codes()->check($binding, $resent->challengeId, $resent->code(), $this->now->addSeconds(900)));
+    }
+
+    /**
+     * A code the window would leave less than the resend cooldown to live is
+     * not delivered: the request waits for the window to end, counting nothing,
+     * since the code could expire before another may be asked for. With the
+     * cooldown exactly left, the code is delivered and lives to the window's
+     * end; a reset link's token, which the window never cuts short, is
+     * delivered whatever is left of it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testACodeTheWindowWouldCutShorterThanTheCooldownWaitsForItToEnd(): void
+    {
+        $binding = self::binding();
+        $codes   = self::codes();
+
+        self::assertInstanceOf(IssuedCode::class, $codes->issue($binding, $this->now));
+
+        $refused = $codes->issue($binding, $this->now->addSeconds(1741));
+
+        self::assertInstanceOf(DeliveryRefusal::class, $refused);
+        self::assertSame([false, 59], [$refused->exhausted, $refused->retryAfter]);
+        self::assertSame(1, self::column('deliveries'));
+
+        $last = $codes->issue($binding, $this->now->addSeconds(1740));
+
+        self::assertInstanceOf(IssuedCode::class, $last);
+        self::assertTrue($this->now->addSeconds(1800)->equalTo($last->expiresAt));
+        self::assertSame(2, self::column('deliveries'));
+
+        DB::table('one_time_codes')->delete();
+
+        $link = self::linkBinding();
+
+        self::assertInstanceOf(IssuedCode::class, $codes->issueToken($link, $this->now, 3600));
+
+        $token = $codes->issueToken($link, $this->now->addSeconds(1790), 3600);
+
+        self::assertInstanceOf(IssuedCode::class, $token);
+        self::assertTrue($this->now->addSeconds(5390)->equalTo($token->expiresAt));
     }
 
     /**

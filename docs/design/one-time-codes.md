@@ -20,13 +20,15 @@ the same whether or not anyone has the identifier, and who a code is ever delive
   new session, factor or grant on the same destination is a new challenge under the same cooldown and delivery cap.
 - Every challenge has a public id (`challenge_id`, a UUID): a resend keeps it, a new challenge draws another. A check
   names it; a check whose id or transaction is not the live challenge's is `invalid` and counts nothing.
-- Deliveries belong to the key's delivery window (`window_started_at`, `deliveries`), which lasts `max_lifetime_seconds`
-  from its first delivery and allows `max_deliveries`, across every challenge it holds. An issue, after the cooldown
-  since `issued_at`: starts a new window when the window has ended (or there is no row); otherwise needs room in the
-  window (else `deliveries_exhausted`, with the wait until it ends), then resends the live challenge when it is live
-  and its transaction is the one given (same id, attempts kept), or starts a new challenge in the window (new id, no
-  attempts). Either way the code and issuance are new, `deliveries + 1`, and the code expires at the earlier of its own
-  lifetime and the window's end; a reset link's token works for its own lifetime.
+- Deliveries belong to the key's delivery window (`window_started_at`, `deliveries`), which lasts
+  `delivery_window_seconds` from its first delivery and allows `max_deliveries`, across every challenge it holds. An
+  issue, after the cooldown since `issued_at`: starts a new window when the window has ended (or there is no row);
+  otherwise needs room in the window (else `deliveries_exhausted`, with the wait until it ends), then resends the live
+  challenge when it is live and its transaction is the one given (same id, attempts kept), or starts a new challenge in
+  the window (new id, no attempts). Either way the code and issuance are new, `deliveries + 1`, and the code expires at
+  the earlier of its own lifetime and the window's end. A code the window would leave less than the resend cooldown to
+  live is not delivered (`rate_limited`, with the wait until the window ends), since it could expire before another may
+  be asked for; a reset link's token works for its own lifetime.
 - The code is `length` digits from `random_int()`, zero-padded, stored only as `HMAC-SHA256(key'', "code\0binding
   digest\0issue id\0code")`, compared with `hash_equals()`. `key'` and `key''` are separate derivations of
   `authentication.codes.key` (at least 32 bytes) or, when it is not set, of `app.key`. The table holds no code and no
@@ -101,24 +103,25 @@ the same whether or not anyone has the identifier, and who a code is ever delive
 - Verification by code (`CodeService::sendVerification()` / `verify()`) binds the code to the identity and its current
   identifier of the type in normal form, as the identity given reports it. An accepted code hands that identifier to
   `IdentifierVerifier::verify()`, which records it only if it is still the identity's, and `verify()` answers the
-  verifier's outcome as a `VerificationOutcome` (`verified`, `already_verified`, `mismatch`); a refused check answers
-  `invalid`, `expired` or `exhausted`, unconcealed, and reports `invalid_credentials`, `code_expired` or
-  `code_exhausted` on the `identifier_verification` flow. It never signs anyone in. A machine identity is refused with
-  an `InvalidArgumentException`, an identity without `HasVerifiableIdentifiers` with a `LogicException`.
+  verifier's outcome as a `LimitedOutcome` (`verified`, `already_verified`, `mismatch`); a refused check answers
+  `invalid`, `expired` or `exhausted`, unconcealed, a limited one `rate_limited` with its wait, and reports
+  `invalid_credentials`, `code_expired` or `code_exhausted` on the `identifier_verification` flow. It never signs anyone
+  in. A machine identity is refused with an `InvalidArgumentException`, an identity without `HasVerifiableIdentifiers`
+  with a `LogicException`.
 
 ## Success Path
 
 - `Auth::codes('mobile')->send('phone_code', ['phone' => '+447700900123'])`: method resolved and allowed; identifier
   normalised; `code_request` reservation; `OneTimeCodes::issue()` (an `UPDATE`, plus an `INSERT` the first time);
-  `SendOneTimeCode` dispatched once committed; `CodeRequest::sent($expiresAt)`.
+  `SendOneTimeCode` dispatched once committed; `CodeRequest::sent($expiresAt, $challengeId)`.
 - The worker runs the job: live issuance; recipient found and eligible; `OneTimeCodeSender::send(OneTimeCodeMessage)`.
-- `Auth::sessions('mobile')->signIn('phone_code', ['phone' => ..., 'code' => ...])`: the session service's
-  `Attempting`, method check and `sign_in` reservation; `CodeSignIn::authenticate()` (lookup, account reservation,
-  `OneTimeCodes::check()`: `SELECT`, counting `UPDATE`, using `UPDATE`); admission, factor policy, session and tokens as
-  for a password, with `phone_code` recorded on the session.
-- `sendVerification($identity, 'phone')` then `verify($identity, 'phone', $code)`: the same issue, delivery and check
-  for the verification binding, then `IdentifierVerifier::verify()` and `IdentifierVerified` once committed;
-  `VerificationOutcome::VERIFIED`.
+- `Auth::sessions('mobile')->signIn('phone_code', ['phone' => ..., 'challenge' => $challengeId, 'code' => ...])`: the
+  session service's `Attempting`, method check and `sign_in` reservation; `CodeSignIn::authenticate()` (lookup, account
+  reservation, `OneTimeCodes::check()`: `SELECT`, counting `UPDATE`, using `UPDATE`); admission, factor policy, session
+  and tokens as for a password, with `phone_code` recorded on the session.
+- `sendVerification($identity, 'phone')` then `verify($identity, 'phone', $challengeId, $code)`: the same issue,
+  delivery and check for the verification binding, then `IdentifierVerifier::verify()` and `IdentifierVerified` once
+  committed; a `LimitedOutcome` whose `outcome` is `VerificationOutcome::VERIFIED`.
 
 ## Failure / Edge Cases
 
@@ -144,14 +147,14 @@ the same whether or not anyone has the identifier, and who a code is ever delive
 - On a `sync` connection with after-response dispatching turned off (`Bus::withoutDispatchingAfterResponses()`) Laravel
   runs the job during the call; this is the documented fallback, not the package's choice.
 - Malformed settings (`length` 6 to 10, `ttl_seconds` 60 to 3600, `max_attempts` 1 to 20, `resend_cooldown_seconds` 0 to
-  `ttl_seconds`, `max_deliveries` 1 to 10, `max_lifetime_seconds` `ttl_seconds` to 86400, a queue connection that is not
-  configured, a key shorter than 32 bytes, no key and no `app.key`) fail closed with an `InvalidArgumentException`
+  `ttl_seconds`, `max_deliveries` 1 to 10, `delivery_window_seconds` `ttl_seconds` to 86400, a queue connection that is
+  not configured, a key shorter than 32 bytes, no key and no `app.key`) fail closed with an `InvalidArgumentException`
   naming the key before anything is counted or issued, and `authentication:check` reports each under `[codes]`, with a
   guard that allows a code method (any registered method that builds as a `CodeSignIn`, the application's own included)
   while no `OneTimeCodeSender` is bound.
 - Expired rows are deleted by `model:prune` with `Models\OneTimeCode` once their delivery window has ended too
-  (`expires_at <= now` and `window_started_at <= now - max_lifetime_seconds`), so pruning never resets a delivery cap;
-  the cooldown, never longer than the lifetime, has ended with them.
+  (`expires_at <= now` and `window_started_at <= now - delivery_window_seconds`), so pruning never resets a delivery
+  cap; the cooldown, never longer than the lifetime, has ended with them.
 
 ## Enumeration Criteria
 

@@ -35,7 +35,7 @@ final class CodeSettingsTest extends TestCase
 
         self::assertSame(
             [6, 600, 5, 60, 3, 1800],
-            [$settings->length(), $settings->ttlSeconds(), $settings->maxAttempts(), $settings->cooldownSeconds(), $settings->maxDeliveries(), $settings->maxLifetimeSeconds()],
+            [$settings->length(), $settings->ttlSeconds(), $settings->maxAttempts(), $settings->cooldownSeconds(), $settings->maxDeliveries(), $settings->deliveryWindowSeconds()],
         );
     }
 
@@ -58,8 +58,8 @@ final class CodeSettingsTest extends TestCase
             'cooldown of the default' => ['resend_cooldown_seconds', 600, 600],
             'one delivery'            => ['max_deliveries', '1', 1],
             'ten deliveries'          => ['max_deliveries', 10, 10],
-            'window of the lifetime'  => ['max_lifetime_seconds', 600, 600],
-            'window of a day'         => ['max_lifetime_seconds', '86400', 86400],
+            'window of the lifetime'  => ['delivery_window_seconds', 600, 600],
+            'window of a day'         => ['delivery_window_seconds', '86400', 86400],
         ];
     }
 
@@ -81,7 +81,7 @@ final class CodeSettingsTest extends TestCase
             'max_attempts'            => $settings->maxAttempts(...),
             'resend_cooldown_seconds' => $settings->cooldownSeconds(...),
             'max_deliveries'          => $settings->maxDeliveries(...),
-            'max_lifetime_seconds'    => $settings->maxLifetimeSeconds(...),
+            'delivery_window_seconds' => $settings->deliveryWindowSeconds(...),
         ];
 
         self::assertSame($expected, $readers[$key]());
@@ -114,8 +114,8 @@ final class CodeSettingsTest extends TestCase
             'ten-digit string'   => ['ttl_seconds', '1000000000', 'authentication.codes.ttl_seconds must be an integer from 60 to 3600.'],
             'no deliveries'      => ['max_deliveries', 0, 'authentication.codes.max_deliveries must be an integer from 1 to 10.'],
             'eleven deliveries'  => ['max_deliveries', '11', 'authentication.codes.max_deliveries must be an integer from 1 to 10.'],
-            'window under ttl'   => ['max_lifetime_seconds', 599, 'authentication.codes.max_lifetime_seconds must be an integer from 600 to 86400.'],
-            'window over a day'  => ['max_lifetime_seconds', '86401', 'authentication.codes.max_lifetime_seconds must be an integer from 600 to 86400.'],
+            'window under ttl'   => ['delivery_window_seconds', 599, 'authentication.codes.delivery_window_seconds must be an integer from 600 to 86400.'],
+            'window over a day'  => ['delivery_window_seconds', '86401', 'authentication.codes.delivery_window_seconds must be an integer from 600 to 86400.'],
         ];
     }
 
@@ -159,12 +159,12 @@ final class CodeSettingsTest extends TestCase
      */
     public function testTheWindowIsBoundedByTheLifetime(): void
     {
-        self::assertSame(120, self::settings(['ttl_seconds' => 120, 'max_lifetime_seconds' => 120])->maxLifetimeSeconds());
+        self::assertSame(120, self::settings(['ttl_seconds' => 120, 'delivery_window_seconds' => 120])->deliveryWindowSeconds());
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('authentication.codes.max_lifetime_seconds must be an integer from 120 to 86400.');
+        $this->expectExceptionMessage('authentication.codes.delivery_window_seconds must be an integer from 120 to 86400.');
 
-        self::settings(['ttl_seconds' => 120, 'max_lifetime_seconds' => 119])->maxLifetimeSeconds();
+        self::settings(['ttl_seconds' => 120, 'delivery_window_seconds' => 119])->deliveryWindowSeconds();
     }
 
     /**
@@ -174,7 +174,7 @@ final class CodeSettingsTest extends TestCase
      */
     public function testValidateReadsEveryNumber(): void
     {
-        $malformed = ['length' => 11, 'max_attempts' => 0, 'resend_cooldown_seconds' => 601, 'ttl_seconds' => 59, 'max_deliveries' => 0, 'max_lifetime_seconds' => 59];
+        $malformed = ['length' => 11, 'max_attempts' => 0, 'resend_cooldown_seconds' => 601, 'ttl_seconds' => 59, 'max_deliveries' => 0, 'delivery_window_seconds' => 59];
 
         foreach ($malformed as $key => $value) {
             try {

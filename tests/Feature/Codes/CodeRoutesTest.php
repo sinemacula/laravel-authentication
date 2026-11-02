@@ -333,7 +333,7 @@ final class CodeRoutesTest extends TestCase
 
         abort_unless($identity instanceof Identity, 401);
 
-        $outcome = Auth::codes('mobile')->verify($identity, 'phone', $input['challenge'], $input['code']);
+        $outcome = Auth::codes('mobile')->verify($identity, 'phone', $input['challenge'], $input['code'])->outcome;
 
         abort_unless(in_array($outcome, [VerificationOutcome::VERIFIED, VerificationOutcome::ALREADY_VERIFIED], true), 422);
 

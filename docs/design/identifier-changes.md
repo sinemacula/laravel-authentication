@@ -87,9 +87,10 @@ outdates, and why the change stands when the notice to the old identifier fails.
    a fresh `request_id`, the change is written, the replaced change's code invalidated, the code's delivery queued.
    After commit: `IdentifierChangeRequested`, and the job sends the code to the new identifier while the code is live
    and the change still names its request and guard.
-2. `confirmByCode($identity, 'email', $code)`: in one transaction the code is accepted and used up, the change deleted,
-   no other holder found, the outdated proofs invalidated, the identifier replaced and verified. After commit:
-   `IdentifierChanged`, and the notice to `previous` is queued.
+2. `confirmByCode($identity, 'email', $challengeId, $code)` (the challenge id `requestByCode()` answered): in one
+   transaction the code is accepted and used up, the change deleted, no other holder found, the outdated proofs
+   invalidated, the identifier replaced and verified. After commit: `IdentifierChanged`, and the notice to `previous` is
+   queued.
 3. `requestByLink(...)` / `confirmByLink($request)` are the same with a signed link in place of the code: the link is
    returned for the application to send, and the confirmation checks its signature, purpose, guard, request and digest.
 

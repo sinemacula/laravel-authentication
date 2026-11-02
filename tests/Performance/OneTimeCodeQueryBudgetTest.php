@@ -263,7 +263,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
         $challenge = (string) $codes->sendVerification($identity, 'phone')->challengeId;
 
-        self::assertSame(VerificationOutcome::VERIFIED, $this->assertQueryBudget(2, 9, static fn (): mixed => $codes->verify($identity, 'phone', $challenge, self::CODE)));
+        self::assertSame(VerificationOutcome::VERIFIED, $this->assertQueryBudget(2, 9, static fn (): mixed => $codes->verify($identity, 'phone', $challenge, self::CODE)->outcome));
     }
 
     /**

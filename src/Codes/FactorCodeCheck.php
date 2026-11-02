@@ -33,7 +33,7 @@ final readonly class FactorCodeCheck
      * @param  string  $challengeId
      * @param  ?\Carbon\CarbonImmutable  $verifiedAt
      * @param  ?\Carbon\CarbonImmutable  $lockedUntil
-     * @param  ?\SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal  $reason
+     * @param  ?\SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal  $refusal
      * @param  ?int  $retryAfter
      */
     public function __construct(
@@ -51,7 +51,7 @@ final readonly class FactorCodeCheck
         public ?CarbonImmutable $lockedUntil = null,
 
         /** Why the factor package refused, when it did. */
-        public ?FactorCodeRefusal $reason = null,
+        public ?FactorCodeRefusal $refusal = null,
 
         /** Seconds until the IP address may check another code, for `rate_limited` only. */
         public ?int $retryAfter = null,

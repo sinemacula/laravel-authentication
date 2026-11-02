@@ -25,10 +25,14 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   `reason` (`?FailureReason`, the reason the flow reports, concealed where the flow conceals it), and a flow that can be
   throttled carries `retryAfter` (`?int`). A result with more than two outcomes exposes `status`, a string-backed enum
   naming every outcome, success included. `SignInResult`, `RefreshResult`, `SwitchResult`, `CodeRequest`, `ResetResult`,
-  `PasswordResult`, `IdentifierChangeRequest`, `PasskeyRegistration` and `PasskeyFactorResult` take this shape.
+  `PasswordResult`, `IdentifierChangeRequest`, `PasskeyRegistration` and `PasskeyFactorResult` take this shape. A flow
+  whose outcomes an enum already names and that came to be throttled (a check of a verification code, a confirmation of
+  a change of identifier) answers a result carrying that enum as `outcome` with `retryAfter` (`LimitedOutcome`, generic
+  over the enum, with `is()`; and `FactorCodeCheck` for a factor code), so the enum stays the one place its outcomes are
+  named.
 - **An outcome enum when success carries nothing and the flow cannot be throttled.** It is string-backed and names its
-  success case (`IdentifierChangeOutcome::CHANGED`, `VerificationOutcome::VERIFIED`,
-  `VerificationLinkOutcome::VERIFIED`), so matching on the enum, not on a type, tells success from refusal.
+  success case (`VerificationLinkOutcome::VERIFIED`), so matching on the enum, not on a type, tells success from
+  refusal.
 - **`bool` only for "did this call change something"** on an idempotent operation (`discard()`, `signOut()`,
   `revokeSession()`, `apiKeys()->revoke()`, `passkeys()->remove()`, `identifierChanges()->cancel()`), and `int` for how
   many it changed (`signOutEverywhere()`, `revokeSessions()`, the security-change methods). `false` and `0` are not
@@ -54,9 +58,12 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   already holds the identity).
 - `passkeys()->register()` answers a `PasskeyRegistration`: `registered` with the passkey's summary and the factor
   gate's association, if any, or `challenge_invalid`, `response_invalid` or `already_registered`.
-- `codes()->verify()` answers a `VerificationOutcome`: `verified`, `already_verified` or `mismatch` as the
-  `IdentifierVerifier` answered an accepted code, or `invalid`, `expired` or `exhausted` for a code that was not.
-  `AuthenticationFailed` still carries the `FailureReason` (`invalid_credentials`, `code_expired`, `code_exhausted`).
+- `codes()->verify()` answers a `LimitedOutcome` whose `outcome`, a `VerificationOutcome`, is `verified`,
+  `already_verified` or `mismatch` as the `IdentifierVerifier` answered an accepted code, `invalid`, `expired` or
+  `exhausted` for a code that was not, or `rate_limited` with `retryAfter`. `AuthenticationFailed` still carries the
+  `FailureReason` (`invalid_credentials`, `code_expired`, `code_exhausted`, `rate_limited`).
+  `identifierChanges()->confirmByCode()` and `confirmByLink()` answer a `LimitedOutcome` of an `IdentifierChangeOutcome`
+  the same way.
 - `VerificationLinks::consume()` answers a `VerificationLinkOutcome`: `verified`, `already_verified` or `mismatch` as
   the `IdentifierVerifier` answered an accepted link, or `invalid` or `expired` for a link that was not, reported by
   `AuthenticationFailed` as `invalid_credentials` or `link_expired` on the `identifier_verification` flow. The link's
@@ -96,7 +103,8 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   `src/Passkeys/PasskeyFactorResult.php`, `src/Passkeys/PasskeyService.php` (`register()`, `verifyFactor()`,
   `signInOptions()`).
 - `src/Sessions/SessionRefresh.php` (every refusal returned, `rate_limited` with its wait), `src/Jwt/TokenPair.php`.
-- `src/Codes/Enums/VerificationOutcome.php`, `src/Codes/CodeService.php` (`verify()`),
+- `src/RateLimiting/LimitedOutcome.php`, `src/Codes/Enums/VerificationOutcome.php`, `src/Codes/CodeService.php`
+  (`verify()`),
   `src/IdentifierChanges/Enums/IdentifierChangeOutcome.php`.
 - `src/Verification/Enums/VerificationLinkOutcome.php`, `src/Verification/VerificationLinks.php` (`consume()`).
 

@@ -25,7 +25,7 @@ final readonly class FactorCodeAdmission
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeStanding  $standing
      * @param  ?\Carbon\CarbonImmutable  $lockedUntil
-     * @param  ?\SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal  $reason
+     * @param  ?\SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal  $refusal
      */
     private function __construct(
 
@@ -36,7 +36,7 @@ final readonly class FactorCodeAdmission
         public ?CarbonImmutable $lockedUntil = null,
 
         /** Why the factor package refuses, for `refused` only. */
-        public ?FactorCodeRefusal $reason = null,
+        public ?FactorCodeRefusal $refusal = null,
     ) {}
 
     /**
@@ -64,12 +64,12 @@ final readonly class FactorCodeAdmission
     /**
      * The factor package refuses, for the reason given.
      *
-     * @param  \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal  $reason
+     * @param  \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal  $refusal
      * @return self
      */
-    public static function refused(FactorCodeRefusal $reason): self
+    public static function refused(FactorCodeRefusal $refusal): self
     {
-        return new self(FactorCodeStanding::REFUSED, reason: $reason);
+        return new self(FactorCodeStanding::REFUSED, refusal: $refusal);
     }
 
     /**

@@ -246,7 +246,7 @@ final readonly class FactorCodes
             default                                             => FactorCodeOutcome::REFUSED,
         };
 
-        return new FactorCodeCheck($outcome, $challengeId, $outcome === FactorCodeOutcome::VERIFIED ? $matchedAt : null, $admission->lockedUntil, $admission->reason);
+        return new FactorCodeCheck($outcome, $challengeId, $outcome === FactorCodeOutcome::VERIFIED ? $matchedAt : null, $admission->lockedUntil, $admission->refusal);
     }
 
     /**
@@ -271,7 +271,7 @@ final readonly class FactorCodes
             $issued instanceof IssuedCode                    => CodeRequest::sent($issued->expiresAt, $issued->challengeId),
             $issued instanceof DeliveryRefusal               => $this->refuse($issued->request(), $issued->reason(), $context, $issued->retryAfter),
             $issued->standing === FactorCodeStanding::LOCKED => $this->refuse(CodeRequest::locked($issued->lockedUntil), FailureReason::FACTOR_CODE_LOCKED, $context),
-            default                                          => $this->refuse(CodeRequest::refused($issued->reason), FailureReason::FACTOR_CODE_REFUSED, $context),
+            default                                          => $this->refuse(CodeRequest::refused($issued->refusal), FailureReason::FACTOR_CODE_REFUSED, $context),
         };
     }
 

@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
@@ -169,26 +170,26 @@ final readonly class CodeService
      * `expired`, `exhausted` or `rate_limited`; not concealed, since the caller
      * already holds the identity), reported by `AuthenticationFailed` as
      * `invalid_credentials`, `code_expired`, `code_exhausted` or
-     * `rate_limited`. A check of a well-formed code and challenge id counts
-     * against the identity's account and the IP address
-     * (`identifier_verification`) and gives them back once the code is
-     * accepted. A code sent before the identifier changed is bound to the old
-     * one, so it verifies nothing; one whose identifier changed after the
-     * identity was loaded is used up and answers `mismatch`, with nothing
-     * recorded or reported, as the verifier gives it.
+     * `rate_limited`, the last with the wait on the result. A check of a
+     * well-formed code and challenge id counts against the identity's account
+     * and the IP address (`identifier_verification`) and gives them back once
+     * the code is accepted. A code sent before the identifier changed is bound
+     * to the old one, so it verifies nothing; one whose identifier changed
+     * after the identity was loaded is used up and answers `mismatch`, with
+     * nothing recorded or reported, as the verifier gives it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
      * @param  string  $challengeId
      * @param  string  $code
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome
+     * @return \SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome<\SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome>
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function verify(Identity $identity, string $type, string $challengeId, #[\SensitiveParameter] string $code, ?ClientContext $client = null): VerificationOutcome
+    public function verify(Identity $identity, string $type, string $challengeId, #[\SensitiveParameter] string $code, ?ClientContext $client = null): LimitedOutcome
     {
         $binding = $this->verificationBinding($identity, $type);
         $context = new EventContext($this->context->name(), $client ?? $this->context->client(), $identity);
@@ -204,7 +205,9 @@ final readonly class CodeService
         );
 
         if ($reservation->retryAfter !== null) {
-            return $this->refuseVerification($context, FailureReason::RATE_LIMITED, $reservation->retryAfter);
+            $this->report($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, FailureReason::RATE_LIMITED, null, $reservation->retryAfter);
+
+            return new LimitedOutcome(VerificationOutcome::RATE_LIMITED, $reservation->retryAfter);
         }
 
         $failure = $codes->check($binding, $challengeId, $code, CarbonImmutable::now()->startOfSecond())->failure();
@@ -397,34 +400,32 @@ final readonly class CodeService
      *
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
-     * @param  ?int  $retryAfter
-     * @return \SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome
+     * @return \SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome<\SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome>
      */
-    private function refuseVerification(EventContext $context, FailureReason $reason, ?int $retryAfter = null): VerificationOutcome
+    private function refuseVerification(EventContext $context, FailureReason $reason): LimitedOutcome
     {
-        $this->report($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, $reason, null, $retryAfter);
+        $this->report($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, $reason, null, null);
 
-        return match ($reason) {
+        return new LimitedOutcome(match ($reason) {
             FailureReason::CODE_EXPIRED   => VerificationOutcome::EXPIRED,
             FailureReason::CODE_EXHAUSTED => VerificationOutcome::EXHAUSTED,
-            FailureReason::RATE_LIMITED   => VerificationOutcome::RATE_LIMITED,
             default                       => VerificationOutcome::INVALID,
-        };
+        });
     }
 
     /**
-     * The outcome of an accepted code, as the verifier answered it.
+     * The result of an accepted code, as the verifier answered it.
      *
      * @param  \SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification  $verification
-     * @return \SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome
+     * @return \SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome<\SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome>
      */
-    private static function verifierOutcome(IdentifierVerification $verification): VerificationOutcome
+    private static function verifierOutcome(IdentifierVerification $verification): LimitedOutcome
     {
-        return match ($verification) {
+        return new LimitedOutcome(match ($verification) {
             IdentifierVerification::VERIFIED         => VerificationOutcome::VERIFIED,
             IdentifierVerification::ALREADY_VERIFIED => VerificationOutcome::ALREADY_VERIFIED,
             IdentifierVerification::MISMATCH         => VerificationOutcome::MISMATCH,
-        };
+        });
     }
 
     /**
