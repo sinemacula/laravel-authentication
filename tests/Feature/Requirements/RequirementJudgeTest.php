@@ -6,6 +6,7 @@ namespace Tests\Feature\Requirements;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -154,6 +155,42 @@ final class RequirementJudgeTest extends TestCase
 
         self::assertSame($given, $this->check->judged[0]->firstFactor);
         self::assertSame($given, $this->check->judged[1]->firstFactor);
+    }
+
+    /**
+     * The first factor a judgement is made on is the one given, else the
+     * evidence's, else the one the session records, read once and only then;
+     * with none of them there is none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheFirstFactorIsTheGivenElseTheEvidencesElseTheSessions(): void
+    {
+        $this->seedMember();
+
+        $session  = $this->signedIn();
+        $now      = CarbonImmutable::now();
+        $given    = SignInProof::unattested('sso', $now)->recorded();
+        $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
+
+        /** @var \ArrayObject<int, string> $statements */
+        $statements = new \ArrayObject;
+
+        DB::listen(static function (QueryExecuted $query) use ($statements): void {
+            $statements->append($query->sql);
+        });
+
+        self::assertSame($given, RequirementJudge::firstFactor($session, $given, $evidence));
+        self::assertSame($evidence->firstFactor, RequirementJudge::firstFactor($session, null, $evidence));
+        self::assertNull(RequirementJudge::firstFactor(null, null, null));
+        self::assertCount(0, $statements);
+
+        $recorded = RequirementJudge::firstFactor($session, null, null);
+
+        self::assertSame([ProofKind::FIRST_FACTOR, 'password'], [$recorded?->kind, $recorded?->method]);
+        self::assertCount(1, $statements);
     }
 
     /**

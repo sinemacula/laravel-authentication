@@ -68,11 +68,7 @@ final class RequirementJudge
             return true;
         }
 
-        $firstFactor ??= $evidence?->firstFactor;
-
-        if ($firstFactor === null && $session !== null) {
-            $firstFactor = SessionProofs::firstFactor($session);
-        }
+        $firstFactor = self::firstFactor($session, $firstFactor, $evidence);
 
         if ($firstFactor === null) {
             return false;
@@ -82,6 +78,26 @@ final class RequirementJudge
         $check   = Container::getInstance()->make(RequirementCheck::class);
 
         return WriteConnection::during($identity, static fn (): bool => $check->evaluate($subject, $requirement)->isMet());
+    }
+
+    /**
+     * The first factor a judgement of the session, or of the sign-in's
+     * evidence, is made on: the one given, else the evidence's, else the one
+     * the session records, read on the write connection; `null` when there is
+     * none.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
+     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function firstFactor(?Session $session, ?RecordedProof $firstFactor, ?SessionEvidence $evidence): ?RecordedProof
+    {
+        $firstFactor ??= $evidence?->firstFactor;
+
+        return $firstFactor === null && $session !== null ? SessionProofs::firstFactor($session) : $firstFactor;
     }
 
     /**

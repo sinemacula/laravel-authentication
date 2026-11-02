@@ -273,13 +273,14 @@ final readonly class FactorRevocations
 
         [$admitted, $policy] = $verdict;
 
-        $outstanding = $this->transitions->outstanding($locked, $admitted->identity, $policy->factor, $now);
+        $firstFactor = PendingTransitions::firstFactorOf($locked, $policy);
+        $outstanding = $this->transitions->outstanding($locked, $admitted->identity, $policy->factor, $firstFactor, $now);
 
         if ($outstanding->isEmpty()) {
             return new FactorRemoval($revoked);
         }
 
-        $returned = $this->transitions->returnToPending($locked, $admitted, $policy->version, $outstanding, AuthenticationFlow::FACTOR_CHANGE, $now);
+        $returned = $this->transitions->returnToPending($locked, $admitted, $policy->version, $outstanding, $firstFactor, AuthenticationFlow::FACTOR_CHANGE, $now);
 
         return $returned === null ? $this->revoke($identity, $locked, $revoked, $now) : $this->returned($locked, $returned, $revoked);
     }

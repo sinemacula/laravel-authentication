@@ -10,10 +10,13 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -22,7 +25,9 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMember;
@@ -35,8 +40,9 @@ use Tests\Integration\Fixtures\ChoosingMembership;
  * the choice uses it up, writes the session and gives the slots back; a switch
  * reads the refresh counters, the session, its owner, the target, its tenant
  * and its owner, writes the one compare-and-swap, and then reads the principal
- * it switched from for the event, while a grace retry writes nothing and a
- * refusal writes only the counters.
+ * it switched from for the event, while a switch its destination's policy
+ * returns to pending reads the first factor once instead, a grace retry writes
+ * nothing and a refusal writes only the counters.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -105,6 +111,30 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $result   = $this->assertQueryBudget(8, 1, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
 
         self::assertTrue($result->isSwitched());
+    }
+
+    /**
+     * A switch whose destination's tenant now asks for a further factor reads
+     * the refresh counters, the session, its owner, the target, its tenant and
+     * its owner, then the one first-factor proof the policy is judged on, which
+     * the identity's own requirement and the pending session reuse, and writes
+     * the one compare-and-swap that returns the session to pending instead of
+     * the switch.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchReturningToPendingReadsItsFirstFactorOnce(): void
+    {
+        [$session, $second] = $this->signInWithASecondMembership();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v2', new Requirement(new RequirementPart))));
+
+        $sessions = $this->sessions('members');
+        $result   = $this->assertQueryBudget(7, 1, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
+
+        self::assertTrue($result->isPending());
     }
 
     /**

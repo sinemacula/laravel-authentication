@@ -152,8 +152,9 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   `src/Sessions/PendingSessions.php` (`choose()`) over `src/Sessions/SessionActivation.php` and then bound by the
   service.
 - `src/Sessions/PendingEvaluation.php`: `principals()`, `principal()`, `selection()`, `named()`, `destination()`,
-  `owedFactor()`, `owedFactorOn()`; `src/Sessions/PendingTransitions.php`: `outstanding()` (what a switch that returns
-  the session to pending names: the strictest of the destination tenant's requirement and the identity's own).
+  `owedFactor()`, `owedFactorOn()`; `src/Sessions/PendingTransitions.php`: `firstFactorOf()` (the first factor the
+  tenant's verdict was judged on, so it is read once), `outstanding()` (what a switch that returns the session to
+  pending names: the strictest of the destination tenant's requirement and the identity's own).
 - `src/Sessions/SessionSwitch.php`: one switch, built per call; `switch()` (the limiter), `switchOn()`, `admit()`,
   `admitAsDestination()`, `isDestination()`, `switchCurrent()`, `underPolicy()`, `toPending()`, `rotateTo()`, `retry()`,
   `afterLostSwitch()`, `deadlines()`; `src/Sessions/SwitchTarget.php` and `src/Sessions/SwitchedPrincipal.php`.

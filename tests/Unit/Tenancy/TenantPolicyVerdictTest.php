@@ -67,6 +67,7 @@ final class TenantPolicyVerdictTest extends TestCase
 
         self::assertSame($factor, (new TenantPolicyVerdict(TenantPolicyStanding::FACTOR_REQUIRED, 'v1', $factor))->factor);
         self::assertTrue((new TenantPolicyVerdict(TenantPolicyStanding::MET, 'v1'))->factor->isEmpty());
+        self::assertNull((new TenantPolicyVerdict(TenantPolicyStanding::MET, 'v1'))->firstFactor);
     }
 
     /**

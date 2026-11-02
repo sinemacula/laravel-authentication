@@ -129,6 +129,7 @@ final class TenantPolicyCheckTest extends TestCase
         self::assertSame([], DB::getQueryLog());
         self::assertSame(TenantPolicyStanding::MET, $verdict->standing);
         self::assertSame('v7', $verdict->version);
+        self::assertNull($verdict->firstFactor);
 
         $context = $this->policy->asked[$asked] ?? null;
 
@@ -169,7 +170,10 @@ final class TenantPolicyCheckTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart), connections: ['conn-a']);
 
-        self::assertTrue(TenantPolicyCheck::check('members', $member, $membership, $tenant, $password, CarbonImmutable::now())->factor->isEmpty());
+        $refused = TenantPolicyCheck::check('members', $member, $membership, $tenant, $password, CarbonImmutable::now());
+
+        self::assertTrue($refused->factor->isEmpty());
+        self::assertNull($refused->firstFactor);
 
         $this->policy->requirement = new TenantRequirement(connections: ['conn-a']);
 
@@ -210,7 +214,8 @@ final class TenantPolicyCheckTest extends TestCase
      * the session's counting proofs, read newest first, with the first factor
      * at hand; never by the default check, and never without a session or
      * evidence. A verdict that falls short of it names the requirement, and one
-     * that meets it names none.
+     * that meets it names none; either carries the first factor it was judged
+     * on, read once.
      *
      * @return void
      *
@@ -225,14 +230,21 @@ final class TenantPolicyCheckTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement('v2', new Requirement(new RequirementPart(600)));
 
+        DB::enableQueryLog();
+
         $verdict = TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now);
+        $reads   = array_filter(DB::getQueryLog(), static fn (array $query): bool => str_contains($query['query'], '"kind" = ?'));
+
+        DB::disableQueryLog();
 
         self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, $verdict->standing);
         self::assertSame('v2', $verdict->version);
         self::assertSame($this->policy->requirement->factor, $verdict->factor);
+        self::assertCount(1, $reads);
 
         $subject = $this->check->judged[0];
 
+        self::assertSame($subject->firstFactor, $verdict->firstFactor);
         self::assertSame(ProofKind::FIRST_FACTOR, $subject->firstFactor->kind);
         self::assertSame($session, $subject->session);
         self::assertSame('members', $subject->application);
@@ -243,6 +255,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         self::assertTrue($met->isMet());
         self::assertTrue($met->factor->isEmpty());
+        self::assertSame($this->check->judged[1]->firstFactor, $met->firstFactor);
         self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now)->standing);
 
         app()->instance(RequirementCheck::class, new MeetNoRequirement);

@@ -13,7 +13,6 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
-use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 
@@ -98,7 +97,9 @@ final class TenantPolicyCheck
     }
 
     /**
-     * Judge the session, or the sign-in's evidence, against the answer.
+     * Judge the session, or the sign-in's evidence, against the answer. A
+     * verdict on a further factor carries the first factor it was judged on, so
+     * a caller that goes on to judge the session again reads it no more.
      *
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
      * @param  string  $guard
@@ -119,13 +120,15 @@ final class TenantPolicyCheck
         CarbonImmutable $now,
         ?SessionEvidence $evidence,
     ): TenantPolicyVerdict {
-        $standing = match (true) {
-            !self::meetsConnections($requirement, $session, $evidence)                                         => TenantPolicyStanding::SSO_REQUIRED,
-            !RequirementJudge::isMet($guard, $identity, $session, null, $now, $evidence, $requirement->factor) => TenantPolicyStanding::FACTOR_REQUIRED,
-            default                                                                                            => TenantPolicyStanding::MET,
-        };
+        if (!self::meetsConnections($requirement, $session, $evidence)) {
+            return new TenantPolicyVerdict(TenantPolicyStanding::SSO_REQUIRED, $requirement->version);
+        }
 
-        return new TenantPolicyVerdict($standing, $requirement->version, $standing === TenantPolicyStanding::FACTOR_REQUIRED ? $requirement->factor : new Requirement);
+        $firstFactor = $requirement->factor->isEmpty() ? null : RequirementJudge::firstFactor($session, null, $evidence);
+
+        return RequirementJudge::isMet($guard, $identity, $session, $firstFactor, $now, $evidence, $requirement->factor)
+            ? new TenantPolicyVerdict(TenantPolicyStanding::MET, $requirement->version, firstFactor: $firstFactor)
+            : new TenantPolicyVerdict(TenantPolicyStanding::FACTOR_REQUIRED, $requirement->version, $requirement->factor, $firstFactor);
     }
 
     /**

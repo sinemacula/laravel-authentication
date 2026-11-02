@@ -116,7 +116,7 @@ final class FactorRevocationsQueryBudgetTest extends PerformanceContractTestCase
         $current  = $this->satisfied();
         $sessions = $this->sessions();
 
-        $removal = $this->assertQueryBudget(6, 4, static fn (): FactorRemoval => $sessions->factorRemoved($identity, 'factor-a', $current->record));
+        $removal = $this->assertQueryBudget(5, 4, static fn (): FactorRemoval => $sessions->factorRemoved($identity, 'factor-a', $current->record));
 
         self::assertSame(2, $removal->revoked);
         self::assertTrue($removal->returnedToPending());
