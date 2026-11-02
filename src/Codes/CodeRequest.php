@@ -113,12 +113,12 @@ final readonly class CodeRequest
     /**
      * The factor package refuses to have the code sent, for the reason given.
      *
-     * @param  ?\SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal  $reason
+     * @param  ?\SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal  $refusal
      * @return self
      */
-    public static function refused(?FactorCodeRefusal $reason): self
+    public static function refused(?FactorCodeRefusal $refusal): self
     {
-        return new self(CodeRequestStatus::REFUSED, refusal: $reason);
+        return new self(CodeRequestStatus::REFUSED, refusal: $refusal);
     }
 
     /**
