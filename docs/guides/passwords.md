@@ -111,10 +111,12 @@ Route::middleware('auth:api')->put('/password', function (Request $request) {
     $result = Auth::passwords('api')->change(Auth::session(), $request->input('current_password'), $request->input('password'));
 
     return match (true) {
-        $result->isSet()                                => response()->noContent(),
-        $result->reason === FailureReason::RATE_LIMITED => response()->json(['message' => 'Too many attempts.'], 429)->header('Retry-After', (string) $result->retryAfter),
-        $result->reason !== null                        => response()->json(['message' => 'The current password is wrong.'], 422),
-        default                                         => response()->json(['violations' => array_map(fn ($v) => $v->value, $result->violations)], 422),
+        $result->isSet()                                       => response()->noContent(),
+        $result->reason === FailureReason::RATE_LIMITED        => response()->json(['message' => 'Too many attempts.'], 429)->header('Retry-After', (string) $result->retryAfter),
+        $result->reason === FailureReason::INVALID_CREDENTIALS => response()->json(['message' => 'The current password is wrong.'], 422),
+        $result->reason === FailureReason::PASSWORD_NOT_SET    => response()->json(['message' => 'You have no password yet: set one instead.'], 409),
+        $result->reason !== null                               => response()->json(['message' => 'Sign in again.'], 401),
+        default                                                => response()->json(['violations' => array_map(fn ($v) => $v->value, $result->violations)], 422),
     };
 });
 
@@ -123,8 +125,9 @@ Route::middleware('auth:api')->post('/password', function (Request $request) {
 
     return match (true) {
         $result->isSet()                                             => response()->noContent(),
-        $result->reason === FailureReason::REAUTHENTICATION_REQUIRED => response()->json(['message' => 'Sign in again first.'], 403),
-        $result->reason !== null                                     => response()->json(['message' => 'You already have a password.'], 409),
+        $result->reason === FailureReason::REAUTHENTICATION_REQUIRED => response()->json(['message' => 'Confirm it is you first.'], 403),
+        $result->reason === FailureReason::PASSWORD_ALREADY_SET      => response()->json(['message' => 'You already have a password.'], 409),
+        $result->reason !== null                                     => response()->json(['message' => 'Sign in again.'], 401),
         default                                                      => response()->json(['violations' => array_map(fn ($v) => $v->value, $result->violations)], 422),
     };
 });
@@ -360,7 +363,7 @@ which access logs, proxies and `Referer` headers record: `resetFromRequest()` an
 the input from the body of the request the guard is serving (its JSON or form fields) and ignore the query string, and
 when you call `reset()` yourself, pass the body only. Link to a page of yours that carries the token in the URL's
 fragment (`https://app.example/reset#token=...`), which a browser never sends to a server, and have the page post it in
-a JSON body, as the mailer below does; with Laravel's notification, `ResetPassword::createUrlUsing()` builds that link.
+a JSON body, as the mailer above does; with Laravel's notification, `ResetPassword::createUrlUsing()` builds that link.
 There is no lookup of a reset's status (whether a token is still valid, or whose it is): it would tell anyone holding or
 guessing a token, or an identifier, what a reset's answer deliberately does not, and a reset submitted with an expired
 or spent token simply answers `invalid`. The identifier as given and the IP address are counted under the

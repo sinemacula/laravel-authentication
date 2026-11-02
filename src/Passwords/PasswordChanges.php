@@ -109,7 +109,7 @@ final readonly class PasswordChanges
         $owner   = $this->owner($session);
 
         if ($owner instanceof FailureReason) {
-            return $this->refuse(PasswordResult::refused($owner), $context);
+            return $this->refuse($owner, $context);
         }
 
         $context = new EventContext($this->context->name(), $context->client, $owner, session: $session);
@@ -117,7 +117,7 @@ final readonly class PasswordChanges
         $proven  = $hash === '' ? FailureReason::PASSWORD_NOT_SET : $this->isCurrentPassword($owner, $current, $context->client->ip);
 
         if ($proven !== true) {
-            return $this->refuse(is_int($proven) ? PasswordResult::refused(FailureReason::RATE_LIMITED, $proven) : PasswordResult::refused($proven), $context);
+            return is_int($proven) ? $this->refuse(FailureReason::RATE_LIMITED, $context, $proven) : $this->refuse($proven, $context);
         }
 
         $stands = static fn (Identity $locked): ?FailureReason => hash_equals($hash, self::hashOf($locked)) ? null : FailureReason::INVALID_CREDENTIALS;
@@ -142,13 +142,13 @@ final readonly class PasswordChanges
         $owner   = $this->owner($session);
 
         if ($owner instanceof FailureReason) {
-            return $this->refuse(PasswordResult::refused($owner), $context);
+            return $this->refuse($owner, $context);
         }
 
         $context = new EventContext($this->context->name(), $context->client, $owner, session: $session);
 
         if (self::hashOf($owner) !== '') {
-            return $this->refuse(PasswordResult::refused(FailureReason::PASSWORD_ALREADY_SET), $context);
+            return $this->refuse(FailureReason::PASSWORD_ALREADY_SET, $context);
         }
 
         $freshness = $this->container->make(FreshnessPolicy::class);
@@ -210,17 +210,22 @@ final readonly class PasswordChanges
             $outcome = $owner->getConnection()->transaction(function () use ($owner, $session, $secret, $flow, $client, $stands, $writer): FailureReason|int {
                 $locked = IdentityLock::acquire($owner);
                 $stored = SessionLookup::lock($session->getSessionIdentifier());
-                $reason = $locked instanceof Identity && $stored !== null
-                    ? $this->sessionRefusal($session, $stored, $locked) ?? $stands($locked, $stored)
-                    : FailureReason::SESSION_UNKNOWN;
 
-                return $reason ?? $writer->write($locked, $secret->getValue(), $flow, $stored, $client);
+                if (!$locked instanceof Identity) {
+                    return FailureReason::IDENTITY_UNKNOWN;
+                }
+
+                if ($stored === null) {
+                    return FailureReason::SESSION_UNKNOWN;
+                }
+
+                return $this->sessionRefusal($session, $stored, $locked) ?? $stands($locked, $stored) ?? $writer->write($locked, $secret->getValue(), $flow, $stored, $client);
             });
         } catch (PasswordAlreadySet) {
             $outcome = FailureReason::PASSWORD_ALREADY_SET;
         }
 
-        return is_int($outcome) ? PasswordResult::set($outcome) : $this->refuse(PasswordResult::refused($outcome), $context);
+        return is_int($outcome) ? PasswordResult::set($outcome) : $this->refuse($outcome, $context);
     }
 
     /**
@@ -332,19 +337,19 @@ final readonly class PasswordChanges
     }
 
     /**
-     * Report a refused change with `AuthenticationFailed` and answer it.
+     * Report a change refused for the reason, with the wait when it was
+     * limited, with `AuthenticationFailed`, and answer it.
      *
-     * @param  \SineMacula\Laravel\Authentication\Passwords\PasswordResult  $result
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
+     * @param  ?int  $retryAfter
      * @return \SineMacula\Laravel\Authentication\Passwords\PasswordResult
      */
-    private function refuse(PasswordResult $result, EventContext $context): PasswordResult
+    private function refuse(FailureReason $reason, EventContext $context, ?int $retryAfter = null): PasswordResult
     {
-        if ($result->reason !== null) {
-            $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::PASSWORD_CHANGE, $result->reason, retryAfter: $result->retryAfter));
-        }
+        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::PASSWORD_CHANGE, $reason, retryAfter: $retryAfter));
 
-        return $result;
+        return PasswordResult::refused($reason, $retryAfter);
     }
 
     /**

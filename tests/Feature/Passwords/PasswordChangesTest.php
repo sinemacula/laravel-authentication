@@ -299,6 +299,47 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
+     * Rows of `[what vanished before the change's lock, the reason]`.
+     *
+     * @return iterable<string, array{0: string, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     */
+    public static function provideVanishedRows(): iterable
+    {
+        yield 'the identity' => ['password_identities', FailureReason::IDENTITY_UNKNOWN];
+        yield 'the session' => ['authentication_sessions', FailureReason::SESSION_UNKNOWN];
+    }
+
+    /**
+     * An identity or a session deleted between the checks and the change's lock
+     * is not found under the lock: the identity's absence is
+     * `identity_unknown`, as the checks answer it, the session's
+     * `session_unknown`; the refusal is reported, and nothing is written or
+     * revoked.
+     *
+     * @param  string  $table
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideVanishedRows')]
+    public function testARowDeletedMeanwhileRefusesTheChange(string $table, FailureReason $reason): void
+    {
+        self::seedPasswordIdentity();
+
+        $session = $this->signInWithPassword()->record;
+
+        $this->signInWithPassword();
+        $this->beforeTheIdentityIsLocked(static fn () => DB::table($table)->delete());
+        $this->recordEvents([AuthenticationFailed::class, PasswordSet::class]);
+
+        self::assertSame($reason, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->reason);
+        self::assertSame([AuthenticationFailed::class], array_map(static fn (object $event): string => $event::class, $this->recorded));
+        self::assertSame($reason, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
+    }
+
+    /**
      * A passwordless identity establishes a first password from a session it
      * signed in with moments ago: the session is kept, every other session of
      * the identity ends (`password_established`), its cutoff moves, and
