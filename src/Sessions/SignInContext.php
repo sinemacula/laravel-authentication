@@ -167,8 +167,8 @@ final readonly class SignInContext
     }
 
     /**
-     * The refresh token as a secret: a string wrapped, an empty one or none
-     * read as no token.
+     * The refresh token as a secret: a string wrapped, an empty one read as no
+     * token, and a secret or none kept as it is.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string|null  $token
      * @return ?\SineMacula\Laravel\Authentication\Secrets\Secret
@@ -176,9 +176,9 @@ final readonly class SignInContext
     private static function secret(#[\SensitiveParameter] Secret|string|null $token): ?Secret
     {
         return match (true) {
-            $token === null, $token === '' => null,
-            is_string($token)              => new Secret($token),
-            default                        => $token,
+            $token === ''     => null,
+            is_string($token) => new Secret($token),
+            default           => $token,
         };
     }
 }
