@@ -211,9 +211,10 @@ The cookie is `HttpOnly`, `Secure` and `SameSite=Strict`, host-only (it never na
 configured `path`, and expires when the session does, as the refresh token in it does. Its name is the application's
 own unless `cookie.name` sets one: `__Host-<guard>_refresh_token` for a cookie application whose path is `/`,
 otherwise `__Secure-<guard>_refresh_token` (`__Secure-browser_refresh_token` above), so two browser applications on one
-host never overwrite each other's cookie, whatever their paths. A guard name that makes no cookie name (one with a
-space or a separator, say) fails closed until `cookie.name` is set, and two cookie applications with the same name fail
-closed, naming both guards. `forgetCookie()` returns the same cookie already expired; any route may send it, a logout
+host never overwrite each other's cookie, whatever their paths. A cookie application whose guard name makes no cookie
+name (one with a space or a separator, say) fails closed until `cookie.name` is set; a body application with such a name
+needs nothing, and looks for no cookie of its own. Two cookie applications with the same name fail closed, naming both
+guards. `forgetCookie()` returns the same cookie already expired; any route may send it, a logout
 route outside the cookie's path included, since a path limits where the browser sends a cookie, not which response
 may set it. A `__Host-` name set for a cookie application is accepted only with the path `/`, as browsers require; a
 body application never sets the cookie, so a package-wide `__Host-` name does not bind it. Clearing the cookie of a

@@ -10,9 +10,8 @@ a cookie application's results hand back the cookie instead of the token.
 
 - Each JWT guard (an application) reads refresh tokens through one `Http\RefreshTokenTransport`, built from its
   `refresh_token` settings over `authentication.refresh_token` each time it is asked for. A key the guard sets wins,
-  inside `cookie` too. A malformed value, a value missing at both levels where one is required, or an unknown key (the
-  removed `sources` and `cookie.domain` among them) fails closed with an `InvalidArgumentException` naming the guard and
-  the key.
+  inside `cookie` too. A malformed value, a value missing at both levels where one is required, or an unknown key fails
+  closed with an `InvalidArgumentException` naming the guard and the key.
 - `transport` is `body` (the default; the `body_field` of the JSON body, or of the form body of a request that may have
   one, never the query string, or the `header` when one is set) or `cookie` (`Http\Enums\Transport`). A browser
   application opts in to the cookie.
@@ -35,7 +34,8 @@ a cookie application's results hand back the cookie instead of the token.
 - The cookie is host-only (never a `Domain`). Its name is `cookie.name`, or derived from the guard:
   `__Host-<guard>_refresh_token` for a cookie application on the path `/`, otherwise `__Secure-<guard>_refresh_token`,
   so two browser applications on one host never overwrite each other's cookie. A body application derives a name too,
-  since it refuses its own cookie as a mismatch. A guard name that makes no cookie name needs `cookie.name`; two cookie
+  since it refuses its own cookie as a mismatch. A cookie application whose guard name makes no cookie name needs
+  `cookie.name`; a body application with such a name looks for no cookie, since it never sets one to refuse; two cookie
   applications with equal names fail closed naming both guards (only the other guards' `transport`, `cookie.name` and
   `cookie.path` are read for this); an explicit `__Host-` name needs the path `/` on a cookie application; a cookie
   application needs a `cookie.path`.

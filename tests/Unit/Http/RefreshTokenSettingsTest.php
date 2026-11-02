@@ -139,17 +139,17 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
-     * A guard whose name makes no cookie name (it holds a space, a separator or
-     * another character a cookie name may not) needs a name of its own, and
-     * fails closed without one; with one it is accepted.
+     * A cookie application whose guard's name makes no cookie name (it holds a
+     * space, a separator or another character a cookie name may not) needs a
+     * name of its own, and fails closed without one; with one it is accepted.
      *
      * @return void
      */
-    public function testAGuardNameThatMakesNoCookieNameNeedsAnExplicitOne(): void
+    public function testACookieApplicationWhoseGuardNameMakesNoCookieNameNeedsAnExplicitOne(): void
     {
         foreach (['my app', 'app;x', 'app(x)'] as $guard) {
             try {
-                RefreshTokenSettings::forGuard($guard, self::config([], false, $guard));
+                RefreshTokenSettings::forGuard($guard, self::config(['transport' => 'cookie', 'cookie' => ['path' => '/auth']], false, $guard));
 
                 self::fail("The guard [{$guard}] derived a cookie name.");
             } catch (\InvalidArgumentException $exception) {
@@ -158,6 +158,28 @@ final class RefreshTokenSettingsTest extends TestCase
                     $exception->getMessage(),
                 );
             }
+        }
+
+        $named = self::config(['transport' => 'cookie', 'cookie' => ['name' => '__Secure-app', 'path' => '/auth']], false, 'my app');
+
+        self::assertSame('__Secure-app', RefreshTokenSettings::forGuard('my app', $named)->cookieName);
+    }
+
+    /**
+     * A body application never sets a cookie, so one whose guard's name makes
+     * no cookie name needs no cookie configuration: it looks for no cookie. A
+     * name it sets is still the cookie it refuses.
+     *
+     * @return void
+     */
+    public function testABodyApplicationWhoseGuardNameMakesNoCookieNameLooksForNoCookie(): void
+    {
+        foreach (['my app', 'app;x', 'app(x)'] as $guard) {
+
+            $settings = RefreshTokenSettings::forGuard($guard, self::config([], false, $guard));
+
+            self::assertSame(Transport::BODY, $settings->transport);
+            self::assertNull($settings->cookieName);
         }
 
         self::assertSame('__Secure-app', RefreshTokenSettings::forGuard('my app', self::config(['cookie' => ['name' => '__Secure-app']], false, 'my app'))->cookieName);

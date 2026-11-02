@@ -144,7 +144,7 @@ final readonly class RefreshTokenTransport
             return $pair;
         }
 
-        return new TokenPair($pair->accessToken, null, new RefreshCookie($pair->refreshToken, $this->settings->cookieName, $this->cookiePath(), self::sessionEnd($session)));
+        return new TokenPair($pair->accessToken, null, new RefreshCookie($pair->refreshToken, $this->cookieName(), $this->cookiePath(), self::sessionEnd($session)));
     }
 
     /**
@@ -160,7 +160,7 @@ final readonly class RefreshTokenTransport
      */
     public function forgetCookie(): Cookie
     {
-        return new Cookie($this->settings->cookieName, null, Carbon::now()->subYear(), $this->cookiePath(), null, true, true, false, Cookie::SAMESITE_STRICT);
+        return new Cookie($this->cookieName(), null, Carbon::now()->subYear(), $this->cookiePath(), null, true, true, false, Cookie::SAMESITE_STRICT);
     }
 
     /**
@@ -204,6 +204,19 @@ final readonly class RefreshTokenTransport
     }
 
     /**
+     * The cookie's name, or a `LogicException` for a body application whose
+     * guard's name makes none.
+     *
+     * @return string
+     *
+     * @throws \LogicException
+     */
+    private function cookieName(): string
+    {
+        return $this->settings->cookieName ?? throw new \LogicException(self::NOT_A_COOKIE_APPLICATION);
+    }
+
+    /**
      * The cookie's path, or a `LogicException` for a body application: a cookie
      * it would never read must not be set.
      *
@@ -226,8 +239,8 @@ final readonly class RefreshTokenTransport
     private function carries(Request $request, RefreshTokenSource $source): bool
     {
         return match ($source) {
-            RefreshTokenSource::COOKIE => $request->cookies->has($this->settings->cookieName),
-            RefreshTokenSource::HEADER => $this->settings->header !== null && $request->headers->has($this->settings->header),
+            RefreshTokenSource::COOKIE => $this->settings->cookieName !== null && $request->cookies->has($this->settings->cookieName),
+            RefreshTokenSource::HEADER => $this->settings->header     !== null && $request->headers->has($this->settings->header),
             RefreshTokenSource::BODY   => array_key_exists($this->settings->bodyField, RequestBody::fields($request)),
         };
     }
@@ -268,7 +281,7 @@ final readonly class RefreshTokenTransport
     private function presented(Request $request, RefreshTokenSource $source): FailureReason|PresentedRefreshToken
     {
         $values = match ($source) {
-            RefreshTokenSource::COOKIE => [$request->cookies->all()[$this->settings->cookieName]],
+            RefreshTokenSource::COOKIE => [$request->cookies->all()[$this->cookieName()]],
             RefreshTokenSource::HEADER => $request->headers->all((string) $this->settings->header),
             RefreshTokenSource::BODY   => [RequestBody::fields($request)[$this->settings->bodyField]],
         };

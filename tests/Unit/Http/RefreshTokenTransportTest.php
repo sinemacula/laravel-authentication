@@ -579,6 +579,32 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
+     * A body application whose guard's name makes no cookie name looks for no
+     * cookie: it reads its body field and header as any body application, a
+     * cookie beside them is neither a mismatch nor a conflict, and it has no
+     * cookie to clear.
+     *
+     * @return void
+     */
+    public function testABodyApplicationWithoutACookieNameLooksForNoCookie(): void
+    {
+        $transport = new RefreshTokenTransport(new RefreshTokenSettings(Transport::BODY, 'refresh_token', 'X-Refresh-Token', null, null, [], 'X-Requested-With'));
+
+        $fromBody   = self::presented($transport->read(self::cookie('another-value', 'http://localhost', 'XMLHttpRequest', ['refresh_token' => self::TOKEN])));
+        $fromHeader = self::presented($transport->read(self::withHeaders(['X-Refresh-Token' => self::TOKEN])));
+
+        self::assertSame(RefreshTokenSource::BODY, $fromBody->source);
+        self::assertSame(self::TOKEN, $fromBody->token->reveal());
+        self::assertSame(RefreshTokenSource::HEADER, $fromHeader->source);
+        self::assertNull($transport->read(self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest')));
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('This application\'s refresh token travels in the body: set its `refresh_token.transport` to `cookie`');
+
+        $transport->forgetCookie();
+    }
+
+    /**
      * A transport of the given kind with the default names, the cookie scoped
      * to `/auth` and one allowed origin besides the request's own.
      *

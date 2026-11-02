@@ -23,8 +23,9 @@ use SineMacula\Laravel\Authentication\Http\Enums\Transport;
  * share a cookie: `__Host-<guard>_refresh_token` for a cookie application on
  * the path `/`, otherwise `__Secure-<guard>_refresh_token`. A body application
  * derives a name too, since it refuses its own cookie when a request brings
- * one. Two cookie applications whose names are equal fail closed, naming both
- * guards.
+ * one; when its guard's name makes no cookie name and it sets none, it looks
+ * for no cookie, since it never sets one. Two cookie applications whose names
+ * are equal fail closed, naming both guards.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -75,7 +76,7 @@ final readonly class RefreshTokenSettings
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
      * @param  string  $bodyField
      * @param  ?string  $header
-     * @param  string  $cookieName
+     * @param  ?string  $cookieName
      * @param  ?string  $cookiePath
      * @param  list<string>  $allowedOrigins
      * @param  string  $csrfHeader
@@ -91,8 +92,8 @@ final readonly class RefreshTokenSettings
         /** The header that may carry a body application's token instead, or `null` for the body field only. */
         public ?string $header,
 
-        /** The name of the application's refresh cookie. */
-        public string $cookieName,
+        /** The name of the application's refresh cookie, or `null` for a body application whose guard's name makes none. */
+        public ?string $cookieName,
 
         /** The path the cookie is scoped to, or `null` for a body application, which sets none. */
         public ?string $cookiePath,
@@ -123,11 +124,7 @@ final readonly class RefreshTokenSettings
 
         $transport = self::transport($guard, $settings['transport'] ?? null);
         $path      = self::path($guard, $cookie['path'] ?? null, $transport === Transport::COOKIE);
-        $name      = self::cookieName($guard, $cookie['name'] ?? null, $transport, $path);
-
-        if ($transport === Transport::COOKIE) {
-            self::assertUniqueCookie($guard, $name, $config);
-        }
+        $name      = self::cookieName($guard, $cookie['name'] ?? null, $transport, $path, $config);
 
         return new self(
             $transport,
@@ -158,49 +155,55 @@ final readonly class RefreshTokenSettings
     /**
      * The cookie's name: the one the application sets, or the one derived from
      * its guard, `__Host-` only for a cookie application on the path `/`. A
-     * `__Host-` name a cookie application sets needs that path too, or the
-     * browser would not keep the cookie.
+     * cookie application needs a name: one whose guard's name makes none must
+     * set one, a `__Host-` name it sets needs that path too, or the browser
+     * would not keep the cookie, and no other cookie application may use it. A
+     * body application never sets the cookie, so when its guard's name makes
+     * none and it sets none, it looks for no cookie (`null`).
      *
      * @param  string  $guard
      * @param  mixed  $value
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
      * @param  ?string  $path
-     * @return string
+     * @param  \Illuminate\Config\Repository  $config
+     * @return ?string
      *
      * @throws \InvalidArgumentException
      */
-    private static function cookieName(string $guard, mixed $value, Transport $transport, ?string $path): string
+    private static function cookieName(string $guard, mixed $value, Transport $transport, ?string $path, ConfigRepository $config): ?string
     {
-        if ($value === null) {
-
-            $derived = self::derivedName($guard, $transport === Transport::COOKIE ? $path : null);
-
-            if (preg_match(self::NAME_PATTERN, $derived) !== 1) {
-                throw new \InvalidArgumentException(self::message($guard, 'cookie.name', 'must be set: the guard\'s name does not make a cookie name'));
-            }
-
-            return $derived;
+        if ($transport === Transport::BODY) {
+            return $value === null ? self::derivedName($guard, null) : self::name($guard, 'cookie.name', $value);
         }
 
-        $name = self::name($guard, 'cookie.name', $value);
+        $name = $value === null ? self::derivedName($guard, $path) : self::name($guard, 'cookie.name', $value);
 
-        if ($transport === Transport::COOKIE && str_starts_with($name, self::HOST_PREFIX) && $path !== '/') {
+        if ($name === null) {
+            throw new \InvalidArgumentException(self::message($guard, 'cookie.name', 'must be set: the guard\'s name does not make a cookie name'));
+        }
+
+        if (str_starts_with($name, self::HOST_PREFIX) && $path !== '/') {
             throw new \InvalidArgumentException(self::message($guard, 'cookie.name', 'may start with `__Host-` only with `cookie.path` set to `/`'));
         }
+
+        self::assertUniqueCookie($guard, $name, $config);
 
         return $name;
     }
 
     /**
-     * The cookie name derived from the guard for a cookie on the path.
+     * The cookie name derived from the guard for a cookie on the path, or
+     * `null` when the guard's name does not make a cookie name.
      *
      * @param  string  $guard
      * @param  ?string  $path
-     * @return string
+     * @return ?string
      */
-    private static function derivedName(string $guard, ?string $path): string
+    private static function derivedName(string $guard, ?string $path): ?string
     {
-        return ($path === '/' ? self::HOST_PREFIX : self::SECURE_PREFIX) . $guard . self::DERIVED_SUFFIX;
+        $derived = ($path === '/' ? self::HOST_PREFIX : self::SECURE_PREFIX) . $guard . self::DERIVED_SUFFIX;
+
+        return preg_match(self::NAME_PATTERN, $derived) === 1 ? $derived : null;
     }
 
     /**
