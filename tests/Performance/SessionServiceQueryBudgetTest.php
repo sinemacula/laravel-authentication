@@ -13,6 +13,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -33,8 +34,10 @@ use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 
 /**
  * Query-budget and timing contracts for the session service: what a sign-in
@@ -292,6 +295,42 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $proof    = self::proofFor($member, $result->pending->id, 'members');
 
         self::assertTrue($this->assertQueryBudget(8, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+    }
+
+    /**
+     * A pending session whose tenant's policy asks for a further factor reads
+     * its first factor once to be looked up and once to be satisfied: the
+     * tenant's verdict is judged on it, and the identity's own requirement and
+     * the pending session reuse it. Otherwise it costs what a pending session
+     * recording a membership costs.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSessionUnderItsTenantsFactorReadsItsFirstFactorOnce(): void
+    {
+        [$member] = $this->seedMember();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'));
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        $credential = $result->credential->reveal();
+        $sessions   = $this->sessions('members');
+
+        self::assertNotNull($this->assertQueryBudget(7, 0, static fn (): ?PendingSession => $sessions->pending($credential)));
+        self::assertSame(1, $this->firstFactorReads());
+
+        $sessions = $this->sessions('members');
+        $proof    = self::proofFor($member, $result->pending->id, 'members');
+
+        self::assertTrue($this->assertQueryBudget(8, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+        self::assertSame(1, $this->firstFactorReads());
     }
 
     /**

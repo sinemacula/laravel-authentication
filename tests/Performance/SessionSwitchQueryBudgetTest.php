@@ -207,6 +207,32 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * Choosing a membership whose tenant's policy asks for a further factor
+     * keeps the session pending on it: it locks and reads the session and its
+     * identity, reads the chosen membership, its owner and its tenant, and the
+     * one first-factor proof the tenant's verdict is judged on, which the
+     * identity's own requirement and the pending session reuse, and records the
+     * choice and what it now waits on with one update.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testChoosingIntoATenantsFurtherFactorReadsItsFirstFactorOnce(): void
+    {
+        $token  = $this->offerChoice();
+        $chosen = ChoosingMembership::query()->firstOrFail();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
+
+        $sessions = $this->sessions('choosers');
+        $result   = $this->assertQueryBudget(6, 1, static fn (): SignInResult => $sessions->choose($token, $chosen));
+
+        self::assertTrue($result->isPending());
+        self::assertSame(1, $this->firstFactorReads());
+    }
+
+    /**
      * Choosing the principal of the session the sign-in proved reads what a
      * choice reads and the proven session again on the write connection, and
      * revokes the proven session with one compare-and-swap before the

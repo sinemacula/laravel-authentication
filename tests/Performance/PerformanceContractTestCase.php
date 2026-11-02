@@ -128,4 +128,15 @@ abstract class PerformanceContractTestCase extends TestCase
 
         return $result;
     }
+
+    /**
+     * How many reads of a session's first factor the last budget captured: the
+     * one proof of its first kind, oldest first.
+     *
+     * @return int
+     */
+    protected function firstFactorReads(): int
+    {
+        return count(preg_grep('/authentication_proofs.+order by .?authenticated_at.? asc, .?id.? asc limit 1/i', $this->capturedSql) ?: []);
+    }
 }

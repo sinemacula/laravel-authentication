@@ -23,7 +23,6 @@ use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
-use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Plaintext;
@@ -146,9 +145,10 @@ final readonly class PendingSessions
             return null;
         }
 
-        $principals  = $requires[0] === PendingRequirement::PRINCIPAL ? $this->evaluation->principals($identity, $session->getSignInIdentifierType())[0] : [];
-        $first       = PendingEvaluation::firstFactorOf($session);
-        $outstanding = in_array(PendingRequirement::MFA, $requires, true) ? $this->outstanding($session, $identity, $first, $principal, $tenant, $now) : new Requirement;
+        $principals            = $requires[0] === PendingRequirement::PRINCIPAL ? $this->evaluation->principals($identity, $session->getSignInIdentifierType())[0] : [];
+        [$outstanding, $first] = in_array(PendingRequirement::MFA, $requires, true)
+            ? $this->outstanding($session, $identity, $principal, $tenant, $now)
+            : [new Requirement, PendingEvaluation::firstFactorOf($session)];
 
         return $this->describe($session, $identity, $principal, $tenant, [$requires, $outstanding, $first], $principals);
     }
@@ -429,7 +429,7 @@ final readonly class PendingSessions
             return new Refused(FailureReason::SSO_REQUIRED, $identity, $principal, $tenant, $session);
         }
 
-        $first       = PendingEvaluation::firstFactorOf($session);
+        $first       = PendingTransitions::firstFactorOf($session, $policy);
         $outstanding = Requirement::strictest($this->evaluation->owedFactorOn($session, $identity, $first, $proven, $now), $policy->factor);
         $requires    = PendingEvaluation::requirements($outstanding, $principal);
 
@@ -484,34 +484,30 @@ final readonly class PendingSessions
     }
 
     /**
-     * What the pending session's authentication still falls short of: the
+     * What the pending session's authentication still falls short of, the
      * strictest of the identity-level requirement while it is owed and the
-     * requirement of the tenant it records while that is unmet.
+     * requirement of the tenant it records while that is unmet, with the first
+     * factor both were judged on, read once.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $first
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  \Carbon\CarbonImmutable  $now
-     * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+     * @return array{0: \SineMacula\Laravel\Authentication\Requirements\Requirement, 1: \SineMacula\Laravel\Authentication\Proofs\RecordedProof}
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function outstanding(
-        EloquentSession&Model $session,
-        Identity $identity,
-        RecordedProof $first,
-        ?Principal $principal,
-        ?Tenant $tenant,
-        CarbonImmutable $now,
-    ): Requirement {
-        $owed = $this->evaluation->owedFactorOn($session, $identity, $first, $this->proven($session), $now);
+    private function outstanding(EloquentSession&Model $session, Identity $identity, ?Principal $principal, ?Tenant $tenant, CarbonImmutable $now): array
+    {
+        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, $session, $now);
+        $first  = PendingTransitions::firstFactorOf($session, $policy);
+        $owed   = $this->evaluation->owedFactorOn($session, $identity, $first, $this->proven($session), $now);
 
-        return Requirement::strictest($owed, $this->evaluation->tenantPolicy($identity, $principal, $tenant, $session, $now)->factor);
+        return [Requirement::strictest($owed, $policy->factor), $first];
     }
 
     /**
