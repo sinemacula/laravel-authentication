@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -33,6 +34,8 @@ use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
@@ -44,6 +47,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ChoosingMember;
@@ -632,6 +636,60 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
+     * An additional verification, the recovery-code fallback and multifactor
+     * authentication stay apart: a recovery code satisfies the session as a
+     * recovery code, never an additional factor, the check sees its kind and
+     * evaluation as recorded, and the token's `amr` carries its own values and
+     * `mfa` only once an accepted evaluation reports multifactor
+     * authentication, never because two factors were used.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAdditionalVerificationRecoveryCodesAndMultifactorStayApart(): void
+    {
+        $identity = $this->seedIdentity();
+        $check    = new ProofJudgingRequirementCheck;
+
+        self::requireAFurtherFactor();
+
+        app()->instance(RequirementCheck::class, $check);
+
+        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
+
+        $this->clockAt($this->now->addMinute());
+
+        $proof   = self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, ProofKind::RECOVERY_CODE, evaluation: new Evaluation(true, false), methods: ['kba']);
+        $session = $this->sessions()->satisfy($credential, $proof)->session;
+
+        self::assertNotNull($session);
+
+        $judged = end($check->judged);
+
+        self::assertNotFalse($judged);
+
+        [$recovery] = $judged->proofs(null, [ProofKind::RECOVERY_CODE, ProofKind::ADDITIONAL_FACTOR]);
+
+        self::assertSame(ProofKind::RECOVERY_CODE, $recovery->kind);
+        self::assertEquals(new Evaluation(true, false), $recovery->evaluation);
+        self::assertSame([], $judged->proofs(null, [ProofKind::ADDITIONAL_FACTOR]));
+        self::assertSame(['pwd', 'kba'], self::amrOf($session->tokens->accessToken->reveal()));
+
+        $this->clockAt($this->now->addMinute());
+
+        $single = $this->sessions()->stepUp(self::adapterProof($identity, 'api', $pending->id, evaluation: new Evaluation(true, false), methods: ['otp']));
+
+        self::assertSame(['pwd', 'kba', 'otp'], self::amrOf((string) $single->accessToken?->reveal()));
+
+        $this->clockAt($this->now->addMinute());
+
+        $multi = $this->sessions()->stepUp(self::adapterProof($identity, 'api', $pending->id, evaluation: new Evaluation(true, true), methods: ['otp']));
+
+        self::assertSame(['pwd', 'kba', 'otp', 'mfa'], self::amrOf((string) $multi->accessToken?->reveal()));
+    }
+
+    /**
      * The further factor that confirms a factor enrolled while the session
      * waited (purpose `enrollment`) satisfies it as any further factor does,
      * and is recorded with that purpose.
@@ -976,14 +1034,15 @@ final class SignInProofsTest extends TestCase
              * Always require a further factor.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return true;
+                return new Requirement(new RequirementPart);
             }
         });
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
     }
 
     /**
@@ -1019,5 +1078,20 @@ final class SignInProofsTest extends TestCase
         $other->save();
 
         return $other;
+    }
+
+    /**
+     * The `amr` the access token carries.
+     *
+     * @param  string  $token
+     * @return mixed
+     */
+    private static function amrOf(#[\SensitiveParameter] string $token): mixed
+    {
+        $claims = Auth::manager()->jwt('api')->parse($token, TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+
+        return $claims['amr'] ?? null;
     }
 }

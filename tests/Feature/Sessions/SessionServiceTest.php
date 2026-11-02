@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -55,6 +56,8 @@ use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
@@ -72,6 +75,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
@@ -345,7 +349,7 @@ final class SessionServiceTest extends TestCase
         self::assertTrue($this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->isFailed());
 
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
-        $factors->shouldReceive('requiresAdditionalFactor')->andReturnTrue();
+        $factors->shouldReceive('requirementFor')->andReturn(new Requirement(new RequirementPart));
 
         self::assertTrue($this->sessions()->signIn('password', self::credentials())->isPending());
         self::assertSame([true, false, true], $early->getArrayCopy());
@@ -662,10 +666,10 @@ final class SessionServiceTest extends TestCase
         $asked    = null;
 
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
-        $factors->shouldReceive('requiresAdditionalFactor')->once()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): bool {
+        $factors->shouldReceive('requirementFor')->once()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): Requirement {
             $asked = $context;
 
-            return true;
+            return new Requirement(new RequirementPart);
         });
 
         $limiter = $this->bindMock(AttemptLimiter::class);
@@ -704,9 +708,10 @@ final class SessionServiceTest extends TestCase
         self::assertFalse($guard->hasUser());
 
         self::assertInstanceOf(AdditionalFactorContext::class, $asked);
-        self::assertSame('api', $asked->guard);
+        self::assertSame('api', $asked->application);
         self::assertSameModel($identity, $asked->identity);
-        self::assertSame('password', $asked->method);
+        self::assertSame('password', $asked->firstFactor->method);
+        self::assertSame(ChannelKind::PASSWORD, $asked->firstFactor->channel->kind);
         self::assertSame($context->client, $asked->client);
         self::assertSame('Phone', $asked->clientName);
         self::assertSame('iOS', $asked->platform);
@@ -731,10 +736,10 @@ final class SessionServiceTest extends TestCase
         $asked = [];
 
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
-        $factors->shouldReceive('requiresAdditionalFactor')->twice()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): bool {
+        $factors->shouldReceive('requirementFor')->twice()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): Requirement {
             $asked[] = $context->identity;
 
-            return count($asked) === 2;
+            return count($asked) === 2 ? new Requirement(new RequirementPart) : new Requirement;
         });
 
         $this->recordEvents([SessionCreated::class, SignedIn::class, SessionPending::class]);
@@ -914,7 +919,7 @@ final class SessionServiceTest extends TestCase
         $policy->shouldReceive('allowsMethod')->with('api', 'otp')->andReturnTrue();
 
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
-        $factors->shouldReceive('requiresAdditionalFactor')->once()->andReturnTrue();
+        $factors->shouldReceive('requirementFor')->once()->andReturn(new Requirement(new RequirementPart));
 
         $pending = $this->sessions()->start($identity, null, 'otp');
 
@@ -1326,7 +1331,9 @@ final class SessionServiceTest extends TestCase
     private function pendingWithProof(IntegrationIdentity $identity): array
     {
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
-        $factors->shouldReceive('requiresAdditionalFactor')->andReturnTrue();
+        $factors->shouldReceive('requirementFor')->andReturn(new Requirement(new RequirementPart));
+
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         $result = $this->sessions()->signIn('password', self::credentials());
 

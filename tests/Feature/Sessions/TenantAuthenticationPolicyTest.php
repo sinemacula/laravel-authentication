@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
@@ -284,6 +285,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
         self::assertNotNull($returned->pending);
         self::assertNotNull($returned->credential);
         self::assertSame([PendingRequirement::MFA], $returned->pending->requires);
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION], $returned->pending->requirement->kinds());
 
         $event = $this->recordedEvent(SessionReturnedToPending::class);
 

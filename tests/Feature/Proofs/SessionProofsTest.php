@@ -20,13 +20,16 @@ use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationClaims;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationMethods;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationSummary;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\KeyProtection;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
+use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofHistory;
+use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
@@ -185,8 +188,8 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A session holds an accepted further factor only once a counting further
-     * factor or recovery code is recorded on it: not with its first factor or a
+     * A session's further factors count only once a counting further factor or
+     * recovery code is recorded on it: not with its first factor or a
      * reauthentication alone, not with one its adapter refused, a voided one,
      * or one bound to another guard; a recovery code or a further factor its
      * adapter accepted is one.
@@ -195,38 +198,85 @@ final class SessionProofsTest extends TestCase
      *
      * @throws \Throwable
      */
-    public function testASessionHoldsAnAcceptedFurtherFactorOnlyOnceOneCounts(): void
+    public function testOnlyAcceptedUnvoidedFurtherFactorsOfTheSessionCount(): void
     {
         $record = $this->signedIn()->record;
+        $held   = static fn (): bool => SessionProofs::query($record, null, [ProofKind::ADDITIONAL_FACTOR, ProofKind::RECOVERY_CODE], 1) !== [];
 
         self::recordProof($record, ProofKind::FIRST_FACTOR_REAUTHENTICATION, $this->now->addMinute(), ['pwd']);
         self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinutes(2), ['otp'], new Evaluation(false, true));
 
-        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+        self::assertFalse($held());
 
         self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinutes(3), ['otp'], new Evaluation(true, true));
 
         DB::table('authentication_proofs')->where('kind', 'additional_factor')->where('accepted', true)->update(['voided_at' => $this->now]);
 
-        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+        self::assertFalse($held());
 
         self::recordProof($record, ProofKind::RECOVERY_CODE, $this->now->addMinutes(4), ['kba'], new Evaluation(true, false));
 
         DB::table('authentication_proofs')->where('kind', 'recovery_code')->update(['guard' => 'admin']);
 
-        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+        self::assertFalse($held());
 
         DB::table('authentication_proofs')->where('kind', 'recovery_code')->update(['guard' => 'api']);
 
-        self::assertTrue(SessionProofs::hasAcceptedAdditional($record));
+        self::assertTrue($held());
 
         DB::table('authentication_proofs')->where('kind', 'recovery_code')->update(['voided_at' => $this->now]);
 
-        self::assertFalse(SessionProofs::hasAcceptedAdditional($record));
+        self::assertFalse($held());
 
         self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinutes(5), ['otp'], new Evaluation(true, true));
 
-        self::assertTrue(SessionProofs::hasAcceptedAdditional($record));
+        self::assertTrue($held());
+    }
+
+    /**
+     * With a factor excluded, the newest proof that meets a requirement is
+     * never one made with that factor, while proofs made with another factor,
+     * or with none, still meet it; the reference is compared exactly, so a
+     * factor that differs from it only in case is another factor.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExcludedFactorsProofsNeverMeetARequirement(): void
+    {
+        $record      = $this->signedIn()->record;
+        $requirement = new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR]);
+        $factor      = fn (string $reference, int $minutes): NewProof => new NewProof(
+            ProofKind::ADDITIONAL_FACTOR,
+            Purpose::STEP_UP,
+            'totp',
+            new Channel(ChannelKind::AUTHENTICATOR_APP),
+            $reference,
+            new ObservedProperties,
+            new Evaluation(true, true),
+            ['otp'],
+            $this->now->addMinutes($minutes),
+        );
+
+        ProofWriter::record($record, 'api', $factor('factor-a', 1));
+        ProofWriter::record($record, 'api', $factor('factor-b', 2));
+
+        $later = $this->now->addMinutes(3);
+
+        self::assertSame('factor-b', SessionProofs::newestMeeting($record, $requirement, $later)?->factor);
+        self::assertSame('factor-a', SessionProofs::newestMeeting($record, $requirement, $later, 'factor-b')?->factor);
+        self::assertSame('factor-b', SessionProofs::newestMeeting($record, $requirement, $later, 'FACTOR-A')?->factor);
+        self::assertSame('factor-b', SessionProofs::newestMeeting($record, $requirement, $later, 'factor-a')?->factor);
+
+        DB::table('authentication_proofs')->where('factor_reference', 'factor-a')->delete();
+
+        $first = SessionProofs::newestMeeting($record, $requirement, $later, 'factor-b');
+
+        self::assertNotNull($first);
+        self::assertSame(ProofKind::FIRST_FACTOR, $first->kind);
+        self::assertNull($first->factor);
+        self::assertNull(SessionProofs::newestMeeting($record, new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR]), $later, 'factor-b'));
     }
 
     /**

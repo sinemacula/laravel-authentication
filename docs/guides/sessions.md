@@ -169,9 +169,52 @@ a transaction it may be served from a snapshot taken before the caller's lock (M
 that acts on the answer atomically locks the session in its transaction, checks the locked row is still live itself, and
 asks inside it, as an identifier change does (see [Changing identifiers](identifier-changes.md)).
 
+`freshUntil()` answers until when the session stays fresh for the operation: the second its fresh proof is as old as
+the effective requirement's maximum age, from which second on it is no longer fresh, or `null` when it is not fresh.
+Both take an excluded factor as their last argument (`freshProof($session, $operation, $requirement, $factor)`): a
+proof made with that factor never counts, so a factor's removal is authorised only by the session's other proofs.
+
 The package binds `Freshness\ConfiguredFreshness`. Rebind the contract for a requirement the stored proofs cannot show,
 such as a minimum assurance level or an additional verification of your own; an implementation keeps no state between
 calls.
+
+## Changing further factors
+
+The factor package asks the session service before it adds, replaces or removes one of an identity's further factors,
+or generates its recovery codes, from the session the change is made on. It asks inside the transaction that makes the
+change, on the storage connection, after its own locks:
+
+```php
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
+
+$verdict = Auth::sessions()->factorChange(Auth::session(), FactorChange::REMOVE, factor: $factor->reference());
+
+if (!$verdict->isAllowed()) {
+    return response()->json(['message' => 'Confirm it is you.', 'reason' => $verdict->reason?->value], 403);
+}
+```
+
+The session's row is locked until that transaction ends, so a revocation either commits first, and the change is
+refused, or waits for it. The session must still be the one given, one of this guard's live, active sessions
+(`session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_pending`, `session_expired`) and a person's
+(`machine_identity`). Then it must be fresh for the change:
+
+| Change                                                | Operation                 | Default proofs (within 15 minutes)                     | Refused as                  |
+|-------------------------------------------------------|---------------------------|--------------------------------------------------------|-----------------------------|
+| `ADD`, `REPLACE`, `REMOVE`, `GENERATE_RECOVERY_CODES` | `factor_change`           | A further factor or a recovery code                    | `step_up_required`          |
+| `ADD_FIRST` (the identity's first additional factor)  | `first_additional_factor` | A reauthentication (first factor or external provider) | `reauthentication_required` |
+
+An identity with no further factor has nothing to step up with, so its first one takes a reauthentication instead, and
+never the sign-in's own first factor: whoever holds a session must prove the first factor again before enrolling a
+factor on it. Only the factor package knows whether the identity has a factor, so it names `ADD_FIRST`. A replacement or
+a removal names the factor it acts on (and only those name one: an `InvalidArgumentException` otherwise), whose own
+proofs never count. A requirement of the factor package's own is passed as the third argument, and the stricter
+applies. An allowed `FactorChangeVerdict` carries the fresh `proof` and `freshUntil`, the second the session stops being
+fresh for the change; a refused one carries the `reason`. The gate writes nothing and reports nothing.
+
+A pending session never goes through the gate: its first factor is enrolled through its pending credential's
+`start_bootstrap_enrollment` and `confirm_bootstrap_enrollment` actions while the factor is its first outstanding
+requirement (see [Pending sessions](signing-in.md#pending-sessions)).
 
 ## Switching principal or tenant
 

@@ -23,12 +23,14 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -38,6 +40,9 @@ use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -46,7 +51,9 @@ use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Factors\FirstFactorMeetsRequirements;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ChoosingMember;
@@ -114,12 +121,12 @@ final class PendingEvaluationTest extends TestCase
              * Answer with the test's switch, keeping the context.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return $this->test->isFactorRequiredFor($context);
+                return $this->test->isFactorRequiredFor($context) ? new Requirement(new RequirementPart) : new Requirement;
             }
         });
     }
@@ -545,47 +552,145 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * The identity owes the further factor its policy asks of it, asked about
-     * the identity and the sign-in with no principal, until the session holds
-     * an accepted further factor: one the adapter did not accept meets nothing.
+     * The identity owes what its factor policy asks of it, asked about the
+     * identity, the first factor and the sign-in with no principal, until the
+     * requirement check finds the session's proofs meet it: the default check
+     * meets nothing, and a check that judges further factors is met only by one
+     * the adapter accepted. A requirement that asks for nothing is owed by no
+     * one.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheFactorIsOwedUntilTheSessionHoldsAnAcceptedOne(): void
+    public function testTheFactorIsOwedUntilTheCheckFindsItMet(): void
     {
         [$member] = $this->seedMember();
 
         $session    = $this->signedIn();
         $evaluation = $this->evaluation('members');
         $client     = new ClientContext('203.0.113.9', 'Agent/1.0');
+        $first      = PendingEvaluation::firstFactorOf($session);
+        $now        = CarbonImmutable::now();
 
-        self::assertFalse($evaluation->owesFactor($member, 'password', $client, 'Laptop', 'web', null, null));
+        self::assertTrue($evaluation->owedFactor($member, $first, $client, 'Laptop', 'web', null, null, $now)->isEmpty());
 
         $this->factorRequired = true;
 
-        self::assertTrue($evaluation->owesFactor($member, 'password', $client, 'Laptop', 'web', $session, null));
-        self::assertTrue($evaluation->owesFactor($member, 'password', $client, 'Laptop', 'web', null, $session));
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION], $evaluation->owedFactor($member, $first, $client, 'Laptop', 'web', $session, null, $now)->kinds());
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION], $evaluation->owedFactor($member, $first, $client, 'Laptop', 'web', null, $session, $now)->kinds());
 
         $context = end($this->asked);
 
         self::assertInstanceOf(AdditionalFactorContext::class, $context);
-        self::assertSame('members', $context->guard);
+        self::assertSame('members', $context->application);
         self::assertSame($member, $context->identity);
-        self::assertSame('password', $context->method);
+        self::assertSame($first, $context->firstFactor);
         self::assertSame($client, $context->client);
         self::assertSame('Laptop', $context->clientName);
         self::assertSame('web', $context->platform);
         self::assertNull($context->provenSession);
 
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
         ProofWriter::record($session, 'members', self::furtherFactor(false));
 
-        self::assertTrue($evaluation->owesFactor($member, 'password', $client, null, null, null, $session));
+        self::assertFalse($evaluation->owedFactor($member, $first, $client, null, null, null, $session, $now)->isEmpty());
 
         ProofWriter::record($session, 'members', self::furtherFactor(true));
 
-        self::assertFalse($evaluation->owesFactor($member, 'password', $client, null, null, null, $session));
+        self::assertTrue($evaluation->owedFactor($member, $first, $client, null, null, null, $session, $now)->isEmpty());
+    }
+
+    /**
+     * At sign-in the check judges the sign-in's own evidence, in memory, with
+     * no session: a check that finds the first factor alone meets the
+     * requirement leaves nothing owed, and is asked about that first factor.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAtSignInTheCheckJudgesTheSignInsEvidence(): void
+    {
+        [$member] = $this->seedMember();
+
+        $this->factorRequired = true;
+
+        $now      = CarbonImmutable::now();
+        $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
+        $judging  = new ProofJudgingRequirementCheck;
+
+        app()->instance(RequirementCheck::class, $judging);
+
+        $client = new ClientContext(null, null);
+
+        self::assertFalse($this->evaluation('members')->owedFactor($member, $evidence->firstFactor, $client, null, null, null, null, $now, $evidence)->isEmpty());
+
+        [$subject] = $judging->judged;
+
+        self::assertNull($subject->session);
+        self::assertSame($evidence->firstFactor, $subject->firstFactor);
+        self::assertSame([$evidence->firstFactor], $subject->proofs());
+
+        app()->instance(RequirementCheck::class, new FirstFactorMeetsRequirements);
+
+        self::assertTrue($this->evaluation('members')->owedFactor($member, $evidence->firstFactor, $client, null, null, null, null, $now, $evidence)->isEmpty());
+    }
+
+    /**
+     * On a stored session the policy is asked as its sign-in was: with the
+     * first factor, the client it came from, and the name and platform it gave,
+     * as the session records them, and the session its client proved it holds.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnASessionThePolicyIsAskedAsTheSignInWas(): void
+    {
+        [$member] = $this->seedMember();
+
+        $session = $this->signedIn();
+        $proven  = $this->signedIn();
+
+        $session->forceFill(['created_ip' => '198.51.100.7', 'created_user_agent' => 'Agent/2.0', 'client_name' => 'Phone', 'platform' => 'ios'])->save();
+
+        $this->factorRequired = true;
+
+        $owed    = $this->evaluation('members')->owedFactorOn($session, $member, PendingEvaluation::firstFactorOf($session), $proven, CarbonImmutable::now());
+        $context = end($this->asked);
+
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION], $owed->kinds());
+        self::assertInstanceOf(AdditionalFactorContext::class, $context);
+        self::assertSame('198.51.100.7', $context->client->ip);
+        self::assertSame('Agent/2.0', $context->client->userAgent);
+        self::assertSame('Phone', $context->clientName);
+        self::assertSame('ios', $context->platform);
+        self::assertSame($proven, $context->provenSession);
+        self::assertEquals(PendingEvaluation::firstFactorOf($session), $context->firstFactor);
+        self::assertSame(ProofKind::FIRST_FACTOR, $context->firstFactor->kind);
+    }
+
+    /**
+     * A session that records no first factor is a misconfiguration: it cannot
+     * be judged, so reading its first factor fails loudly.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionWithNoFirstFactorCannotBeJudged(): void
+    {
+        $this->seedMember();
+
+        $session = $this->signedIn();
+
+        SessionProof::query()->delete();
+
+        $this->expectException(\LogicException::class);
+
+        PendingEvaluation::firstFactorOf($session);
     }
 
     /**
@@ -620,8 +725,9 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
-     * A session waits on the further factor when it is owed, then on the choice
-     * when no principal is selected, and on nothing otherwise.
+     * A session waits on the further factor while any requirement is
+     * outstanding, then on the choice when no principal is selected, and on
+     * nothing otherwise.
      *
      * @return void
      */
@@ -629,10 +735,12 @@ final class PendingEvaluationTest extends TestCase
     {
         $principal = \Mockery::mock(Principal::class);
 
-        self::assertSame([PendingRequirement::MFA, PendingRequirement::PRINCIPAL], PendingEvaluation::requirements(true, null));
-        self::assertSame([PendingRequirement::MFA], PendingEvaluation::requirements(true, $principal));
-        self::assertSame([PendingRequirement::PRINCIPAL], PendingEvaluation::requirements(false, null));
-        self::assertSame([], PendingEvaluation::requirements(false, $principal));
+        $owed = new Requirement(multifactor: new RequirementPart);
+
+        self::assertSame([PendingRequirement::MFA, PendingRequirement::PRINCIPAL], PendingEvaluation::requirements($owed, null));
+        self::assertSame([PendingRequirement::MFA], PendingEvaluation::requirements($owed, $principal));
+        self::assertSame([PendingRequirement::PRINCIPAL], PendingEvaluation::requirements(new Requirement, null));
+        self::assertSame([], PendingEvaluation::requirements(new Requirement, $principal));
     }
 
     /**

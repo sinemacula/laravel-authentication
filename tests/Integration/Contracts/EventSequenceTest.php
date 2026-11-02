@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
@@ -25,6 +26,8 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -34,6 +37,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\RecordsEventSequences;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\TestCase;
 
 /**
@@ -451,14 +455,15 @@ final class EventSequenceTest extends TestCase
              * Always require a further factor.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return true;
+                return new Requirement(new RequirementPart);
             }
         });
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         $result = $this->sessions()->signIn('password', self::credentials());
 

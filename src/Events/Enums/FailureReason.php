@@ -7,8 +7,9 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
 /**
  * Machine-readable reason a sign-in, a request's access token or API key, a
  * refresh, a switch, a step-up, a reauthentication, a code request, a client
- * credentials exchange, a password reset or an identifier change failed,
- * carried on the `AuthenticationFailed` event and on a failed `SignInResult`.
+ * credentials exchange, a password reset or an identifier change failed, or a
+ * factor change was refused, carried on the `AuthenticationFailed` event, on a
+ * failed `SignInResult` and on a refused `FactorChangeVerdict`.
  *
  * Backed, so SIEM consumers count failure modes without scraping log messages.
  * The concealed reasons (`isConcealed()`) are ones a sign-in's result never
@@ -187,9 +188,10 @@ enum FailureReason: string
     // A requested scope is malformed or not granted to the credential
     case SCOPE_INVALID = 'scope_invalid';
 
-    // A change of identifier was asked for without a fresh enough proof on the
-    // session it was made from, or the password given to reauthenticate was
-    // wrong or one the guard's freshness does not take
+    // A change of identifier, or an identity's first additional factor, was
+    // asked for without a fresh enough proof on the session it was made from,
+    // or the password given to reauthenticate was wrong or one the guard's
+    // freshness does not take
     case REAUTHENTICATION_REQUIRED = 'reauthentication_required';
 
     // The identifier a change would set is held by another identity (found by
@@ -210,6 +212,11 @@ enum FailureReason: string
     // A proof handed to a pending session or a step-up was made by another
     // identity, on another application, or for another session
     case PROOF_BINDING_MISMATCH = 'proof_binding_mismatch';
+
+    // A change of a further factor, or the generation of recovery codes, was
+    // asked for without a fresh enough step-up on the session it was made from
+    // (one made with the factor replaced or removed never counts)
+    case STEP_UP_REQUIRED = 'step_up_required';
 
     /**
      * Whether a sign-in method may answer with this reason. Every other reason

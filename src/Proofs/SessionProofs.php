@@ -73,42 +73,31 @@ final class SessionProofs
     }
 
     /**
-     * Whether the session holds a counting further factor or recovery code: one
-     * its adapter accepted, not voided, bound to the session as it is now. One
-     * `EXISTS` on the session's proofs.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @return bool
-     *
-     * @throws \InvalidArgumentException
-     */
-    public static function hasAcceptedAdditional(Session $session): bool
-    {
-        $additional = [ProofKind::ADDITIONAL_FACTOR->value, ProofKind::RECOVERY_CODE->value];
-
-        return WriteConnection::during(new SessionProof, static fn (): bool => self::counting($session)->whereIn('kind', $additional)->exists());
-    }
-
-    /**
      * The newest of the session's counting proofs that meets the requirement at
      * the time given: of a kind it takes, made within its maximum age (from the
      * proof's own second until, and not including, the second the age after it,
      * so a proof made after now never meets it), and multifactor or phishing
-     * resistant when it asks for either; `null` when none does.
+     * resistant when it asks for either; `null` when none does. With a factor
+     * excluded, a proof made with that factor (its factor reference, compared
+     * byte for byte) never meets it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?string  $excludingFactor
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
      * @throws \InvalidArgumentException
      */
-    public static function newestMeeting(Session $session, FreshnessRequirement $requirement, CarbonImmutable $now): ?RecordedProof
+    public static function newestMeeting(Session $session, FreshnessRequirement $requirement, CarbonImmutable $now, ?string $excludingFactor = null): ?RecordedProof
     {
         $model = new SessionProof;
 
         $proof = WriteConnection::during($model, static fn (): mixed => self::counting($session)
             ->whereIn('kind', array_column($requirement->proofs, 'value'))
+            ->when($excludingFactor !== null, static fn (Builder $query): Builder => $query->where(
+                static fn (Builder $factor): Builder => $factor->whereNull('factor_reference')->orWhere('factor_reference', '<>', $excludingFactor),
+            ))
             ->where('authenticated_at', '>', $model->fromDateTime($now->subSeconds($requirement->maxAgeSeconds)))
             ->where('authenticated_at', '<=', $model->fromDateTime($now))
             ->when($requirement->multifactor, static fn (Builder $query): Builder => $query->where('multifactor', true))

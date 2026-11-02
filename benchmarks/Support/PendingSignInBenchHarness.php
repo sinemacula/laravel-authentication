@@ -13,6 +13,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
@@ -25,12 +26,15 @@ use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
@@ -70,8 +74,9 @@ final readonly class PendingSignInBenchHarness
     private Timebox $timebox;
 
     /**
-     * Seed the identity, ask every sign-in for a further factor, and check that
-     * the path reaches the outcome it measures.
+     * Seed the identity, ask every sign-in for a further factor that a stored
+     * accepted factor meets, and check that the path reaches the outcome it
+     * measures.
      *
      * @throws \LogicException
      */
@@ -92,14 +97,15 @@ final readonly class PendingSignInBenchHarness
              * Ask every sign-in for a further factor.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return true;
+                return new Requirement(new RequirementPart);
             }
         });
+        $this->app->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         $this->resolver = new DefaultPrincipalResolver;
         $this->events   = $this->app->make('events');

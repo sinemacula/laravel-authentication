@@ -676,7 +676,8 @@ A sign-in that still has requirements left issues no token. Its session is writt
 and the requirements it waits on in `requires`, in the order they must be met: `mfa` (a further factor), then
 `principal` (a choice of principal). The result `isPending()`; its `pending` is a `Sessions\PendingSession` (the
 session's `id`, the guard, the identity, the principal and active tenant once one is selected, `requires`, the method,
-`expiresAt`, the session record, and the `principals` to choose from while the choice comes first), and its
+`expiresAt`, the session record, the `requirement` its authentication still falls short of, its `firstFactor`, its
+counting proofs through `proofs()`, and the `principals` to choose from while the choice comes first), and its
 `credential` is the pending credential. Hand the client the id, `requires` and the credential in the response body,
 never in a URL or a cookie:
 
@@ -825,13 +826,18 @@ activates.
 
 ## Additional factors
 
-The additional-factor policy (`Contracts\AdditionalFactorPolicy`, by default one that never asks for a factor; an MFA
-package or the application binds its own) is asked about the identity, after its first factor is verified and before
-any principal is chosen, with the guard, the identity, the method, the client and the session the client proved it
-holds, if any; it names no principal or tenant (a tenant that asks more does so through its tenant authentication
-policy). When it requires a further factor, the session is pending with `mfa` outstanding. It is asked again each time
-the pending session is acted on, and a stored accepted further factor or recovery code meets it. `attempt()`, which
-cannot wait, refuses such a sign-in as `additional_factor_required`.
+The additional-factor policy (`Contracts\AdditionalFactorPolicy`, by default one that asks for nothing; an MFA package
+or the application binds its own) is asked about the identity, after its first factor is verified and before any
+principal is chosen, with the application, the identity, the first factor's whole proof, the client and the session the
+client proved it holds, if any; it names no principal or tenant (a tenant that asks more does so through its tenant
+authentication policy). It answers a `Requirements\Requirement`: what the session's authentication must include beyond
+its first factor. The bound `Contracts\RequirementCheck` judges whether the session's proofs meet it; the default
+check meets nothing, so a requirement no factor package judges keeps the session pending. At sign-in the check judges
+the first factor alone, so a requirement it meets (a minimum assurance level the sign-in already reaches, say) starts
+the session active. Otherwise the session is pending with `mfa` outstanding, and its `PendingSession::$requirement`
+names what it still falls short of. The policy is asked again, and the check judges again, each time the pending
+session is acted on. `attempt()`, which cannot wait, refuses as `additional_factor_required` a sign-in whose password
+alone does not meet the requirement.
 
 ## Enumeration resistance
 

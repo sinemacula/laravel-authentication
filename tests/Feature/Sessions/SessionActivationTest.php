@@ -35,6 +35,8 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -103,12 +105,12 @@ final class SessionActivationTest extends TestCase
              * Answer with the test's switch.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return $this->test->isFactorRequired();
+                return $this->test->isFactorRequired() ? new Requirement(new RequirementPart) : new Requirement;
             }
         });
 

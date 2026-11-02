@@ -615,7 +615,12 @@ return [
     | `authentication:check` reports it. Changing a factor or generating
     | recovery codes takes a fresh step-up, so `factor_change` takes only a
     | further factor or a recovery code: neither a sign-in nor a
-    | reauthentication renews the evidence of a further factor.
+    | reauthentication renews the evidence of a further factor. An identity's
+    | first additional factor has no factor to step up with, so
+    | `first_additional_factor` takes a fresh reauthentication instead, with
+    | the first factor or at an external provider, never the sign-in itself:
+    | whoever holds a session must prove the first factor again before they
+    | enrol a factor on it.
     |
     */
 
@@ -631,6 +636,10 @@ return [
         'factor_change' => [
             'max_age_seconds' => env('AUTHENTICATION_FRESHNESS_FACTOR_CHANGE_SECONDS', 900),
             'proofs'          => ['additional_factor', 'recovery_code'],
+        ],
+        'first_additional_factor' => [
+            'max_age_seconds' => env('AUTHENTICATION_FRESHNESS_FIRST_ADDITIONAL_SECONDS', 900),
+            'proofs'          => ['first_factor_reauthentication', 'external_reauthentication'],
         ],
     ],
 

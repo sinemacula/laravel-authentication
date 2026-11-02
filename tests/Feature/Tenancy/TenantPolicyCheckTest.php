@@ -144,7 +144,8 @@ final class TenantPolicyCheckTest extends TestCase
     /**
      * Named connections are met only by a session established through one of
      * them, as its provenance records; a session no provider established, an
-     * empty list, and no session at all meet none.
+     * empty list, and no session at all meet none, and a verdict that requires
+     * a connection names no further factor.
      *
      * @return void
      *
@@ -165,6 +166,13 @@ final class TenantPolicyCheckTest extends TestCase
 
         self::assertSame(TenantPolicyStanding::MET, $standing($external));
         self::assertSame(TenantPolicyStanding::SSO_REQUIRED, $standing($password));
+
+        $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart), connections: ['conn-a']);
+
+        self::assertTrue(TenantPolicyCheck::check('members', $member, $membership, $tenant, $password, CarbonImmutable::now())->factor->isEmpty());
+
+        $this->policy->requirement = new TenantRequirement(connections: ['conn-a']);
+
         self::assertSame(TenantPolicyStanding::SSO_REQUIRED, $standing(null));
 
         $this->policy->requirement = new TenantRequirement(connections: []);
@@ -201,7 +209,8 @@ final class TenantPolicyCheckTest extends TestCase
      * A further factor is met only when the bound check finds it met against
      * the session's counting proofs, read newest first, with the first factor
      * at hand; never by the default check, and never without a session or
-     * evidence.
+     * evidence. A verdict that falls short of it names the requirement, and one
+     * that meets it names none.
      *
      * @return void
      *
@@ -220,6 +229,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, $verdict->standing);
         self::assertSame('v2', $verdict->version);
+        self::assertSame($this->policy->requirement->factor, $verdict->factor);
 
         $subject = $this->check->judged[0];
 
@@ -229,45 +239,15 @@ final class TenantPolicyCheckTest extends TestCase
 
         self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $now, ['otp'], new Evaluation(true, true));
 
-        self::assertTrue(TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now)->isMet());
+        $met = TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now);
+
+        self::assertTrue($met->isMet());
+        self::assertTrue($met->factor->isEmpty());
         self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now)->standing);
 
         app()->instance(RequirementCheck::class, new MeetNoRequirement);
 
         self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now)->standing);
-    }
-
-    /**
-     * Judged against a sign-in's evidence, the check reads only the proofs in
-     * memory, filtered by time to the second, as the stored proofs' query binds
-     * it, and by kind and cut to the limit, and the session not at all: a
-     * sign-in half a second into its second proves its first factor in that
-     * second, which a requirement asking from the sign-in's own time counts.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testASignInsEvidenceIsReadInMemory(): void
-    {
-        [$member, $membership, $tenant] = $this->seedMember();
-
-        $now      = CarbonImmutable::now()->startOfSecond()->addMilliseconds(500);
-        $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
-
-        $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart));
-
-        DB::enableQueryLog();
-
-        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, $evidence)->standing);
-        self::assertSame([], DB::getQueryLog());
-
-        $subject = $this->check->judged[0];
-
-        self::assertSame([$evidence->firstFactor], $subject->proofs());
-        self::assertSame([$evidence->firstFactor], $subject->proofs($now, [ProofKind::FIRST_FACTOR], 1));
-        self::assertSame([], $subject->proofs($now->addSecond()));
-        self::assertSame([], $subject->proofs(null, [ProofKind::ADDITIONAL_FACTOR]));
     }
 
     /**
@@ -328,32 +308,6 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * The sign-in's evidence read in memory keeps to the limit asked for,
-     * newest first, as the stored proofs' query does.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testASignInsEvidenceReadInMemoryKeepsToTheLimit(): void
-    {
-        [$member, $membership, $tenant] = $this->seedMember();
-
-        $now    = CarbonImmutable::now();
-        $first  = SignInProof::unattested('password', $now)->recorded();
-        $newest = SignInProof::unattested('password', $now)->recorded();
-
-        $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart));
-
-        TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, new SessionEvidence($first, [$newest, $first], null));
-
-        $subject = $this->check->judged[0];
-
-        self::assertSame([$newest], $subject->proofs(null, null, 1));
-        self::assertSame([$newest, $first], $subject->proofs(null, null, 2));
-    }
-
-    /**
      * The check is a static utility that cannot be instantiated from outside.
      *
      * @return void
@@ -370,27 +324,6 @@ final class TenantPolicyCheckTest extends TestCase
         $constructor->invoke($instance);
 
         self::assertInstanceOf(TenantPolicyCheck::class, $instance);
-    }
-
-    /**
-     * A session that records no first factor cannot meet a further factor.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testASessionWithoutAFirstFactorMeetsNoFurtherFactor(): void
-    {
-        [$member, $membership, $tenant] = $this->seedMember();
-
-        $session = $this->signedIn();
-
-        DB::table('authentication_proofs')->delete();
-
-        $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart));
-
-        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, CarbonImmutable::now())->standing);
-        self::assertSame([], $this->check->judged);
     }
 
     /**

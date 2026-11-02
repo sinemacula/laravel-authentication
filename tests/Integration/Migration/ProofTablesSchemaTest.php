@@ -178,11 +178,11 @@ final class ProofTablesSchemaTest extends TestCase
     }
 
     /**
-     * The string columns are as long as what they hold: a channel reference and
-     * a factor reference of 255 characters, a kind, a purpose and a key
-     * protection, the `amr` list's JSON, and a policy version of 64. The
-     * session key, owner and guard hold 255 characters, which on MySQL and
-     * MariaDB, where they are binary, is 1020 bytes.
+     * The string columns are as long as what they hold: a channel reference of
+     * 255 characters, a kind, a purpose and a key protection, the `amr` list's
+     * JSON, and a policy version of 64. The session key, owner, guard and
+     * factor reference hold 255 characters, which on MySQL and MariaDB, where
+     * they are binary, is 1020 bytes.
      *
      * @return void
      */
@@ -198,7 +198,7 @@ final class ProofTablesSchemaTest extends TestCase
         $provenance = array_column(Schema::getColumns(self::PROVENANCE), 'type', 'name');
         $binding    = in_array($driver, ['mysql', 'mariadb'], true) ? '(1020)' : '(255)';
 
-        foreach (['session_id', 'authenticatable_type', 'authenticatable_id', 'guard'] as $column) {
+        foreach (['session_id', 'authenticatable_type', 'authenticatable_id', 'guard', 'factor_reference'] as $column) {
             self::assertStringContainsString($binding, $proofs[$column], $column);
         }
 
@@ -208,7 +208,6 @@ final class ProofTablesSchemaTest extends TestCase
         self::assertStringContainsString('(32)', $proofs['purpose']);
         self::assertStringContainsString('(32)', $proofs['channel_kind']);
         self::assertStringContainsString('(255)', $proofs['channel_reference']);
-        self::assertStringContainsString('(255)', $proofs['factor_reference']);
         self::assertStringContainsString('(16)', $proofs['key_protection']);
         self::assertStringContainsString('(1024)', $proofs['methods']);
         self::assertStringContainsString('(64)', $provenance['policy_version']);
@@ -232,12 +231,12 @@ final class ProofTablesSchemaTest extends TestCase
     }
 
     /**
-     * The session key, the guard, the owner and the `amr` values compare byte
-     * for byte on every engine, MySQL's default case-insensitive collations and
-     * its padding `utf8mb4_bin` included: a lookup of one finds no value that
-     * differs from it only in case or by a trailing space, a group keeps such
-     * values apart, and provenances whose session keys differ only in those are
-     * all kept.
+     * The session key, the guard, the owner, the factor reference and the `amr`
+     * values compare byte for byte on every engine, MySQL's default
+     * case-insensitive collations and its padding `utf8mb4_bin` included: a
+     * lookup of one finds no value that differs from it only in case or by a
+     * trailing space, a group keeps such values apart, and provenances whose
+     * session keys differ only in those are all kept.
      *
      * @return void
      */
@@ -250,6 +249,7 @@ final class ProofTablesSchemaTest extends TestCase
             'purpose'              => 'sign_in',
             'method'               => 'password',
             'channel_kind'         => 'password',
+            'factor_reference'     => $owner,
             'methods'              => $methods,
             'authenticatable_type' => $type,
             'authenticatable_id'   => $owner,
@@ -263,13 +263,21 @@ final class ProofTablesSchemaTest extends TestCase
             $row('0196a3c0-0000-7000-8000-000000000003', 'abc ', 'App\User ', 'alice ', 'api ', '["urn:example:a"] '),
         ]);
 
-        $columns = ['session_id' => 'abc', 'authenticatable_type' => 'App\User', 'authenticatable_id' => 'alice', 'guard' => 'api', 'methods' => '["urn:example:a"]'];
+        $columns = [
+            'session_id'           => 'abc',
+            'authenticatable_type' => 'App\User',
+            'authenticatable_id'   => 'alice',
+            'guard'                => 'api',
+            'factor_reference'     => 'alice',
+            'methods'              => '["urn:example:a"]',
+        ];
 
         foreach ($columns as $column => $value) {
             self::assertSame(1, DB::table(self::PROOFS)->where($column, $value)->count(), $column);
         }
 
         self::assertSame(1, DB::table(self::PROOFS)->whereIn('session_id', ['abc'])->count());
+        self::assertSame(2, DB::table(self::PROOFS)->where('factor_reference', '<>', 'alice')->count());
         self::assertCount(3, DB::table(self::PROOFS)->select('methods')->groupBy('methods')->get());
 
         DB::table(self::PROVENANCE)->insert([

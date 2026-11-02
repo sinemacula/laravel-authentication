@@ -136,7 +136,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * Reading a pending session waiting on a choice reads the session, its
-     * identity, the memberships and each one's tenant, and writes nothing.
+     * identity, the memberships and each one's tenant, and its first factor,
+     * and writes nothing.
      *
      * @return void
      *
@@ -147,17 +148,18 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $token = $this->offerChoice();
 
         $sessions = $this->sessions('choosers');
-        $choice   = $this->assertQueryBudget(5, 0, static fn (): ?PendingSession => $sessions->pending($token));
+        $choice   = $this->assertQueryBudget(6, 0, static fn (): ?PendingSession => $sessions->pending($token));
 
         self::assertCount(2, $choice->principals ?? []);
     }
 
     /**
      * Choosing locks and reads the pending session and its identity, reads the
-     * chosen membership, its owner and its tenant, activates the session with
-     * one update, reads its proofs, and gives each of the sign-in's three
-     * attempt slots back: the session and its first proof were written when the
-     * sign-in left it pending.
+     * chosen membership, its owner and its tenant, reads its first factor (the
+     * default factor policy asks nothing, so no other proof is read), activates
+     * the session with one update, reads its proofs, and gives each of the
+     * sign-in's three attempt slots back: the session and its first proof were
+     * written when the sign-in left it pending.
      *
      * @return void
      *
@@ -169,7 +171,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $chosen = ChoosingMembership::query()->firstOrFail();
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(6, 4, static fn (): SignInResult => $sessions->choose($token, $chosen));
+        $result   = $this->assertQueryBudget(7, 4, static fn (): SignInResult => $sessions->choose($token, $chosen));
 
         self::assertTrue($result->isSignedIn());
     }
@@ -198,7 +200,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($choice);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(7, 5, static fn (): SignInResult => $sessions->choose($choice, $chosen));
+        $result   = $this->assertQueryBudget(8, 5, static fn (): SignInResult => $sessions->choose($choice, $chosen));
 
         self::assertNotSame($first->record->getKey(), $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));

@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SwitchFloor;
@@ -74,15 +75,17 @@ final readonly class PendingTransitions
      * recording the destination the caller admitted (its principal and active
      * tenant) and the version of the destination's policy the caller judged it
      * against, which the destination's policy-change helper compares with its
-     * own: one compare-and-swap on the row as the caller loaded it, while it is
-     * active and unrevoked with the refresh digest, principal, active tenant,
-     * policy version and both deadlines it was loaded with. Returns `null` when
-     * the row changed since it was loaded, so the caller judges it again, as
-     * after a lost rotation.
+     * own, and answering the pending session with the requirement the caller
+     * found it falls short of: one compare-and-swap on the row as the caller
+     * loaded it, while it is active and unrevoked with the refresh digest,
+     * principal, active tenant, policy version and both deadlines it was loaded
+     * with. Returns `null` when the row changed since it was loaded, so the
+     * caller judges it again, as after a lost rotation.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
      * @param  ?string  $policyVersion
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow  $flow
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending
@@ -96,6 +99,7 @@ final readonly class PendingTransitions
         EloquentSession&Model $session,
         Admitted $destination,
         ?string $policyVersion,
+        Requirement $requirement,
         AuthenticationFlow $flow,
         CarbonImmutable $now,
     ): ?ReturnedToPending {
@@ -142,6 +146,8 @@ final readonly class PendingTransitions
             (string) $session->getSignInMethod(),
             $expiry,
             $session,
+            $requirement,
+            PendingEvaluation::firstFactorOf($session),
         );
 
         $this->report($session, $pending, $flow, $loaded, $values);

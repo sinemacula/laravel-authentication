@@ -17,6 +17,9 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
@@ -140,6 +143,8 @@ final class SwitchResultTest extends TestCase
             'password',
             CarbonImmutable::parse('2026-04-06 12:05:00'),
             \Mockery::mock(Session::class),
+            new Requirement,
+            self::firstFactor(),
         );
 
         $credential = new Secret('session-key.secret');
@@ -159,5 +164,15 @@ final class SwitchResultTest extends TestCase
         self::assertSame($pending, $read->pending);
         self::assertSame($credential, $read->credential);
         self::assertSame(RefreshTokenSource::COOKIE, $read->source);
+    }
+
+    /**
+     * The proof of a first factor, as a session records it.
+     *
+     * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
+     */
+    private static function firstFactor(): RecordedProof
+    {
+        return SignInProof::unattested('password', CarbonImmutable::now())->recorded();
     }
 }

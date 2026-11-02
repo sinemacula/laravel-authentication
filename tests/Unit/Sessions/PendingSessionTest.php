@@ -13,6 +13,11 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
@@ -33,20 +38,24 @@ final class PendingSessionTest extends TestCase
     /**
      * The pending session carries its id, guard, identity, principal, active
      * tenant, what it waits on, its method, when its credential expires, its
-     * record and the principals to choose from.
+     * record, what its authentication still falls short of, its first factor
+     * and the principals to choose from.
      *
      * @return void
      */
     public function testCarriesWhatItWasGiven(): void
     {
-        $identity   = \Mockery::mock(Identity::class);
-        $principal  = \Mockery::mock(Principal::class);
-        $tenant     = \Mockery::mock(Tenant::class);
-        $session    = \Mockery::mock(Session::class);
-        $expiresAt  = CarbonImmutable::parse('2026-04-06 12:05:00');
-        $principals = [\Mockery::mock(Principal::class)];
+        $identity    = \Mockery::mock(Identity::class);
+        $principal   = \Mockery::mock(Principal::class);
+        $tenant      = \Mockery::mock(Tenant::class);
+        $session     = \Mockery::mock(Session::class);
+        $expiresAt   = CarbonImmutable::parse('2026-04-06 12:05:00');
+        $principals  = [\Mockery::mock(Principal::class)];
+        $requirement = new Requirement(phishingResistance: new RequirementPart(300));
+        $first       = self::firstFactor();
 
-        $pending = new PendingSession('session-1', 'api', $identity, $principal, $tenant, [PendingRequirement::MFA], 'password', $expiresAt, $session, $principals);
+        $requires = [PendingRequirement::MFA];
+        $pending  = new PendingSession('session-1', 'api', $identity, $principal, $tenant, $requires, 'password', $expiresAt, $session, $requirement, $first, $principals);
 
         self::assertSame('session-1', $pending->id);
         self::assertSame('api', $pending->guard);
@@ -57,8 +66,12 @@ final class PendingSessionTest extends TestCase
         self::assertSame('password', $pending->method);
         self::assertSame($expiresAt, $pending->expiresAt);
         self::assertSame($session, $pending->session);
+        self::assertSame($requirement, $pending->requirement);
+        self::assertSame($first, $pending->firstFactor);
         self::assertSame($principals, $pending->principals);
-        self::assertSame([], (new PendingSession('s', 'api', $identity, null, null, [PendingRequirement::PRINCIPAL], 'password', $expiresAt, $session))->principals);
+        $choice = new PendingSession('s', 'api', $identity, null, null, [PendingRequirement::PRINCIPAL], 'password', $expiresAt, $session, new Requirement, self::firstFactor());
+
+        self::assertSame([], $choice->principals);
     }
 
     /**
@@ -104,6 +117,8 @@ final class PendingSessionTest extends TestCase
             'password',
             CarbonImmutable::now(),
             \Mockery::mock(Session::class),
+            new Requirement,
+            self::firstFactor(),
         );
 
         self::assertSame($allowed, $pending->actions());
@@ -111,5 +126,50 @@ final class PendingSessionTest extends TestCase
         foreach (PendingAction::cases() as $action) {
             self::assertSame(in_array($action, $allowed, true), $pending->allows($action), $action->value);
         }
+    }
+
+    /**
+     * Rows of a limit a pending session never reads proofs with.
+     *
+     * @return iterable<string, array{0: int}>
+     */
+    public static function provideLimitsOutOfRange(): iterable
+    {
+        yield 'none' => [0];
+        yield 'one past the most' => [RequirementSubject::MAX_LIMIT + 1];
+    }
+
+    /**
+     * Its proofs are read a bounded page at a time: a limit outside 1 to the
+     * subject's most is refused before anything is read.
+     *
+     * @param  int  $limit
+     * @return void
+     */
+    #[DataProvider('provideLimitsOutOfRange')]
+    public function testReadsItsProofsABoundedPageAtATime(int $limit): void
+    {
+        $session = \Mockery::mock(Session::class);
+
+        $session->shouldNotReceive('getSessionIdentifier');
+
+        $identity = \Mockery::mock(Identity::class);
+        $now      = CarbonImmutable::now();
+        $pending  = new PendingSession('s', 'api', $identity, null, null, [PendingRequirement::MFA], 'password', $now, $session, new Requirement, self::firstFactor());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('A pending session returns between 1 and 200 proofs at a time.');
+
+        $pending->proofs(limit: $limit);
+    }
+
+    /**
+     * The proof of a first factor, as a session records it.
+     *
+     * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
+     */
+    private static function firstFactor(): RecordedProof
+    {
+        return SignInProof::unattested('password', CarbonImmutable::now())->recorded();
     }
 }

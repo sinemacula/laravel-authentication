@@ -59,9 +59,9 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 - Each runs the gate again under the lock: the identity (not a machine identity, active, `admitIdentifier()` with the
   recorded identifier type), the recorded method still allowed, the recorded or chosen principal admitted
   (`PrincipalAdmission::refusal()`) and its tenant (`TenantAdmission::recorded()` with the access check, or `select()`
-  at the choice), the identity-level factor policy against the stored proofs (`SessionProofs::hasAcceptedAdditional()`),
-  and the tenant's policy against the session's own proofs and provenance. Nothing that changed while the session
-  waited is skipped.
+  at the choice), the identity-level factor policy's requirement against the stored proofs (`RequirementJudge`, through
+  the bound `RequirementCheck`), and the tenant's policy against the session's own proofs and provenance. Nothing that
+  changed while the session waited is skipped.
 - `satisfy()` accepts a proof only as `ProofAcceptance::forPendingSession()` decides: an `additional_factor` or a
   `recovery_code`, for `sign_in` (or `enrollment` for an `additional_factor`, a bootstrap enrolment's confirming proof),
   accepted, timed no earlier than when the session began waiting (the later of its start and `switched_at`) and no

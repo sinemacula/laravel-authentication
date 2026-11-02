@@ -19,6 +19,7 @@ inheritance:
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                |
 | Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
 | Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
+| Gating factor changes             | Call `Auth::sessions()->factorChange()` before adding, replacing or removing a factor or making recovery codes   |
 | Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
 | Application decisions             | Implement `ApplicationPolicy` (methods, lifetimes, identifiers) and bind it in the container                     |
 | Who may use an application        | Implement `ApplicationAccess` and bind it in the container                                                       |
@@ -176,7 +177,8 @@ Whether a session's proofs meet a further factor is `Contracts\RequirementCheck`
 `Requirements\RequirementSubject` (the identity, the application, the session, the first factor it signed in with, the
 time, and `proofs($since, $kinds, $limit)`, a bounded query over its counting proofs, newest first, at most
 `RequirementSubject::MAX_LIMIT`) and the `Requirement`, and answers a `Requirements\RequirementEvaluation` listing the
-kinds left unmet. The default, `MeetNoRequirement`, meets nothing: a tenant that requires a further factor admits no
+kinds left unmet. It judges the identity-level requirement the additional-factor policy answers as well as a tenant's.
+The default, `MeetNoRequirement`, meets nothing: an identity or a tenant that requires a further factor admits no
 session until a factor package binds its check. The package never asks it with an empty requirement.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
@@ -350,21 +352,50 @@ seam has a default that works alone.
 
 ### Further factors (`laravel-mfa`)
 
-- Bind `Contracts\RequirementCheck` (the default, `MeetNoRequirement`, meets nothing). It judges whether a session's
-  proofs meet the further factor a tenant's authentication policy requires, at sign-in, at the choice, on refresh, on a
-  switch, when a pending session is acted on and when `Auth::caller()` reads a refresh credential; without it, a
-  tenant that requires a further factor never activates a session (see [Tenant authentication
-  policies](#tenant-authentication-policies)).
-- Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, never asks). It is asked about
-  every admitted identity's sign-in, from `signIn()` and `start()`, before any principal is chosen, and again whenever
-  its pending session is acted on (never on a switch), with the guard, identity, method, client and the session the
-  client proved; it names no principal or tenant (see [Additional factors](signing-in.md#additional-factors)). A stored
-  accepted further factor or recovery code meets it.
-- When it asks for a factor, the sign-in's session waits pending with `mfa` outstanding: `SignInResult::isPending()`,
+- Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, asks for nothing). It answers
+  what a session's authentication must include beyond its first factor as this package's own `Requirements\Requirement`
+  (an additional verification, multifactor, a minimum assurance level, phishing resistance, each with an optional
+  maximum age). It is asked about every admitted identity's sign-in, from `signIn()` and `start()`, before any
+  principal is chosen, and again whenever its pending session is acted on (never on a switch), inside
+  `WriteConnection::during()` for the identity, with an `AdditionalFactorContext`: the application, the identity, the
+  first factor's whole recorded proof (`Proofs\RecordedProof`: method, channel, observed properties, `amr` values,
+  time), the client, and the session the client proved; it names no principal or tenant (see [Additional
+  factors](signing-in.md#additional-factors)).
+- Bind `Contracts\RequirementCheck` (the default, `MeetNoRequirement`, meets nothing). It is the one judge of whether a
+  session's proofs meet a requirement: the identity-level one above and the further factor a tenant's authentication
+  policy requires, at sign-in (the first factor alone, in memory: a requirement the first factor meets activates the
+  session at once), at the choice, on refresh, on a switch, when a pending session is acted on and when
+  `Auth::caller()` reads a refresh credential. Without it, a non-empty requirement never activates a session: it
+  fails closed (see [Tenant authentication policies](#tenant-authentication-policies)).
+- When a requirement is unmet, the sign-in's session waits pending with `mfa` outstanding: `SignInResult::isPending()`,
   its `PendingSession` and pending credential, then `Auth::sessions()->pending($credential, $action)` to check an
   `mfa.*` action (`Sessions\Enums\PendingAction`) before the factor package acts, `satisfy()` once the factor is
-  verified, or `discard()` (see [Pending sessions](signing-in.md#pending-sessions)). `attempt()` cannot wait, so it
-  fails as `additional_factor_required`.
+  verified, or `discard()` (see [Pending sessions](signing-in.md#pending-sessions)). The `PendingSession` tells the
+  factor package what it needs: `$requirement` (what its authentication still falls short of: the strictest of the
+  identity-level requirement and the destination tenant's, each only while it is unmet; empty while only the choice is
+  outstanding), `$firstFactor`, `proofs($since, $kinds, $limit)` (its counting proofs, newest first, one bounded read
+  each call) and `$expiresAt` (when the pending credential ends). `attempt()` cannot wait, so it fails as
+  `additional_factor_required` whenever the password alone does not meet the requirement.
+- A pending session's bootstrap enrolment (its first factor, enrolled while it waits) goes through its credential:
+  `pending($credential, PendingAction::START_BOOTSTRAP_ENROLLMENT)` and `CONFIRM_BOOTSTRAP_ENROLLMENT`, allowed only
+  while the factor is its first outstanding requirement and until the credential expires, then `satisfy()` with the
+  confirming factor's proof for `enrollment`. It never goes through the factor-change gate below, which refuses a
+  pending session.
+- Before it adds, replaces or removes one of an identity's further factors, or generates its recovery codes, from an
+  active session, the factor package asks the gate inside the transaction that makes the change, on the storage
+  connection, after its own identity and factor locks:
+  `Auth::sessions()->factorChange($session, FactorChange::REMOVE, $requirement, $factor)`
+  (`Factors\Enums\FactorChange`: `add_factor`, `add_first_factor`, `replace_factor`, `remove_factor`,
+  `generate_recovery_codes`). It locks the session's row until that transaction ends, checks it is still the session
+  given, one of this guard's live, active sessions, and a person's, then asks the freshness policy: every change takes a
+  fresh step-up (`factor_change`, refused as `step_up_required`), except an identity's first additional factor
+  (`ADD_FIRST`, which the factor package names, knowing the identity has none), which takes a fresh reauthentication
+  with the first factor (`first_additional_factor`, refused as `reauthentication_required`): the sign-in's own first
+  factor never counts, so whoever holds a session cannot enrol a factor on it without proving the first factor again.
+  A replacement or removal names its factor (required for those, refused for the others), whose own proofs never count
+  for its change. The answer, a `Factors\FactorChangeVerdict`, carries the fresh proof and `freshUntil` (when the
+  session stops being fresh for it, for a grant that outlives the request), or the reason; it writes and reports
+  nothing.
 - A factor removed ends the identity's other sessions: `Auth::sessions()->factorRemoved($identity, Auth::session())`.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
   report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
@@ -387,16 +418,18 @@ seam has a default that works alone.
   and every access token issued for it from then on carries the factor in `auth_time` and `amr`; the session then
   proves an identifier change, or any operation whose freshness takes a further factor (see [Stepping
   up](sessions.md#stepping-up)). A factor verified outside a session proves nothing on its own.
-- Before a sensitive operation of its own (adding or removing a factor, say), the factor package asks
-  `FreshnessPolicy::freshProof($session, 'mfa.add_factor')`, under a namespaced operation name of its own that the
+- Before a sensitive operation of its own that the gate does not cover, the factor package asks
+  `FreshnessPolicy::freshProof($session, 'mfa.some_operation')`, under a namespaced operation name of its own that the
   application configures under `freshness`, and passes a `FreshnessRequirement` of its own for a floor the
   configuration may not lower (see [Freshness](sessions.md#freshness)). A caller that means only "within so many
   seconds" passes `FreshnessRequirement::within($seconds)`, which takes every proof kind: a list of kinds of its own
-  narrows the configured kinds to those both take.
-- `factor_change` covers only this package's own factor changes, not the factor package's operation names
-  (`mfa.add_factor`, `mfa.replace_factor`, `mfa.remove_factor`, `mfa.generate_recovery_codes`). An application that
-  wants those to take only a further factor or a recovery code configures an entry for each under `freshness`, with
-  `additional_factor` and `recovery_code` as its proofs; without one, the factor package's own requirement decides.
+  narrows the configured kinds to those both take. `freshUntil()` answers until when the session stays fresh, and both
+  take an excluded factor (`$excludingFactor`), whose proofs never count: a removal's requirement is met only by the
+  session's other proofs.
+- The factor package's own requirement for a change (its `mfa.add_factor`, say) is the caller's requirement the gate
+  takes as `$requirement`: the stricter of it and `factor_change` (or `first_additional_factor`) applies.
+- The active tenant the factor package acts in comes from the validated session or caller, never from an event's
+  context: `Auth::tenant()` on the request, `Auth::caller()?->tenant`, or the session's own `getTenantId()`.
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
   may be lowered from 15 to 8, as NIST SP 800-63B allows (see [Password policy](passwords.md#password-policy)).
 

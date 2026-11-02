@@ -26,6 +26,8 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
@@ -703,12 +705,12 @@ final class RevocationWriterTest extends TestCase
              * Always require a further factor.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return true;
+                return new Requirement(new RequirementPart);
             }
         });
 

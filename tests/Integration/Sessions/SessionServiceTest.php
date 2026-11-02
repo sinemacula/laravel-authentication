@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\ProvenSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
@@ -432,7 +433,7 @@ final class SessionServiceTest extends TestCase
         $proven = [];
 
         $factors = \Mockery::mock(AdditionalFactorPolicy::class);
-        $factors->shouldReceive('requiresAdditionalFactor')->twice()->andReturnUsing(function (AdditionalFactorContext $context) use (&$proven, $first): bool {
+        $factors->shouldReceive('requirementFor')->twice()->andReturnUsing(function (AdditionalFactorContext $context) use (&$proven, $first): Requirement {
 
             $proven[] = $context->provenSession?->getSessionIdentifier();
 
@@ -440,7 +441,7 @@ final class SessionServiceTest extends TestCase
                 Session::query()->whereKey($first->record->getKey())->update(['refresh_key' => RefreshTokenHasher::hash('rotated-in-parallel')]);
             }
 
-            return false;
+            return new Requirement;
         });
 
         app()->instance(AdditionalFactorPolicy::class, $factors);

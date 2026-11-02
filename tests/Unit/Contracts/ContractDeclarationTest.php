@@ -514,7 +514,7 @@ final class ContractDeclarationTest extends TestCase
      */
     public function testAdditionalFactorPolicyDeclaresOneDecision(): void
     {
-        self::assertSame(['requiresAdditionalFactor'], self::declaredMethods(AdditionalFactorPolicy::class));
+        self::assertSame(['requirementFor'], self::declaredMethods(AdditionalFactorPolicy::class));
     }
 
     /**

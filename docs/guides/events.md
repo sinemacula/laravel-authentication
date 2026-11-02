@@ -233,11 +233,12 @@ active tenant. It says why a sign-in failed even where the client is not told: a
 | `credential_expired`         | It expired, a rotated key's overlap included                                        |
 | `credential_guard_mismatch`  | It was issued for another guard                                                     |
 | `scope_invalid`              | A requested scope is malformed or not granted to the credential                     |
-| `reauthentication_required`  | An identifier change without a recent authentication, or with a wrong password      |
+| `reauthentication_required`  | An identifier change or a first factor without a fresh proof, or a wrong password   |
 | `identifier_taken`           | The new identifier is held by another identity, or the unique index refused it      |
 | `link_expired`               | A reset, change or verification link expired; event only, not on a reset's result   |
 | `proof_invalid`              | A further factor of a kind, purpose, evaluation or time the operation does not take |
 | `proof_binding_mismatch`     | A further factor made by another identity, application or session                   |
+| `step_up_required`           | A factor change without a fresh step-up; on a `FactorChangeVerdict`, not an event   |
 
 A sign-in method may answer only `invalid_credentials`, `identifier_unverified` (once its input proved possession of the
 identifier), `code_expired`, `code_exhausted`, `passkey_challenge_invalid` and `passkey_counter_regressed`; every other

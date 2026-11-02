@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -23,11 +24,14 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\NamedConnectionIdentity;
 use Tests\TestCase;
@@ -294,14 +298,15 @@ final class StorageConnectionSessionsTest extends TestCase
              * Always require a further factor.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return true;
+                return new Requirement(new RequirementPart);
             }
         });
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
     }
 
     /**

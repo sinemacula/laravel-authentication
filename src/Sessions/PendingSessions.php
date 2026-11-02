@@ -18,12 +18,13 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
-use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
+use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Plaintext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
@@ -145,9 +146,11 @@ final readonly class PendingSessions
             return null;
         }
 
-        $principals = $requires[0] === PendingRequirement::PRINCIPAL ? $this->evaluation->principals($identity, $session->getSignInIdentifierType())[0] : [];
+        $principals  = $requires[0] === PendingRequirement::PRINCIPAL ? $this->evaluation->principals($identity, $session->getSignInIdentifierType())[0] : [];
+        $first       = PendingEvaluation::firstFactorOf($session);
+        $outstanding = in_array(PendingRequirement::MFA, $requires, true) ? $this->outstanding($session, $identity, $first, $principal, $tenant, $now) : new Requirement;
 
-        return $this->describe($session, $identity, $principal, $tenant, $requires, $principals);
+        return $this->describe($session, $identity, $principal, $tenant, [$requires, $outstanding, $first], $principals);
     }
 
     /**
@@ -426,8 +429,9 @@ final readonly class PendingSessions
             return new Refused(FailureReason::SSO_REQUIRED, $identity, $principal, $tenant, $session);
         }
 
-        $owes     = $this->owesFactor($session, $identity, $proven) || $policy->standing === TenantPolicyStanding::FACTOR_REQUIRED;
-        $requires = PendingEvaluation::requirements($owes, $principal);
+        $first       = PendingEvaluation::firstFactorOf($session);
+        $outstanding = Requirement::strictest($this->evaluation->owedFactorOn($session, $identity, $first, $proven, $now), $policy->factor);
+        $requires    = PendingEvaluation::requirements($outstanding, $principal);
 
         if ($principal !== null && $requires === []) {
             $destination = new Admitted($identity, $principal, $tenant);
@@ -448,7 +452,7 @@ final readonly class PendingSessions
             $this->wait($session, $principal, $tenant, $requires);
         }
 
-        return SignInResult::pending($this->describe($session, $identity, $principal, $tenant, $requires, $principals));
+        return SignInResult::pending($this->describe($session, $identity, $principal, $tenant, [$requires, $outstanding, $first], $principals));
     }
 
     /**
@@ -480,21 +484,63 @@ final readonly class PendingSessions
     }
 
     /**
-     * Describe the pending session, with the principals to choose from while
-     * the choice is its first requirement.
+     * What the pending session's authentication still falls short of: the
+     * strictest of the identity-level requirement while it is owed and the
+     * requirement of the tenant it records while that is unmet.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $first
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    private function outstanding(
+        EloquentSession&Model $session,
+        Identity $identity,
+        RecordedProof $first,
+        ?Principal $principal,
+        ?Tenant $tenant,
+        CarbonImmutable $now,
+    ): Requirement {
+        $owed = $this->evaluation->owedFactorOn($session, $identity, $first, $this->proven($session), $now);
+
+        return Requirement::strictest($owed, $this->evaluation->tenantPolicy($identity, $principal, $tenant, $session, $now)->factor);
+    }
+
+    /**
+     * Describe the pending session, with what it waits on, what its
+     * authentication still falls short of, its first factor, and the principals
+     * to choose from while the choice is its first requirement.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
-     * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>  $requires
+     * @param  array{0: non-empty-list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>, 1: \SineMacula\Laravel\Authentication\Requirements\Requirement, 2: \SineMacula\Laravel\Authentication\Proofs\RecordedProof}  $waiting
      * @param  list<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
      * @return \SineMacula\Laravel\Authentication\Sessions\PendingSession
      *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
      * @throws \LogicException
      */
-    private function describe(EloquentSession&Model $session, Identity $identity, ?Principal $principal, ?Tenant $tenant, array $requires, array $principals): PendingSession
+    private function describe(EloquentSession&Model $session, Identity $identity, ?Principal $principal, ?Tenant $tenant, array $waiting, array $principals): PendingSession
     {
+        [$requires, $outstanding, $first] = $waiting;
+
         $expiresAt = $session->getIdleExpiresAt() ?? throw new \LogicException('A pending session the package wrote always records when its credential expires.');
 
         return new PendingSession(
@@ -507,6 +553,8 @@ final readonly class PendingSessions
             (string) $session->getSignInMethod(),
             CarbonImmutable::instance($expiresAt),
             $session,
+            $outstanding,
+            $first,
             $principals,
         );
     }
@@ -678,43 +726,6 @@ final readonly class PendingSessions
         $switched = $session->getSwitchedAt()?->getTimestamp() ?? 0;
 
         return CarbonImmutable::createFromTimestamp(max($started, $switched));
-    }
-
-    /**
-     * Whether the identity-level factor policy asks the session for a further
-     * factor its stored proofs do not meet, asked as the sign-in was: with its
-     * method, the client it came from, the name and platform it gave, and the
-     * session its client proved it holds.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
-     * @return bool
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \InvalidArgumentException
-     */
-    private function owesFactor(EloquentSession&Model $session, Identity $identity, (EloquentSession&Model)|null $proven): bool
-    {
-        $origin   = new ClientContext(self::recorded($session, $session->getCreatedIpName()), self::recorded($session, $session->getCreatedUserAgentName()));
-        $client   = self::recorded($session, $session->getClientNameName());
-        $platform = self::recorded($session, $session->getPlatformName());
-
-        return $this->evaluation->owesFactor($identity, (string) $session->getSignInMethod(), $origin, $client, $platform, $proven, $session);
-    }
-
-    /**
-     * A description the session recorded, as the model reads it, or `null`.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model  $session
-     * @param  string  $column
-     * @return ?string
-     */
-    private static function recorded(Model $session, string $column): ?string
-    {
-        $value = $session->getAttribute($column);
-
-        return is_scalar($value) ? (string) $value : null;
     }
 
     /**

@@ -49,6 +49,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
@@ -1208,7 +1209,7 @@ final class SessionSwitchTest extends TestCase
         $session = $this->signIn();
 
         $factors = \Mockery::mock(AdditionalFactorPolicy::class);
-        $factors->shouldNotReceive('requiresAdditionalFactor');
+        $factors->shouldNotReceive('requirementFor');
 
         app()->instance(AdditionalFactorPolicy::class, $factors);
 
@@ -1576,6 +1577,7 @@ final class SessionSwitchTest extends TestCase
         self::assertNotNull($result->credential);
         self::assertNotNull($result->pending);
         self::assertSame([PendingRequirement::MFA], $result->pending->requires);
+        self::assertSame([RequirementKind::MULTIFACTOR], $result->pending->requirement->kinds());
         self::assertSame($second->getKey(), $result->pending->principal?->getPrincipalIdentifier());
         self::assertSame([SessionReturnedToPending::class], $this->recordedClasses());
         self::assertSame(AuthenticationFlow::SWITCH, $this->recordedEvent(SessionReturnedToPending::class)->flow);
@@ -1770,13 +1772,14 @@ final class SessionSwitchTest extends TestCase
 
         self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
 
-        $this->scriptPolicy([$tenant => new TenantRequirement('v2', new Requirement(new RequirementPart))]);
+        $this->scriptPolicy([$tenant => new TenantRequirement('v2', new Requirement(phishingResistance: new RequirementPart))]);
 
         $this->recordEvents([SessionReturnedToPending::class, PrincipalSwitched::class]);
 
         $returned = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), $target);
 
         self::assertTrue($returned->isPending());
+        self::assertSame([RequirementKind::PHISHING_RESISTANCE], $returned->pending?->requirement->kinds());
         self::assertNull($returned->session);
         self::assertNotNull($returned->credential);
         self::assertSame([SessionReturnedToPending::class], $this->recordedClasses());

@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
@@ -148,7 +149,6 @@ final readonly class SessionEstablishment
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array{0: ?\SineMacula\Laravel\Authentication\Contracts\Principal, 1: list<\SineMacula\Laravel\Authentication\Contracts\Principal>}  $selection
-     * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
@@ -164,7 +164,6 @@ final readonly class SessionEstablishment
     public function proceed(
         Identity $identity,
         array $selection,
-        string $method,
         ?string $identifierType,
         SignInContext $context,
         SignInProof $proof,
@@ -182,7 +181,7 @@ final readonly class SessionEstablishment
             ? null
             : $this->proof->provenSessionOf($this->context->name(), $identity, $principal, $context->refreshToken);
 
-        return $this->establish($identity, $selection, $method, $identifierType, $context, $proof, $attemptWindows, $proven, $now);
+        return $this->establish($identity, $selection, $identifierType, $context, $proof, $attemptWindows, $proven, $now);
     }
 
     /**
@@ -194,7 +193,6 @@ final readonly class SessionEstablishment
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array{0: ?\SineMacula\Laravel\Authentication\Contracts\Principal, 1: list<\SineMacula\Laravel\Authentication\Contracts\Principal>}  $selection
-     * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
@@ -212,7 +210,6 @@ final readonly class SessionEstablishment
     private function establish(
         Identity $identity,
         array $selection,
-        string $method,
         ?string $identifierType,
         SignInContext $context,
         SignInProof $proof,
@@ -222,43 +219,47 @@ final readonly class SessionEstablishment
     ): Refused|SignInResult {
         [$principal, $principals] = $selection;
 
-        $owes   = $this->evaluation->owesFactor($identity, $method, $context->client, $context->clientName, $context->platform, $proven, null);
-        $tenant = $principal === null ? null : $this->evaluation->destination($principal, $context->tenant);
+        $evidence = SessionEvidence::of($proof);
+        $owed     = $this->evaluation->owedFactor($identity, $evidence->firstFactor, $context->client, $context->clientName, $context->platform, $proven, null, $now, $evidence);
+        $tenant   = $principal === null ? null : $this->evaluation->destination($principal, $context->tenant);
 
         if ($tenant instanceof FailureReason) {
             return new Refused($tenant, $identity, $principal, session: $proven);
         }
 
-        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, null, $now, SessionEvidence::of($proof));
+        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, null, $now, $evidence);
 
         if ($policy->standing === TenantPolicyStanding::SSO_REQUIRED) {
             return new Refused(FailureReason::SSO_REQUIRED, $identity, $principal, $tenant, $proven);
         }
 
-        $requires = PendingEvaluation::requirements($owes || $policy->standing === TenantPolicyStanding::FACTOR_REQUIRED, $principal);
-        $writer   = $this->writer->underTenantPolicy($policy->version);
+        $outstanding = Requirement::strictest($owed, $policy->factor);
+        $requires    = PendingEvaluation::requirements($outstanding, $principal);
+        $writer      = $this->writer->underTenantPolicy($policy->version);
 
         if ($principal === null || $requires !== []) {
             $draft = new PendingSessionDraft($identity, $principal, $tenant, $requires, $identifierType, $proof, $proven, $attemptWindows);
 
-            return $this->wait($writer, $draft, $requires[0] === PendingRequirement::PRINCIPAL ? $principals : [], $context, $now);
+            return $this->wait($writer, $draft, $outstanding, $requires[0] === PendingRequirement::PRINCIPAL ? $principals : [], $context, $now);
         }
 
         $session = $this->write($writer, new Admitted($identity, $principal, $tenant, $proven), $identifierType, $context, $proof, $now);
 
         return $session === null
-            ? $this->establish($identity, $selection, $method, $identifierType, $context, $proof, $attemptWindows, null, $now)
+            ? $this->establish($identity, $selection, $identifierType, $context, $proof, $attemptWindows, null, $now)
             : $this->signedIn($session, $proven, $tenant, $context);
     }
 
     /**
      * Write the sign-in's session pending, waiting on what is outstanding, and
-     * schedule `SessionPending` for once it is committed. The principals are
-     * the ones the pending session lists, given only when the choice is the
-     * first requirement, so none is shown while a factor is outstanding.
+     * schedule `SessionPending` for once it is committed. The requirement is
+     * what its authentication still falls short of; the principals are the ones
+     * the pending session lists, given only when the choice is the first
+     * requirement, so none is shown while a factor is outstanding.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SessionWriter  $writer
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSessionDraft  $draft
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $outstanding
      * @param  list<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
@@ -266,8 +267,14 @@ final readonly class SessionEstablishment
      *
      * @throws \Throwable
      */
-    private function wait(SessionWriter $writer, PendingSessionDraft $draft, array $principals, SignInContext $context, CarbonImmutable $now): SignInResult
-    {
+    private function wait(
+        SessionWriter $writer,
+        PendingSessionDraft $draft,
+        Requirement $outstanding,
+        array $principals,
+        SignInContext $context,
+        CarbonImmutable $now,
+    ): SignInResult {
         $ttl = PendingState::ttlSeconds($this->container->make(Repository::class));
 
         [$record, $credential] = $writer->createPending($draft, $context, $this->lifetimes(), $now, $ttl);
@@ -285,6 +292,8 @@ final readonly class SessionEstablishment
             $method,
             $expiresAt,
             $record,
+            $outstanding,
+            $draft->proof->recorded(),
             $principals,
         );
         $event = new SessionPending(

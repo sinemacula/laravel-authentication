@@ -15,6 +15,9 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
@@ -107,6 +110,8 @@ final class SignInResultTest extends TestCase
             'password',
             CarbonImmutable::now(),
             $record,
+            new Requirement,
+            self::firstFactor(),
         );
         $credential = new Secret('session-1.secret');
         $issued     = SignInResult::pending($pending, $credential);
@@ -213,5 +218,15 @@ final class SignInResultTest extends TestCase
         $values = array_map(static fn (SignInStatus $status): string => $status->value, SignInStatus::cases());
 
         self::assertSame(['signed_in', 'pending', 'failed'], $values);
+    }
+
+    /**
+     * The proof of a first factor, as a session records it.
+     *
+     * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
+     */
+    private static function firstFactor(): RecordedProof
+    {
+        return SignInProof::unattested('password', CarbonImmutable::now())->recorded();
     }
 }

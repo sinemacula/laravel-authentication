@@ -24,7 +24,10 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -48,9 +51,10 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * the application, with none left a refusal after the credential is verified;
  * the principal selected (the one named, when it is among them, else the only
  * one, else none and a choice is outstanding); the identity-level factor
- * policy, asked before any principal is chosen and met once the session holds
- * an accepted further factor or recovery code; and, with a principal, the
- * tenant it is to be active in and that tenant's authentication policy.
+ * policy, asked before any principal is chosen for the requirement the
+ * session's authentication must meet, which `RequirementJudge` judges against
+ * its proofs; and, with a principal, the tenant it is to be active in and that
+ * tenant's authentication policy.
  *
  * It decides; it writes nothing. Every read and every contract is asked on the
  * write connection.
@@ -300,31 +304,107 @@ final readonly class PendingEvaluation
     }
 
     /**
-     * Whether the identity still owes the further factor its factor policy asks
-     * of it: the policy, asked about the identity and the sign-in (never a
-     * principal, since it is asked before one is chosen), requires one, and the
-     * session, when there is one yet, holds no accepted further factor or
-     * recovery code.
+     * What the identity-level factor policy asks of the session beyond its
+     * first factor, asked about the identity and the sign-in (never a
+     * principal, since it is asked before one is chosen), inside
+     * `WriteConnection::during()` for the identity.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  string  $method
+     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  ?string  $clientName
+     * @param  ?string  $platform
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $proven
+     * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function factorRequirement(Identity $identity, RecordedProof $firstFactor, ClientContext $client, ?string $clientName, ?string $platform, ?Session $proven): Requirement
+    {
+        $policy  = $this->container->make(AdditionalFactorPolicy::class);
+        $context = new AdditionalFactorContext($this->context->name(), $identity, $firstFactor, $client, $clientName, $platform, $proven);
+
+        return WriteConnection::during($identity, static fn (): Requirement => $policy->requirementFor($context));
+    }
+
+    /**
+     * What the identity still owes of what its factor policy asks: the policy's
+     * requirement while the session (or, at sign-in, the sign-in's evidence,
+     * with the session `null`) does not meet it, as `RequirementJudge` judges
+     * it, and an empty requirement once it does. A requirement that asks for
+     * nothing is owed by no one and costs no query.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?string  $clientName
      * @param  ?string  $platform
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $proven
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @return bool
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    public function owesFactor(Identity $identity, string $method, ClientContext $client, ?string $clientName, ?string $platform, ?Session $proven, ?Session $session): bool
-    {
-        $required = $this->container->make(AdditionalFactorPolicy::class)->requiresAdditionalFactor(
-            new AdditionalFactorContext($this->context->name(), $identity, $method, $client, $clientName, $platform, $proven),
-        );
+    public function owedFactor(
+        Identity $identity,
+        RecordedProof $firstFactor,
+        ClientContext $client,
+        ?string $clientName,
+        ?string $platform,
+        ?Session $proven,
+        ?Session $session,
+        CarbonImmutable $now,
+        ?SessionEvidence $evidence = null,
+    ): Requirement {
+        $requirement = $this->factorRequirement($identity, $firstFactor, $client, $clientName, $platform, $proven);
 
-        return $required && ($session === null || !SessionProofs::hasAcceptedAdditional($session));
+        return RequirementJudge::isMet($this->context->name(), $identity, $session, $firstFactor, $now, $evidence, $requirement) ? new Requirement : $requirement;
+    }
+
+    /**
+     * What the identity still owes on the stored session, asked as its sign-in
+     * was: with the first factor the session records (`firstFactorOf()`), the
+     * client it came from, the name and platform it gave, and the session its
+     * client proved it holds (see `owedFactor()`).
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
+     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    public function owedFactorOn(
+        EloquentSession&Model $session,
+        Identity $identity,
+        RecordedProof $firstFactor,
+        (EloquentSession&Model)|null $proven,
+        CarbonImmutable $now,
+    ): Requirement {
+        $origin   = new ClientContext(self::described($session, $session->getCreatedIpName()), self::described($session, $session->getCreatedUserAgentName()));
+        $client   = self::described($session, $session->getClientNameName());
+        $platform = self::described($session, $session->getPlatformName());
+
+        return $this->owedFactor($identity, $firstFactor, $origin, $client, $platform, $proven, $session, $now);
+    }
+
+    /**
+     * The first factor the session signed in with, as it records it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
+     *
+     * @throws \LogicException
+     */
+    public static function firstFactorOf(Session $session): RecordedProof
+    {
+        return SessionProofs::firstFactor($session) ?? throw new \LogicException('A session the package wrote always records the proof of its first factor.');
     }
 
     /**
@@ -357,19 +437,34 @@ final readonly class PendingEvaluation
     }
 
     /**
-     * What a session still waits on, in order: the further factor when it is
-     * owed, then the choice when no principal is selected.
+     * What a session still waits on, in order: the further factor while any of
+     * its authentication's requirement is outstanding, then the choice when no
+     * principal is selected.
      *
-     * @param  bool  $owesFactor
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $outstanding
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>
      */
-    public static function requirements(bool $owesFactor, ?Principal $principal): array
+    public static function requirements(Requirement $outstanding, ?Principal $principal): array
     {
         return [
-            ...$owesFactor ? [PendingRequirement::MFA] : [],
+            ...$outstanding->isEmpty() ? [] : [PendingRequirement::MFA],
             ...$principal === null ? [PendingRequirement::PRINCIPAL] : [],
         ];
+    }
+
+    /**
+     * A description the session recorded, as the model reads it, or `null`.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $session
+     * @param  string  $column
+     * @return ?string
+     */
+    private static function described(Model $session, string $column): ?string
+    {
+        $value = $session->getAttribute($column);
+
+        return is_scalar($value) ? (string) $value : null;
     }
 
     /**

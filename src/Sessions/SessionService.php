@@ -36,6 +36,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\GatesFactorChanges;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\LooksUpSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ProvesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
@@ -83,13 +84,15 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * `PendingSessions`. The service also refreshes a session through
  * `SessionRefresh` (`RefreshesSessions`), steps a session up and
  * reauthenticates it through `SessionStepUp` and `SessionReauthentication`
- * (`ProvesSessions`), each of which issues a new access token only, lets a
- * session switch the principal it acts as or its active tenant through
- * `SessionSwitch` (`SwitchesSessions`), lists sessions, looks one session or
- * principal up (`LooksUpSessions`), and signs out, revokes sessions and ends
- * sessions on security changes through `SessionRevocations` (`EndsSessions`),
- * which the guard's `logout()` and password changes use too, and signs out by
- * refresh credential through `SessionSignOut`.
+ * (`ProvesSessions`), each of which issues a new access token only, gates the
+ * factor package's changes to an identity's further factors through
+ * `FactorChangeGate` (`GatesFactorChanges`), lets a session switch the
+ * principal it acts as or its active tenant through `SessionSwitch`
+ * (`SwitchesSessions`), lists sessions, looks one session or principal up
+ * (`LooksUpSessions`), and signs out, revokes sessions and ends sessions on
+ * security changes through `SessionRevocations` (`EndsSessions`), which the
+ * guard's `logout()` and password changes use too, and signs out by refresh
+ * credential through `SessionSignOut`.
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
@@ -106,7 +109,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  */
 final readonly class SessionService
 {
-    use EndsSessions, LooksUpSessions, ProvesSessions, RefreshesSessions, SwitchesSessions;
+    use EndsSessions, GatesFactorChanges, LooksUpSessions, ProvesSessions, RefreshesSessions, SwitchesSessions;
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionEstablishment Takes an admitted sign-in to its session, active or pending, never binding. */
     private SessionEstablishment $establishment;
@@ -177,6 +180,7 @@ final readonly class SessionService
 
         $this->stepUps           = new SessionStepUp($context, $issuance, $this->afterCommit);
         $this->reauthentications = new SessionReauthentication($context, $issuance, $this->afterCommit, $container);
+        $this->factorChanges     = new FactorChangeGate($context, $container);
     }
 
     /**
@@ -470,7 +474,7 @@ final readonly class SessionService
             fn (Timebox $timebox) => $this->verify($driver, $method, $request, $attempt, $subject->identifierType, $timebox),
         );
 
-        $outcome = $verified instanceof Refused ? $verified : $this->continueVerified($driver, $method, $input, $context, $subject->identifierType, $attempt, $verified);
+        $outcome = $verified instanceof Refused ? $verified : $this->continueVerified($driver, $input, $context, $subject->identifierType, $attempt, $verified);
 
         return $outcome instanceof Refused ? $outcome : $this->settle($outcome, $attempt, $transport);
     }
@@ -509,7 +513,6 @@ final readonly class SessionService
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $driver
-     * @param  string  $method
      * @param  array<array-key, mixed>  $input
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  ?string  $identifierType
@@ -525,7 +528,6 @@ final readonly class SessionService
      */
     private function continueVerified(
         SignInMethod $driver,
-        string $method,
         #[\SensitiveParameter] array $input,
         SignInContext $context,
         ?string $identifierType,
@@ -544,7 +546,7 @@ final readonly class SessionService
             $driver->rehash($this->context->provider(), $identity, $input);
         }
 
-        return $this->establishment->proceed($identity, $selection, $method, $identifierType, $context, $proof, $attempt->windows());
+        return $this->establishment->proceed($identity, $selection, $identifierType, $context, $proof, $attempt->windows());
     }
 
     /**
@@ -628,7 +630,7 @@ final readonly class SessionService
 
         $selection = $this->admitIdentity($reloaded, null) ?? $this->establishment->select($reloaded, $principal, $context);
 
-        return $selection instanceof Refused ? $selection : $this->establishment->proceed($reloaded, $selection, $method, null, $context, $proof);
+        return $selection instanceof Refused ? $selection : $this->establishment->proceed($reloaded, $selection, null, $context, $proof);
     }
 
     /**

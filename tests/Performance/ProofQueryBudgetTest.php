@@ -4,10 +4,13 @@ declare(strict_types = 1);
 
 namespace Tests\Performance;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
+use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Freshness\Operations;
@@ -18,6 +21,7 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
+use SineMacula\Laravel\Authentication\Sessions\FactorChangeGate;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\SessionReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\SessionStepUp;
@@ -27,9 +31,10 @@ use Tests\Concerns\InteractsWithSessions;
 
 /**
  * Query-budget and timing contracts for a session's proofs: what a step-up and
- * a reauthentication cost, what asking the freshness policy costs (nothing for
- * an operation with no requirement), and that the claims and freshness reads
- * stay one query each, and quick, however many proofs a session holds.
+ * a reauthentication cost, what asking the freshness policy and the
+ * factor-change gate costs (nothing for an operation with no requirement), and
+ * that the claims and freshness reads stay one query each, and quick, however
+ * many proofs a session holds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -42,6 +47,7 @@ use Tests\Concerns\InteractsWithSessions;
 #[CoversClass(ConfiguredFreshness::class)]
 #[CoversClass(SessionProofs::class)]
 #[CoversClass(AuthenticationClaims::class)]
+#[CoversClass(FactorChangeGate::class)]
 final class ProofQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithProofs, InteractsWithSessions;
@@ -132,7 +138,35 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
         $policy = app(FreshnessPolicy::class);
 
         self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?RecordedProof => $policy->freshProof($record, Operations::IDENTIFIER_CHANGE)));
+        self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?CarbonImmutable => $policy->freshUntil($record, Operations::IDENTIFIER_CHANGE, null, 'factor-a')));
         self::assertNull($this->assertQueryBudget(0, 0, static fn (): ?RecordedProof => $policy->freshProof($record, 'mfa.add_factor')));
+        self::assertNull($this->assertQueryBudget(0, 0, static fn (): ?CarbonImmutable => $policy->freshUntil($record, 'mfa.add_factor')));
+    }
+
+    /**
+     * Asking the factor-change gate locks the session's row, then reads it and
+     * its freshest proof as the freshness policy does, and writes nothing,
+     * however many proofs the session holds.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheFactorChangeGateLocksAndReadsTwice(): void
+    {
+        $signedIn = $this->signedIn();
+        $record   = $signedIn->record;
+
+        foreach (range(1, self::MANY) as $index) {
+            self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->copy()->subSeconds($index), ['otp'], new Evaluation(true, true));
+        }
+
+        $sessions = $this->sessions();
+
+        $removal = $this->assertQueryBudget(3, 0, static fn (): FactorChangeVerdict => $sessions->factorChange($record, FactorChange::REMOVE, factor: 'factor-a'));
+
+        self::assertTrue($removal->isAllowed());
+        self::assertFalse($this->assertQueryBudget(3, 0, static fn (): FactorChangeVerdict => $sessions->factorChange($record, FactorChange::ADD_FIRST))->isAllowed());
     }
 
     /**

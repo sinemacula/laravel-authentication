@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
@@ -23,6 +24,8 @@ use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -30,6 +33,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -102,14 +106,15 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
              * Always require a further factor.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return true;
+                return new Requirement(new RequirementPart);
             }
         });
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         $this->outcomes = sys_get_temp_dir() . '/satisfaction-race-' . bin2hex(random_bytes(8));
 

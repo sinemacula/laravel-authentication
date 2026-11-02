@@ -17,6 +17,9 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
@@ -93,6 +96,8 @@ final class RefreshResultTest extends TestCase
             'password',
             CarbonImmutable::now(),
             \Mockery::mock(Session::class),
+            new Requirement,
+            self::firstFactor(),
         );
         $credential = new Secret('session-1.secret');
         $returned   = RefreshResult::pending($pending, $credential);
@@ -141,5 +146,15 @@ final class RefreshResultTest extends TestCase
             new TokenPair(new Secret('access'), new Secret('refresh')),
             'password',
         );
+    }
+
+    /**
+     * The proof of a first factor, as a session records it.
+     *
+     * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
+     */
+    private static function firstFactor(): RecordedProof
+    {
+        return SignInProof::unattested('password', CarbonImmutable::now())->recorded();
     }
 }

@@ -79,6 +79,7 @@ final class FailureReasonTest extends TestCase
             'link_expired',
             'proof_invalid',
             'proof_binding_mismatch',
+            'step_up_required',
         ], array_map(static fn (FailureReason $reason): string => $reason->value, FailureReason::cases()));
     }
 

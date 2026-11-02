@@ -20,6 +20,11 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
+use SineMacula\Laravel\Authentication\Requirements\LevelRequirement;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingTransitions;
@@ -106,10 +111,14 @@ final class PendingTransitionsTest extends TestCase
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
-        $returned = $this->transitions()->returnToPending($session, new Admitted($member, $membership, $tenant), 'v3', AuthenticationFlow::REFRESH, $this->now);
+        $requirement = new Requirement(minimumLevel: new LevelRequirement(AssuranceLevel::AAL2));
+        $returned    = $this->transitions()->returnToPending($session, new Admitted($member, $membership, $tenant), 'v3', $requirement, AuthenticationFlow::REFRESH, $this->now);
 
         self::assertNotNull($returned);
         self::assertSame([PendingRequirement::MFA], $returned->pending->requires);
+        self::assertSame($requirement, $returned->pending->requirement);
+        self::assertSame(ProofKind::FIRST_FACTOR, $returned->pending->firstFactor->kind);
+        self::assertSame('password', $returned->pending->firstFactor->method);
         self::assertSame($this->now->addSeconds(300)->getTimestamp(), $returned->pending->expiresAt->getTimestamp());
         self::assertSame($session, $returned->pending->session);
         self::assertSame(SessionStatus::PENDING, $session->getStatus());
@@ -151,7 +160,14 @@ final class PendingTransitionsTest extends TestCase
 
         self::assertInstanceOf(Session::class, $session);
 
-        $returned = $this->transitions('api')->returnToPending($session, new Admitted($identity, $identity, null), null, AuthenticationFlow::REFRESH, $this->now);
+        $returned = $this->transitions('api')->returnToPending(
+            $session,
+            new Admitted($identity, $identity, null),
+            null,
+            self::requirement(),
+            AuthenticationFlow::REFRESH,
+            $this->now,
+        );
 
         self::assertNotNull($returned);
         self::assertNull($returned->pending->tenant);
@@ -180,7 +196,9 @@ final class PendingTransitionsTest extends TestCase
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
-        self::assertNotNull($this->transitions()->returnToPending($session, new Admitted($member, $elsewhere, $other), null, AuthenticationFlow::REFRESH, $this->now));
+        $returned = $this->transitions()->returnToPending($session, new Admitted($member, $elsewhere, $other), null, self::requirement(), AuthenticationFlow::REFRESH, $this->now);
+
+        self::assertNotNull($returned);
 
         $row   = Session::query()->sole();
         $event = $this->recordedEvent(SessionReturnedToPending::class);
@@ -215,7 +233,9 @@ final class PendingTransitionsTest extends TestCase
 
         [, $elsewhere, $other] = $this->seedMember('second@example.test');
 
-        self::assertNotNull($this->transitions()->returnToPending($session, new Admitted($member, $elsewhere, $other), 'v1', AuthenticationFlow::SWITCH, $this->now));
+        $returned = $this->transitions()->returnToPending($session, new Admitted($member, $elsewhere, $other), 'v1', self::requirement(), AuthenticationFlow::SWITCH, $this->now);
+
+        self::assertNotNull($returned);
         self::assertSame('v1', Session::query()->sole()->getTenantPolicyVersion());
 
         $origin = IdentifierCoercion::stringify($tenant->getKey());
@@ -269,7 +289,10 @@ final class PendingTransitionsTest extends TestCase
 
         $this->recordEvents([SessionReturnedToPending::class]);
 
-        self::assertNull($this->transitions()->returnToPending($session, new Admitted($member, $membership, $tenant), 'v3', AuthenticationFlow::REFRESH, $this->now));
+        $admitted = new Admitted($member, $membership, $tenant);
+        $returned = $this->transitions()->returnToPending($session, $admitted, 'v3', self::requirement(), AuthenticationFlow::REFRESH, $this->now);
+
+        self::assertNull($returned);
         self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
         self::assertSame([], $this->recordedClasses());
     }
@@ -315,5 +338,16 @@ final class PendingTransitionsTest extends TestCase
         self::assertInstanceOf(Session::class, $session);
 
         return $session;
+    }
+
+    /**
+     * A requirement of a further factor, as a policy that returns a session to
+     * pending falls short of.
+     *
+     * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+     */
+    private static function requirement(): Requirement
+    {
+        return new Requirement(new RequirementPart);
     }
 }

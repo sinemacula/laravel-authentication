@@ -18,6 +18,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionActivated;
@@ -42,6 +43,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
@@ -180,6 +182,7 @@ final class CookieTransportTest extends TestCase
         $identity = $this->seedIdentity();
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         $pending = $this->sessions(self::BROWSER)->signIn('password', self::credentials());
 
@@ -246,6 +249,7 @@ final class CookieTransportTest extends TestCase
         $choice = $this->sessions(self::MEMBERS)->signIn('password', self::credentials('member@example.test'));
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         $factor = $this->sessions(self::BROWSER)->signIn('password', self::credentials());
 
@@ -293,6 +297,7 @@ final class CookieTransportTest extends TestCase
         self::assertTrue($this->sessions(self::BROWSER)->satisfy($factor->credential->reveal(), $proof)->isSignedIn());
 
         app()->instance(AdditionalFactorPolicy::class, new NeverRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         self::assertTrue($this->sessions(self::MEMBERS)->choose($choice->credential->reveal(), $first)->isSignedIn());
     }
