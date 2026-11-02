@@ -93,7 +93,17 @@ revoked, and when a session that ended is deleted. Starting a session is in
   loaded, the class and key the `TenantUnavailableException` carries, so a deleted or soft-deleted one still ends its
   principals' sessions; a tenant without `CanBeActive` reads as no tenant once it cannot be loaded, so the application
   calls it before deleting one) before anything is written, de-duplicates by recorded type and id, and ends all of them
-  in one transaction on the session connection, with one `SignedOutEverywhere` each.
+  in one transaction on the session connection, with one `SignedOutEverywhere` each. `factorRemoved()` and
+  `factorReset()` are mandatory: no setting turns them off, and the factor package calls them synchronously inside the
+  transaction that makes its change (a savepoint here, reported after the outermost commit), never through a listener;
+  `credentialRemoved()` stays per event, the optional listener's or the application's.
+- `connectionDisabled()`, `connectionDeleted()` and `linkRemoved()` (`Sessions\ConnectionRevocations`, through
+  `Concerns\EndsConnectionSessions`) revoke the live sessions, pending ones included, of every guard that a connection
+  established (a link's: only that identity's), found 500 at a time (a connection's through the provenance connection
+  index, a link's through the identity's own sessions), each chunk locked in key order and revoked in one transaction,
+  one `SessionRevoked` each after the commit. They move no cutoff, since the scope is the provenance rather than the
+  identity, and each can be turned off under `authentication.revocation.*` (`Sessions\RevocationSettings`), which
+  `authentication:check` validates.
 - The optional listeners (`RevokeSessionsOnPasswordReset`, `RevokeSessionsOnPasswordChange`,
   `RevokeSessionsOnDeactivation`) run their revocation through `AfterCommit` on the changed model's connection, so a
   rolled-back change revokes nothing. They act through a jwt guard's session service: the guard bound to the
