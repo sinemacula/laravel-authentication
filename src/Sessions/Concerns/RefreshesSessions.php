@@ -57,7 +57,7 @@ trait RefreshesSessions
      * presented token inside the grace window gets the current credential;
      * after the window it is treated as a replay and revokes the session.
      *
-     * For a body application's token the caller read itself. A cookie
+     * Only for a token a body application's own code read: a cookie
      * application's token is read only from its cookie, whose cross-site checks
      * only `refreshFromRequest()` makes, so on a cookie application this throws
      * a `LogicException`.
