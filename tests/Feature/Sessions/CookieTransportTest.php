@@ -18,7 +18,12 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\SessionActivated;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
+use SineMacula\Laravel\Authentication\Events\SessionPending;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
@@ -210,6 +215,81 @@ final class CookieTransportTest extends TestCase
 
         self::assertNotNull($session);
         self::assertCookiePair(self::MEMBERS, $session->tokens, $session->record);
+    }
+
+    /**
+     * A cookie application whose transport is misconfigured (here, its
+     * `cookie.path` taken away) fails a sign-in, a start and an activation by a
+     * factor or a choice before anything is written or reported: no session is
+     * created, no event is dispatched, and the pending credential is not spent,
+     * so the activation succeeds once the configuration is fixed.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMisconfiguredTransportFailsBeforeAnythingIsWrittenOrReported(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$member, $first] = $this->seedMember();
+
+        $other = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+
+        ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
+
+        $choice = $this->sessions(self::MEMBERS)->signIn('password', self::credentials('member@example.test'));
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $factor = $this->sessions(self::BROWSER)->signIn('password', self::credentials());
+
+        self::assertNotNull($choice->credential);
+        self::assertNotNull($factor->pending);
+        self::assertNotNull($factor->credential);
+
+        $proof = self::adapterProof($identity, self::BROWSER, $factor->pending->id, Purpose::SIGN_IN);
+        $rows  = Session::query()->count();
+
+        config()->set('auth.guards.' . self::BROWSER . '.refresh_token.cookie.path', null);
+        config()->set('auth.guards.' . self::MEMBERS . '.refresh_token.cookie.path', null);
+
+        $this->recordEvents([Attempting::class, SessionCreated::class, SessionPending::class, SessionActivated::class, SignedIn::class, AuthenticationFailed::class]);
+
+        $calls = [
+            self::BROWSER => [
+                fn (): mixed => $this->sessions(self::BROWSER)->signIn('password', self::credentials()),
+                fn (): mixed => $this->sessions(self::BROWSER)->start($identity, null, 'sso'),
+                fn (): mixed => $this->sessions(self::BROWSER)->satisfy($factor->credential->reveal(), $proof),
+            ],
+            self::MEMBERS => [
+                fn (): mixed => $this->sessions(self::MEMBERS)->choose($choice->credential->reveal(), $first),
+            ],
+        ];
+
+        foreach ($calls as $guard => $guardCalls) {
+            foreach ($guardCalls as $call) {
+                try {
+                    $call();
+
+                    self::fail('A sign-in went ahead with a misconfigured transport.');
+                } catch (\InvalidArgumentException $exception) {
+                    self::assertStringStartsWith("Refresh token transport for guard [{$guard}]: `refresh_token.cookie.path`", $exception->getMessage());
+                }
+            }
+        }
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame($rows, Session::query()->count());
+
+        config()->set('auth.guards.' . self::BROWSER . '.refresh_token.cookie.path', '/auth');
+        config()->set('auth.guards.' . self::MEMBERS . '.refresh_token.cookie.path', '/');
+
+        self::assertTrue($this->sessions(self::BROWSER)->satisfy($factor->credential->reveal(), $proof)->isSignedIn());
+
+        app()->instance(AdditionalFactorPolicy::class, new NeverRequireAdditionalFactor);
+
+        self::assertTrue($this->sessions(self::MEMBERS)->choose($choice->credential->reveal(), $first)->isSignedIn());
     }
 
     /**

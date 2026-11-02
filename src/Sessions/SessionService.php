@@ -215,7 +215,8 @@ final readonly class SessionService
      */
     public function signIn(string $method, #[\SensitiveParameter] array $input, ?SignInContext $context = null): SignInResult
     {
-        $driver = $this->container->make(SignInMethodManager::class)->method($method);
+        $transport = $this->transport();
+        $driver    = $this->container->make(SignInMethodManager::class)->method($method);
         $context ??= SignInContext::fromRequest($this->context->request());
         $type       = $driver->identifierType($this->context->name());
         $identifier = $driver->identifier($this->context->name(), $input);
@@ -226,7 +227,7 @@ final readonly class SessionService
         $subject = new AttemptSubject($this->context->name(), AttemptFlow::SIGN_IN, $identifier, $type, $context->client->ip);
         $outcome = $this->signInWith($driver, $method, $input, $context, $subject);
 
-        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, $identifier, $safe) : $outcome;
+        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, $identifier, $safe) : $this->bound($outcome, $transport);
     }
 
     /**
@@ -274,6 +275,7 @@ final readonly class SessionService
     {
         SessionPreconditions::assertSessionMethod($method);
 
+        $transport = $this->transport();
         $context ??= SignInContext::fromRequest($this->context->request());
         $context = $context->withNotAfter($provenance?->sessionNotAfter);
         $pinned  = SessionPreconditions::pinnedPrincipal($principal, $context);
@@ -282,7 +284,7 @@ final readonly class SessionService
 
         $outcome = $this->startFor($identity, $pinned, $method, $context, $proof);
 
-        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $outcome;
+        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $this->bound($outcome, $transport);
     }
 
     /**
@@ -341,7 +343,9 @@ final readonly class SessionService
      */
     public function satisfy(#[\SensitiveParameter] string $credential, ProofResult $proof): SignInResult
     {
-        return $this->acted($this->pendings->satisfy($credential, $proof, CarbonImmutable::now()->startOfSecond()));
+        $transport = $this->transport();
+
+        return $this->acted($this->pendings->satisfy($credential, $proof, CarbonImmutable::now()->startOfSecond()), $transport);
     }
 
     /**
@@ -373,7 +377,9 @@ final readonly class SessionService
      */
     public function choose(#[\SensitiveParameter] string $credential, Principal $principal, ?TenantSelection $tenant = null): SignInResult
     {
-        return $this->acted($this->pendings->choose($credential, $principal, $tenant, CarbonImmutable::now()->startOfSecond()));
+        $transport = $this->transport();
+
+        return $this->acted($this->pendings->choose($credential, $principal, $tenant, CarbonImmutable::now()->startOfSecond()), $transport);
     }
 
     /**
@@ -511,8 +517,6 @@ final readonly class SessionService
             return $outcome;
         }
 
-        $outcome = $this->bound($outcome);
-
         if ($outcome->isSignedIn()) {
             $attempt->release();
         }
@@ -601,9 +605,7 @@ final readonly class SessionService
 
         $selection = $this->admitIdentity($reloaded, null) ?? $this->establishment->select($reloaded, $principal, $context);
 
-        $outcome = $selection instanceof Refused ? $selection : $this->establishment->proceed($reloaded, $selection, $method, null, $context, $proof);
-
-        return $outcome instanceof Refused ? $outcome : $this->bound($outcome);
+        return $selection instanceof Refused ? $selection : $this->establishment->proceed($reloaded, $selection, $method, null, $context, $proof);
     }
 
     /**
@@ -633,12 +635,15 @@ final readonly class SessionService
      * method the session records when the refusal names it.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult  $outcome
+     * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
+     *
+     * @throws \InvalidArgumentException
      */
-    private function acted(Refused|SignInResult $outcome): SignInResult
+    private function acted(Refused|SignInResult $outcome, RefreshTokenTransport $transport): SignInResult
     {
         if ($outcome instanceof SignInResult) {
-            return $this->bound($outcome);
+            return $this->bound($outcome, $transport);
         }
 
         return $this->fail($outcome, $outcome->session?->getSignInMethod(), SignInContext::fromRequest($this->context->request()), null, []);
@@ -650,15 +655,17 @@ final readonly class SessionService
      * `PrincipalAssigned` and `SessionAuthenticated`), and answer the result
      * with the session's pair delivered as the application's transport says (a
      * cookie application's refresh token only in its cookie); a result without
-     * a session binds nothing and is answered as it is.
+     * a session binds nothing and is answered as it is. The transport is built
+     * before the sign-in or the action begins, so one that is misconfigured
+     * fails it before anything is written or reported.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
+     * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private function bound(SignInResult $result): SignInResult
+    private function bound(SignInResult $result, RefreshTokenTransport $transport): SignInResult
     {
         $session = $result->session;
 
@@ -666,7 +673,7 @@ final readonly class SessionService
             return $result;
         }
 
-        $tokens = $this->transport()->deliver($session->tokens, $session->record);
+        $tokens = $transport->deliver($session->tokens, $session->record);
 
         $this->binding->login($session->identity, $session->principal, $session->record);
 
