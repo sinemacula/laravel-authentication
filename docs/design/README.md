@@ -49,9 +49,9 @@ The current note set is:
   its access token, or by its refresh credential once the access token has expired) and sessions are revoked (one,
   every session of an identity or a principal, and on security changes, by method or optional listener), and when ended
   sessions are pruned.
-- `me-route-binding.md`: how a route parameter binds `me` to the caller's own session, identity or principal and holds
-  every other id to the caller, the credential a route declares, and the one-session and one-principal lookups it shares
-  its rules with.
+- `callers.md`: how the package reads who a request is from the credential its route declares, how it judges whether a
+  session, identity or principal is the caller's, and the one-session and one-principal lookups it shares its rules
+  with; route bindings are the application's.
 - `pending-sessions.md`: how a session waits for the further factor or the choice of principal its sign-in still owes,
   the credential that acts on it and the actions it allows, how it activates, and how an active session returns to
   pending.

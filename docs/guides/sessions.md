@@ -1,4 +1,4 @@
-# Sessions: proofs, stepping up, freshness, switching principal, signing out and the `me` binding
+# Sessions: proofs, stepping up, freshness, switching principal, signing out and the caller of a request
 
 ## Proofs and provenance
 
@@ -607,7 +607,7 @@ through one of its connections (single sign-on). The package asks the bound `Con
 default, `RequireNothingOfTenants`, asks nothing; see [Tenant authentication
 policies](extending.md#tenant-authentication-policies)) whenever a session comes to act in a tenant or keeps acting in
 it: at sign-in once a principal is selected, at a choice of principal, when a pending session activates, at every
-refresh, for the destination of a switch, and when the `me` route binding reads a refresh credential, never on a bearer
+refresh, for the destination of a switch, and when `Auth::caller()` reads a refresh credential, never on a bearer
 request. A session that falls short:
 
 | Where                                 | Needs a connection                                                       | Lacks a further factor                                                   |
@@ -618,7 +618,7 @@ request. A session that falls short:
 | Refresh                               | refused as `sso_required`, the session revoked (`tenant_policy_changed`) | returned to pending: the result `isPending()`, with a pending credential |
 | Switch                                | refused as `sso_required`, the session unchanged                         | returned to pending with the destination recorded, as for a refresh      |
 | `attempt()`                           | refused as `sso_required`                                                | refused as `additional_factor_required`                                  |
-| The `me` binding's refresh credential | binds nothing (`sso_required`), nothing written                          | binds nothing (`additional_factor_required`), nothing written            |
+| The caller of a refresh credential    | no caller (`sso_required`), nothing written                              | no caller (`additional_factor_required`), nothing written                |
 
 A further factor is met only as the bound `Contracts\RequirementCheck` judges the session's proofs (the default,
 `MeetNoRequirement`, meets nothing, so a tenant that requires a further factor admits no session until a factor package
@@ -664,7 +664,7 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutFromRequest()`, `signOutWith()`             |
 | `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                           |
 | `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                |
-| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch, a sign-out or the `me` binding's refresh credential             |
+| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch, a sign-out or the caller of a refresh credential                |
 | `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session            |
 | `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeSessionsOnPasswordChange`  |
 | `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`              |
@@ -677,126 +677,76 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 `revokeSession()`, `revokeSessions()` and `revokePrincipalSessions()` take the reason as an argument (`REVOKED` in the
 examples above); the others set their own.
 
-## The `me` route binding
+## The caller of a request
 
-`ResolvesMeRouteBinding` lets a route parameter of a session, identity or principal model be `me`, the caller's own
-instance, and scopes every other value to the caller. It is opt-in: put it on the models your routes bind (the shipped
-session model does not use it, so extend it and point `authentication.session.model` at yours):
+`Auth::caller()` answers who the request being served is, as the credential its route authenticates with proves it: a
+`Callers\Caller` with the `guard`, the `credential` it was read from (`CallerCredential::ACCESS`, `REFRESH` or
+`PENDING`), the `identity`, and the `principal`, `tenant` and `session` that credential holds, with the `pending`
+session a pending credential names; or `null` when the request carries no such credential or it is refused. An
+access-only token or an API key holds no session, and a pending session that waits for the choice acts as no principal
+yet.
 
-```php
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\MorphMany;
-use SineMacula\Laravel\Authentication\Concerns\ResolvesMeRouteBinding;
-use SineMacula\Laravel\Authentication\Models\Session as PackageSession;
+A route authenticates with the access credential of its guard (the one `auth:<guard>` makes the default) unless it
+declares another. `authentication.refresh[:<guard>]` declares the refresh credential: the one the guard's refresh token
+transport reads (see [Refreshing](refreshing.md)), proven and admitted as a refresh would be, without rotating it, and
+judged against the tenant's authentication policy as a refresh judges it, without writing: a session the next refresh
+would revoke has no caller (`sso_required`), nor does one it would return to pending (`additional_factor_required`). A
+replayed refresh token revokes its session as `rotation_reuse`, as a refresh does, so a read route behind
+`authentication.refresh` can revoke one. A cookie application's route lives under its cookie's path, where the browser
+sends the cookie. `authentication.pending:<action>[,<guard>]` declares the pending credential for a pending action by
+its stable name (`mfa.verify`, `choose_principal`, ...), read from the `session.pending_credential_field` body field
+(`pending_credential`; a JSON or form body, never the query string or a header): there is a caller only while it names a
+live pending session of the guard that allows that action now, and the operation the route then takes (`satisfy()`,
+`choose()`, an adapter's action after `pending()`) makes its own checks. An action that is not a pending action is an
+`InvalidArgumentException`. Each makes a guard it names the default for the request, as `auth:<guard>` does, and records
+the declaration, nothing else: the credential is never inferred from what a request carries, so a refresh cookie that
+rides on every request does not turn a read route into one a refresh token authenticates. The package orders both before
+`SubstituteBindings` in the HTTP kernel's middleware priority once the kernel is resolved, so the declaration is in
+place before any route parameter is bound however a route lists them, also when the application sets the whole list with
+`withMiddleware()`'s `priority()`, as long as that list holds `SubstituteBindings`; one that replaces the list later
+must put `SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential` and `UsePendingCredential` before
+`SubstituteBindings` itself.
 
-class Session extends PackageSession
-{
-    use ResolvesMeRouteBinding;
-}
+The caller is read only when it is asked for, and once per request for a guard and a credential, so asking twice proves
+a refresh credential once. A refresh or pending credential the request carries and that is refused is reported once with
+`AuthenticationFailed`: flow `refresh` with the reason the refresh would give (`additional_factor_required` where the
+refresh would return the session to pending), or flow `sign_in` with `pending_invalid` or `pending_action_not_allowed`,
+never the credential; a request that carries none is not reported. A guard that is not one of the package's is a
+`LogicException`.
 
-class Member extends Model implements HasPrincipals, HasSessions, Identity
-{
-    use Authenticatable, ResolvesMeRouteBinding;
+`$caller->owns($model)` says whether a session, identity or principal model is the caller's: a session of the caller's
+guard that its identity owns and, for a refresh or a pending credential, the very session the credential proves (with
+the access credential any session of the identity on that guard, so a screen can revoke another one); the caller's
+identity; or the principal it acts as, one its pending session offers for the choice, or, for a guard that keeps
+sessions, one its identity may use the application as (`Auth::sessions()->principal()`, with the type of identifier its
+session's sign-in used, read on the write connection). Each is judged by its class and key, and any other model is not
+the caller's. It judges the model as it is given, so look the model up on the write connection
+(`Database\WriteConnection`), where a revocation or a deletion the replica has not seen yet is already visible.
 
-    public function principals(): HasMany
-    {
-        return $this->hasMany(Membership::class);
-    }
-
-    public function sessions(): MorphMany
-    {
-        return $this->morphMany(Session::class, 'authenticatable');
-    }
-
-    // ...
-}
-
-class Membership extends Model implements Principal
-{
-    use ActsAsPrincipal, ResolvesMeRouteBinding;
-}
-```
-
-Register `me` as a value of each parameter, once, beside the pattern of its ids (a UUID for the shipped session model):
-
-```php
-Route::pattern('session', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|me');
-Route::pattern('member', '[0-9]+|me');
-Route::pattern('membership', '[0-9]+|me');
-```
-
-`me` binds the caller's own instance from the credential the route reads: its identity for an identity model (one that
-is its own principal included), the principal it acts as for a principal model, and its session for a session model. A
-request with no such credential, or whose credential holds no instance of that kind (an access-only token has no
-session; a pending session waiting for the choice has no principal), is refused with an `AuthenticationException`, which
-the package's guards answer `401` as JSON. Any other value goes to Eloquent's own lookup
-(`parent::resolveRouteBinding()` and its soft-deletable and child forms), so custom keys (`{member:email}`),
-`withTrashed()` and scoped bindings keep working; the lookup, and every relation it eager-loads, reads the write
-connection. What it finds must then agree with the credential, or the binding misses, which Laravel answers `404`: an
-identity must be the caller's; a session must be one of the caller's identity's sessions, and, when the route reads a
-refresh or a pending credential, the very session that credential proves; a principal must be the one the caller acts
-as, one its identity may use the application as (`Auth::sessions()->principal()`, with the type of identifier its
-session's sign-in used), or, with a pending credential, the one the pending session records or one it offers for the
-choice. A request without a caller finds nothing.
-
-A route reads the access credential of its guard (the one `auth:<guard>` makes the default) unless it declares another:
+The package binds no route parameter and reserves no keyword: the word that means the caller's own (`me`, `self`,
+`current`), and how a model binds, are the application's. An application that wants `current` for the caller's own
+session, and every other id scoped to the caller, might bind its own:
 
 ```php
+use Illuminate\Auth\AuthenticationException;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
+use SineMacula\Laravel\Authentication\Models\Session;
 
-Route::middleware('auth:api')->group(function (): void {
-    Route::get('/members/{member}', fn (Member $member) => $member);
-    Route::get('/sessions/{session}', fn (Session $session) => Auth::sessions('api')->session(Auth::identity(), $session->getKey()) ?? abort(404));
-    Route::get('/members/{member}/sessions/{session}', fn (Member $member, Session $session) => $session)->scopeBindings();
+Route::bind('session', function (string $value): Session {
+    $caller = Auth::caller() ?? throw new AuthenticationException;
+
+    if ($value === 'current') {
+        return $caller->session instanceof Session ? $caller->session : abort(404);
+    }
+
+    $session = WriteConnection::query(Session::query())->find($value);
+
+    return $session instanceof Session && $caller->owns($session) ? $session : abort(404);
 });
 
-// The session the refresh credential proves, read by cookie or by body as the guard's transport reads it; a cookie
-// application's route lives under its cookie's path, where the browser sends the cookie.
-Route::middleware('authentication.refresh:api')->post('/refresh/sessions/{session}', fn (Session $session) => $session);
-
-// Only while the pending session allows choosing; the credential is read from the `pending_credential` body field.
-Route::middleware('authentication.pending:choose_principal,api')->post('/sign-in/principals/{membership}', function (Membership $membership) {
-    // From the body, as the binding read it: never the query string.
-    $result = Auth::sessions('api')->choose(request()->post('pending_credential'), $membership);
-
-    abort_if($result->isFailed(), 401);
-
-    // Answered as a sign-in is (see Signing in): its tokens and credential are secrets, sent with SecretResponse.
-    return $result->isPending()
-        ? SecretResponse::json(['pending_credential' => $result->credential, 'actions' => $result->pending->actions()])
-        : SecretResponse::json(['access_token' => $result->session->tokens->accessToken, 'refresh_token' => $result->session->tokens->refreshToken]);
-});
+Route::middleware('auth:api')->get('/sessions/{session}', fn (Session $session) => $session);
+Route::middleware('authentication.refresh:api')->post('/auth/sessions/{session}', fn (Session $session) => $session);
 ```
 
-`authentication.refresh[:<guard>]` declares the refresh credential: the one the guard's refresh token transport reads
-(see [Refreshing](refreshing.md)), proven and admitted as a refresh would be, without rotating it, and judged against
-the tenant's authentication policy as a refresh judges it, without writing: a session the next refresh would revoke
-binds nothing (`sso_required`), nor does one it would return to pending (`additional_factor_required`). A replayed
-refresh token revokes its session as `rotation_reuse`, as a refresh does, so a read route behind
-`authentication.refresh` can revoke one. `authentication.pending:<action>[,<guard>]` declares the pending credential for
-a pending action by its stable name (`mfa.verify`, `choose_principal`, ...): it binds only for a live pending session of
-the guard that allows that action now, so nothing is bound because of a route's purpose, and the operation the route
-then takes (`satisfy()`, `choose()`, an adapter's action after `pending()`) makes its own checks. An action that is not
-a pending action is an `InvalidArgumentException`. Each makes a guard it names the default for the request, as
-`auth:<guard>` does, and records the declaration, nothing else: the credential is never inferred from what a request
-carries, so a refresh cookie that rides on every request does not turn a read route into one a refresh token
-authenticates. The package orders both before `SubstituteBindings` in the HTTP kernel's middleware priority once the
-kernel is resolved, so they run before the bindings however a route lists them, also when the application sets the whole
-list with `withMiddleware()`'s `priority()`, as long as that list holds `SubstituteBindings`; one that replaces the list
-later must put `SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential` and `UsePendingCredential`
-before `SubstituteBindings` itself.
-
-The caller is read only when a parameter asks for it, and once per request for a guard and a credential, so two bound
-parameters prove a refresh credential once. A refresh or pending credential the request carries and that is refused is
-reported once with `AuthenticationFailed`: flow `refresh` with the reason the refresh would give
-(`additional_factor_required` where the refresh would return the session to pending), or flow `sign_in` with
-`pending_invalid` or `pending_action_not_allowed`, never the credential; a request that carries none is not reported.
-
-The trait reserves `me` as a value of every parameter its model binds, and binds only the caller's own instances: a
-route that must bind another identity's (an administrator's screen) binds through `Route::bind()` or a model without the
-trait. A scoped child binding reaches the trait only through its parent (Laravel asks the parent's
-`resolveChildRouteBinding()`), so use it on both models, through an Eloquent relation (`morphMany()`, `hasMany()`): a
-child of a parent with the trait resolves as a top-level binding, through the parent's relation, and a `me` child must
-also be within it. A model that is not a session, an identity or a principal is a `LogicException`, as is a route on a
-guard that is not one of the package's.
+A request without a caller is an `AuthenticationException`, which the package's guards answer `401` as JSON.

@@ -352,7 +352,7 @@ seam has a default that works alone.
 
 - Bind `Contracts\RequirementCheck` (the default, `MeetNoRequirement`, meets nothing). It judges whether a session's
   proofs meet the further factor a tenant's authentication policy requires, at sign-in, at the choice, on refresh, on a
-  switch, when a pending session is acted on and when the `me` route binding reads a refresh credential; without it, a
+  switch, when a pending session is acted on and when `Auth::caller()` reads a refresh credential; without it, a
   tenant that requires a further factor never activates a session (see [Tenant authentication
   policies](#tenant-authentication-policies)).
 - Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, never asks). It is asked about

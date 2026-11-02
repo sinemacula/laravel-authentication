@@ -55,7 +55,7 @@ a cookie application's results hand back the cookie instead of the token.
 - A cookie application's token is read only from its cookie, through the transport: `refresh(string)`,
   `switchTo(string, SwitchTarget)` and `signOutWith(string)` throw a `LogicException` on a cookie application
   (`SessionRefresh::refuseHandedIn()`, the one place it is thrown); `refreshFromRequest()`, `switchFromRequest()`,
-  `signOutFromRequest()` and `refreshCredentialFromRequest()` (the `me` route binding's read) take a private path. A
+  `signOutFromRequest()` and `refreshCredentialFromRequest()` (the read behind `Auth::caller()`) take a private path. A
   body application's `refresh(string)` is for a token the caller reads itself.
 - The cookie, the application and the session agree on every refresh and switch: the cookie read is the application's
   own and unique; the carrier is its transport; the token's `client_id` is the application (`token_invalid`); the

@@ -76,8 +76,8 @@ when a sign-in, refresh or switch reads the transport, and `authentication:check
 `Auth::sessions('api')->refresh($refreshToken)` refreshes a body application with a token your code reads itself and
 answers the same `RefreshResult`, without a `source`. A cookie application's token is read only from its cookie, with
 the cookie's cross-site checks, so on a cookie application `refresh($refreshToken)` (and `switchTo()` and
-`signOutWith()`) throws a `LogicException`: use `refreshFromRequest()`. The `me` route binding reads a route's refresh
-credential through the same transport (see [The `me` route binding](sessions.md#the-me-route-binding)).
+`signOutWith()`) throws a `LogicException`: use `refreshFromRequest()`. `Auth::caller()` reads a route's refresh
+credential through the same transport (see [The caller of a request](sessions.md#the-caller-of-a-request)).
 
 A refresh is held to the guard as well as the token. A session the row records for another guard (or for none) fails
 with `session_guard_mismatch` and is left alone, even for a token that would be a replay, and a bearer token naming it
@@ -163,12 +163,12 @@ response with `attachTo()`, which also marks the response `Cache-Control: no-sto
 carries the token and no cookie. The pending credential of a pending sign-in is never a cookie: it travels in the body
 for every application.
 
-Put every route that reads the cookie under that path, since a browser sends the cookie nowhere else: refresh, a
-switch (see [Switching principal or tenant](sessions.md#switching-principal-or-tenant)), sign-in for a browser that
-proves its session, the logout route that signs out by the cookie (`signOutFromRequest()`, see [Signing out and
-revoking sessions](sessions.md#signing-out-and-revoking-sessions)), and every route that declares the refresh
-credential for the `me` binding (`authentication.refresh`, see [The me route binding](sessions.md#the-me-route-binding)).
-Attach the cookie whenever the API hands out a pair:
+Put every route that reads the cookie under that path, since a browser sends the cookie nowhere else: refresh, a switch
+(see [Switching principal or tenant](sessions.md#switching-principal-or-tenant)), sign-in for a browser that proves its
+session, the logout route that signs out by the cookie (`signOutFromRequest()`, see
+[Signing out and revoking sessions](sessions.md#signing-out-and-revoking-sessions)), and every route that authenticates
+with the refresh credential (`authentication.refresh`, see
+[The caller of a request](sessions.md#the-caller-of-a-request)). Attach the cookie whenever the API hands out a pair:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;

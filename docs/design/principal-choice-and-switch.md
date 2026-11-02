@@ -28,7 +28,7 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 - `SessionService::principal($identity, $id, $identifierType)` (`PendingEvaluation::principal()`) gets one of them by
   its principal identifier for a switch screen or a destination: the same candidates and the same admission, the one
   whose identifier matches (two matches are `null`), never the resolver's hinted lookup, so it is found exactly when
-  `principals()` holds it (`me-route-binding.md`).
+  `principals()` holds it (`callers.md`).
 - Each principal read with the others is checked on a stored copy (`WriteConnection::stored()`): Eloquent strict mode
   prevents lazy loading on models read together, and the activity check (and any application policy that reads it) reads
   its tenant. The list holds the principals as read.

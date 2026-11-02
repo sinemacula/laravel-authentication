@@ -24,7 +24,7 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - A `SessionSummary` never holds a digest, the rotation time, a revocation column, the owner or the principal; `current`
   compares the listed session with the guard's bound session by class and identifier.
 - `session($identity, $id)` (`LooksUpSessions`, `ActiveSessions::find()`) gets one session as the list shows it, or
-  `null`: one query under the list's rule on the writer, none for an id that cannot be a key (`me-route-binding.md`).
+  `null`: one query under the list's rule on the writer, none for an id that cannot be a key (`callers.md`).
 - Revoking marks the session (`revoked_at`, `revoked_reason`, both digests cleared) with one conditional `UPDATE ...
   WHERE pk AND revoked_at IS NULL` on the session's own connection (`RefreshRotationStore::revoke()`), mirrored in
   memory only when it changed the row. It is idempotent, the first revocation's time and reason are kept, and only the
@@ -46,7 +46,7 @@ revoked, and when a session that ended is deleted. Starting a session is in
   The token names its principal by identifier alone, and only the owner's admission resolves its type, so the proof
   compares the identifier with the recorded one: a token from before a switch to a principal of another class with the
   same identifier still signs its session out inside the grace window (the same token revokes it as a replay once the
-  window closes), while a refresh, a switch and the `me` binding's refresh credential refuse it, since they admit the
+  window closes), while a refresh, a switch and the caller of a refresh credential refuse it, since they admit the
   owner and compare the type too. A replay revokes its session as `rotation_reuse`, as the exchange does, so reuse
   detection covers every path that accepts a refresh token. The proven session is revoked as `signed_out`
   (`SessionRevoked` once committed), `Logout` fires for its owner when the guard's provider still returns it and none
