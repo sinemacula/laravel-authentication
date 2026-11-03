@@ -60,13 +60,14 @@ permission: a policy that reads the context is the application's.
   accepted evaluation that reported multifactor authentication, exactly when `amr` carries `mfa`.
   `seconds_since_step_up` runs from the newest proof that set `mfa` or `recovery_code`, at sign-in or later, to the
   build, never negative.
-- The additional verification is recorded on the proof, not inferred: `Proofs\Evaluation::$additionalVerification`
-  (default `true`, so a further-factor adapter need not set it) is written to the proofs table's
-  `additional_verification` column, which `SessionProofs::history()` groups by. `External\EvidenceAcceptance` sets it
-  for each answer of the evidence contract: multifactor `(true, true, true)`, an additional verification
-  `(true, false, true)`, phishing resistance or the lowest level only `(true, false, false)`, so evidence accepted only
-  for a level never sets `mfa` or the step-up time. Nothing else reads the column: requirement judging, freshness and
-  the token claims are unchanged.
+- The additional verification is recorded on the proof, not inferred: `ProofWriter` writes the proofs table's
+  `additional_verification` column, which `SessionProofs::history()` groups by, as `true` for an accepted further
+  factor and `false` for a recovery code whatever the adapter reported, and as
+  `Proofs\Evaluation::$additionalVerification` for an external proof, so a proof read back says what the context
+  reads. `External\EvidenceAcceptance` sets it for each answer of the evidence contract: multifactor
+  `(true, true, true)`, an additional verification `(true, false, true)`, phishing resistance or the lowest level only
+  `(true, false, false)`, so evidence accepted only for a level never sets `mfa` or the step-up time. Nothing else
+  reads the column: requirement judging, freshness and the token claims are unchanged.
 - A contributor adds keys under a namespace of its own. It is registered in code, in a service provider's `boot()`
   (`Context\ContextContributors::register($namespace, $abstract)`), never in configuration, where a later merge could
   overwrite a namespace silently. A namespace is a lower-case letter and then up to 31 lower-case letters, digits or
@@ -151,7 +152,8 @@ permission: a policy that reads the context is the application's.
   `testAVoidedProofIsForgottenFromTheContextAtOnce`
 - `tests/Feature/Context/ContributionSubjectTest.php`: the provenance read once
 - `tests/Unit/Proofs/ProofHistoryTest.php`, `tests/Feature/Proofs/SessionProofsTest.php`
-  `testTheHistoryReadsWhetherAProofIsAnAdditionalVerification`, `tests/Feature/External/EvidenceAcceptanceTest.php`,
+  `testTheHistoryReadsWhetherAProofIsAnAdditionalVerification`, `tests/Feature/Proofs/ProofWriterTest.php`
+  `testAProofIsRecordedAsAnAdditionalVerificationByItsKind`, `tests/Feature/External/EvidenceAcceptanceTest.php`,
   `tests/Integration/Migration/ProofTablesSchemaTest.php`
 - `tests/Feature/AuthManagerTest.php` `testContextAnswersWhatTheBoundAuthenticationContextsAnswer`,
   `testResolvedGuardAnswersOnlyAPackageGuardAlreadyResolved`

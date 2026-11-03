@@ -13,8 +13,9 @@ session holds; the token's claims and every freshness answer are worked out from
 - A proof is a row in `proofs.table`, on the storage connection, belonging to a session's key: its kind
   (`first_factor`, `first_factor_reauthentication`, `external_reauthentication`, `additional_factor`,
   `recovery_code`), method, channel, factor reference, observed properties (each `null` when not observed, which never
-  counts as true), evaluation (accepted, multifactor, and whether it is an additional verification:
-  `Evaluation::$additionalVerification`, `true` unless set, in the `additional_verification` column), `amr` values,
+  counts as true), evaluation (accepted, multifactor, and whether it is an additional verification, in the
+  `additional_verification` column: always for a further factor, never for a recovery code, and
+  `Evaluation::$additionalVerification` for an external proof), `amr` values,
   time, binding (identity, application, session, purpose) and, for an external provider's proof, the evidence the
   provider asserted once it was accepted. A proof is never changed once recorded; a voided one never counts, and a
   further factor or recovery code counts only when its adapter accepted it.

@@ -631,7 +631,8 @@ The package's own keys are under the reserved `authentication` namespace, read w
 `mfa` and `multifactor` answer different questions: `mfa` is "MFA present" (an additional verification was accepted),
 `multifactor` is whether multifactor authentication was reported. Evidence the evidence contract accepted only for
 phishing resistance or a minimum level is neither, and is recorded on its proof as such
-(`Proofs\Evaluation::$additionalVerification`); an adapter's further factor is always an additional verification.
+(`Proofs\Evaluation::$additionalVerification`); an adapter's further factor is always an additional verification and
+its recovery code never is, whatever its evaluation says, and each is recorded on its proof so.
 
 A sibling package or the application adds keys under a namespace of its own: implement
 `Contracts\AuthenticationContextContributor` and register it in a service provider's `boot()`:

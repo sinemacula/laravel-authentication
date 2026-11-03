@@ -16,10 +16,11 @@ namespace SineMacula\Laravel\Authentication\Proofs;
  *
  * Only an accepted evaluation is stored, and multifactor authentication is
  * taken from here, never worked out from the authentication methods: `amr`
- * carries `mfa` only when an accepted evaluation reports it. An accepted
- * further factor or recovery code is an additional verification by definition,
- * so an adapter need not say so; the authentication context's `mfa` reads it
- * (see `Context\AuthenticationContext`).
+ * carries `mfa` only when an accepted evaluation reports it. Whether the proof
+ * is an additional verification, which the authentication context's `mfa` reads
+ * (see `Context\AuthenticationContext`), is the flag's to say only for an
+ * external proof: an accepted further factor always is one and a recovery code
+ * never is, whatever an adapter reports, and its proof is recorded so.
  *
  * @api
  *
@@ -43,7 +44,7 @@ final readonly class Evaluation
         /** Whether the adapter reported multifactor authentication. */
         public bool $multifactor,
 
-        /** Whether the proof is an additional verification, as an accepted further factor or recovery code always is. */
+        /** Whether an external proof is an additional verification; a further factor always is one and a recovery code never is, whatever this says. */
         public bool $additionalVerification = true,
     ) {}
 }

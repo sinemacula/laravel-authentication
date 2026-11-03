@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
@@ -73,7 +74,7 @@ final class ProofWriter
             'key_protection'          => $observed->keyProtection?->value,
             'accepted'                => $proof->evaluation?->accepted,
             'multifactor'             => $proof->evaluation?->multifactor,
-            'additional_verification' => $proof->evaluation?->additionalVerification,
+            'additional_verification' => self::isAdditionalVerification($proof),
             'evidence'                => $proof->evidence?->toArray(),
             'methods'                 => $proof->methods,
             'authenticatable_type'    => $session->getAttribute($owner->getMorphType()),
@@ -186,6 +187,31 @@ final class ProofWriter
         }
 
         (new SessionProvenance)->newQuery()->whereKey($sessionId)->delete();
+    }
+
+    /**
+     * Whether the proof is recorded as an additional verification: an accepted
+     * further factor always is and a recovery code never is, whatever the
+     * adapter reported, so a proof read back says what the authentication
+     * context reads; any other evaluation (an external proof's) decides for
+     * itself, and a proof without one records `null`.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Proofs\NewProof  $proof
+     * @return ?bool
+     */
+    private static function isAdditionalVerification(NewProof $proof): ?bool
+    {
+        $evaluation = $proof->evaluation;
+
+        if ($evaluation === null) {
+            return null;
+        }
+
+        return match ($proof->kind) {
+            ProofKind::ADDITIONAL_FACTOR => true,
+            ProofKind::RECOVERY_CODE     => false,
+            default                      => $evaluation->additionalVerification,
+        };
     }
 
     /**

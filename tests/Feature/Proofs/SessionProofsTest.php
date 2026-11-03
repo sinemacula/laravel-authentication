@@ -702,7 +702,8 @@ final class SessionProofsTest extends TestCase
      * The history tells an external proof whose evidence was accepted for an
      * additional verification from one accepted only for a level, from the
      * stored flag, while both add their values, and reads each further factor
-     * as one; a proof read back carries the flag on its evaluation.
+     * as one; a proof read back carries the flag on its evaluation, which a
+     * further factor always sets and a recovery code never does.
      *
      * @return void
      *
@@ -737,10 +738,13 @@ final class SessionProofsTest extends TestCase
         self::assertSame($this->now->addMinutes(5)->getTimestamp(), $recovered->steppedUpAt()?->getTimestamp());
 
         self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->subMinute(), ['otp'], new Evaluation(true, false, false));
+        self::recordProof($record, ProofKind::RECOVERY_CODE, $this->now->subMinute(), ['kba'], new Evaluation(true, false));
 
-        $proof = SessionProofs::newestMeeting($record, new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR]), $this->now);
+        $factor   = SessionProofs::newestMeeting($record, new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR]), $this->now);
+        $recovery = SessionProofs::newestMeeting($record, new FreshnessRequirement(900, [ProofKind::RECOVERY_CODE]), $this->now);
 
-        self::assertEquals(new Evaluation(true, false, false), $proof?->evaluation);
+        self::assertEquals(new Evaluation(true, false, true), $factor?->evaluation);
+        self::assertEquals(new Evaluation(true, false, false), $recovery?->evaluation);
     }
 
     /**
