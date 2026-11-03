@@ -16,7 +16,9 @@ use SineMacula\Laravel\Authentication\Database\AfterCommit;
  * session's connection, so the rest of the request builds it from the proofs as
  * they now are. A rolled-back change forgets it too: a context built inside the
  * transaction, after the change, read proofs that never committed, and must not
- * outlive them. No guard is created and no request resolved: only the guards
+ * outlive them. A change that takes proofs away is forgotten at once as well,
+ * so nothing later in its transaction is answered with proofs that no longer
+ * count there. No guard is created and no request resolved: only the guards
  * resolved under the configured names are asked.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -32,6 +34,17 @@ final class ContextForgetting
     private function __construct() {}
 
     /**
+     * Forget every resolved guard's context of the session now.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @return void
+     */
+    public static function now(EloquentSession&Model $session): void
+    {
+        self::forgetter($session)();
+    }
+
+    /**
      * Forget every resolved guard's context of the session once the writes on
      * its connection commit, or once they roll back.
      *
@@ -41,7 +54,22 @@ final class ContextForgetting
      */
     public static function onSettle(AfterCommit $afterCommit, EloquentSession&Model $session): void
     {
-        $forget = static function () use ($session): void {
+        $forget = self::forgetter($session);
+
+        $afterCommit->run($session, $forget);
+        $afterCommit->runIfRolledBack($session, $forget);
+    }
+
+    /**
+     * The callback that has every resolved guard forget its context of the
+     * session.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @return \Closure(): void
+     */
+    private static function forgetter(EloquentSession&Model $session): \Closure
+    {
+        return static function () use ($session): void {
 
             /** @var \SineMacula\Laravel\Authentication\AuthManager $auth */
             $auth = Container::getInstance()->make('auth');
@@ -50,8 +78,5 @@ final class ContextForgetting
                 $auth->resolvedGuard((string) $name)?->forgetAuthenticationContext($session);
             }
         };
-
-        $afterCommit->run($session, $forget);
-        $afterCommit->runIfRolledBack($session, $forget);
     }
 }

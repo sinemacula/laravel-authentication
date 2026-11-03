@@ -26,9 +26,11 @@ permission: a policy that reads the context is the application's.
   change commits on the session's connection, and also once it rolls back (`Context\ContextForgetting::onSettle()`),
   since a context built inside the transaction after the change read proofs that never committed: a step-up, a password
   or external reauthentication (`ProofIssuance::issue()`), a satisfied further factor (`PendingSessions::satisfy()`) and
-  a voided proof (`FactorRevocations`, also when the session stays active). It asks only the package guards already
-  resolved under the names in `auth.guards` (`AuthManager::resolvedGuard()`, which creates no guard and resolves no
-  request), and each forgets its context only when its bound session is that session
+  a voided proof (`FactorRevocations`, also when the session stays active). A voided proof is forgotten at once as well
+  (`ContextForgetting::now()`), since a held context would otherwise keep reporting `mfa` and the step-up time of a
+  factor whose proofs no longer count in the rest of the factor package's transaction. It asks only the package guards
+  already resolved under the names in `auth.guards` (`AuthManager::resolvedGuard()`, which creates no guard and resolves
+  no request), and each forgets its context only when its bound session is that session
   (`GuardBinding::forgetAuthenticationContext()`).
 - It is built from what the guard validated, never from input and never from a token's claims
   (`Context\ContextBuilder`): the bound identity, principal, active tenant (`tenant()`, so a tenant a trusted bind
@@ -146,7 +148,7 @@ permission: a policy that reads the context is the application's.
   by the rest of the request, only once committed, and a context built inside a transaction that made one forgotten
   when it rolls back; `tests/Feature/Sessions/PendingSessionsTest.php`
   `testASatisfiedFactorIsSeenByTheContextOfAGuardBoundToTheSession`; `tests/Feature/Sessions/FactorRevocationsTest.php`
-  `testAVoidedProofIsForgottenFromTheContextOnceTheRemovalCommits`
+  `testAVoidedProofIsForgottenFromTheContextAtOnce`
 - `tests/Feature/Context/ContributionSubjectTest.php`: the provenance read once
 - `tests/Unit/Proofs/ProofHistoryTest.php`, `tests/Feature/Proofs/SessionProofsTest.php`
   `testTheHistoryReadsWhetherAProofIsAnAdditionalVerification`, `tests/Feature/External/EvidenceAcceptanceTest.php`,

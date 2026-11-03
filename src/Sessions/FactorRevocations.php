@@ -55,8 +55,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * rest of the request is not authenticated as a session it ended even when a
  * listener throws, and then its events are reported. A current session whose
  * proofs were voided has the authentication context of every resolved guard
- * bound to it forgotten once the removal commits, whether it stays active or
- * not.
+ * bound to it forgotten at once, and again once the removal commits or rolls
+ * back, whether it stays active or not.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -279,6 +279,7 @@ final readonly class FactorRevocations
         }
 
         ProofWriter::void($locked, $guard, $factor, $now);
+        ContextForgetting::now($locked);
 
         $container = $this->container;
 

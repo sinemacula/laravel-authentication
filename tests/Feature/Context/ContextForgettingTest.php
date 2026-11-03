@@ -271,6 +271,32 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
+     * Forgetting now drops the held context at once, inside a transaction that
+     * has not settled, so the next ask builds it again.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testForgettingNowDropsTheHeldContextAtOnce(): void
+    {
+        $signedIn = $this->signedIn();
+        $guard    = $this->bearerGuard($signedIn);
+        $held     = $guard->authenticationContext();
+
+        DB::beginTransaction();
+
+        ContextForgetting::now($signedIn->record);
+
+        $rebuilt = $guard->authenticationContext();
+
+        DB::rollBack();
+
+        self::assertNotSame($held, $rebuilt);
+        self::assertEquals($held, $rebuilt);
+    }
+
+    /**
      * A reauthentication with the first factor moves the context's
      * authentication time for the rest of the request.
      *
