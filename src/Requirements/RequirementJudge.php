@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
+use SineMacula\Laravel\Authentication\Tenancy\TenantFactor;
 
 /**
  * Judges whether a session, or a sign-in about to write one, meets a
@@ -30,13 +31,15 @@ use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
  * `ExternalEvidencePolicy` says its newest accepted evidence meets the whole of
  * it: the sign-in's own, in memory, or, only when the first factor's channel is
  * the external provider, the newest its proofs record, one bounded read on the
- * write connection. Otherwise, or when the evidence falls short, the bound
- * `RequirementCheck` judges it, as the factor package sees it: evidence never
- * meets part of a requirement and leaves the rest to the factor package's
- * proofs. Either is asked inside `WriteConnection::during()` for the identity;
- * the check with a subject whose proofs are the sign-in's own, in memory, or
- * the session's, each read a bounded query on the write connection; with
- * neither evidence nor a session there are none.
+ * write connection, the policy told the connection and the tenant whose
+ * requirement it is (none for the identity level's), so one tenant's trust in a
+ * connection never meets another's. Otherwise, or when the evidence falls
+ * short, the bound `RequirementCheck` judges it, as the factor package sees it:
+ * evidence never meets part of a requirement and leaves the rest to the factor
+ * package's proofs. Either is asked inside `WriteConnection::during()` for the
+ * identity; the check with a subject whose proofs are the sign-in's own, in
+ * memory, or the session's, each read a bounded query on the write connection;
+ * with neither evidence nor a session there are none.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -51,9 +54,10 @@ final class RequirementJudge
     private function __construct() {}
 
     /**
-     * Whether the session, or the sign-in's evidence, meets the requirement.
-     * The first factor is the one given, else the evidence's, else the one the
-     * session records.
+     * Whether the session, or the sign-in's evidence, meets the requirement: a
+     * tenant's, given with the tenant, or the identity-level one. The first
+     * factor is the one given, else the evidence's, else the one the session
+     * records.
      *
      * @param  string  $application
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -61,7 +65,7 @@ final class RequirementJudge
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
-     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement|\SineMacula\Laravel\Authentication\Tenancy\TenantFactor  $requirement
      * @return bool
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -74,8 +78,10 @@ final class RequirementJudge
         ?RecordedProof $firstFactor,
         CarbonImmutable $now,
         ?SessionEvidence $evidence,
-        Requirement $requirement,
+        Requirement|TenantFactor $requirement,
     ): bool {
+        [$requirement, $tenant] = $requirement instanceof TenantFactor ? [$requirement->requirement, $requirement->tenant] : [$requirement, null];
+
         if ($requirement->isEmpty()) {
             return true;
         }
@@ -86,7 +92,9 @@ final class RequirementJudge
             return false;
         }
 
-        return self::meetsByEvidence($application, $identity, $session, $firstFactor, $now, $evidence, $requirement)
+        $connectionId = $firstFactor->channel->kind === ChannelKind::EXTERNAL_PROVIDER ? $firstFactor->channel->reference : null;
+
+        return ($connectionId !== null && self::meetsByEvidence(new EvidenceSubject($identity, $application, $connectionId, $now, $tenant), $session, $evidence, $requirement))
             || self::meetsByCheck($application, $identity, $session, $firstFactor, $now, $evidence, $requirement);
     }
 
@@ -143,14 +151,12 @@ final class RequirementJudge
 
     /**
      * Whether the newest external evidence the session, or the sign-in, holds
-     * accepted meets the whole requirement, as the bound
-     * `ExternalEvidencePolicy` says; `false` when it holds none.
+     * accepted meets the whole requirement for the subject (the connection the
+     * session was established through, and the tenant whose requirement it is),
+     * as the bound `ExternalEvidencePolicy` says; `false` when it holds none.
      *
-     * @param  string  $application
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
-     * @param  \Carbon\CarbonImmutable  $now
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @return bool
@@ -158,32 +164,18 @@ final class RequirementJudge
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private static function meetsByEvidence(
-        string $application,
-        Identity $identity,
-        ?Session $session,
-        RecordedProof $firstFactor,
-        CarbonImmutable $now,
-        ?SessionEvidence $evidence,
-        Requirement $requirement,
-    ): bool {
-        $connectionId = $firstFactor->channel->kind === ChannelKind::EXTERNAL_PROVIDER ? $firstFactor->channel->reference : null;
-
-        if ($connectionId === null) {
-            return false;
-        }
-
+    private static function meetsByEvidence(EvidenceSubject $subject, ?Session $session, ?SessionEvidence $evidence, Requirement $requirement): bool
+    {
         $external = $evidence !== null || $session === null ? $evidence?->externalEvidence : SessionProofs::acceptedEvidence($session);
 
         if ($external === null) {
             return false;
         }
 
-        $subject = new EvidenceSubject($identity, $application, $connectionId, $now);
-        $policy  = Container::getInstance()->make(ExternalEvidencePolicy::class);
-        $judged  = EvidenceAcceptance::asOf($external, $subject);
+        $policy = Container::getInstance()->make(ExternalEvidencePolicy::class);
+        $judged = EvidenceAcceptance::asOf($external, $subject);
 
-        return WriteConnection::during($identity, static fn (): bool => $policy->meets($judged, $requirement, $subject));
+        return WriteConnection::during($subject->identity, static fn (): bool => $policy->meets($judged, $requirement, $subject));
     }
 
     /**

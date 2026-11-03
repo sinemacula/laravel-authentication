@@ -189,25 +189,42 @@ external provider's accepted evidence already meets the whole requirement (see b
 Whether an external identity provider's evidence counts is `Contracts\ExternalEvidencePolicy`'s to say: `meets()` takes
 an `External\ExternalEvidence` (the provider's `amr` values, its `acr` value or SAML authentication context class
 reference, and the time it is for), a `Requirement` and an `External\EvidenceSubject` (the identity, the application,
-the connection that asserted it and the time it is judged at), and answers whether the evidence meets the whole
-requirement. The default, `External\InsufficientEvidence`, meets nothing, so a provider's evidence counts for nothing
-until you bind a policy that trusts it:
+the connection that asserted it, the time it is judged at, and the tenant whose requirement it is judged against:
+`null` for the identity-level requirement and for the evidence's acceptance), and answers whether the evidence meets the
+whole requirement. One tenant's trust in a connection is not another's: the administrators of the tenant a connection
+belongs to control what its provider asserts, so a policy judging a tenant's requirement must refuse evidence from a
+connection that tenant does not trust, or an identity linked through one tenant's connection would meet another
+tenant's requirement with it. The default, `External\InsufficientEvidence`, meets nothing, so a provider's evidence
+counts for nothing until you bind a policy that trusts it:
 
 ```php
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\External\EvidenceSubject;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 
 final class TrustedProviderEvidence implements ExternalEvidencePolicy
 {
     public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
     {
-        $trusted = TrustedConnection::query()->where('connection_id', $subject->connectionId)->exists();
-        $fresh   = $evidence->authenticatedAt->greaterThan($subject->now->subSeconds($requirement->multifactor?->maxAgeSeconds ?? 43200));
+        if ($requirement->minimumLevel !== null || $requirement->phishingResistance !== null) {
+            return false; // parts this policy cannot vouch for
+        }
 
-        return $trusted && $fresh && in_array('mfa', $evidence->methods, true)
-            && $requirement->minimumLevel === null && $requirement->phishingResistance === null;
+        $trusted = TrustedConnection::query()
+            ->where('connection_id', $subject->connectionId)
+            ->where('tenant_id', $subject->tenant?->getTenantIdentifier()) // null: trusted for the identity level
+            ->exists();
+
+        $maxAge = RequirementPart::shorter(
+            $requirement->additionalVerification?->maxAgeSeconds,
+            $requirement->multifactor?->maxAgeSeconds,
+        ) ?? 43200;
+
+        return $trusted
+            && in_array('mfa', $evidence->methods, true)
+            && $evidence->authenticatedAt->greaterThan($subject->now->subSeconds($maxAge));
     }
 }
 
@@ -227,8 +244,9 @@ The package asks it in two places, inside `WriteConnection::during()` for the id
   session's proofs as it does any other session's. Evidence never meets part of a requirement and leaves the rest to
   the factor package's proofs: which factors combine stays the factor package's.
 
-Judge any maximum age the requirement gives on `$evidence->authenticatedAt` against `$subject->now`; evidence dated
-after the time it is judged at is judged as of that time. An exception the policy throws reaches the caller and rolls
+Judge any maximum age the requirement gives, the shortest of those its parts set, on `$evidence->authenticatedAt`
+against `$subject->now`, and refuse a part you cannot vouch for; evidence dated after the time it is judged at is judged
+as of that time. An exception the policy throws reaches the caller and rolls
 back the transaction it was asked in.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.

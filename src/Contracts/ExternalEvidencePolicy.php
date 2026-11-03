@@ -23,8 +23,15 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
  * The evidence must meet the whole requirement: it never combines with a
  * further factor's proofs, which the bound `RequirementCheck` judges. Which
  * factors combine stays the further-factor package's. The package never asks it
- * with a requirement that asks for nothing, and judges any maximum age on the
- * evidence's own time against the subject's.
+ * with a requirement that asks for nothing. An implementation judges any
+ * maximum age the requirement's parts give (the shortest) on the evidence's own
+ * time against the subject's.
+ *
+ * The subject names the tenant whose requirement is judged (none for the
+ * identity-level requirement and for the evidence's acceptance). One tenant's
+ * trust in a connection is not another's: an implementation judging a tenant's
+ * requirement refuses evidence from a connection that tenant does not trust,
+ * since the tenant a connection belongs to controls what its provider asserts.
  *
  * It is asked inside `WriteConnection::during()` for the identity, so a model
  * read it makes of its own state (which providers or connections it trusts)

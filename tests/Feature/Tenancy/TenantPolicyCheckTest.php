@@ -225,7 +225,7 @@ final class TenantPolicyCheckTest extends TestCase
      */
     public function testAnAnsweredRequirementIsJudgedWithoutAskingThePolicy(): void
     {
-        [$member] = $this->seedMember();
+        [$member, , $tenant] = $this->seedMember();
 
         $now      = CarbonImmutable::now();
         $answered = new TenantRequirement('v3', connections: ['conn-a']);
@@ -234,8 +234,8 @@ final class TenantPolicyCheckTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement(connections: ['conn-b']);
 
-        $met     = TenantPolicyCheck::judge($answered, 'members', $member, null, $now, $external);
-        $refused = TenantPolicyCheck::judge($answered, 'members', $member, null, $now, $password);
+        $met     = TenantPolicyCheck::judge($answered, $tenant, 'members', $member, null, $now, $external);
+        $refused = TenantPolicyCheck::judge($answered, $tenant, 'members', $member, null, $now, $password);
 
         self::assertSame([TenantPolicyStanding::MET, 'v3'], [$met->standing, $met->version]);
         self::assertSame([TenantPolicyStanding::SSO_REQUIRED, 'v3'], [$refused->standing, $refused->version]);
@@ -354,6 +354,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         self::assertSame([TenantPolicyStanding::MET, 'v4'], [$verdict->standing, $verdict->version]);
         self::assertSame($accepted, $policy->asked[0]['evidence']);
+        self::assertSame([$tenant, 'conn-a'], [$policy->asked[0]['subject']->tenant, $policy->asked[0]['subject']->connectionId]);
         self::assertCount(1, $this->check->judged);
     }
 

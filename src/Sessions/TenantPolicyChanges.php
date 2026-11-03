@@ -208,7 +208,7 @@ final readonly class TenantPolicyChanges
 
         return $recorded !== null && $recorded === $requirement->version
             ? null
-            : TenantPolicyCheck::judge($requirement, $guard, $identity, $session, $now, null);
+            : TenantPolicyCheck::judge($requirement, $tenant, $guard, $identity, $session, $now, null);
     }
 
     /**

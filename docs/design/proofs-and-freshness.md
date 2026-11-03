@@ -72,7 +72,9 @@ session holds; the token's claims and every freshness answer are worked out from
   evidence, it asks the evidence policy first whether the newest accepted evidence, by the evidence's own time, meets
   the whole requirement: at sign-in the sign-in's own, in memory (`SessionEvidence::$externalEvidence`); otherwise one
   read of at most `SessionProofs::EVIDENCE_LIMIT` of the session's counting proofs that carry evidence
-  (`SessionProofs::acceptedEvidence()`), on the write connection. Met, `RequirementCheck` is not asked; otherwise it
+  (`SessionProofs::acceptedEvidence()`), on the write connection. The policy is told the connection and the tenant whose
+  requirement it judges (`EvidenceSubject::$tenant`, `null` for the identity level and for acceptance), so it can refuse
+  evidence from a connection that tenant does not trust. Met, `RequirementCheck` is not asked; otherwise it
   judges the session's proofs as it does any session's. Evidence never meets part of a requirement and leaves the rest
   to the factor package's proofs, and a session no provider established reads nothing more.
 - An `external_reauthentication` is recorded only by `reauthenticateExternally()` (`Sessions\ExternalReauthentication`),

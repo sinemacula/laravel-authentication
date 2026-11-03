@@ -72,7 +72,7 @@ final class TenantPolicyCheck
             return new TenantPolicyVerdict(TenantPolicyStanding::MET, null);
         }
 
-        return self::judge(self::requirementFor($guard, $identity, $principal, $tenant, $session), $guard, $identity, $session, $now, $evidence);
+        return self::judge(self::requirementFor($guard, $identity, $principal, $tenant, $session), $tenant, $guard, $identity, $session, $now, $evidence);
     }
 
     /**
@@ -97,11 +97,13 @@ final class TenantPolicyCheck
     }
 
     /**
-     * Judge the session, or the sign-in's evidence, against the answer. A
-     * verdict on a further factor carries the first factor it was judged on, so
-     * a caller that goes on to judge the session again reads it no more.
+     * Judge the session, or the sign-in's evidence, against the tenant's
+     * answer. A verdict on a further factor carries the first factor it was
+     * judged on, so a caller that goes on to judge the session again reads it
+     * no more.
      *
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
@@ -114,6 +116,7 @@ final class TenantPolicyCheck
      */
     public static function judge(
         TenantRequirement $requirement,
+        Tenant $tenant,
         string $guard,
         Identity $identity,
         ?Session $session,
@@ -126,7 +129,7 @@ final class TenantPolicyCheck
 
         $firstFactor = $requirement->factor->isEmpty() ? null : RequirementJudge::firstFactor($session, null, $evidence);
 
-        return RequirementJudge::isMet($guard, $identity, $session, $firstFactor, $now, $evidence, $requirement->factor)
+        return RequirementJudge::isMet($guard, $identity, $session, $firstFactor, $now, $evidence, new TenantFactor($tenant, $requirement->factor))
             ? new TenantPolicyVerdict(TenantPolicyStanding::MET, $requirement->version, firstFactor: $firstFactor)
             : new TenantPolicyVerdict(TenantPolicyStanding::FACTOR_REQUIRED, $requirement->version, $requirement->factor, $firstFactor);
     }
