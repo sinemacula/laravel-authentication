@@ -315,7 +315,8 @@ other rotated token as a replay that revokes the session.
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testRevokingASessionIsIdempotent`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
-  `testAGraceRetryIsJudgedOnTheRowReadAfterTheGuard`, `testARotationCommittedBeforeTheGuardMakesTheExchangeAGraceRetry`
+  `testAGraceRetryIsJudgedOnTheRowReadAfterTheGuard`, `testAGraceRetryAfterASwitchTheGuardWaitedForIsAReplay`,
+  `testARotationCommittedBeforeTheGuardMakesTheExchangeAGraceRetry`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testLostRotationToAParallelRefreshIsAGraceRetry`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
@@ -384,6 +385,9 @@ other rotated token as a replay that revokes the session.
   `testParallelRefreshInsideARepeatableReadTransaction`
 - `tests/Integration/Guards/RefreshReplayIntegrationTest.php`
   `testRotationAndReplayTouchOnlyTheirOwnSession`
+- `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php`
+  `testAGraceRetryWaitingOnARevocationFollowsItsOutcome`,
+  `testAGraceRetryInsideARepeatableReadTransactionIsJudgedAfterItsGuard`
 - `tests/Integration/Guards/SeparateSessionConnectionIntegrationTest.php`
   `testRefreshAndBearerUseTheSessionsOwnConnection`,
   `testReplayIsReportedAtOnceWhateverAnotherConnectionsTransactionDoes`,

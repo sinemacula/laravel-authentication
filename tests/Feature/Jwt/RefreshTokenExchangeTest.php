@@ -768,6 +768,42 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * A grace retry whose session a switch rotated again, to another principal,
+     * between the exchange's lookup and its issuance guard (as by a transaction
+     * the guard waited for) is judged on the row read after the guard: its
+     * token is two rotations old there, so it is a replay that revokes the
+     * session as `rotation_reuse`, reported for the principal the switch
+     * recorded, and it hands out no pair, although the row it found held its
+     * token as the previous one.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testAGraceRetryAfterASwitchTheGuardWaitedForIsAReplay(): void
+    {
+        $session = $this->seedRotatedSession(50, rotatedSecondsAgo: 5);
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->recordEvents();
+        $this->beforeTheGuard(fn () => $this->rotateOnTheRow($session, RefreshTokenHasher::successor(self::ROTATION_ID), principalId: 'p-switched'));
+
+        $failure = $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
+        $row     = $this->row($session);
+
+        self::assertSame(FailureReason::ROTATION_REUSE, $failure->reason);
+        self::assertSame('p-switched', $failure->context->principalId);
+        self::assertSame('rotation_reuse', $row['revoked_reason']);
+        self::assertNull($row['refresh_key']);
+        self::assertNull($row['previous_refresh_key']);
+        self::assertCount(1, $this->dispatched);
+        self::assertInstanceOf(SessionRevoked::class, $this->dispatched[0]);
+        self::assertSame(RevocationReason::ROTATION_REUSE, $this->dispatched[0]->reason);
+        self::assertSame('p-switched', $this->dispatched[0]->context->principalId);
+    }
+
+    /**
      * A refresh payload whose `jti` is not a string is rejected as
      * `token_invalid` and preserves the parseable session id on the emitted
      * failure event.

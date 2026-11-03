@@ -11,6 +11,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
@@ -18,6 +19,10 @@ use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Events\SteppedUp;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
@@ -27,6 +32,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithIsolationLevels;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -44,6 +50,15 @@ use Tests\TestCase;
  * first rolls back, the second goes ahead as if alone. Either way each change
  * is made, and reported, once.
  *
+ * A grace retry of a refresh or a switch, which writes no compare-and-swap, is
+ * raced the same way against a revocation, and, inside a caller's REPEATABLE
+ * READ transaction that read the session first, against a revocation, a return
+ * to pending or another switch that a second connection commits before the
+ * retry's issuance guard: the retry is judged on the row it reads after the
+ * guard, so it never hands out a pair for a session that changed before it held
+ * the row; PostgreSQL refuses the guard of a snapshot older than the change
+ * with a serialisation failure instead.
+ *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
  *
@@ -53,14 +68,18 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionSwitch::class)]
+#[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(RevocationWriter::class)]
 #[CoversClass(ProofIssuance::class)]
 final class ConcurrentSwitchAndRevocationTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithIsolationLevels, InteractsWithProofs, InteractsWithSessions;
 
     /** @var string Guard over `ActivatableTenantMember`. */
     private const string GUARD = 'members';
+
+    /** @var string Second connection to the same database, for a change committed while a retry runs. */
+    private const string COMPETITOR = 'competitor';
 
     /** @var int How long the first side holds its transaction open once the second has started, in microseconds. */
     private const int HOLD_MICROSECONDS = 1000000;
@@ -377,6 +396,142 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
     }
 
     /**
+     * Rows of `[grace retry]`: a refresh with the token a refresh replaced, and
+     * a switch with the token a switch to the same target replaced.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideGraceRetries(): iterable
+    {
+        yield 'refresh' => ['refresh'];
+        yield 'switch' => ['switch'];
+    }
+
+    /**
+     * A grace retry waiting on a revocation of its session, which its issuance
+     * guard waits for, fails as `session_revoked` once the revocation commits,
+     * handing out no pair, although the row its lookup found was live; when the
+     * revocation rolls back, the retry is answered with the current credential.
+     *
+     * @param  string  $retry
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideGraceRetries')]
+    public function testAGraceRetryWaitingOnARevocationFollowsItsOutcome(string $retry): void
+    {
+        foreach ([true, false] as $commit) {
+
+            [$member, $first, $target] = $this->seedMemberships();
+
+            $session = $this->signIn($first);
+            $again   = $this->graceRetryOf($retry, $session, $target);
+
+            [$revoked, $second] = $this->race(
+                fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
+                $again,
+                $commit,
+            );
+
+            self::assertSame(1, $revoked);
+
+            if ($commit) {
+                self::assertSame(['answered' => false, 'reason' => FailureReason::SESSION_REVOKED->value], $second['result']);
+                self::assertSame([], $second['events']);
+                self::assertSame('revoked', DB::table('authentication_sessions')->sole()->revoked_reason);
+            } else {
+                self::assertSame(['answered' => true, 'reason' => null], $second['result']);
+                self::assertSame($retry === 'refresh' ? [Refreshed::class] : [], $second['events']);
+                self::assertNull(DB::table('authentication_sessions')->sole()->revoked_at);
+            }
+
+            $this->reset();
+        }
+    }
+
+    /**
+     * Rows of `[grace retry, change, failure]`: each retry against a
+     * revocation, a return to pending and another switch, which leaves the
+     * retried token two rotations old.
+     *
+     * @return iterable<string, array{0: string, 1: string, 2: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     */
+    public static function provideGraceRetriesAndChanges(): iterable
+    {
+        foreach (self::provideGraceRetries() as $name => [$retry]) {
+            yield "{$name} of a revoked session" => [$retry, 'revoked', FailureReason::SESSION_REVOKED];
+            yield "{$name} of a session returned to pending" => [$retry, 'pending', FailureReason::SESSION_PENDING];
+            yield "{$name} of a session switched again" => [$retry, 'switched', FailureReason::ROTATION_REUSE];
+        }
+    }
+
+    /**
+     * A grace retry inside a caller's REPEATABLE READ transaction, whose lookup
+     * read the session live, after which another connection commits a change to
+     * the session before the retry's issuance guard: on MySQL the retry is
+     * judged on the row it reads after the guard and fails for that change,
+     * handing out no pair; on PostgreSQL the guard fails to serialise, for the
+     * caller to retry the whole transaction.
+     *
+     * @param  string  $retry
+     * @param  string  $change
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideGraceRetriesAndChanges')]
+    public function testAGraceRetryInsideARepeatableReadTransactionIsJudgedAfterItsGuard(string $retry, string $change, FailureReason $reason): void
+    {
+        [, $first, $target] = $this->seedMemberships();
+
+        $session  = $this->signIn($first);
+        $again    = $this->graceRetryOf($retry, $session, $target);
+        $rotation = $this->rotationOf($session);
+        $changes  = match ($change) {
+            'revoked' => ['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'revoked'],
+            'pending' => ['status' => 'pending'],
+            default   => [
+                'refresh_key'          => RefreshTokenHasher::hash(RefreshTokenHasher::successor(RefreshTokenHasher::successor($rotation))),
+                'previous_refresh_key' => RefreshTokenHasher::hash(RefreshTokenHasher::successor($rotation)),
+                'refresh_rotated_at'   => CarbonImmutable::now(),
+            ],
+        };
+
+        $ran = false;
+
+        DB::connection()->beforeExecuting(static function (string $query) use (&$ran, $changes): void {
+            if ($ran || !str_contains($query, 'issuance_sequence')) {
+                return;
+            }
+
+            $ran = true;
+
+            DB::connection(self::COMPETITOR)->table('authentication_sessions')->update($changes);
+        });
+
+        self::beginTransactionAt('repeatable read');
+
+        $outcome = null;
+        $failure = self::serializationFailure(static function () use ($again, &$outcome): void {
+            $outcome = $again();
+        });
+
+        self::assertTrue($ran);
+
+        if (self::readsASnapshot('repeatable read')) {
+            self::assertSame('40001', $failure);
+            self::assertNull($outcome);
+
+            return;
+        }
+
+        self::assertNull($failure);
+        self::assertSame(['answered' => false, 'reason' => $reason->value], $outcome);
+    }
+
+    /**
      * Register the guards.
      *
      * @param  mixed  $app
@@ -391,7 +546,11 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('database.connections.' . self::COMPETITOR, $config->get('database.connections.testing'));
     }
 
     /**
@@ -437,6 +596,58 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
         $this->freezeAt(CarbonImmutable::now()->addSeconds(5));
 
         return $session;
+    }
+
+    /**
+     * Make the session's first refresh token one a grace retry may present:
+     * refresh the session with it, or switch it with it to the target, then
+     * move the clocks on inside the grace window, and return the retry, which
+     * presents that token again (to the same target, for a switch) and reports
+     * whether it was answered with a credential, and why not.
+     *
+     * @param  string  $retry
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @param  \Tests\Integration\Fixtures\ActivatableTenantMembership  $target
+     * @return \Closure(): array{answered: bool, reason: ?string}
+     *
+     * @throws \Throwable
+     */
+    private function graceRetryOf(string $retry, SignedInSession $session, ActivatableTenantMembership $target): \Closure
+    {
+        $token  = $session->tokens->refreshToken?->reveal() ?? '';
+        $answer = $retry === 'refresh'
+            ? function () use ($token): array {
+                $result = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($token);
+
+                return ['answered' => $result->isRefreshed(), 'reason' => $result->reason?->value];
+            }
+        : function () use ($token, $target): array {
+            $result = $this->sessions(self::GUARD)->switchTo($token, SwitchTarget::principal($target));
+
+            return ['answered' => $result->isSwitched(), 'reason' => $result->reason?->value];
+        };
+
+        self::assertSame(['answered' => true, 'reason' => null], $answer());
+
+        $this->freezeAt(CarbonImmutable::now()->addSeconds(5));
+
+        return $answer;
+    }
+
+    /**
+     * The rotation id of the session's first refresh token.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return string
+     */
+    private function rotationOf(SignedInSession $session): string
+    {
+        $claims = $this->freshGuard(self::GUARD)->tokens()->parse($session->tokens->refreshToken?->reveal() ?? '', TokenType::REFRESH);
+
+        self::assertIsArray($claims);
+        self::assertIsString($claims[Claims::JWT_ID->value]);
+
+        return $claims[Claims::JWT_ID->value];
     }
 
     /**

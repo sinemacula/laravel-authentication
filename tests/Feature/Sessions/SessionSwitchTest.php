@@ -48,6 +48,7 @@ use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -1042,6 +1043,63 @@ final class SessionSwitchTest extends TestCase
         $this->assertSwitchFails($reason, $session, $second);
 
         self::assertTrue($ran);
+    }
+
+    /**
+     * A lost switch response retried inside the grace window, whose session a
+     * second switch rotated again between the retry's lookup and its issuance
+     * guard (as a transaction the guard waited for would), is judged on the row
+     * read after the guard: the retried token is two rotations old there, so
+     * the retry is a replay that revokes the session as `rotation_reuse`, and
+     * it hands out no pair, although the row it found held that token as the
+     * previous one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGraceRetryAfterASwitchTheGuardWaitedForIsAReplay(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+        $this->switched($session, $second);
+        $this->advance(5);
+
+        $rotation = self::claimsOf((string) $session->tokens->refreshToken?->reveal())['jti'];
+
+        self::assertIsString($rotation);
+
+        $ran = false;
+
+        DB::connection()->beforeExecuting(function (string $query) use (&$ran, $rotation): void {
+            if ($ran || !str_contains($query, 'issuance_sequence')) {
+                return;
+            }
+
+            $ran = true;
+
+            DB::table('authentication_sessions')->update([
+                'refresh_key'          => RefreshTokenHasher::hash(RefreshTokenHasher::successor(RefreshTokenHasher::successor($rotation))),
+                'previous_refresh_key' => RefreshTokenHasher::hash(RefreshTokenHasher::successor($rotation)),
+                'refresh_rotated_at'   => $this->now,
+            ]);
+        });
+
+        $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class]);
+
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+
+        self::assertTrue($ran);
+        self::assertTrue($result->isFailed());
+        self::assertNull($result->session);
+        self::assertSame(FailureReason::ROTATION_REUSE, $result->reason);
+        self::assertSame([SessionRevoked::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(RevocationReason::ROTATION_REUSE, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame('rotation_reuse', DB::table('authentication_sessions')->value('revoked_reason'));
+        self::assertNull(DB::table('authentication_sessions')->value('refresh_key'));
     }
 
     /**

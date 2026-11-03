@@ -181,12 +181,16 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   from the request and the transport's refusals, a switch screen's listing, a tenant-only switch and one of both,
   switching back to a tenant, two switches in one second, the destination tenant's refusals, the proofs kept, the
   identity-level factor policy not asked by a switch the destination lets through, its requirement named by one the
-  destination returns to pending, and a retry judged on the row read after the issuance guard)
+  destination returns to pending, and a retry judged on the row read after the issuance guard, after a revocation, a
+  return to pending or another switch committed before it)
 - `tests/Integration/Sessions/SessionSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch, a
   different switch, a deadline change, a tenant or policy version change, a deletion and an owner change, and a swap
   lost to a refresh with no grace window or to two refreshes, which revokes the session)
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php` (on PostgreSQL and MySQL, two processes: a switch
-  waiting on a revocation, on a refresh of its token and on an identical switch, after a commit and after a rollback)
+  waiting on a revocation, on a refresh of its token and on an identical switch, and a grace retry of a refresh or a
+  switch waiting on a revocation, after a commit and after a rollback; and a grace retry inside a caller's REPEATABLE
+  READ transaction whose session another connection revoked, returned to pending or switched again before its issuance
+  guard)
 - `tests/Integration/Applications/ReplicaChoicesAcrossConnectionsTest.php` (the principals read on the write
   connection)
 - `tests/Feature/Jwt/RefreshRotationStoreTest.php` `testSwitchSessionRecordsTheDestinationAndMirrorsIt`,
