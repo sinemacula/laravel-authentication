@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SignsInExternally;
 use SineMacula\Laravel\Authentication\Sessions\ExternalReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\ExternalResults;
+use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
@@ -63,6 +64,7 @@ use Tests\TestCase;
  */
 #[CoversClass(ExternalReauthentication::class)]
 #[CoversClass(ExternalResults::class)]
+#[CoversClass(ProofIssuance::class)]
 #[CoversTrait(SignsInExternally::class)]
 final class ExternalReauthenticationTest extends TestCase
 {
@@ -256,12 +258,14 @@ final class ExternalReauthenticationTest extends TestCase
         self::assertSame(0, $locks);
 
         $reported = array_map(
-            static fn (AuthenticationFailed $event): array => [$event->flow, $event->reason, $event->context->method, $event->context->sessionId],
+            static fn (AuthenticationFailed $event): array => [$event->flow, $event->reason, $event->context->method, $event->context->identityId, $event->context->sessionId],
             $this->recorded,
         );
 
+        $owner = IdentifierCoercion::stringify($identity->getAuthIdentifier());
+
         self::assertSame(
-            [[AuthenticationFlow::REAUTHENTICATION, FailureReason::LINK_MISMATCH, 'external_provider', $signedIn->record->getKey()]],
+            [[AuthenticationFlow::REAUTHENTICATION, FailureReason::LINK_MISMATCH, 'external_provider', $owner, $signedIn->record->getKey()]],
             array_values(array_unique($reported, SORT_REGULAR)),
         );
         self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
@@ -461,7 +465,8 @@ final class ExternalReauthenticationTest extends TestCase
      * the session and its principal and recording nothing, inside the adapter's
      * transaction too, which goes on, and the row is left as it was; evidence
      * this very reauthentication brings, once accepted, meets that factor, and
-     * the token is issued.
+     * the token is issued, reported for the member, the principal and the
+     * session.
      *
      * @return void
      *
@@ -513,11 +518,20 @@ final class ExternalReauthenticationTest extends TestCase
 
         $this->app?->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]));
 
+        $this->recordEvents([Reauthenticated::class]);
+
         $evidence = new ExternalEvidence(['mfa'], null, $this->now);
         $met      = $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now, evidence: $evidence));
 
         self::assertTrue($met->isIssued());
         self::assertSame(1, SessionProof::query()->where('kind', 'external_reauthentication')->count());
+
+        $context = $this->recordedEvent(Reauthenticated::class)->context;
+
+        self::assertSame(
+            [IdentifierCoercion::stringify($member->getAuthIdentifier()), $principal, $key],
+            [$context->identityId, $context->principalId, $context->sessionId],
+        );
     }
 
     /**

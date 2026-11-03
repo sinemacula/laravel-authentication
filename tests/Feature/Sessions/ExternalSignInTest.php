@@ -40,6 +40,7 @@ use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SignsInExternally;
+use SineMacula\Laravel\Authentication\Sessions\ExternalResults;
 use SineMacula\Laravel\Authentication\Sessions\ExternalSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -64,6 +65,7 @@ use Tests\TestCase;
  *
  * @internal
  */
+#[CoversClass(ExternalResults::class)]
 #[CoversClass(ExternalSignIn::class)]
 #[CoversClass(SessionService::class)]
 #[CoversTrait(SignsInExternally::class)]

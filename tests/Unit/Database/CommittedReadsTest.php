@@ -124,4 +124,23 @@ final class CommittedReadsTest extends TestCase
 
         CommittedReads::assert($connection, 'A link\'s revocation');
     }
+
+    /**
+     * The rule is a static utility that cannot be instantiated from outside.
+     *
+     * @return void
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(CommittedReads::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(CommittedReads::class, $instance);
+    }
 }

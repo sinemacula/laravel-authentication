@@ -727,6 +727,44 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
+     * A policy change judges an external session's further factor on the
+     * evidence it holds accepted, for the tenant whose policy changed: evidence
+     * from a connection that tenant trusts meets it, and the session stays
+     * active with the version recorded; evidence from a connection only another
+     * tenant trusts does not, and the session is revoked.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPolicyChangeJudgesExternalSessionsOnTheTenantsTrustedEvidence(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $other    = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+        $evidence = new ExternalEvidence(['mfa'], null, $this->now);
+
+        app()->instance(ExternalEvidencePolicy::class, new TenantTrustingEvidencePolicy([
+            (string) IdentifierCoercion::stringify($tenant->getKey()) => ['conn-a'],
+            (string) IdentifierCoercion::stringify($other->getKey())  => ['conn-b'],
+        ]));
+
+        $trusted = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a', evidence: $evidence), self::asPrincipal($membership))->session?->record;
+        $foreign = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-b', evidence: $evidence), self::asPrincipal($membership))->session?->record;
+
+        self::assertNotNull($trusted);
+        self::assertNotNull($foreign);
+
+        $this->policy->requirement = new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart));
+
+        self::assertSame(1, $this->sessions('members')->tenantPolicyChanged($tenant));
+        self::assertNull($this->rowOf($trusted->getKey())->getRevokedAt());
+        self::assertSame('v2', $this->rowOf($trusted->getKey())->getTenantPolicyVersion());
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, $this->rowOf($foreign->getKey())->getRevokedReason());
+        self::assertCount(1, $this->check->judged);
+    }
+
+    /**
      * Inside a caller's transaction that rolls back, nothing is revoked and no
      * revocation is reported; called again outside it, the session is revoked,
      * and a third call finds nothing left to revoke.

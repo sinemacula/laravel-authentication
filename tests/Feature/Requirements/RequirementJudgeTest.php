@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
+use SineMacula\Laravel\Authentication\Tenancy\TenantFactor;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\External\MethodTrustingEvidencePolicy;
@@ -357,6 +358,35 @@ final class RequirementJudgeTest extends TestCase
         self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, $evidence, new Requirement(new RequirementPart, phishingResistance: new RequirementPart)));
         self::assertCount(2, $policy->asked);
         self::assertSame(1, $this->judgedCount());
+    }
+
+    /**
+     * A tenant's requirement, given with the tenant, is judged unwrapped, and
+     * the evidence policy is told the tenant whose requirement it is; the
+     * identity-level requirement is judged for no tenant.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantsRequirementIsJudgedForThatTenant(): void
+    {
+        [$member, , $tenant] = $this->seedMember();
+
+        $now         = CarbonImmutable::now()->startOfSecond();
+        $policy      = $this->trustEvidenceFor([RequirementKind::MULTIFACTOR]);
+        $accepted    = new ExternalEvidence(['mfa'], null, $now);
+        $evidence    = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a', evidence: $accepted), $now, new Evaluation(true, true)));
+        $requirement = new Requirement(multifactor: new RequirementPart);
+
+        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, $now, $evidence, new TenantFactor($tenant, $requirement)));
+        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, $now, $evidence, $requirement));
+        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, $now, null, new TenantFactor($tenant, new Requirement)));
+
+        self::assertCount(2, $policy->asked);
+        self::assertSame([$requirement, $tenant], [$policy->asked[0]['requirement'], $policy->asked[0]['subject']->tenant]);
+        self::assertSame([$requirement, null], [$policy->asked[1]['requirement'], $policy->asked[1]['subject']->tenant]);
+        self::assertSame(0, $this->judgedCount());
     }
 
     /**
