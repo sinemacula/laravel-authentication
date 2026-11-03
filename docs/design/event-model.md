@@ -207,7 +207,9 @@ to these events, so the shape and the timing are a contract.
   `tests/Feature/Sessions/ExternalReauthenticationTest.php` `testARedemptionIsReportedAfterTheReauthentication`
 - `tests/Feature/Listeners/RecordSessionUsageTest.php` `testASessionTheGuardHasNotBoundIsReadByItsIdentifier`,
   `testNoSessionOrAGoneOneRecordsNothing`; `tests/Feature/Listeners/RevokeSessionsOnPasskeyRemovalTest.php`
-  `testAnIdentityAGlobalScopeHidesHasItsSessionsRevoked`, `testAnEventNamingNoIdentityRevokesNothing`
+  `testAnIdentityAGlobalScopeHidesHasItsSessionsRevoked`, `testAnEventNamingNoIdentityRevokesNothing`; on a lagging
+  replica, `tests/Integration/Listeners/RecordSessionUsageTest.php` and
+  `tests/Integration/Listeners/RevokeSessionsOnPasskeyRemovalTest.php`
 - `tests/Integration/Events/EveryEventRestoresTest.php`
   `testTheEventRestoresWithItsSnapshotOnceItsRowsAreGone`, `testEveryPackageEventIsChecked`
 - `tests/Feature/Events/EventContextTest.php`
