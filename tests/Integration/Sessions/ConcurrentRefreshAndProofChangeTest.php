@@ -175,13 +175,16 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
      * A refresh that starts while the removal of a factor holds the session's
      * row waits for it, and its token never counts the factor removed: the
      * step-up made with it no longer adds `hwk` or `mfa`, and the time is the
-     * sign-in's again.
+     * sign-in's again; under PostgreSQL's REPEATABLE READ it fails to serialise
+     * first, and the refresh retried still never counts the factor.
      *
+     * @param  string  $level
      * @return void
      *
      * @throws \Throwable
      */
-    public function testARefreshThatWaitsOnAFactorRemovalNeverCountsTheFactor(): void
+    #[DataProvider('provideIsolationLevels')]
+    public function testARefreshThatWaitsOnAFactorRemovalNeverCountsTheFactor(string $level): void
     {
         $signedIn = $this->signedIn();
         $proof    = self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), methods: ['hwk'], evaluation: new Evaluation(true, true));
@@ -189,7 +192,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
         self::assertTrue($this->sessions()->stepUp($proof)->isIssued());
 
         $reported = $this->race(
-            'read committed',
+            $level,
             function () use ($signedIn): void {
                 self::assertFalse(Auth::sessions('api')->factorRemoved($signedIn->identity, 'factor-1', $signedIn->record)->isPending());
             },
@@ -197,7 +200,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
             $this->refreshedAt,
         );
 
-        self::assertNull($reported['failed']);
+        self::assertSame(self::readsASnapshot($level) ? '40001' : null, $reported['failed']);
         self::assertGreaterThanOrEqual(self::SETTLE_MICROSECONDS / 1000000 / 2, $reported['waited']);
         self::assertSame($this->refreshedAt->subHour()->getTimestamp(), $reported['claims']['auth_time']);
         self::assertSame(['pwd'], $reported['claims']['amr']);

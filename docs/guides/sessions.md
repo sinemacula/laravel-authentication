@@ -97,6 +97,15 @@ A sign-in reads its new session's proofs as its own transaction sees them: nothi
 session that is not committed yet. Reading the authentication context of a request is not an issuance and writes
 nothing. Deadlocks, if any, propagate as every database error does.
 
+On MySQL at REPEATABLE READ, the shared lock of the current read also locks the gap after the session's last proof. For
+the newest session (keys are time-ordered) that gap is where every new session's proofs are inserted, so a sign-in that
+starts while an issuance of the newest session is in flight (a refresh, a switch, a step-up, a reauthentication, an
+activation) waits for that issuance's transaction to commit: briefly in the package's own transaction, but inside yours
+until you commit, so keep such a transaction short. The sign-in then commits; the wait never deadlocks on its own, but
+it can when your transaction, after the issuance, goes on to take a lock the waiting sign-in already holds (a sign-in
+through the same link, say), and MySQL then fails one of them as a deadlock for you to retry. At READ COMMITTED MySQL
+locks no gap, and PostgreSQL takes no shared lock, so a sign-in never waits there.
+
 ## Stepping up
 
 A session steps up when your further-factor adapter verifies a factor on it: a one-time password, a passkey used as a

@@ -29,7 +29,9 @@ use Tests\Concerns\PretendsStorageEngines;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainSessionFixture;
+use Tests\Unit\Stubs\StubBareSession;
 use Tests\Unit\Stubs\StubIdentity;
+use Tests\Unit\Stubs\StubNonModelSession;
 
 /**
  * Feature tests of how the token service issues an access token for a stored
@@ -305,6 +307,63 @@ final class JwtTokenServiceTest extends TestCase
 
         self::assertCount(1, $statements);
         self::assertStringEndsWith(' lock in share mode', $statements[0]);
+    }
+
+    /**
+     * A session that declares the Eloquent session contract but is not a model
+     * is issued for as any other session that is not one: no guard, no
+     * transaction, and its proofs read current; only a session that is both
+     * takes the guarded path.
+     *
+     * @return void
+     */
+    public function testAnEloquentSessionThatIsNotAModelIsReadCurrentWithoutAGuard(): void
+    {
+        $session = \Mockery::mock(StubNonModelSession::class);
+        $session->shouldReceive('getSessionIdentifier')->andReturn('0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f71');
+        $session->shouldReceive('getIdleExpiresAt')->andReturn($this->now->addHour());
+        $session->shouldReceive('getAbsoluteExpiresAt')->andReturn($this->now->addDay());
+        $session->shouldReceive('getTenantId')->andReturnNull();
+        $session->shouldReceive('getGuard')->andReturn('api');
+
+        $statements = self::statementsOn('mysql', static function () use ($session): void {
+            self::assertHasNoClaims(static fn (): Secret => self::tokens()->issueAccessToken(self::identity(), self::principal(), null, $session));
+        });
+
+        self::assertCount(1, $statements);
+        self::assertStringEndsWith(' lock in share mode', $statements[0]);
+        self::assertSame(0, DB::transactionLevel());
+    }
+
+    /**
+     * A model that implements only the session contract, not the Eloquent one,
+     * is issued for as a session that is not a model: it is never held to the
+     * storage connection, no guard is written and no transaction opened, so it
+     * is refused for its own deadlines, without a query.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAModelThatIsOnlyASessionIsIssuedForWithoutAGuard(): void
+    {
+        $session    = new StubBareSession(['id' => '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f72']);
+        $statements = [];
+        $refusal    = null;
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        try {
+            self::tokens()->issueAccessToken(self::identity(), self::principal(), null, $session);
+        } catch (\InvalidArgumentException $exception) {
+            $refusal = $exception->getMessage();
+        }
+
+        self::assertSame('Cannot issue a token for a session that has ended or that has no idle deadline.', $refusal);
+        self::assertSame([], $statements);
+        self::assertSame(0, DB::transactionLevel());
     }
 
     /**
