@@ -702,8 +702,8 @@ final class SessionProofsTest extends TestCase
      * The accepted evidence is every piece the session's counting proofs hold,
      * newest by the evidence's own time first (not by the proof's), and of
      * evidence asserting the same methods and context only the newest; never a
-     * voided proof's, and never what a row holds malformed; a session that
-     * holds none has none.
+     * voided proof's, and never what a row holds malformed, which leaves the
+     * rows read after it read; a session that holds none has none.
      *
      * @return void
      *
@@ -727,6 +727,16 @@ final class SessionProofsTest extends TestCase
         self::recordExternal($record, $this->now->addMinutes(7), null);
 
         ProofWriter::void($record, 'api', 'voided-factor', $this->now);
+
+        self::assertEquals([$newest, $older], SessionProofs::acceptedEvidence($record));
+
+        $firstRead = DB::table('authentication_proofs')
+            ->whereNotNull('evidence')
+            ->whereNull('voided_at')
+            ->orderByDesc('authenticated_at')
+            ->value('id');
+
+        DB::table('authentication_proofs')->where('id', $firstRead)->update(['evidence' => '{"methods":"broken"}']);
 
         self::assertEquals([$newest, $older], SessionProofs::acceptedEvidence($record));
 
