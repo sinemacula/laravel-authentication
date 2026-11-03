@@ -472,7 +472,8 @@ final class ChallengeDeliveriesTest extends TestCase
     /**
      * A resend whose challenge another request ends between its read and its
      * write (a check that used it) is written as a new challenge instead, so a
-     * used challenge never comes back to life.
+     * used challenge never comes back to life; it says when the next may be
+     * made as the resend would have, here once its window ends.
      *
      * @return void
      *
@@ -480,6 +481,8 @@ final class ChallengeDeliveriesTest extends TestCase
      */
     public function testAResendOvertakenByAUseStartsANewChallenge(): void
     {
+        config()->set('authentication.codes.max_deliveries', 2);
+
         $binding = self::binding();
         $first   = self::codes()->issue($binding, $this->now);
 
@@ -496,6 +499,7 @@ final class ChallengeDeliveriesTest extends TestCase
             [$next->challengeId, null, 2],
             [DB::table('one_time_codes')->value('challenge_id'), DB::table('one_time_codes')->value('consumed_at'), self::column('deliveries')],
         );
+        self::assertSame(1800, $this->resendAfter($next));
     }
 
     /**
@@ -558,9 +562,11 @@ final class ChallengeDeliveriesTest extends TestCase
      * Each delivery says when the next may be made, and the engine agrees: a
      * request a second before is refused and one at that second is delivered.
      * It is the cooldown after the delivery (a new window's first included),
-     * the window's end once the window has had all its deliveries or would cut
-     * a code shorter than the cooldown (never a reset link's token, which it
-     * does not cut), and the cooldown again when it ends after the window does.
+     * the window's end once the window has had all its deliveries (a first one,
+     * when the window allows only one) or would cut a code shorter than the
+     * cooldown (never a reset link's token, which it does not cut), the
+     * cooldown again when it ends after the window does, and the delivery's own
+     * second with no cooldown.
      *
      * @return void
      *
@@ -576,6 +582,21 @@ final class ChallengeDeliveriesTest extends TestCase
         self::assertSame(120, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(60))));
         self::assertSame(1800, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(120))));
         self::assertSame(1860, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(1800))));
+
+        DB::table('one_time_codes')->delete();
+        config()->set('authentication.codes.max_deliveries', 1);
+
+        self::assertSame(1800, $this->resendAfter(self::codes()->issue($binding, $this->now)));
+        self::assertSame(3600, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(1800))));
+
+        DB::table('one_time_codes')->delete();
+        config()->set('authentication.codes.max_deliveries', 3);
+        config()->set('authentication.codes.resend_cooldown_seconds', 0);
+
+        self::assertSame(0, $this->resendAfter(self::codes()->issue($binding, $this->now)));
+        self::assertSame(10, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(10))));
+
+        config()->set('authentication.codes.resend_cooldown_seconds', 60);
 
         DB::table('one_time_codes')->delete();
         config()->set('authentication.codes.max_deliveries', 10);
