@@ -29,14 +29,14 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * and only counting ones: one not voided, and, for a further factor or a
  * recovery code, one its adapter accepted (only accepted ones are stored, so
  * this is a second line). `history()` reads them in one aggregate query,
- * grouped by kind, `amr` values, multifactor report and acceptance with each
- * group's newest time, so its rows are bounded by the distinct combinations the
- * session recorded rather than by how many it recorded. `newestMeeting()` reads
- * the newest one a freshness requirement takes, with `LIMIT 1`, on the proofs'
- * session, kind and time index. `query()` reads a bounded page of them for a
- * requirement check, `firstFactor()` the first factor the session signed in
- * with, `connectionId()` the connection its provenance records, and
- * `provenance()` the whole provenance.
+ * grouped by kind, `amr` values, multifactor report, additional verification
+ * and acceptance with each group's newest time, so its rows are bounded by the
+ * distinct combinations the session recorded rather than by how many it
+ * recorded. `newestMeeting()` reads the newest one a freshness requirement
+ * takes, with `LIMIT 1`, on the proofs' session, kind and time index. `query()`
+ * reads a bounded page of them for a requirement check, `firstFactor()` the
+ * first factor the session signed in with, `connectionId()` the connection its
+ * provenance records, and `provenance()` the whole provenance.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -68,9 +68,9 @@ final class SessionProofs
 
         $rows = WriteConnection::during($model, static fn (): array => self::counting($session)
             ->toBase()
-            ->select(['kind', 'methods', 'multifactor', 'accepted'])
+            ->select(['kind', 'methods', 'multifactor', 'additional_verification', 'accepted'])
             ->selectRaw("max({$at}) as newest")
-            ->groupBy(['kind', 'methods', 'multifactor', 'accepted'])
+            ->groupBy(['kind', 'methods', 'multifactor', 'additional_verification', 'accepted'])
             ->get()
             ->all());
 
@@ -312,26 +312,36 @@ final class SessionProofs
     /**
      * One summary row, as `ProofHistory` takes it.
      *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  \SineMacula\Laravel\Authentication\Models\SessionProof  $model
      * @param  object  $row
-     * @return array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, accepted: bool, at: \Carbon\CarbonImmutable}
+     * @return array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, additional: bool, accepted: bool, at: \Carbon\CarbonImmutable}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     private static function summary(SessionProof $model, object $row): array
     {
         $values = get_object_vars($row);
         $proof  = (clone $model)->setRawAttributes([
-            'kind'             => $values['kind']        ?? null,
-            'methods'          => $values['methods']     ?? null,
-            'multifactor'      => $values['multifactor'] ?? null,
-            'accepted'         => $values['accepted']    ?? null,
-            'authenticated_at' => $values['newest']      ?? null,
+            'kind'                    => $values['kind']                    ?? null,
+            'methods'                 => $values['methods']                 ?? null,
+            'multifactor'             => $values['multifactor']             ?? null,
+            'additional_verification' => $values['additional_verification'] ?? null,
+            'accepted'                => $values['accepted']                ?? null,
+            'authenticated_at'        => $values['newest']                  ?? null,
         ]);
 
         return [
             'kind'        => ProofKind::from($proof->kind),
             'methods'     => AuthenticationMethods::kept($proof->methods),
-            'multifactor' => $proof->multifactor === true,
-            'accepted'    => $proof->accepted    === true,
+            'multifactor' => $proof->multifactor             === true,
+            'additional'  => $proof->additional_verification === true,
+            'accepted'    => $proof->accepted                === true,
             'at'          => CarbonImmutable::instance($proof->authenticated_at),
         ];
     }
@@ -348,7 +358,9 @@ final class SessionProofs
     private static function recorded(SessionProof $proof): RecordedProof
     {
         $external   = $proof->channel_kind          === ChannelKind::EXTERNAL_PROVIDER->value;
-        $evaluation = $external || $proof->accepted === null || $proof->multifactor === null ? null : new Evaluation($proof->accepted, $proof->multifactor);
+        $evaluation = $external || $proof->accepted === null || $proof->multifactor === null
+            ? null
+            : new Evaluation($proof->accepted, $proof->multifactor, $proof->additional_verification === true);
 
         $observed = new ObservedProperties(
             $proof->user_presence,

@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Guards;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -193,6 +194,7 @@ final class JwtGuard extends AbstractGuard
             false,
             $outcome->credentialId,
             $outcome->scopes,
+            $outcome->credentialId === null ? CredentialKind::ACCESS_TOKEN : CredentialKind::CLIENT_CREDENTIALS,
         );
 
         return $admitted->identity;

@@ -11,6 +11,7 @@ use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyAuthentication;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyToken;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -124,7 +125,9 @@ final class ApiKeyGuard extends AbstractGuard
             return null;
         }
 
-        $this->bindVerifiedContext($admission->identity, $admission->principal, null, $admission->tenant, self::METHOD, false, $outcome->key->id, $outcome->key->scopes);
+        $key = $outcome->key;
+
+        $this->bindVerifiedContext($admission->identity, $admission->principal, null, $admission->tenant, self::METHOD, false, $key->id, $key->scopes, CredentialKind::API_KEY);
 
         ApiKeyLookup::recordUse($outcome->key, $now);
 

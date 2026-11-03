@@ -9,7 +9,9 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Context\ContextForgetting;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -41,8 +43,10 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * given the admission: a refusal there rolls the proof back with the
  * transaction), and one access token issued, its `auth_time` and `amr` derived
  * from the proofs, the new one included, and answered with when it expires (the
- * access lifetime from its issue, never past the session's end). Nothing else
- * is written: the refresh token, the deadlines and the session row stay as they
+ * access lifetime from its issue, never past the session's end). Once the proof
+ * commits, every resolved guard bound to the session forgets the authentication
+ * context it holds, so the rest of the request sees the proof. Nothing else is
+ * written: the refresh token, the deadlines and the session row stay as they
  * were, so a concurrent refresh's compare-and-swap is unaffected.
  *
  * Every check and the token are judged at the second the lock is taken, not
@@ -62,6 +66,7 @@ final readonly class ProofIssuance
      *
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
+     * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      */
     public function __construct(
 
@@ -70,6 +75,9 @@ final readonly class ProofIssuance
 
         /** The guard's token service, which issues the new access token. */
         private JwtTokenService $tokens,
+
+        /** Defers forgetting the authentication contexts of the session until its proof commits. */
+        private AfterCommit $afterCommit,
     ) {}
 
     /**
@@ -149,6 +157,8 @@ final readonly class ProofIssuance
         ProofWriter::record($session, $this->context->name(), $proof);
 
         self::assertAdmits($admits, $admitted, $session, $now);
+
+        ContextForgetting::onCommit($this->afterCommit, $session);
 
         $token   = $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
         $expires = $this->tokens->lifetimes()->accessExpiry($now, WriteConnection::during($session, static fn (): ?CarbonImmutable => SessionDeadlines::liveEnd($session, $now)));

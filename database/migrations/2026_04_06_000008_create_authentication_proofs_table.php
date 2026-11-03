@@ -63,9 +63,13 @@ return new class extends Migration {
             $blueprint->string('key_protection', 16)->nullable();
 
             // The adapter's evaluation; `null` for a proof the package verified
-            // itself.
+            // itself. An external proof's is the evidence contract's, and is an
+            // additional verification only when the evidence was accepted for
+            // one (or for multifactor authentication), not when it was accepted
+            // only for phishing resistance or a minimum level.
             $blueprint->boolean('accepted')->nullable();
             $blueprint->boolean('multifactor')->nullable();
+            $blueprint->boolean('additional_verification')->nullable();
 
             // The evidence an external provider asserted for the proof, as
             // JSON, once the evidence contract accepted it; `null` for every

@@ -177,7 +177,8 @@ final readonly class SessionService
         $this->evaluation        = new PendingEvaluation($context, $container);
         $this->externalSignIns   = new ExternalSignIn($externalResults, $this->evaluation);
         $this->establishment     = new SessionEstablishment($context, $writer, $proof, $this->evaluation, $this->afterCommit, $container);
-        $this->pendings          = new PendingSessions($context, $this->evaluation, new SessionActivation($context, $tokens, $this->afterCommit, $container), $sessions);
+        $activation              = new SessionActivation($context, $tokens, $this->afterCommit, $container);
+        $this->pendings          = new PendingSessions($context, $this->evaluation, $activation, $sessions, $this->afterCommit);
         $this->revocations       = new SessionRevocations($context, $sessions, $container);
         $this->policyChanges     = new TenantPolicyChanges($context, $this->afterCommit);
         $this->switchRevocations = $sessions;
@@ -199,7 +200,7 @@ final readonly class SessionService
             $container,
         );
 
-        $issuance = new ProofIssuance($context, $tokens);
+        $issuance = new ProofIssuance($context, $tokens, $this->afterCommit);
 
         $this->stepUps           = new SessionStepUp($context, $issuance, $this->afterCommit);
         $this->reauthentications = new SessionReauthentication($context, $issuance, $this->afterCommit, $container);

@@ -6,15 +6,20 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 
 /**
  * What the adapter that verified a further factor reported about it: whether it
- * accepted the proof, and whether, with what the session already proved, it
- * amounts to multifactor authentication. For an external proof, it is what the
- * package's acceptance of the provider's evidence found: accepted, and
- * multifactor when the evidence contract says the evidence meets multifactor
- * authentication.
+ * accepted the proof, whether, with what the session already proved, it amounts
+ * to multifactor authentication, and whether it is an additional verification.
+ * For an external proof, it is what the package's acceptance of the provider's
+ * evidence found: accepted, multifactor when the evidence contract says the
+ * evidence meets multifactor authentication, and an additional verification
+ * when it says the evidence meets that or multifactor authentication, not when
+ * it was accepted only for phishing resistance or a minimum assurance level.
  *
  * Only an accepted evaluation is stored, and multifactor authentication is
  * taken from here, never worked out from the authentication methods: `amr`
- * carries `mfa` only when an accepted evaluation reports it.
+ * carries `mfa` only when an accepted evaluation reports it. An accepted
+ * further factor or recovery code is an additional verification by definition,
+ * so an adapter need not say so; the authentication context's `mfa` reads it
+ * (see `Context\AuthenticationContext`).
  *
  * @api
  *
@@ -28,6 +33,7 @@ final readonly class Evaluation
      *
      * @param  bool  $accepted
      * @param  bool  $multifactor
+     * @param  bool  $additionalVerification
      */
     public function __construct(
 
@@ -36,5 +42,8 @@ final readonly class Evaluation
 
         /** Whether the adapter reported multifactor authentication. */
         public bool $multifactor,
+
+        /** Whether the proof is an additional verification, as an accepted further factor or recovery code always is. */
+        public bool $additionalVerification = true,
     ) {}
 }

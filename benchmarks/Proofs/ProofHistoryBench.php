@@ -38,18 +38,20 @@ final readonly class ProofHistoryBench
     public function __construct()
     {
         $now  = CarbonImmutable::createStrict(2026, 4, 10, 12, 0, 0);
-        $rows = [['kind' => ProofKind::FIRST_FACTOR, 'methods' => ['pwd'], 'multifactor' => false, 'accepted' => false, 'at' => $now->subDays(30)]];
+        $rows = [['kind' => ProofKind::FIRST_FACTOR, 'methods' => ['pwd'], 'multifactor' => false, 'additional' => false, 'accepted' => false, 'at' => $now->subDays(30)]];
 
         foreach (['otp', 'sms', 'hwk', 'swk', 'face', 'fpt'] as $index => $method) {
             foreach ([ProofKind::ADDITIONAL_FACTOR, ProofKind::RECOVERY_CODE] as $kind) {
                 foreach ([true, false] as $multifactor) {
-                    $rows[] = ['kind' => $kind, 'methods' => [$method], 'multifactor' => $multifactor, 'accepted' => true, 'at' => $now->subHours($index)];
+                    $rows[] = ['kind' => $kind, 'methods' => [$method], 'multifactor' => $multifactor, 'additional' => true, 'accepted' => true, 'at' => $now->subHours($index)];
                 }
             }
         }
 
-        $rows[] = ['kind' => ProofKind::FIRST_FACTOR_REAUTHENTICATION, 'methods' => ['pwd'], 'multifactor' => false, 'accepted' => false, 'at' => $now->subMinute()];
-        $rows[] = ['kind' => ProofKind::EXTERNAL_REAUTHENTICATION, 'methods' => [], 'multifactor' => false, 'accepted' => false, 'at' => $now];
+        $none = ['multifactor' => false, 'additional' => false, 'accepted' => false];
+
+        $rows[] = ['kind' => ProofKind::FIRST_FACTOR_REAUTHENTICATION, 'methods' => ['pwd'], ...$none, 'at' => $now->subMinute()];
+        $rows[] = ['kind' => ProofKind::EXTERNAL_REAUTHENTICATION, 'methods' => [], ...$none, 'at' => $now];
 
         $this->history = new ProofHistory($rows);
 

@@ -5,14 +5,16 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Contracts;
 
 use Illuminate\Contracts\Auth\Guard;
+use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
 
 /**
  * Contextual guard contract.
  *
  * Extends Laravel's `Guard` with the package's contextual surface (identity,
- * principal, session, tenant, scopes, principal/session setters, contextual
- * `attempt` and `login`). Like `user()`, the accessors and setters resolve the
- * current request on first access, at most once per request.
+ * principal, session, tenant, scopes, the authentication context,
+ * principal/session setters, contextual `attempt` and `login`). Like `user()`,
+ * the accessors and setters resolve the current request on first access, at
+ * most once per request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -107,6 +109,19 @@ interface ContextualGuard extends Guard
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function scopes(): ?array;
+
+    /**
+     * Return the authentication context of what the guard bound, resolving the
+     * request on first access: built from the validated credential, the session
+     * and its proofs, never from input, on the first ask after the bound state
+     * last changed, and held while it is unchanged. `null` for a guest.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Context\AuthenticationContext
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function authenticationContext(): ?AuthenticationContext;
 
     /**
      * Bind the active principal for the current request, resolving the request

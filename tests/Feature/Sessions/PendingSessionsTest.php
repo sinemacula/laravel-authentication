@@ -589,6 +589,36 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
+     * A satisfied factor that leaves the session pending has the context of a
+     * guard bound to the session forgotten once it commits, so the rest of the
+     * request sees the factor.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASatisfiedFactorIsSeenByTheContextOfAGuardBoundToTheSession(): void
+    {
+        [$member, $first] = $this->seedChooser();
+
+        [$credential, $pending] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        $guard = $this->freshGuard(self::CHOOSERS);
+
+        $guard->login($member, $first, Session::query()->sole());
+
+        $before = $guard->authenticationContext();
+
+        self::assertFalse($before?->mfa);
+        self::assertTrue(self::sessionsOf($guard)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN))->isPending());
+
+        $after = $guard->authenticationContext();
+
+        self::assertNotSame($before, $after);
+        self::assertTrue($after?->mfa);
+    }
+
+    /**
      * A further factor is not taken while only the choice is outstanding, and a
      * choice is not taken while a factor is: each is refused as
      * `pending_action_not_allowed`, reported, and leaves the session pending.

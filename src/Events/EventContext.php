@@ -6,7 +6,6 @@ namespace SineMacula\Laravel\Authentication\Events;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Support\Arrayable;
-use Illuminate\Database\ClassMorphViolationException;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -16,6 +15,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\MorphClass;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
@@ -144,11 +144,11 @@ final readonly class EventContext implements Arrayable
         $recorded = $fromSession ? $session : null;
 
         $this->occurredAt    = CarbonImmutable::now();
-        $this->identityType  = $identity  === null ? self::recordedOn($recorded, 'ownerType') : self::morphClassOf($identity);
+        $this->identityType  = $identity  === null ? self::recordedOn($recorded, 'ownerType') : MorphClass::of($identity);
         $this->identityId    = $identity  === null ? self::recordedOn($recorded, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $this->principalType = $principal === null ? self::recordedOn($recorded, 'type') : self::morphClassOf($principal);
+        $this->principalType = $principal === null ? self::recordedOn($recorded, 'type') : MorphClass::of($principal);
         $this->principalId   = $principal === null ? self::recordedOn($recorded, 'id') : PrincipalReference::id($principal);
-        $this->tenantType    = $tenant    === null ? null : self::morphClassOf($tenant);
+        $this->tenantType    = $tenant    === null ? null : MorphClass::of($tenant);
         $this->tenantId      = $tenant    === null ? self::recordedOn($recorded, 'tenant') : IdentifierCoercion::stringify($tenant->getTenantIdentifier());
         $this->sessionId     = $session   === null ? $sessionId : IdentifierCoercion::stringify($session->getSessionIdentifier());
     }
@@ -179,27 +179,6 @@ final readonly class EventContext implements Arrayable
             'credential_id'  => $this->credentialId,
             'scopes'         => $this->scopes,
         ];
-    }
-
-    /**
-     * The morph class an identity, principal or tenant is recorded by: an
-     * Eloquent model's morph class, any other object's class name.
-     *
-     * A model the morph map leaves out under `Relation::enforceMorphMap()` is
-     * recorded by its class name: a tenant reached through a plain relation
-     * never needed an alias, and the snapshot must not fail the flow it
-     * reports.
-     *
-     * @param  object  $subject
-     * @return string
-     */
-    private static function morphClassOf(object $subject): string
-    {
-        try {
-            return $subject instanceof Model ? $subject->getMorphClass() : $subject::class;
-        } catch (ClassMorphViolationException) {
-            return $subject::class;
-        }
     }
 
     /**

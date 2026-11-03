@@ -107,13 +107,16 @@ final class ProofWriterTest extends TestCase
         self::assertSame(ChannelKind::AUTHENTICATOR_APP->value, $row->getAttribute('channel_kind'));
         self::assertSame('factor-1', $row->getAttribute('factor_reference'));
         self::assertTrue((bool) $row->getAttribute('accepted'));
+        self::assertTrue((bool) $row->getAttribute('additional_verification'));
         self::assertNull($row->getAttribute('evidence'));
         self::assertSame('2026-04-06 12:00:00', CarbonImmutable::parse($row->getRawOriginal('authenticated_at'))->toDateTimeString());
     }
 
     /**
      * An external proof whose evidence was accepted is recorded with that
-     * evidence, as JSON in its stored form, hidden from serialisation.
+     * evidence, as JSON in its stored form, hidden from serialisation, and with
+     * what it was accepted for: here neither multifactor authentication nor an
+     * additional verification.
      *
      * @return void
      *
@@ -132,7 +135,7 @@ final class ProofWriterTest extends TestCase
             new Channel(ChannelKind::EXTERNAL_PROVIDER, 'conn-a'),
             null,
             new ObservedProperties,
-            new Evaluation(true, true),
+            new Evaluation(true, false, false),
             ['urn:sinemacula:amr:external_provider'],
             CarbonImmutable::now(),
             $evidence,
@@ -141,6 +144,8 @@ final class ProofWriterTest extends TestCase
         ProofWriter::record($session, 'api', $proof, self::JUDGED_PROOF_ID);
 
         $row = SessionProof::query()->findOrFail(self::JUDGED_PROOF_ID);
+
+        self::assertSame([true, false, false], [$row->accepted, $row->multifactor, $row->additional_verification]);
 
         $stored = $row->getRawOriginal('evidence');
 

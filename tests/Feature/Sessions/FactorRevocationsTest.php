@@ -617,6 +617,51 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
+     * A current session that stays active once its proofs made with the factor
+     * are voided has the context of the guard bound to it forgotten once the
+     * removal commits: it no longer holds the further factor. Inside a caller's
+     * transaction that rolls back, the context is kept.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAVoidedProofIsForgottenFromTheContextOnceTheRemovalCommits(): void
+    {
+        $current = $this->signedIn();
+
+        $this->stepUp($current, 'factor-a');
+
+        $guard  = $this->boundGuard($current);
+        $before = $guard->authenticationContext();
+
+        self::assertTrue($before?->mfa);
+
+        DB::beginTransaction();
+
+        Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
+
+        self::assertSame($before, $guard->authenticationContext());
+
+        DB::rollBack();
+
+        self::assertSame($before, $guard->authenticationContext());
+
+        DB::transaction(static function () use ($current, $guard, $before): void {
+
+            Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
+
+            self::assertSame($before, $guard->authenticationContext());
+        });
+
+        $after = $guard->authenticationContext();
+
+        self::assertNotNull($after);
+        self::assertFalse($after->mfa);
+        self::assertSame($current->record->getKey(), $guard->session()?->getSessionIdentifier());
+    }
+
+    /**
      * Rows of `[the removal's arguments, the message expected]`: a factor that
      * names nothing, one too long, and a current session that is not one of the
      * identity's on this guard.

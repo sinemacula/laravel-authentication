@@ -10,8 +10,8 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 /**
  * What a session's counting proofs say about its authentication, worked out
  * from the summary rows `SessionProofs::history()` reads: one per kind, set of
- * `amr` values, multifactor report and acceptance, with the newest time among
- * the proofs it summarises.
+ * `amr` values, multifactor report, additional verification and acceptance,
+ * with the newest time among the proofs it summarises.
  *
  * - `authenticatedAt()` (the token's `auth_time`) is the newest time of any
  *   kind: a step-up refreshes it, and so does either reauthentication.
@@ -26,6 +26,18 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
  *   values. A reauthentication with no accepted evaluation (one with the first
  *   factor, or at the provider when its evidence was not accepted) adds
  *   nothing: it renews the authentication time and nothing else.
+ * - `hasAdditionalVerification()` (the authentication context's `mfa`) is
+ *   whether an accepted evaluation is an additional verification: an accepted
+ *   further factor always is, and an external proof is when the evidence
+ *   contract accepted its evidence for an additional verification or
+ *   multifactor authentication. A recovery code never is (`hasRecoveryCode()`
+ *   says whether one counts), and neither is anything worked out from the `amr`
+ *   values.
+ * - `isMultifactor()` is whether an accepted evaluation reported multifactor
+ *   authentication: exactly when `methods()` carries `mfa`.
+ * - `steppedUpAt()` is the newest time among the proofs that make
+ *   `hasAdditionalVerification()` or `hasRecoveryCode()` true, at sign-in or
+ *   later.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,7 +53,7 @@ final readonly class ProofHistory
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @param  list<array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, accepted: bool, at: \Carbon\CarbonImmutable}>  $rows
+     * @param  list<array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, additional: bool, accepted: bool, at: \Carbon\CarbonImmutable}>  $rows
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -49,7 +61,7 @@ final readonly class ProofHistory
      */
     public function __construct(
 
-        /** The summary rows: one per kind, `amr` values, multifactor report and acceptance, with its newest time. */
+        /** The summary rows: one per kind, `amr` values, multifactor report, additional verification and acceptance, with its newest time. */
         private array $rows,
     ) {}
 
@@ -111,10 +123,132 @@ final readonly class ProofHistory
     }
 
     /**
+     * Whether an accepted evaluation on the session is an additional
+     * verification, as the class describes.
+     *
+     * @return bool
+     */
+    public function hasAdditionalVerification(): bool
+    {
+        foreach ($this->rows as $row) {
+            if (self::isAdditionalVerification($row)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the session holds an accepted recovery code.
+     *
+     * @return bool
+     */
+    public function hasRecoveryCode(): bool
+    {
+        foreach ($this->rows as $row) {
+            if (self::isRecoveryCode($row)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether an accepted evaluation on the session reported multifactor
+     * authentication.
+     *
+     * @return bool
+     */
+    public function isMultifactor(): bool
+    {
+        foreach ($this->rows as $row) {
+            if ($row['accepted'] && $row['multifactor']) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The newest time among the proofs that are an additional verification or
+     * an accepted recovery code, or `null` for a session with none.
+     *
+     * @return ?\Carbon\CarbonImmutable
+     */
+    public function steppedUpAt(): ?CarbonImmutable
+    {
+        $newest = null;
+
+        foreach ($this->rows as $row) {
+            if (!self::isAdditionalVerification($row) && !self::isRecoveryCode($row)) {
+                continue;
+            }
+
+            $newest = $newest === null || $row['at']->greaterThan($newest) ? $row['at'] : $newest;
+        }
+
+        return $newest;
+    }
+
+    /**
+     * Whether a row is an accepted additional verification: a further factor,
+     * or another kind whose evaluation says it is one, never a recovery code.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, additional: bool, accepted: bool, at: \Carbon\CarbonImmutable}  $row
+     * @return bool
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    private static function isAdditionalVerification(array $row): bool
+    {
+        if (!$row['accepted'] || $row['kind'] === ProofKind::RECOVERY_CODE) {
+            return false;
+        }
+
+        return $row['kind'] === ProofKind::ADDITIONAL_FACTOR || $row['additional'];
+    }
+
+    /**
+     * Whether a row is an accepted recovery code.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, additional: bool, accepted: bool, at: \Carbon\CarbonImmutable}  $row
+     * @return bool
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    private static function isRecoveryCode(array $row): bool
+    {
+        return $row['accepted'] && $row['kind'] === ProofKind::RECOVERY_CODE;
+    }
+
+    /**
      * What a row is ordered by: its time, then its values.
      *
-     * @param  array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, accepted: bool, at: \Carbon\CarbonImmutable}  $row
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, additional: bool, accepted: bool, at: \Carbon\CarbonImmutable}  $row
      * @return array{0: int, 1: string}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     private static function order(array $row): array
     {

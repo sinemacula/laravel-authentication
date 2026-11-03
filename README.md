@@ -68,6 +68,11 @@ are caught on the server.
 - **The caller of a request**: `Auth::caller()` reads who a request is from the access, refresh or pending credential
   its route authenticates with, and says whether a session, identity or principal is the caller's, so an application can
   scope its own route bindings.
+- **Authentication context**: `Auth::context()` gives what a request is authenticated as in plain values for policy
+  conditions (the subject, principal, active tenant, application, session, `amr`, `auth_time`, an additional
+  verification, the seconds since the last step-up, the credential's kind and scopes, the client's address), built once
+  from what the guard validated and the session's proofs, never from input, with keys a sibling package or the
+  application contributes under a namespace of its own.
 - **Machine credentials**: API keys and OAuth 2.0 client credentials for non-human identities, with scopes.
 - **Account lifecycle**: password policy, changing a password with the current one or establishing a first one on a
   fresh session, password reset, identifier verification and changing an email or phone.

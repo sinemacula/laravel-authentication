@@ -23,12 +23,13 @@ use SineMacula\Laravel\Authentication\External\ExternalEvidence;
  * the very link recorded here. It carries the provider's evidence only when the
  * evidence contract accepted it (`External\EvidenceAcceptance`), and the first
  * factor then carries the acceptance; evidence that was not accepted is never
- * recorded. Times are kept to the whole second.
+ * recorded. Times are kept to the whole second. A contributor to the
+ * authentication context reads it through `ContributionSubject::provenance()`.
+ *
+ * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
- *
- * @internal
  */
 final readonly class Provenance
 {
