@@ -216,9 +216,8 @@ other rotated token as a replay that revokes the session.
   guard and resolves to GRACE on the row it re-reads. Inside a caller's REPEATABLE READ transaction, MySQL's locking
   re-read sees the latest committed row and the outcome is the same; PostgreSQL raises a serialisation failure (SQLSTATE
   40001) on the issuance guard, the exchange's first write, which propagates as a server error for the caller to retry,
-  with nothing revoked. A caller that rolls back a transaction on the session's
-  connection around `refresh()` also rolls back a replay revocation, and `SessionRevoked` is then never dispatched; do
-  not roll back around refresh.
+  with nothing revoked. A caller that rolls back a transaction on the session's connection around `refresh()` also rolls
+  back a replay revocation, and `SessionRevoked` is then never dispatched; do not roll back around refresh.
 - An exception while issuing the new pair propagates without an `AuthenticationFailed` event, rolling the exchange's
   transaction back with its issuance guard, so the session row is as it was and the client can retry with the same
   refresh token.
