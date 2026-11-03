@@ -67,7 +67,7 @@ final readonly class ExternalResults
         if ($link === null) {
             $context = new EventContext($this->context->name(), $client, connectionId: $result->connectionId, requestReference: $result->requestReference);
 
-            $this->context->dispatch(new ExternalResultUnlinked($context, $result->connectionId, $result->issuer));
+            $this->context->dispatch(new ExternalResultUnlinked($context, $result->issuer));
         }
 
         return $link;

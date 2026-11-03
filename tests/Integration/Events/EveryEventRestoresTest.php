@@ -127,7 +127,7 @@ final class EveryEventRestoresTest extends TestCase
             'AuthenticationFailed'      => [AuthenticationFailed::class, [AuthenticationFlow::SIGN_IN, FailureReason::RATE_LIMITED, 'member@example.test', 30, 'challenge-1']],
             'ClientCredentialsGranted'  => [ClientCredentialsGranted::class, []],
             'ExternalResultRedeemed'    => [ExternalResultRedeemed::class, [AuthenticationFlow::SIGN_IN]],
-            'ExternalResultUnlinked'    => [ExternalResultUnlinked::class, ['connection-7', 'https://idp.example.test']],
+            'ExternalResultUnlinked'    => [ExternalResultUnlinked::class, ['https://idp.example.test']],
             'IdentifierChangeRequested' => [IdentifierChangeRequested::class, ['email', 'new@example.test', $at]],
             'IdentifierChanged'         => [IdentifierChanged::class, ['email', 'old@example.test', 'new@example.test', $at]],
             'IdentifierVerified'        => [IdentifierVerified::class, ['email']],

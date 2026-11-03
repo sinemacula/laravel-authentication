@@ -25,21 +25,22 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 final class ExternalResultUnlinkedTest extends TestCase
 {
     /**
-     * The event keeps its context, the connection and the issuer, and has no
-     * property for the subject or anything else the provider asserted.
+     * The event keeps its context, which names the connection, and the issuer,
+     * and has no property for the subject or anything else the provider
+     * asserted.
      *
      * @return void
      */
-    public function testKeepsItsContextConnectionAndIssuerOnly(): void
+    public function testKeepsItsContextAndIssuerOnly(): void
     {
         $context = self::context();
-        $event   = new ExternalResultUnlinked($context, 'connection-7', 'https://idp.example.test');
+        $event   = new ExternalResultUnlinked($context, 'https://idp.example.test');
 
         self::assertInstanceOf(AuthenticationEvent::class, $event);
         self::assertSame($context, $event->context);
         self::assertSame($context, $event->context());
-        self::assertSame(['connection-7', 'https://idp.example.test'], [$event->connectionId, $event->issuer]);
-        self::assertSame(['context', 'connectionId', 'issuer'], array_keys(get_object_vars($event)));
+        self::assertSame(['connection-7', 'https://idp.example.test'], [$event->context->connectionId, $event->issuer]);
+        self::assertSame(['context', 'issuer'], array_keys(get_object_vars($event)));
     }
 
     /**
@@ -50,7 +51,7 @@ final class ExternalResultUnlinkedTest extends TestCase
      */
     public function testSerializesAndDispatchesWhenTheSenderSays(): void
     {
-        $event = new ExternalResultUnlinked(self::context(), 'connection-7', 'https://idp.example.test');
+        $event = new ExternalResultUnlinked(self::context(), 'https://idp.example.test');
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
         self::assertNotContains(SerializesModels::class, class_uses_recursive($event));
@@ -60,16 +61,16 @@ final class ExternalResultUnlinkedTest extends TestCase
         self::assertInstanceOf(ExternalResultUnlinked::class, $copy);
         self::assertSame('api', $copy->context->guard);
         self::assertNull($copy->context->identityId);
-        self::assertSame(['connection-7', 'https://idp.example.test'], [$copy->connectionId, $copy->issuer]);
+        self::assertSame(['connection-7', 'https://idp.example.test'], [$copy->context->connectionId, $copy->issuer]);
     }
 
     /**
-     * A context with no identity, from a known client.
+     * A context with no identity, from a known client, through a connection.
      *
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
     private static function context(): EventContext
     {
-        return new EventContext('api', new ClientContext('203.0.113.7', 'agent'));
+        return new EventContext('api', new ClientContext('203.0.113.7', 'agent'), connectionId: 'connection-7');
     }
 }

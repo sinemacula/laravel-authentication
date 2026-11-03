@@ -384,7 +384,7 @@ final class ExternalReauthenticationTest extends TestCase
         self::assertSame([ExternalResultUnlinked::class, AuthenticationFailed::class], $this->recordedClasses());
         $unlinked = $this->recordedEvent(ExternalResultUnlinked::class);
 
-        self::assertSame(['connection-7', self::ISSUER], [$unlinked->connectionId, $unlinked->issuer]);
+        self::assertSame(['connection-7', self::ISSUER], [$unlinked->context->connectionId, $unlinked->issuer]);
     }
 
     /**

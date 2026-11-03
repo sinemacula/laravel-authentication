@@ -222,7 +222,7 @@ final class ExternalSignInTest extends TestCase
         $unlinked = $this->recordedEvent(ExternalResultUnlinked::class);
 
         self::assertSame(['api', self::CLIENT_IP, null], [$unlinked->context->guard, $unlinked->context->client->ip, $unlinked->context->identityId]);
-        self::assertSame(['connection-7', self::ISSUER], [$unlinked->connectionId, $unlinked->issuer]);
+        self::assertSame(['connection-7', self::ISSUER], [$unlinked->context->connectionId, $unlinked->issuer]);
         self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull($this->recordedEvent(Failed::class)->user);
         self::assertSame(0, Session::query()->count());
