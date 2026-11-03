@@ -259,7 +259,11 @@ final readonly class SessionService
         $subject = new AttemptSubject($this->context->name(), AttemptFlow::SIGN_IN, $identifier, $type, $context->client->ip);
         $outcome = $this->signInWith($driver, $method, $input, $context, $subject, $transport);
 
-        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, $identifier, $safe, $driver->challenge($input)) : $outcome;
+        if (!$outcome instanceof Refused) {
+            return $outcome;
+        }
+
+        return $this->fail($outcome, $method, $context, $identifier, $safe, $outcome->reason === FailureReason::METHOD_NOT_ALLOWED ? null : $driver->challenge($input));
     }
 
     /**

@@ -400,6 +400,34 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
+     * A failed sign-in names the challenge its input answered once the guard
+     * allows the method; a method it does not allow fails with none, since
+     * nothing was checked, as a reauthentication does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedSignInNamesItsChallengeOnlyOnceTheMethodIsAllowed(): void
+    {
+        $this->registerTrustedMethod(FailureReason::INVALID_CREDENTIALS);
+
+        $policy = $this->policy();
+        $policy->shouldReceive('allowsMethod')->once()->with('api', 'trusted')->andReturnTrue();
+        $policy->shouldReceive('allowsMethod')->once()->with('api', 'trusted')->andReturnFalse();
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('trusted', ['challenge' => 'challenge-1'])->reason);
+        self::assertSame('challenge-1', $this->recordedEvent(AuthenticationFailed::class)->challengeId);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->signIn('trusted', ['challenge' => 'challenge-1'])->reason);
+        self::assertNull($this->recordedEvent(AuthenticationFailed::class)->challengeId);
+    }
+
+    /**
      * An attempt over its limit fails with the wait, without checking the
      * input; one under it takes a slot for the identifier as given, its type
      * and the client's IP address, then one on the account its password is
@@ -1713,17 +1741,15 @@ final class SessionServiceTest extends TestCase
             }
 
             /**
-             * No challenge.
+             * The challenge the input names, when it names one.
              *
              * @param  array<array-key, mixed>  $input
-             * @return null
+             * @return ?string
              */
             #[\Override]
-            public function challenge(#[\SensitiveParameter] array $input): null
+            public function challenge(#[\SensitiveParameter] array $input): ?string
             {
-                unset($input);
-
-                return null;
+                return is_string($input['challenge'] ?? null) ? $input['challenge'] : null;
             }
 
             /**

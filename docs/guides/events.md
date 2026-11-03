@@ -205,10 +205,11 @@ and change or establishment of a password, after Laravel's `Failed` where that f
 sign-in's input named (as given), the wait for `rate_limited` and `account_rate_limited`, and the id of the challenge a
 failed check answered (`challengeId`: a one-time code's checked as a sign-in, a factor, an identifier's verification or
 change, or a password reset, and a passkey ceremony's signed in or reauthenticated with), when it is in the form the
-package issues, which the further-factor package's own per-attempt events share. Its context carries the identity only
-once a sign-in method verified it, a refresh reloaded the session's owner or a token's subject was found (a wrong
-password or an unknown identifier carries none), the principal and tenant once resolved, and the session once found,
-else the `sid` a token named. A bearer token is checked in this order, so its reason is the first that applies:
+package issues, which the further-factor package's own per-attempt events share; a sign-in or reauthentication refused
+as `method_not_allowed` names none, since nothing was checked. Its context carries the identity only once a sign-in
+method verified it, a refresh reloaded the session's owner or a token's subject was found (a wrong password or an
+unknown identifier carries none), the principal and tenant once resolved, and the session once found, else the `sid` a
+token named. A bearer token is checked in this order, so its reason is the first that applies:
 `token_invalid`, for a client credentials token `credential_invalid`, `credential_revoked` and `credential_expired`,
 then `identity_unknown`, `machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`,
 `tenant_inactive`, then for a token that names no session `issued_before_cutoff`, and for one that names a session

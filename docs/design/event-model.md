@@ -79,8 +79,10 @@ to these events, so the shape and the timing are a contract.
   `IdentifierChangeService::confirmByCode()` or a code reset, and every sign-in method failure in `signIn()` and a
   first-factor `reauthenticate()`) also names the challenge it answered (`challengeId`), when the id is in the form the
   package issues, else `null`; the session service never reads a method's input itself, but asks the method
-  (`SignInMethod::challenge()`). A refused send of a factor code names none. Where Laravel's `Failed` fires as well, it
-  fires first and `AuthenticationFailed` second; a bearer token or an API key fires neither `Attempting` nor `Failed`.
+  (`SignInMethod::challenge()`), and only once the application allowed the method: a `method_not_allowed` failure of
+  either names none, since nothing was checked. A refused send of a factor code names none. Where Laravel's `Failed`
+  fires as well, it fires first and `AuthenticationFailed` second; a bearer token or an API key fires neither
+  `Attempting` nor `Failed`.
 - Each refusal is reported once: a guard settles and reports its request's credential at most once (asking
   `Auth::user()`, `Auth::context()`, `Auth::caller()` or `check()` again reports nothing more), each service call
   reports its own refusal, and building the authentication context reports nothing. On a route whose `auth` middleware
