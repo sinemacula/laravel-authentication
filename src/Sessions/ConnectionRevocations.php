@@ -42,7 +42,13 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * connection and a link are matched byte for byte, whatever the provenance
  * columns' collation, so one connection's or link's revocation never ends the
  * sessions of another whose id differs from it only in case, accents or a
- * trailing space; a session with no link recorded is never one of a link's.
+ * trailing space; a session with no link recorded is never one of a link's. A
+ * link's sessions, and their provenance, are found with locking reads (the
+ * identity's live sessions locked in key order, as the revocation then locks
+ * them), which read what is committed now rather than a snapshot the caller's
+ * transaction opened earlier: on MySQL's REPEATABLE READ a plain read would
+ * miss a session a sign-in through the link committed after the caller's first
+ * read, though the caller's lock on the link made that sign-in wait for it.
  * Once that commits, the guard first forgets a binding to any session revoked,
  * so the rest of the request is not authenticated as a session it ended even
  * when a listener throws, and then `SessionRevoked` reports each one. No cutoff
@@ -257,7 +263,9 @@ final readonly class ConnectionRevocations
 
     /**
      * The next chunk of the keys of the identity's live sessions, after the key
-     * given, in key order, read on the write connection.
+     * given, in key order, read on the write connection with a locking read, so
+     * it sees every session committed by now and holds each one, in key order,
+     * until the revocation's transaction ends.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
      * @param  \Illuminate\Database\Eloquent\Model  $identity
@@ -273,7 +281,8 @@ final readonly class ConnectionRevocations
             ->where($owner->getForeignKeyName(), IdentifierCoercion::stringify($identity->getKey()))
             ->when($after !== null, static fn (Builder $query): Builder => $query->where($model->getKeyName(), '>', $after))
             ->orderBy($model->getKeyName())
-            ->limit(self::CHUNK);
+            ->limit(self::CHUNK)
+            ->lockForUpdate();
 
         return self::strings(WriteConnection::during($model, static fn (): array => $query->pluck($model->getKeyName())->all()));
     }
@@ -281,7 +290,9 @@ final readonly class ConnectionRevocations
     /**
      * Those of the session keys established through the link (the connection
      * and the link id given), read from the provenance on the write connection
-     * and kept only when both match byte for byte.
+     * with a locking read, so a provenance committed with its session after the
+     * caller's transaction first read is seen, and kept only when both match
+     * byte for byte.
      *
      * @param  list<string>  $keys
      * @param  string  $connectionId
@@ -294,7 +305,7 @@ final readonly class ConnectionRevocations
             return [];
         }
 
-        $query = WriteConnection::query(SessionProvenance::query())->whereKey($keys)->where('connection_id', $connectionId)->where('link_id', $linkId);
+        $query = WriteConnection::query(SessionProvenance::query())->whereKey($keys)->where('connection_id', $connectionId)->where('link_id', $linkId)->sharedLock();
 
         /** @var list<\stdClass> $rows */
         $rows = WriteConnection::during(new SessionProvenance, static fn (): array => $query->toBase()->get(['session_id', 'connection_id', 'link_id'])->all());

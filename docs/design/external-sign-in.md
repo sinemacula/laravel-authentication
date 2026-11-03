@@ -80,7 +80,11 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 - A change committed while the reauthentication waits for the session's lock (a revocation, a reissued key, a
   rewritten owner) is judged under the lock: `session_revoked`, `session_unknown` or `link_mismatch`.
 - A sign-in through a link racing that link's revocation is serialised by the adapter's own lock on the link, taken
-  before the session's row; the package documents the order and does not enforce it.
+  before the session's row; the package documents the order and does not enforce it. The revocation finds the link's
+  sessions and their provenance with locking reads, which see what is committed now: a plain read on MySQL's
+  REPEATABLE READ would use the snapshot the adapter's transaction opened at its first read, before it took the link's
+  lock, and miss a session the sign-in committed meanwhile. The identity's live sessions are locked in key order, as the
+  revocation then locks them, until the transaction ends.
 - `externalStanding()` outside a transaction on the session model's connection is a `LogicException`, checked before
   anything is read; on an application that does not allow `external_provider` it answers `method_not_allowed`.
 - A second `linkScopeWidened()` for the same widening finds nothing live and revokes and reports nothing.
@@ -113,7 +117,8 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 - `tests/Integration/Sessions/ExternalSignInTest.php`, `ExternalReauthenticationTest.php`: the adapter's transaction,
   an exception from the link contract, the byte-exact link id.
 - `tests/Integration/Sessions/ConcurrentExternalReauthenticationsTest.php`,
-  `ConcurrentExternalReauthenticationAndWideningTest.php`: the races on the session's row lock.
+  `ConcurrentExternalReauthenticationAndWideningTest.php`: the races on the session's row lock;
+  `ConcurrentExternalSignInAndWideningTest.php`: a widening finds a sign-in committed after its transaction first read.
 - `tests/Unit/External/*`, `tests/Unit/Events/ExternalResultUnlinkedTest.php`,
   `tests/Feature/Sessions/SignInMethodManagerTest.php`, `tests/Unit/Sessions/SessionPreconditionsTest.php`.
 - `tests/Performance/SessionServiceQueryBudgetTest.php`, `ProofQueryBudgetTest.php`,

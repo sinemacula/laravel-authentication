@@ -765,7 +765,10 @@ contract answered when the session was established, so the identity's sessions t
 connection or another, stay, and a session recorded with no link is never one of a link's. They revoke as `link_removed`
 and `link_scope_widened`. Each returns how many it revoked. They are found through the provenance's connection index (a
 link's through the identity's sessions, then their provenance by key) 500 at a time, each chunk locked in key order, in
-one transaction on the storage connection, a savepoint inside yours. Once that commits, a request's guard bound to one
+one transaction on the storage connection, a savepoint inside yours. A link's sessions and their provenance are found
+with locking reads, so a session a sign-in through the link committed while your transaction waited for your lock on the
+link is found even on MySQL's REPEATABLE READ, where a plain read would see your transaction's first snapshot; the
+identity's live sessions stay locked until your transaction ends. Once that commits, a request's guard bound to one
 of them forgets it, so the rest of the request is not authenticated as it even when a listener throws, and then
 `SessionRevoked` reports each. No cutoff moves and no `SignedOutEverywhere` is reported: the scope is how the sessions
 began, not the identity, whose other sessions stay.
