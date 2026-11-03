@@ -328,7 +328,7 @@ the package registers is not the one the package uses):
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
 $this->callAfterResolving(SignInMethodManager::class, static function (SignInMethodManager $methods): void {
-    $methods->extend('sso', fn ($app) => $app->make(SsoSignIn::class));
+    $methods->extend('magic_link', fn ($app) => $app->make(MagicLinkSignIn::class));
 });
 ```
 
@@ -493,20 +493,31 @@ $passed = $result->isVerified();   // else $result->reason
 
 ### Single sign-on (`laravel-sso`)
 
-- When the identity provider's callback has proven the identity, start the session with
-  `Auth::sessions($guard)->start($identity, $principal, 'sso', $context)`: the application must list the method name,
-  the identity is reloaded through the guard's provider, activity, the application policy and the additional-factor
-  policy all apply, and no attempt limit or timebox does, since nothing is guessed. No registration is needed.
-- For an assertion the package should verify itself, implement `Contracts\SignInMethod`, register it with
-  `SignInMethodManager::extend()` and sign in through `signIn()`, which adds the limits and the timebox (see
-  [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)).
-- Pass what the callback checked as a `Proofs\Provenance` (`start($identity, $principal, 'sso', $context,
-  $provenance)`): the session records it once (the connection and its tenant, the provider's authentication time, its
-  session deadline and the policy version), indexed by connection and by tenant, its first proof is the provider's with
-  the private `amr` value `urn:sinemacula:amr:external_provider`, and the provider's deadline caps the session (see
-  [Signing in: the session service](signing-in.md#signing-in-the-session-service)). The provider's own `amr` values and
-  evidence are the SSO package's: none of them reaches this package's `amr`.
-- Either way the session records the method, so the application can stop allowing it and its sessions stop
+- Bind `Contracts\ExternalIdentityLinks`. Given the connection, the issuer and the subject of a result the provider
+  verified, `find()` answers the link made through exactly that connection for exactly that issuer and subject
+  (`External\ExternalLink`: the identity and the link's own id, opaque and compared exactly), or `null`. It never
+  matches by email or any other attribute the provider asserted. It is asked inside the adapter's transaction, before
+  any lock of the package's, so read the links on the write connection. The default, `NoExternalLinks`, links nothing,
+  so no external result signs anyone in until the identity package's adapter binds `laravel-sso`'s links. Linking, and
+  the links, are `laravel-sso`'s; this package stores none.
+- Inside the transaction in which it redeems a handoff, after `laravel-sso`'s own locks, the adapter hands the verified
+  result to `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
+  sign-in](signing-in.md#external-sign-in)). The application must list `external_provider` in its `methods`. The
+  identity is reloaded through the guard's provider, and activity, the application policy, the additional-factor policy,
+  the choice of principal and the tenant's authentication policy all apply; no attempt limit or timebox does, since
+  nothing is guessed. The package takes no lock before the link contract is asked, so any session row it locks (one the
+  sign-in replaces) is locked after the adapter's own. A database error, a PostgreSQL serialization failure included,
+  propagates for the adapter to retry the whole transaction.
+- A result linked to no identity dispatches `ExternalResultUnlinked` and fails as `external_result_unlinked`. The event
+  is informational: `laravel-iam` provisions on `laravel-sso`'s own unlinked-result event, before any handoff is issued,
+  never on this one, since provisioning on both would provision twice.
+- An external result never arrives as a sign-in's input: `external_provider` is reserved, so no sign-in method can be
+  registered under it, `signIn()` cannot reach it and `start()` refuses it.
+- The session records the method `external_provider` and its provenance once (the connection and its tenant, the
+  provider's authentication time, its session deadline, the policy version and the link's id), indexed by connection and
+  by tenant. Its first proof is the provider's, with the private `amr` value `urn:sinemacula:amr:external_provider`, and
+  the provider's deadline caps the session. The provider's own `amr` values and evidence are the SSO package's: none of
+  them reaches this package's `amr`. The application can stop allowing `external_provider`, and those sessions stop
   refreshing.
 - A tenant that requires sign-in through its connections says so through its `TenantAuthenticationPolicy` (see
   [Tenant authentication policies](#tenant-authentication-policies)): a session established through none of them is

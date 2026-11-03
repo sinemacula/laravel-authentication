@@ -10,15 +10,17 @@ use Carbon\CarbonInterface;
 /**
  * How a session established through an external identity provider began: the
  * connection and its tenant, when the provider authenticated the identity, the
- * provider's own deadline for its session (SAML `SessionNotOnOrAfter`), and the
- * version of the enforcement or policy the caller checked.
+ * provider's own deadline for its session (SAML `SessionNotOnOrAfter`), the
+ * version of the enforcement or policy the caller checked, and the id of the
+ * link the result was mapped to its identity through.
  *
- * Given by a trusted server-side caller, never built from what a client sent.
- * The session records it once, beside its proofs, and nothing rewrites it: a
- * later reauthentication at the provider is a proof of its own. The evidence
- * the provider asserted is not part of it, and no evidence is recorded with it:
- * nothing decides yet whether a provider's evidence is accepted. Times are kept
- * to the whole second.
+ * Built by the session service from a trusted server-side adapter's result and
+ * the link the link contract found, never from what a client sent. The session
+ * records it once, beside its proofs, and nothing rewrites it: a later
+ * reauthentication at the provider is a proof of its own, and must come through
+ * the very link recorded here. The evidence the provider asserted is not part
+ * of it, and no evidence is recorded with it: nothing decides yet whether a
+ * provider's evidence is accepted. Times are kept to the whole second.
  *
  * @api
  *
@@ -27,7 +29,7 @@ use Carbon\CarbonInterface;
  */
 final readonly class Provenance
 {
-    /** @var int Longest connection or tenant id, in characters: the columns' length. */
+    /** @var int Longest connection, tenant or link id, in characters: the columns' length. */
     public const int ID_MAX_LENGTH = 255;
 
     /** @var int Longest policy version, in characters: the column's length. */
@@ -47,6 +49,7 @@ final readonly class Provenance
      * @param  ?\Carbon\CarbonInterface  $providerAuthenticatedAt
      * @param  ?\Carbon\CarbonInterface  $sessionNotAfter
      * @param  ?string  $policyVersion
+     * @param  ?string  $linkId
      *
      * @throws \InvalidArgumentException
      */
@@ -66,10 +69,14 @@ final readonly class Provenance
 
         /** The version of the enforcement or policy the caller checked, if any. */
         public ?string $policyVersion = null,
+
+        /** The id of the link the result was mapped to its identity through, opaque and compared exactly; `null` for none. */
+        public ?string $linkId = null,
     ) {
         self::assertText($connectionId, self::ID_MAX_LENGTH, 'connection id');
         self::assertText($tenantId, self::ID_MAX_LENGTH, 'tenant id');
         self::assertText($policyVersion, self::VERSION_MAX_LENGTH, 'policy version');
+        self::assertText($linkId, self::ID_MAX_LENGTH, 'link id');
 
         $this->providerAuthenticatedAt = $providerAuthenticatedAt === null ? null : CarbonImmutable::instance($providerAuthenticatedAt)->startOfSecond();
         $this->sessionNotAfter         = $sessionNotAfter         === null ? null : CarbonImmutable::instance($sessionNotAfter)->startOfSecond();

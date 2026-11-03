@@ -269,6 +269,35 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
+     * `external_provider` is no method a first factor reauthenticates with,
+     * even on an application that allows external sign-in: it throws before
+     * anything is counted or reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheExternalProviderMethodIsNoReauthenticationMethod(): void
+    {
+        $signedIn = $this->signedIn();
+
+        DB::table('rate_limits')->delete();
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        try {
+            $this->sessions()->reauthenticate($signedIn->record, 'external_provider', []);
+
+            self::fail('A reauthentication ran under external_provider.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('[external_provider] is not a sign-in method: only a result an external provider verified signs a session in under it.', $exception->getMessage());
+        }
+
+        self::assertSame([], $this->recorded);
+        self::assertSame(0, DB::table('rate_limits')->count());
+    }
+
+    /**
      * Once the identifier has used up its sign-in attempts, a reauthentication
      * is rate limited, with the wait, before the password is checked.
      *

@@ -24,13 +24,15 @@ after which it never counts: when the factor package removes a factor, `factorRe
 session made with it, and the identity's other sessions end (see [Sign-in factors](#sign-in-factors)). A removed
 first-factor credential (`credentialRemoved()`) voids nothing.
 
-A session an external provider established also records its provenance, once, in `proofs.provenance_table`: the
+A session an external provider established (`signInExternally()`, see [External
+sign-in](signing-in.md#external-sign-in)) also records its provenance, once, in `proofs.provenance_table`: the
 connection and its tenant, the provider's authentication time, no evidence (nothing yet decides whether a provider's
 evidence is accepted, so none is recorded), the provider's deadline for its session (which also caps the session's
-absolute deadline, the earlier of it and the sign-in's own winning) and the policy version the caller checked. A later
-reauthentication at the provider is a proof of its own and never rewrites how the session began. The provenance is
-indexed by connection and by tenant: the sessions a connection established are revoked through it (see [Connections and
-links](#connections-and-links)); there is no lookup by connection or tenant yet.
+absolute deadline, the earlier of it and the sign-in's own winning), the policy version the adapter checked, and the id
+of the link the result was mapped to its identity through, kept byte for byte. A later reauthentication at the provider
+is a proof of its own and never rewrites how the session began. The provenance is indexed by connection and by tenant:
+the sessions a connection established are revoked through it (see [Connections and links](#connections-and-links));
+there is no lookup by connection or tenant yet.
 
 Proofs and provenance belong to the session's key, so they carry unchanged from a pending session to the active one it
 becomes, and across every refresh and switch. A sign-in that replaces a session the client proved it holds is a new
@@ -771,8 +773,8 @@ request. A session that falls short:
 
 A further factor is met only as the bound `Contracts\RequirementCheck` judges the session's proofs (the default,
 `MeetNoRequirement`, meets nothing, so a tenant that requires a further factor admits no session until a factor package
-binds its check). A session established through a connection carries it in its provenance (`start()` with a
-`Provenance`). A session that meets the policy records the version of the answer in `tenant_policy_version`.
+binds its check). A session established through a connection carries it in its provenance (`signInExternally()`). A
+session that meets the policy records the version of the answer in `tenant_policy_version`.
 
 A refresh that returns a session to pending hands out no pair: `RefreshResult::isPending()`, with `pending` (what it
 waits on, `["mfa"]`) and `credential`, and `SessionReturnedToPending` reports it. A guard the request already bound to

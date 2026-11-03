@@ -160,33 +160,13 @@ identity-level factor policy, the selected principal's active tenant, and that t
 `password`), a method that refuses with any reason but `invalid_credentials`, a misconfigured model and database errors
 still throw. A sign-in whose session starts active gives its attempt slots back.
 
-`start($identity, $principal, $method, $context, $provenance)` begins a session for an identity something else verified,
-such as an external identity provider. The identity is reloaded through the guard's provider (`identity_unknown` when
-that does not return the very same identity), the method must be allowed, and the sign-in then follows the same order,
-so a sign-in from outside cannot skip a required factor or the choice of principal. No attempt limit or timebox applies.
-The principal is given as the argument or on the context, not both.
-
-When an external provider verified the identity, pass what your server-side code checked as a `Proofs\Provenance`: the
-connection (the configured provider) and its tenant, when the provider authenticated the identity, its deadline for its
-own session (SAML `SessionNotOnOrAfter`), and the version of the enforcement or policy you checked. The session's first
-proof is then the provider's: the connection as an `external_provider` channel, the private `amr` value
-`urn:sinemacula:amr:external_provider` (RFC 8176 names none for it; the provider's own values are its package's to
-carry), and the provider's authentication time (now, when it gave none or one after now). The provenance is recorded
-with the session and never rewritten, and the provider's deadline is folded into the context's (see [A sign-in's own
-deadline](#a-sign-ins-own-deadline)), so the earlier of the two caps the session's absolute deadline. Never build a
-provenance from what the client sent. Without one, the first proof names no channel and no `amr` value, timed now.
-
-```php
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
-
-$result = Auth::sessions('api')->start($identity, null, 'sso', null, new Provenance(
-    connectionId: $connection->id,
-    tenantId: $connection->tenant_id,
-    providerAuthenticatedAt: $assertion->authenticatedAt,
-    sessionNotAfter: $assertion->sessionNotOnOrAfter,
-    policyVersion: $enforcement->version,
-));
-```
+`start($identity, $principal, $method, $context)` begins a session for an identity something else verified. The identity
+is reloaded through the guard's provider (`identity_unknown` when that does not return the very same identity), the
+method must be allowed, and the sign-in then follows the same order, so a sign-in from outside cannot skip a required
+factor or the choice of principal. No attempt limit or timebox applies. The principal is given as the argument or on the
+context, not both. The session's first proof names no channel and no `amr` value, timed now. The method may be neither a
+machine credential kind (`api_key`, `client_credentials`) nor `external_provider`: each throws an
+`InvalidArgumentException`.
 
 Every sign-in starts a new session that records the identity, the principal, the guard, the method, the client's name
 and platform (from the context, cleaned as the user agent is), the client's IP address and user agent at creation and as
@@ -225,15 +205,64 @@ asks for a further factor without the session's trust. A pending session superse
 first activates. The additional-factor policy is told of the session the client proved; the new session has a new id, so
 nothing a factor package kept about the previous session carries over to it.
 
+### External sign-in
+
+`signInExternally($result, $context)` begins a session from a result an external identity provider verified, which a
+trusted server-side adapter hands over (from a handoff it redeemed, say), never a client. The result
+(`External\ExternalResult`) names the connection (the configured provider) it came through, the issuer and the subject
+the provider asserted, and optionally the connection's tenant, when the provider authenticated the identity, its
+deadline for its own session (SAML `SessionNotOnOrAfter`) and the version of the enforcement or policy the adapter
+checked. It is off unless the application lists `external_provider` in its `methods` (`method_not_allowed` otherwise,
+the link contract never asked).
+
+The identity is the one the bound `Contracts\ExternalIdentityLinks` links the connection, issuer and subject to: only a
+link made through exactly that connection, for exactly that issuer and subject, never by email or any other attribute
+(see [Extending: single sign-on](extending.md#single-sign-on-laravel-sso)). The default, `NoExternalLinks`, links
+nothing. A result linked to no identity dispatches `ExternalResultUnlinked` (the guard, the client, the connection and
+the issuer, never the subject), informational only, and fails as `external_result_unlinked`. From the linked identity
+on, the sign-in follows `start()`'s order under the method `external_provider`: reloaded, admitted, the principal the
+context names or the only one, or a choice, the factor policy, the tenant and its authentication policy (one requiring
+another connection refuses it as `sso_required`). No `Attempting` is dispatched, and no attempt limit or timebox
+applies.
+
+The session's first proof is the provider's: the connection as an `external_provider` channel, the private `amr` value
+`urn:sinemacula:amr:external_provider` (RFC 8176 names none for it; the provider's own values are its package's to
+carry), and the provider's authentication time (now, when it gave none or one after now). Its provenance (the connection
+and tenant, the provider's time and deadline, the policy version and the id of the link the result came through) is
+recorded with the session, pending or active, and never rewritten, and the provider's deadline is folded into the
+context's (see [A sign-in's own deadline](#a-sign-ins-own-deadline)), so the earlier of the two caps the session's
+absolute deadline.
+
+```php
+use SineMacula\Laravel\Authentication\External\ExternalResult;
+
+$result = Auth::sessions('api')->signInExternally(new ExternalResult(
+    connectionId: $redeemed->connectionId,
+    issuer: $redeemed->issuer,
+    subject: $redeemed->subject,
+    tenantId: $redeemed->tenantId,
+    authenticatedAt: $redeemed->authenticatedAt,
+    sessionNotAfter: $redeemed->sessionNotAfter,
+    policyVersion: $redeemed->enforcementVersion,
+));
+```
+
+Call it inside the transaction in which the adapter takes its own locks, on the storage connection: the link contract is
+asked before anything of the sign-in is written, the session's writes are a savepoint there, and the reports and the
+guard's bind wait for the commit. A database error (a PostgreSQL serialization failure included) and an exception from
+the link contract propagate untouched, so the adapter can retry the whole transaction. `external_provider` is reserved:
+it is no sign-in method (`signIn('external_provider', ...)` throws, since a result never arrives as input), and
+`SignInMethodManager::extend()` refuses it.
+
 ### A sign-in's own deadline
 
 A sign-in may cap the session it starts at a deadline of its own, such as the session deadline an external identity
 provider reports (`SessionNotOnOrAfter`, say), on the context's `notAfter` (cut to the whole second):
 
 ```php
-$context = SignInContext::fromRequest($request)->withNotAfter($providerSessionEndsAt);
+$context = SignInContext::fromRequest($request)->withNotAfter($sessionEndsAt);
 
-$result = Auth::sessions('api')->start($identity, null, 'sso', $context);
+$result = Auth::sessions('api')->start($identity, null, 'trusted', $context);
 ```
 
 The session's absolute deadline is then the earlier of the deadline and the application's absolute limit, or the
@@ -248,10 +277,10 @@ no later than it.
 
 `attempt()` and `login()` remain for code that binds the guard itself; neither creates a session. A session is a stored
 row, so the session service signs in only identities that implement `HasSessions`: for any other identity `signIn()`,
-`start()` throw a `LogicException` naming its class, since the access token it would issue names a
-session the guard could never find again. Access-only guards (identities without `HasSessions`) sign in with `attempt()`
-and issue access tokens with `Auth::jwt('api')->issueAccessToken()`, a `Secret` to send as the others are (see [Secrets
-in responses](#secrets-in-responses)).
+`start()` and `signInExternally()` throw a `LogicException` naming its class, since the access token it would issue
+names a session the guard could never find again. Access-only guards (identities without `HasSessions`) sign in with
+`attempt()` and issue access tokens with `Auth::jwt('api')->issueAccessToken()`, a `Secret` to send as the others are
+(see [Secrets in responses](#secrets-in-responses)).
 
 ### Secrets in responses
 

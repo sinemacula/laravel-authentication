@@ -42,9 +42,12 @@ are caught on the server.
   (`client_id`, `auth_time`, `amr`, an `at+jwt` header type) and OpenID Connect's `sid`, refresh rotation with replay
   detection, and a refresh transport per application: the body, or for a browser application a host-only `HttpOnly`
   cookie named after it, with CSRF checks, whose results never hand its code the plain refresh token.
-- **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
-  custom methods plug into; a further-factor package can use passkeys as a factor too, with a ceremony bound to the
-  session and the credentials it names, and a gate it takes part in when a passkey is registered or removed.
+- **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that custom
+  methods plug into; a further-factor package can use passkeys as a factor too, with a ceremony bound to the session and
+  the credentials it names, and a gate it takes part in when a passkey is registered or removed.
+- **External sign-in**: a result an external identity provider verified, handed over by a trusted adapter and never by
+  a client, signs in only the identity a link contract maps its connection, issuer and subject to (never by email), on
+  an application that allows it, with the provider's time, deadline and the link recorded on the session.
 - **One-time code challenges**: every code is a challenge with an id the check names, kept across resends with its
   attempt budget, capped in deliveries per destination, and bound to its purpose; a further-factor package's codes are
   bound to the session and factor too, with its counters asked and told inside the transaction that checks them.

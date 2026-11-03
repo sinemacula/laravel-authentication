@@ -30,11 +30,11 @@ use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofHistory;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
@@ -60,7 +60,7 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 #[CoversClass(RecordedProof::class)]
 final class SessionProofsTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -652,7 +652,7 @@ final class SessionProofsTest extends TestCase
         self::assertNull(SessionProofs::connectionId($password));
         self::assertInstanceOf(Identity::class, $identity);
 
-        $external = $this->sessions()->start($identity, null, 'sso', null, new Provenance('conn-a'))->session?->record;
+        $external = $this->sessions()->signInExternally($this->linkedResult($identity, 'conn-a'))->session?->record;
 
         self::assertNotNull($external);
         self::assertSame('conn-a', SessionProofs::connectionId($external));

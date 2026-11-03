@@ -238,6 +238,10 @@ enum FailureReason: string
     // changes it instead
     case PASSWORD_ALREADY_SET = 'password_already_set';
 
+    // A result an external provider verified is linked to no identity through
+    // its connection, issuer and subject
+    case EXTERNAL_RESULT_UNLINKED = 'external_result_unlinked';
+
     /**
      * Whether a sign-in method may answer with this reason. Every other reason
      * is the session service's to decide, so a method that returns one is

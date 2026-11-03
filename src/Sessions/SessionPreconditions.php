@@ -17,8 +17,9 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * is signed in: that a session can be started for the identity at all, which
  * principal a session for an externally verified identity is pinned to, whether
  * the guard's provider returned the very identity that was verified, that a
- * session is never started under a machine credential kind, and that a sign-in
- * method refused only as a method may.
+ * session is never started under a machine credential kind or, outside the
+ * external sign-in, under `external_provider`, and that a sign-in method
+ * refused only as a method may.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -88,9 +89,12 @@ final class SessionPreconditions
 
     /**
      * Refuse a machine credential kind (`api_key`, `client_credentials`) as the
-     * method a session is started under: an application may list one to allow
-     * the credential, but it never signs a session in, and a session recorded
-     * under one would pass for that credential.
+     * method a session is started or reauthenticated under: an application may
+     * list one to allow the credential, but it never signs a session in, and a
+     * session recorded under one would pass for that credential. Refuse
+     * `external_provider` too: only the external sign-in records a session
+     * under it, once the link contract has mapped the provider's result to its
+     * identity, so no other path may pass for one.
      *
      * @param  string  $method
      * @return void
@@ -101,6 +105,10 @@ final class SessionPreconditions
     {
         if (in_array($method, SignInMethodManager::CREDENTIAL_METHODS, true)) {
             throw new \InvalidArgumentException(sprintf('[%s] names a machine credential, not a sign-in method; no session can be started with it.', $method));
+        }
+
+        if ($method === SignInMethodManager::EXTERNAL_METHOD) {
+            throw new \InvalidArgumentException(sprintf('[%s] is not a sign-in method: only a result an external provider verified signs a session in under it.', $method));
         }
     }
 

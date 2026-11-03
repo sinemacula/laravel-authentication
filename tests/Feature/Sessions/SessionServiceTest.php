@@ -971,6 +971,30 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
+     * `start()` refuses `external_provider` as the method, even on a guard
+     * whose application allows external sign-in: a session is recorded under it
+     * only from an external result the link contract maps to its identity.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testStartRefusesTheExternalProviderMethod(): void
+    {
+        $identity = $this->seedIdentity();
+
+        try {
+            $this->sessions()->start($identity, null, 'external_provider');
+
+            self::fail('A session was started under external_provider.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('[external_provider] is not a sign-in method: only a result an external provider verified signs a session in under it.', $exception->getMessage());
+        }
+
+        self::assertSame(0, Session::query()->count());
+    }
+
+    /**
      * `start()` checks the identity's provider: an identity of another model
      * that shares the key is not the guard's.
      *

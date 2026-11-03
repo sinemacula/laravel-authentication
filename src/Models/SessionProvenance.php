@@ -12,7 +12,8 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * How a session established through an external identity provider began, one
  * row per such session, keyed by the session's key: the connection and its
  * tenant, the provider's authentication time and session deadline (no evidence:
- * nothing accepts any yet), and the policy version the caller checked.
+ * nothing accepts any yet), the policy version the caller checked, and the id
+ * of the link the result was mapped to its identity through.
  *
  * Kept on the storage connection with the sessions, in the table named by
  * `authentication.proofs.provenance_table`, written once with the session and
@@ -32,6 +33,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property ?array<array-key, mixed> $accepted_evidence
  * @property ?\Carbon\CarbonInterface $provider_session_expires_at
  * @property ?string $policy_version
+ * @property ?string $link_id
  * @property \Carbon\CarbonInterface $created_at
  */
 final class SessionProvenance extends Model

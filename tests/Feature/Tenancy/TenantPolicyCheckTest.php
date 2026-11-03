@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
@@ -44,7 +45,7 @@ use Tests\TestCase;
 #[CoversClass(SessionProofs::class)]
 final class TenantPolicyCheckTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
 
     /** @var \Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy The policy the tenant answers with. */
     private ScriptedTenantAuthenticationPolicy $policy;
@@ -157,7 +158,7 @@ final class TenantPolicyCheckTest extends TestCase
         [$member, $membership, $tenant] = $this->seedMember();
 
         $password = $this->signedIn();
-        $external = $this->sessions('members')->start($member, $membership, 'sso', null, new Provenance('conn-a'))->session?->record;
+        $external = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a'), self::asPrincipal($membership))->session?->record;
 
         self::assertNotNull($external);
 

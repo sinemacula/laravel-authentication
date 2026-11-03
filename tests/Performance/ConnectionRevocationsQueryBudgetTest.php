@@ -9,9 +9,9 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Sessions\ConnectionRevocations;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
@@ -30,7 +30,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 #[CoversClass(ConnectionRevocations::class)]
 final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithSessions;
 
     /**
      * Create the tables.
@@ -168,7 +168,7 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
      */
     private function external(IntegrationIdentity $identity, string $connection): void
     {
-        self::assertNotNull($this->sessions()->start($identity, null, 'sso', null, new Provenance($connection))->session);
+        self::assertNotNull($this->sessions()->signInExternally($this->linkedResult($identity, $connection))->session);
     }
 
     /**

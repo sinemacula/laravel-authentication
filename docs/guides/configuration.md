@@ -303,14 +303,14 @@ and a guard overrides any key in an `application` block of its own:
 ],
 ```
 
-| Key                           | Default | Meaning                                                                                                                                                    |
-|-------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `methods`                     | `[]`    | The sign-in methods that may start the application's sessions, and the machine credentials (`api_key`, `client_credentials`) it accepts (lower-case names) |
-| `require_verified_identifier` | `false` | Refuse a sign-in with an identifier the identity has not verified                                                                                          |
+| Key                           | Default | Meaning                                                                                                                                                                                              |
+|-------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `methods`                     | `[]`    | The sign-in methods that may start the application's sessions, `external_provider` for external sign-in, and the machine credentials (`api_key`, `client_credentials`) it accepts (lower-case names) |
+| `require_verified_identifier` | `false` | Refuse a sign-in with an identifier the identity has not verified                                                                                                                                    |
 
 Every feature is opt-in, so an application allows nothing until it lists it: with the default empty `methods` (or a
-guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`), refresh, switch, one-time code
-request and password reset request is refused as `method_not_allowed`, a password never reauthenticates
+guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`, `signInExternally()`), refresh, switch, one-time
+code request and password reset request is refused as `method_not_allowed`, a password never reauthenticates
 (`reauthentication_required`), an `api_key` guard refuses every key, and a client credentials exchange answers
 `unauthorized_client`. A session still pending (on a further factor or a choice of principal) when its method is removed
 is refused as `method_not_allowed` when it is next acted on, and stays pending until its credential expires. An empty
@@ -319,10 +319,11 @@ empty the list to stop an application's sign-ins and refreshes without revoking 
 or continue a session, not who holds one: access tokens already issued keep working until they expire, and a session
 refreshes again, if it is otherwise still valid, once its method is listed again. `authentication:check` warns about a
 `jwt` guard whose `methods` lists nothing, or only `api_key`, which a `jwt` guard never accepts; any other name counts,
-registered or not, since the application can start a session under it with `start()`. It reports an `api_key` guard that
-does not allow `api_key` as a problem, whatever policy is bound, since such a guard has no other use. A policy of your
-own, even one that wraps the package's, gets no warning, since the names it allows are its own. A change reaches a
-long-running process only after a restart (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
+registered or not, since the application can start a session under it with `start()`, and `external_provider` allows
+external sign-in (see [External sign-in](signing-in.md#external-sign-in)). It reports an `api_key` guard that does not
+allow `api_key` as a problem, whatever policy is bound, since such a guard has no other use. A policy of your own, even
+one that wraps the package's, gets no warning, since the names it allows are its own. A change reaches a long-running
+process only after a restart (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
 
 The session layer asks the application before it issues anything: a sign-in with a method it does not list fails with
 `method_not_allowed`, at sign-in and again on every refresh, so a valid credential for one application cannot open or

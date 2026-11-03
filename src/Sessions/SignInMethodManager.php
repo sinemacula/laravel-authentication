@@ -21,12 +21,16 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * their names are reserved: `extend('password', ...)` throws. So are the
  * machine credential kinds an application may list beside them (`api_key`,
  * `client_credentials`), which are not sign-in methods and never resolve to
- * one. Other methods register themselves with `extend()` under a lower-case
- * name (a letter, then letters, digits or underscores), for example from a
- * service provider's `register()` once the registry resolves, which holds
- * whichever provider registers first:
+ * one, and `external_provider`, under which the session service records a
+ * session an external identity provider established
+ * (`SessionService::signInExternally()`): it never resolves to a method, so a
+ * result an external provider verified never arrives as a sign-in's input.
+ * Other methods register themselves with `extend()` under a lower-case name (a
+ * letter, then letters, digits or underscores), for example from a service
+ * provider's `register()` once the registry resolves, which holds whichever
+ * provider registers first:
  *
- * `$this->callAfterResolving(SignInMethodManager::class, fn ($methods) => $methods->extend('sso', ...));`
+ * `$this->callAfterResolving(SignInMethodManager::class, fn ($methods) => $methods->extend('magic_link', ...));`
  *
  * A singleton that keeps each method it builds for as long as the same
  * application is serving (the life of the process, except under Octane, where
@@ -42,6 +46,9 @@ final class SignInMethodManager extends Manager
 {
     /** @var list<string> Credential kinds an application may list in `methods` that are not sign-in methods; `extend()` refuses them. */
     public const array CREDENTIAL_METHODS = ['api_key', 'client_credentials'];
+
+    /** @var string The method a session an external identity provider established records; `extend()` refuses it. */
+    public const string EXTERNAL_METHOD = 'external_provider';
 
     /** @var string Pattern a registered method's name must match. */
     private const string NAME_PATTERN = '/^[a-z][a-z0-9_]*$/D';
@@ -113,7 +120,9 @@ final class SignInMethodManager extends Manager
      * `signIn()` but not them, and the others hold the package's guarantees for
      * codes and passkeys. The machine credential kinds cannot be registered
      * either, since an application that lists one allows a credential, not a
-     * sign-in.
+     * sign-in, and neither can `external_provider`, since a result an external
+     * provider verified reaches the session service only from a trusted
+     * adapter, never as input.
      *
      * @param  mixed  $driver
      * @param  \Closure  $callback
@@ -138,6 +147,12 @@ final class SignInMethodManager extends Manager
 
         if (in_array($driver, self::CREDENTIAL_METHODS, true)) {
             $message = sprintf('[%s] names a machine credential, not a sign-in method; register yours under another name.', $driver);
+
+            throw new \InvalidArgumentException($message);
+        }
+
+        if ($driver === self::EXTERNAL_METHOD) {
+            $message = sprintf('[%s] is the method external sign-ins are recorded under, not a sign-in method; register yours under another name.', $driver);
 
             throw new \InvalidArgumentException($message);
         }

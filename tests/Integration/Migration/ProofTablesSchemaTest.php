@@ -128,8 +128,9 @@ final class ProofTablesSchemaTest extends TestCase
 
     /**
      * The provenance table holds one row per session: the connection and its
-     * tenant, the provider's time and deadline, the accepted evidence and the
-     * policy version; only the session and the connection are required.
+     * tenant, the provider's time and deadline, the accepted evidence, the
+     * policy version and the link; only the session and the connection are
+     * required.
      *
      * @return void
      */
@@ -143,6 +144,7 @@ final class ProofTablesSchemaTest extends TestCase
             'accepted_evidence'           => true,
             'connection_id'               => false,
             'created_at'                  => true,
+            'link_id'                     => true,
             'policy_version'              => true,
             'provider_authenticated_at'   => true,
             'provider_session_expires_at' => true,
@@ -181,8 +183,8 @@ final class ProofTablesSchemaTest extends TestCase
      * The string columns are as long as what they hold: a channel reference of
      * 255 characters, a kind, a purpose and a key protection, the `amr` list's
      * JSON, and a policy version of 64. The session key, owner, guard, factor
-     * reference and connection hold 255 characters, which on MySQL and MariaDB,
-     * where they are binary, is 1020 bytes.
+     * reference, connection and link hold 255 characters, which on MySQL and
+     * MariaDB, where they are binary, is 1020 bytes.
      *
      * @return void
      */
@@ -204,6 +206,7 @@ final class ProofTablesSchemaTest extends TestCase
 
         self::assertStringContainsString($binding, $provenance['session_id']);
         self::assertStringContainsString($binding, $provenance['connection_id']);
+        self::assertStringContainsString($binding, $provenance['link_id']);
 
         self::assertStringContainsString('(40)', $proofs['kind']);
         self::assertStringContainsString('(32)', $proofs['purpose']);
@@ -232,11 +235,11 @@ final class ProofTablesSchemaTest extends TestCase
 
     /**
      * The session key, the guard, the owner, the factor reference, the `amr`
-     * values and the connection compare byte for byte on every engine, MySQL's
-     * default case-insensitive collations and its padding `utf8mb4_bin`
-     * included: a lookup of one finds no value that differs from it only in
-     * case or by a trailing space, a group keeps such values apart, and
-     * provenances whose session keys differ only in those are all kept.
+     * values, the connection and the link compare byte for byte on every
+     * engine, MySQL's default case-insensitive collations and its padding
+     * `utf8mb4_bin` included: a lookup of one finds no value that differs from
+     * it only in case or by a trailing space, a group keeps such values apart,
+     * and provenances whose session keys differ only in those are all kept.
      *
      * @return void
      */
@@ -281,21 +284,22 @@ final class ProofTablesSchemaTest extends TestCase
         self::assertCount(3, DB::table(self::PROOFS)->select('methods')->groupBy('methods')->get());
 
         DB::table(self::PROVENANCE)->insert([
-            ['session_id' => 'abc', 'connection_id' => 'conn'],
-            ['session_id' => 'ABC', 'connection_id' => 'CONN'],
-            ['session_id' => 'abc ', 'connection_id' => 'conn '],
+            ['session_id' => 'abc', 'connection_id' => 'conn', 'link_id' => 'link'],
+            ['session_id' => 'ABC', 'connection_id' => 'CONN', 'link_id' => 'LINK'],
+            ['session_id' => 'abc ', 'connection_id' => 'conn ', 'link_id' => 'link '],
         ]);
 
         self::assertSame('conn', DB::table(self::PROVENANCE)->where('session_id', 'abc')->value('connection_id'));
         self::assertSame('abc', DB::table(self::PROVENANCE)->where('connection_id', 'conn')->sole()->session_id);
+        self::assertSame('abc', DB::table(self::PROVENANCE)->where('link_id', 'link')->sole()->session_id);
         self::assertSame(3, DB::table(self::PROVENANCE)->count());
     }
 
     /**
      * A session key, owner and guard of 255 characters that each take four
      * bytes are stored and found again whole on every engine, and so is a
-     * provenance under that key: a binary column on MySQL and MariaDB holds
-     * what a string column of 255 characters holds elsewhere.
+     * provenance under that key with such a link: a binary column on MySQL and
+     * MariaDB holds what a string column of 255 characters holds elsewhere.
      *
      * @return void
      */
@@ -320,7 +324,7 @@ final class ProofTablesSchemaTest extends TestCase
             'authenticated_at'     => '2026-04-06 12:00:00',
         ]);
 
-        DB::table(self::PROVENANCE)->insert(['session_id' => $session, 'connection_id' => 'c-1']);
+        DB::table(self::PROVENANCE)->insert(['session_id' => $session, 'connection_id' => 'c-1', 'link_id' => $owner]);
 
         $stored = (array) DB::table(self::PROOFS)
             ->where(['session_id' => $session, 'authenticatable_type' => $type, 'authenticatable_id' => $owner, 'guard' => $guard])
@@ -328,6 +332,7 @@ final class ProofTablesSchemaTest extends TestCase
 
         self::assertSame(['session_id' => $session, 'authenticatable_type' => $type, 'authenticatable_id' => $owner, 'guard' => $guard], $stored);
         self::assertSame($session, DB::table(self::PROVENANCE)->where('session_id', $session)->value('session_id'));
+        self::assertSame($owner, DB::table(self::PROVENANCE)->where('link_id', $owner)->value('link_id'));
     }
 
     /**

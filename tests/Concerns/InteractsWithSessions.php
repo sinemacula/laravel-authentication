@@ -103,15 +103,16 @@ trait InteractsWithSessions
 
     /**
      * Register the guards and providers, each guard allowing the password
-     * method and the `sso` and `trusted` methods the tests register, a cheap
-     * password hash, and a timebox short enough not to slow the suite.
+     * method, the `sso` and `trusted` methods the tests register and external
+     * sign-in, a cheap password hash, and a timebox short enough not to slow
+     * the suite.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void
      */
     protected static function configureSessionGuards(ConfigRepository $config): void
     {
-        $application = ['methods' => ['password', 'sso', 'trusted']];
+        $application = ['methods' => ['password', 'sso', 'trusted', 'external_provider']];
 
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => IntegrationIdentity::class]);
         $config->set('auth.providers.members', ['driver' => 'model', 'model' => ActivatableTenantMember::class]);

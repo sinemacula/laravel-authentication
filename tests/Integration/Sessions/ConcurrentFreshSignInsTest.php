@@ -15,9 +15,9 @@ use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
@@ -47,7 +47,7 @@ use Tests\TestCase;
 #[CoversClass(SessionWriter::class)]
 final class ConcurrentFreshSignInsTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithSessions;
 
     /** @var int How long the first side waits, once the second is about to insert its proof, for that insert to reach the server, in microseconds. */
     private const int SETTLE_MICROSECONDS = 200000;
@@ -224,7 +224,7 @@ final class ConcurrentFreshSignInsTest extends TestCase
      */
     private function startFor(IntegrationIdentity $identity): string
     {
-        $session = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7'))->session;
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity))->session;
 
         self::assertNotNull($session);
 

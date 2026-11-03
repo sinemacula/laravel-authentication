@@ -292,21 +292,23 @@ return [
     | included. `methods` lists the sign-in methods that may start the
     | application's sessions, by the lower-case names they are registered under
     | (or, for a session the application starts itself, the name it passes to
-    | `start()`), and the machine credentials it accepts (`api_key`,
-    | `client_credentials`). It is empty by default, so each application lists
-    | what it uses: an empty list refuses every sign-in, refresh, code and
-    | password reset request as `method_not_allowed` (and every client
-    | credentials exchange as `unauthorized_client`), and `authentication:check`
-    | warns about a `jwt` guard that lists nothing, or only `api_key`, which a
-    | `jwt` guard never accepts. `require_verified_identifier` refuses a sign-in
-    | with an identifier (an email address, say) the identity has not verified;
-    | sign-ins that use no identifier, such as SSO, are not affected. A
-    | malformed value, or an unknown key, fails closed with an
-    | `InvalidArgumentException` naming the guard and the key when the guard's
-    | policy is first used. Which principals may use an application, and which
-    | tenants they may act in, are not settings here but the `ApplicationAccess`
-    | and `TenantAccess` contracts: by default any principal may use any
-    | application, in its own tenant only.
+    | `start()`), `external_provider` for sign-in with a result an external
+    | identity provider verified (`signInExternally()`), and the machine
+    | credentials it accepts (`api_key`, `client_credentials`). It is empty by
+    | default, so each application lists what it uses: an empty list refuses
+    | every sign-in, refresh, code and password reset request as
+    | `method_not_allowed` (and every client credentials exchange as
+    | `unauthorized_client`), and `authentication:check` warns about a `jwt`
+    | guard that lists nothing, or only `api_key`, which a `jwt` guard never
+    | accepts. `require_verified_identifier` refuses a sign-in with an
+    | identifier (an email address, say) the identity has not verified; sign-ins
+    | that use no identifier, such as SSO, are not affected. A malformed value,
+    | or an unknown key, fails closed with an `InvalidArgumentException` naming
+    | the guard and the key when the guard's policy is first used. Which
+    | principals may use an application, and which tenants they may act in, are
+    | not settings here but the `ApplicationAccess` and `TenantAccess`
+    | contracts: by default any principal may use any application, in its own
+    | tenant only.
     |
     */
 

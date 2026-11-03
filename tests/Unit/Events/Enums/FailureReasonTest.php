@@ -85,6 +85,7 @@ final class FailureReasonTest extends TestCase
             'factor_code_refused',
             'password_not_set',
             'password_already_set',
+            'external_result_unlinked',
         ], array_map(static fn (FailureReason $reason): string => $reason->value, FailureReason::cases()));
     }
 

@@ -209,6 +209,7 @@ final class BenchSchema
             $blueprint->text('accepted_evidence')->nullable();
             $blueprint->dateTime('provider_session_expires_at', 0)->nullable();
             $blueprint->string('policy_version', 64)->nullable();
+            $blueprint->string('link_id')->nullable();
             $blueprint->dateTime('created_at', 0)->nullable();
             $blueprint->index('connection_id', 'authentication_provenance_provider_index');
             $blueprint->index(['tenant_id', 'connection_id'], 'authentication_provenance_tenant_index');

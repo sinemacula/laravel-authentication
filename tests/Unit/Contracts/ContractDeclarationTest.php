@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSessionOrigin;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSessionStanding;
+use SineMacula\Laravel\Authentication\Contracts\ExternalIdentityLinks;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
@@ -527,6 +528,20 @@ final class ContractDeclarationTest extends TestCase
     public function testPasskeyFactorGateDeclaresItsTwoChanges(): void
     {
         self::assertSame(['registering', 'removing'], self::declaredMethods(PasskeyFactorGate::class));
+    }
+
+    /**
+     * The external identity link contract declares one lookup, by connection,
+     * issuer and subject, and nothing that finds a link by anything else.
+     *
+     * @return void
+     */
+    public function testExternalIdentityLinksDeclaresOneLookup(): void
+    {
+        self::assertSame(['find'], self::declaredMethods(ExternalIdentityLinks::class));
+        $parameters = (new \ReflectionMethod(ExternalIdentityLinks::class, 'find'))->getParameters();
+
+        self::assertSame(['connectionId', 'issuer', 'subject'], array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters));
     }
 
     /**

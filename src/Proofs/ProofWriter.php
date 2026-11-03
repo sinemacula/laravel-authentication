@@ -106,6 +106,7 @@ final class ProofWriter
             'accepted_evidence'           => null,
             'provider_session_expires_at' => self::local($provenance->sessionNotAfter),
             'policy_version'              => $provenance->policyVersion,
+            'link_id'                     => $provenance->linkId,
         ]);
 
         self::insert($row);

@@ -756,14 +756,14 @@ final class CheckConfigurationCommandTest extends TestCase
     /**
      * Rows of `[a name, what a policy of the application's own throws when
      * asked it]`, for every name it is asked for a `jwt` guard: every
-     * registered sign-in method and `client_credentials`, each with an argument
-     * exception and with an exception of another kind.
+     * registered sign-in method, `external_provider` and `client_credentials`,
+     * each with an argument exception and with an exception of another kind.
      *
      * @return iterable<string, array{0: string, 1: \Exception}>
      */
     public static function provideAskedNames(): iterable
     {
-        foreach (['password', 'phone_code', 'email_code', 'passkey', 'client_credentials'] as $name) {
+        foreach (['password', 'phone_code', 'email_code', 'passkey', 'external_provider', 'client_credentials'] as $name) {
             yield "{$name}, an argument exception" => [$name, new \InvalidArgumentException("Unreadable `{$name}` setting.")];
             yield "{$name}, an exception of another kind" => [$name, new \RuntimeException("Policy store down for `{$name}`.")];
         }
@@ -1004,6 +1004,7 @@ final class CheckConfigurationCommandTest extends TestCase
         yield 'client_credentials' => [['client_credentials'], false];
         yield 'a package method' => [['passkey'], false];
         yield 'a method the application registered' => [['sso'], false];
+        yield 'external_provider' => [['external_provider'], false];
         yield 'a name nothing is registered under' => [['unregistered'], false];
         yield 'api_key and a name nothing is registered under' => [['api_key', 'unregistered'], false];
     }

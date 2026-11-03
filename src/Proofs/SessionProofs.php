@@ -34,7 +34,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * newest one a freshness requirement takes, with `LIMIT 1`, on the proofs'
  * session, kind and time index. `query()` reads a bounded page of them for a
  * requirement check, `firstFactor()` the first factor the session signed in
- * with, and `connectionId()` the connection its provenance records.
+ * with, `connectionId()` the connection its provenance records, and
+ * `provenance()` the whole provenance.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -173,6 +174,31 @@ final class SessionProofs
         return WriteConnection::during(new SessionProvenance, static fn (): ?string => IdentifierCoercion::stringify(
             WriteConnection::query(SessionProvenance::query())->whereKey($key)->value('connection_id'),
         ));
+    }
+
+    /**
+     * The provenance the session records, read on the write connection, or
+     * `null` for a session no external provider established.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return ?\SineMacula\Laravel\Authentication\Proofs\Provenance
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function provenance(Session $session): ?Provenance
+    {
+        $key = IdentifierCoercion::stringify($session->getSessionIdentifier()) ?? '';
+
+        $row = WriteConnection::during(new SessionProvenance, static fn (): mixed => WriteConnection::query(SessionProvenance::query())->whereKey($key)->first());
+
+        return $row instanceof SessionProvenance ? new Provenance(
+            $row->connection_id,
+            $row->tenant_id,
+            $row->provider_authenticated_at,
+            $row->provider_session_expires_at,
+            $row->policy_version,
+            $row->link_id,
+        ) : null;
     }
 
     /**

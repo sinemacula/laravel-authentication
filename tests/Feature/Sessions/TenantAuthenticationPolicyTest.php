@@ -31,7 +31,6 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
@@ -49,6 +48,7 @@ use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
@@ -83,7 +83,7 @@ use Tests\TestCase;
 #[CoversClass(AbstractGuard::class)]
 final class TenantAuthenticationPolicyTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
 
     /** @var string Guard over `ChoosingMember`, whose sign-ins wait for a choice of principal. */
     private const string CHOOSERS = 'choosers';
@@ -209,7 +209,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
         self::assertSame(FailureReason::SSO_REQUIRED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(0, Session::query()->count());
 
-        $signedIn = $this->sessions('members')->start($member, $membership, 'sso', null, new Provenance('conn-a'));
+        $signedIn = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a'), self::asPrincipal($membership));
 
         self::assertTrue($signedIn->isSignedIn());
         self::assertSame('v1', Session::query()->sole()->getTenantPolicyVersion());
@@ -501,8 +501,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
         $this->seedMember('other@example.test');
 
         $short   = $this->signedIn();
-        $met     = $this->sessions('members')->start($member, $membership, 'sso', null, new Provenance('conn-a'))->session?->record;
-        $current = $this->sessions('members')->start($member, $membership, 'sso', null, new Provenance('conn-b'))->session?->record;
+        $met     = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a'), self::asPrincipal($membership))->session?->record;
+        $current = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-b'), self::asPrincipal($membership))->session?->record;
         $outside = $this->signedIn('other@example.test');
 
         self::assertNotNull($met);
@@ -605,7 +605,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
         self::configureSessionGuards($config);
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
-        $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso']]]);
+        $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso', 'external_provider']]]);
     }
 
     /**

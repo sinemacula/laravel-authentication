@@ -23,12 +23,12 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Session;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsConnectionSessions;
 use SineMacula\Laravel\Authentication\Sessions\ConnectionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -50,7 +50,7 @@ use Tests\TestCase;
 #[CoversTrait(EndsConnectionSessions::class)]
 final class ConnectionRevocationsTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithSessions;
 
     /**
      * Freeze the clocks and create the tables.
@@ -209,7 +209,7 @@ final class ConnectionRevocationsTest extends TestCase
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
 
         $identity = $this->seedIdentity();
-        $result   = $this->sessions()->start($identity, null, 'sso', null, new Provenance('conn-a'));
+        $result   = $this->sessions()->signInExternally($this->linkedResult($identity, 'conn-a'));
 
         self::assertTrue($result->isPending());
         self::assertSame(1, $this->sessions()->connectionDisabled('conn-a'));
@@ -546,7 +546,7 @@ final class ConnectionRevocationsTest extends TestCase
      */
     private function external(IntegrationIdentity $identity, string $connection, string $guard = 'api'): mixed
     {
-        $session = $this->sessions($guard)->start($identity, null, 'sso', null, new Provenance($connection))->session;
+        $session = $this->sessions($guard)->signInExternally($this->linkedResult($identity, $connection))->session;
 
         self::assertNotNull($session);
 
@@ -564,7 +564,7 @@ final class ConnectionRevocationsTest extends TestCase
      */
     private function started(IntegrationIdentity $identity, string $connection): SignedInSession
     {
-        $session = $this->sessions()->start($identity, null, 'sso', null, new Provenance($connection))->session;
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity, $connection))->session;
 
         self::assertNotNull($session);
 

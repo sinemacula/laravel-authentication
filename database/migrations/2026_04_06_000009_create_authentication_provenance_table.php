@@ -56,6 +56,14 @@ return new class extends Migration {
 
             $blueprint->dateTime('provider_session_expires_at', 0)->nullable();
             $blueprint->string('policy_version', 64)->nullable();
+
+            // The link the result was mapped to its identity through, opaque
+            // and compared exactly, so a reauthentication or a revocation
+            // through one link never matches another whose id differs from it
+            // only in case, accents or a trailing space. Not indexed: a link's
+            // sessions are found by their identity's session keys first.
+            self::exact($schema, $blueprint, 'link_id')->nullable();
+
             $blueprint->dateTime('created_at', 0)->nullable();
 
             // Indexes for finding the sessions of a connection, which revoking
@@ -99,10 +107,10 @@ return new class extends Migration {
      * pad has a different name on each. Two session keys that differ only in
      * those would otherwise match, so one session would clear or prune
      * another's provenance, or could not record its own, and one connection's
-     * revocation would end another's sessions. PostgreSQL and SQLite already
-     * compare bytes. A binary column's length is in bytes, so it is given the
-     * four a `utf8mb4` character may take for each of the 255 characters the
-     * column holds elsewhere.
+     * or link's revocation would end another's sessions. PostgreSQL and SQLite
+     * already compare bytes. A binary column's length is in bytes, so it is
+     * given the four a `utf8mb4` character may take for each of the 255
+     * characters the column holds elsewhere.
      *
      * @param  \Illuminate\Database\Schema\Builder  $schema
      * @param  \Illuminate\Database\Schema\Blueprint  $blueprint

@@ -323,29 +323,37 @@ final class ProofValuesTest extends TestCase
     }
 
     /**
-     * A provenance keeps what the caller checked, its times cut to the whole
-     * second, and nothing but the connection by default; each value fits up to
-     * its column's length in characters, not bytes.
+     * A provenance keeps what the caller checked and the link's id, its times
+     * cut to the whole second, and nothing but the connection by default; each
+     * value fits up to its column's length in characters, not bytes.
      *
      * @return void
      */
     public function testAProvenanceKeepsWhatTheCallerChecked(): void
     {
-        $provenance = new Provenance('connection-7', 'tenant-3', CarbonImmutable::parse('2026-04-06 11:58:00.5'), CarbonImmutable::parse('2026-04-06 20:00:00.9'), 'v12');
+        $authenticated = CarbonImmutable::parse('2026-04-06 11:58:00.5');
+        $provenance    = new Provenance('connection-7', 'tenant-3', $authenticated, CarbonImmutable::parse('2026-04-06 20:00:00.9'), 'v12', 'Link-1 ');
 
-        self::assertSame(['connection-7', 'tenant-3', 'v12'], [$provenance->connectionId, $provenance->tenantId, $provenance->policyVersion]);
+        self::assertSame(
+            ['connection-7', 'tenant-3', 'v12', 'Link-1 '],
+            [$provenance->connectionId, $provenance->tenantId, $provenance->policyVersion, $provenance->linkId],
+        );
         self::assertSame('2026-04-06 11:58:00.000000', $provenance->providerAuthenticatedAt?->format('Y-m-d H:i:s.u'));
         self::assertSame('2026-04-06 20:00:00.000000', $provenance->sessionNotAfter?->format('Y-m-d H:i:s.u'));
 
-        $bare = new Provenance(str_repeat('c', 255), str_repeat('t', 255), policyVersion: str_repeat('v', 64));
+        $bare = new Provenance(str_repeat('c', 255), str_repeat('t', 255), policyVersion: str_repeat('v', 64), linkId: str_repeat('l', 255));
 
         self::assertNull($bare->providerAuthenticatedAt);
         self::assertNull($bare->sessionNotAfter);
+        self::assertNull((new Provenance('connection-7'))->linkId);
         self::assertSame([255, 64], [Provenance::ID_MAX_LENGTH, Provenance::VERSION_MAX_LENGTH]);
 
-        $wide = new Provenance(str_repeat('é', 255), str_repeat('é', 255), policyVersion: str_repeat('é', 64));
+        $wide = new Provenance(str_repeat('é', 255), str_repeat('é', 255), policyVersion: str_repeat('é', 64), linkId: str_repeat('é', 255));
 
-        self::assertSame([str_repeat('é', 255), str_repeat('é', 255), str_repeat('é', 64)], [$wide->connectionId, $wide->tenantId, $wide->policyVersion]);
+        self::assertSame(
+            [str_repeat('é', 255), str_repeat('é', 255), str_repeat('é', 64), str_repeat('é', 255)],
+            [$wide->connectionId, $wide->tenantId, $wide->policyVersion, $wide->linkId],
+        );
     }
 
     /**
@@ -362,6 +370,8 @@ final class ProofValuesTest extends TestCase
             'a long tenant'       => [['connectionId' => 'c', 'tenantId' => str_repeat('t', 256)], 'tenant id'],
             'an empty policy'     => [['connectionId' => 'c', 'policyVersion' => ''], 'policy version'],
             'a long policy'       => [['connectionId' => 'c', 'policyVersion' => str_repeat('v', 65)], 'policy version'],
+            'an empty link'       => [['connectionId' => 'c', 'linkId' => ''], 'link id'],
+            'a long link'         => [['connectionId' => 'c', 'linkId' => str_repeat('l', 256)], 'link id'],
         ];
     }
 

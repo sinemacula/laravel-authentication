@@ -20,9 +20,9 @@ use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationClaims;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
@@ -47,7 +47,7 @@ use Tests\TestCase;
 #[CoversClass(ProofWriter::class)]
 final class ReusedSessionKeyTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessionRecords, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessionRecords, InteractsWithSessions;
 
     /** @var string The integer-keyed session table the tests sign in to. */
     private const string TABLE = 'integer_key_sessions';
@@ -115,7 +115,7 @@ final class ReusedSessionKeyTest extends TestCase
     public function testASessionWhoseKeyIsIssuedAgainCountsOnlyItsOwnProofs(): void
     {
         $identity = $this->seedIdentity();
-        $earlier  = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7'))->session;
+        $earlier  = $this->sessions()->signInExternally($this->linkedResult($identity))->session;
 
         self::assertNotNull($earlier);
 

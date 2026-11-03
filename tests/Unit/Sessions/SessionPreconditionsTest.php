@@ -115,6 +115,20 @@ final class SessionPreconditionsTest extends TestCase
     }
 
     /**
+     * No session is started or reauthenticated under `external_provider` but by
+     * the external sign-in, which records its provenance.
+     *
+     * @return void
+     */
+    public function testASessionIsNeverStartedUnderTheExternalProviderMethod(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('[external_provider] is not a sign-in method: only a result an external provider verified signs a session in under it.');
+
+        SessionPreconditions::assertSessionMethod('external_provider');
+    }
+
+    /**
      * A reloaded identity is the verified one only when it is of the same class
      * and has the same auth identifier, compared as identifiers are.
      *
