@@ -40,6 +40,7 @@ use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -214,14 +215,7 @@ final class SessionStepUpTest extends TestCase
             ['api', 'totp', IdentifierCoercion::stringify($signedIn->record->getKey())],
             [$event->context->guard, $event->context->method, $event->context->sessionId],
         );
-
-        // The identity reported is the session's owner as admitted again under
-        // the lock, not the instance the adapter bound the proof to.
-        $reported = $event->context()->identity;
-
-        self::assertInstanceOf(IntegrationIdentity::class, $reported);
-        self::assertNotSame($signedIn->identity, $reported);
-        self::assertSame($signedIn->identity->getAuthIdentifier(), $reported->getAuthIdentifier());
+        EventContextAssertions::assertIdentity($signedIn->identity, $event->context());
     }
 
     /**

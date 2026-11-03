@@ -70,6 +70,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Tenancy\DescendantTenants;
@@ -266,7 +267,7 @@ final class SessionSwitchTest extends TestCase
         self::assertSame(AuthenticationFlow::SWITCH, $failure->flow);
         self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $failure->reason);
         self::assertSame(self::GUARD, $failure->context->guard);
-        self::assertNull($failure->context->session);
+        EventContextAssertions::assertSession(null, $failure->context);
         self::assertSame(PrincipalReference::id($session->principal), DB::table('authentication_sessions')->value('principal_id'));
     }
 
@@ -313,9 +314,8 @@ final class SessionSwitchTest extends TestCase
         $event = $this->recordedEvent(PrincipalSwitched::class);
 
         self::assertSame(self::GUARD, $event->context->guard);
-        self::assertTrue($event->context->principal?->is($second)); // @phpstan-ignore method.notFound
-        self::assertSame((string) $second->tenant_id, IdentifierCoercion::stringify($event->context->tenant?->getTenantIdentifier()));
-        self::assertTrue($event->previousPrincipal?->is($first)); // @phpstan-ignore method.notFound
+        EventContextAssertions::assertPrincipal($second, $event->context);
+        self::assertSame((string) $second->tenant_id, $event->context->tenantId);
         self::assertSame(ActivatableTenantMembership::class, $event->previousPrincipalType);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $event->previousPrincipalId);
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $event->previousTenantId);
@@ -514,7 +514,7 @@ final class SessionSwitchTest extends TestCase
 
     /**
      * A switch away from a principal that no longer resolves for the identity
-     * still reports what the session recorded for it, without the principal.
+     * still reports what the session recorded for it.
      *
      * @return void
      *
@@ -534,15 +534,14 @@ final class SessionSwitchTest extends TestCase
 
         $event = $this->recordedEvent(PrincipalSwitched::class);
 
-        self::assertNull($event->previousPrincipal);
         self::assertSame(ActivatableTenantMembership::class, $event->previousPrincipalType);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $event->previousPrincipalId);
     }
 
     /**
      * A switch away from a principal the session recorded under another type
-     * (the morph map changed since) reports the recorded snapshot, but not the
-     * principal of the current type that shares its key.
+     * (the morph map changed since) reports the recorded type and identifier,
+     * as recorded.
      *
      * @return void
      *
@@ -562,7 +561,6 @@ final class SessionSwitchTest extends TestCase
 
         $event = $this->recordedEvent(PrincipalSwitched::class);
 
-        self::assertNull($event->previousPrincipal);
         self::assertSame('retired-membership', $event->previousPrincipalType);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $event->previousPrincipalId);
     }
@@ -592,7 +590,7 @@ final class SessionSwitchTest extends TestCase
         self::assertTrue($switched->isSwitched());
         self::assertNull(DB::table('authentication_sessions')->value('tenant_id'));
         self::assertSame(IdentifierCoercion::stringify($own->getKey()), $this->recordedEvent(PrincipalSwitched::class)->previousTenantId);
-        self::assertNull($this->recordedEvent(PrincipalSwitched::class)->context->tenant);
+        EventContextAssertions::assertTenant(null, $this->recordedEvent(PrincipalSwitched::class)->context);
 
         $this->advance(5);
 
@@ -706,7 +704,7 @@ final class SessionSwitchTest extends TestCase
         $mismatch = $this->assertSwitchFails(FailureReason::PRINCIPAL_MISMATCH, $session, $theirs);
 
         self::assertSame(IdentifierCoercion::stringify($member->getKey()), $mismatch->context->identityId);
-        self::assertNull($mismatch->context->principal);
+        EventContextAssertions::assertPrincipal(null, $mismatch->context);
         self::assertNull($mismatch->context->principalType);
         self::assertNull($mismatch->context->principalId);
         self::assertSame(IdentifierCoercion::stringify($session->record->getSessionIdentifier()), $mismatch->context->sessionId);
@@ -937,8 +935,6 @@ final class SessionSwitchTest extends TestCase
 
         $revoked = $this->assertSwitchFails(FailureReason::SESSION_REVOKED, $session, $second);
 
-        self::assertNull($revoked->context->identity);
-        self::assertNull($revoked->context->principal);
         self::assertSame(IdentifierCoercion::stringify($member->getKey()), $revoked->context->identityId);
         self::assertSame($first->getMorphClass(), $revoked->context->principalType);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $revoked->context->principalId);
@@ -1242,8 +1238,7 @@ final class SessionSwitchTest extends TestCase
         self::assertTrue($event->tenantChanged);
         self::assertSame(IdentifierCoercion::stringify($own->getKey()), $event->previousTenantId);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $event->previousPrincipalId);
-        self::assertTrue($event->previousPrincipal?->is($first)); // @phpstan-ignore method.notFound
-        self::assertTrue($event->context->principal?->is($first)); // @phpstan-ignore method.notFound
+        EventContextAssertions::assertPrincipal($first, $event->context);
         self::assertSame(IdentifierCoercion::stringify($descendant->getKey()), $event->context->tenantId);
 
         $record = DB::table('authentication_sessions')->sole();
@@ -1290,7 +1285,7 @@ final class SessionSwitchTest extends TestCase
         self::assertTrue($event->principalChanged);
         self::assertTrue($event->tenantChanged);
         self::assertSame(IdentifierCoercion::stringify($own->getKey()), $event->previousTenantId);
-        self::assertTrue($event->previousPrincipal?->is($first)); // @phpstan-ignore method.notFound
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), $event->previousPrincipalId);
 
         $record = DB::table('authentication_sessions')->sole();
 

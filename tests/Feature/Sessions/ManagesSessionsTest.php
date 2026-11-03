@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithChangeableIdentities;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\TestCase;
 
 /**
@@ -168,8 +169,6 @@ final class ManagesSessionsTest extends TestCase
 
         $context = $this->recordedEvent(SessionRevoked::class)->context;
 
-        self::assertNull($context->identity);
-        self::assertNull($context->principal);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->identityId);
         self::assertSame($identity->getMorphClass(), $context->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->principalId);
@@ -204,7 +203,7 @@ final class ManagesSessionsTest extends TestCase
         self::assertSame(RevocationReason::SIGNED_OUT_EVERYWHERE, $everywhere->reason);
         self::assertSame(self::idOf($current), $everywhere->context->sessionId);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $everywhere->context->identityId);
-        self::assertNull($everywhere->context->principal);
+        EventContextAssertions::assertPrincipal(null, $everywhere->context);
         self::assertNull($everywhere->context->principalType);
         self::assertNull($everywhere->context->principalId);
         self::assertNull($everywhere->tokensValidAfter);
@@ -291,7 +290,6 @@ final class ManagesSessionsTest extends TestCase
 
         self::assertSame(RevocationReason::REVOKED, $revoked->reason);
         self::assertSame(self::idOf($laptop), $revoked->context->sessionId);
-        self::assertNull($revoked->context->principal);
         self::assertSame(IdentifierCoercion::stringify($current->identity->getAuthIdentifier()), $revoked->context->identityId);
         self::assertSame(DB::table('authentication_sessions')->where('id', self::idOf($laptop))->value('principal_type'), $revoked->context->principalType);
         self::assertSame(IdentifierCoercion::stringify($current->identity->getAuthIdentifier()), $revoked->context->principalId);

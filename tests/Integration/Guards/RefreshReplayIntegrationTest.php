@@ -202,7 +202,7 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         self::assertNull(GuardSessions::of($this->guard())->refresh($stolen)->session);
         self::assertCount(1, $revoked);
-        self::assertSame($session->getKey(), $revoked->getArrayCopy()[0]->context->session?->getSessionIdentifier());
+        self::assertSame($session->getKey(), $revoked->getArrayCopy()[0]->context->sessionId);
         self::assertSame([[AuthenticationFlow::REFRESH, FailureReason::ROTATION_REUSE]], $failed->getArrayCopy());
 
         $this->bearer($pair->accessToken->reveal())->assertUnauthorized();

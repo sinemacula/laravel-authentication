@@ -18,12 +18,15 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Callers\DeclaredCredential;
 use SineMacula\Laravel\Authentication\Callers\Enums\CallerCredential;
+use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
+use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -364,6 +367,58 @@ final class AuthManagerTest extends TestCase
         self::assertNull($manager->principal());
         self::assertNull($manager->session());
         self::assertNull($manager->tenant());
+        self::assertNull($manager->context());
+    }
+
+    /**
+     * `context()` answers what the bound authentication contexts answer, so an
+     * application or a test that rebinds the contract changes what every caller
+     * of the manager reads.
+     *
+     * @return void
+     */
+    public function testContextAnswersWhatTheBoundAuthenticationContextsAnswer(): void
+    {
+        $nothing  = [null, null, 'api', null, [], null, false, false, false, null, null, null, null];
+        $context  = new AuthenticationContext(SubjectType::PERSON, 'identity', '7', 'identity', '7', ...$nothing);
+        $contexts = \Mockery::mock(AuthenticationContexts::class);
+        $contexts->shouldReceive('current')->once()->andReturn($context);
+
+        app()->instance(AuthenticationContexts::class, $contexts);
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
+        self::assertSame($context, $manager->context());
+    }
+
+    /**
+     * `resolvedGuard()` answers a package guard only once it is resolved, and
+     * never creates one: a guard not resolved yet, a name no guard has and a
+     * guard of another driver all answer `null`.
+     *
+     * @return void
+     */
+    public function testResolvedGuardAnswersOnlyAPackageGuardAlreadyResolved(): void
+    {
+        $this->configureJwtGuard();
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
+        $manager->extend('mocked', fn (): Guard => \Mockery::mock(Guard::class));
+        config()->set('auth.guards.mocked', ['driver' => 'mocked']);
+
+        self::assertNull($manager->resolvedGuard('test_jwt'));
+        self::assertFalse($manager->hasResolvedGuards());
+        self::assertNull($manager->resolvedGuard('unconfigured'));
+
+        $jwt = $manager->guard('test_jwt');
+
+        $manager->guard('mocked');
+
+        self::assertSame($jwt, $manager->resolvedGuard('test_jwt'));
+        self::assertNull($manager->resolvedGuard('mocked'));
     }
 
     /**

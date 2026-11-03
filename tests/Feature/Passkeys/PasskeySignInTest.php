@@ -13,6 +13,7 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -100,7 +101,8 @@ final class PasskeySignInTest extends TestCase
 
     /**
      * The method is registered as `passkey` and names no identifier, so the
-     * sign-in is usernameless.
+     * sign-in is usernameless; the challenge it answers is the input's when
+     * that is a UUID.
      *
      * @return void
      *
@@ -113,6 +115,10 @@ final class PasskeySignInTest extends TestCase
         self::assertInstanceOf(PasskeySignIn::class, $method);
         self::assertNull($method->identifierType('api'));
         self::assertNull($method->identifier('api', ['challenge' => 'x', 'credential' => [], 'email' => 'ada@example.test']));
+        self::assertSame('0192F6B2-0000-7000-8000-000000000001', $method->challenge(['challenge' => '0192F6B2-0000-7000-8000-000000000001']));
+        self::assertNull($method->challenge(['challenge' => 'x']));
+        self::assertNull($method->challenge(['challenge' => ['0192f6b2-0000-7000-8000-000000000001']]));
+        self::assertNull($method->challenge([]));
     }
 
     /**
@@ -329,7 +335,8 @@ final class PasskeySignInTest extends TestCase
     /**
      * A sign-in that answers no live sign-in challenge of the guard fails as
      * `passkey_challenge_invalid`, in its result as in its event, since it says
-     * nothing about any account; the passkey is not touched.
+     * nothing about any account; the passkey is not touched, and the event
+     * names the challenge only when it is a UUID.
      *
      * @param  \Closure(self): mixed  $challenge
      * @return void
@@ -349,6 +356,7 @@ final class PasskeySignInTest extends TestCase
         $result = $this->sessions()->signIn('passkey', ['challenge' => $id, 'credential' => $credential]);
 
         $this->assertFailed($result, FailureReason::PASSKEY_CHALLENGE_INVALID, FailureReason::PASSKEY_CHALLENGE_INVALID);
+        self::assertSame(is_string($id) && Str::isUuid($id) ? $id : null, $this->recordedEvent(AuthenticationFailed::class)->challengeId);
         self::assertSame(0, Passkey::query()->sole()->sign_count);
     }
 
@@ -432,6 +440,7 @@ final class PasskeySignInTest extends TestCase
         $result = $this->sessions()->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $credential]);
 
         $this->assertFailed($result, FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS);
+        self::assertSame($options->challengeId, $this->recordedEvent(AuthenticationFailed::class)->challengeId);
         self::assertSame(0, PasskeyChallenge::query()->count());
     }
 

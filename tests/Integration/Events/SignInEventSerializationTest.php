@@ -7,12 +7,12 @@ namespace Tests\Integration\Events;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Queue\Worker;
 use Illuminate\Queue\WorkerOptions;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -30,9 +30,9 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
-use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -41,12 +41,12 @@ use Tests\TestCase;
 
 /**
  * Integration tests for the sign-in events as a queued listener receives them:
- * serialised and restored, with the identity, principal, tenant and session
- * loaded again from the database as Eloquent models (so a change made while the
- * event was queued shows), or `null` once their rows are gone, and the
- * snapshot, the client, the method and the other values kept as they were,
- * whatever was deleted meanwhile; through a real queued listener, on the `sync`
- * connection and through a worker on the `database` one.
+ * serialised and restored as the plain values they hold, with no query and no
+ * model, so the identity, principal, tenant and session are named as they were
+ * when the event was built, whatever was changed or deleted meanwhile, and the
+ * client, the method and the other values are kept as they were; through a real
+ * queued listener, on the `sync` connection and through a worker on the
+ * `database` one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -113,14 +113,14 @@ final class SignInEventSerializationTest extends TestCase
 
     /**
      * `SignedIn` and `SessionCreated` from a sign-in on a new session come back
-     * with the member, membership, tenant and session reloaded, and the guard,
-     * method and client unchanged.
+     * naming the member, membership, tenant and session, with the guard, method
+     * and client unchanged.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSignedInAndSessionCreatedRestoreTheirModels(): void
+    public function testSignedInAndSessionCreatedRestoreTheirValues(): void
     {
         $this->recordEvents([SignedIn::class, SessionCreated::class]);
 
@@ -132,9 +132,8 @@ final class SignInEventSerializationTest extends TestCase
         $created  = self::roundTrip($this->recordedEvent(SessionCreated::class));
 
         foreach ([$signedIn, $created] as $event) {
-            $this->assertRestoredModels($event->context->identity, $event->context->principal, $event->context->tenant);
-            self::assertSameModel($session->record, $event->context->session);
-            self::assertSame('Renamed', self::clientNameOf($event->context->session));
+            $this->assertNamesTheMember($event->context);
+            EventContextAssertions::assertSession($session->record, $event->context);
             self::assertSame('members', $event->context->guard);
             self::assertSame('password', $event->context->method);
             self::assertEquals(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $event->context->client);
@@ -145,15 +144,15 @@ final class SignInEventSerializationTest extends TestCase
 
     /**
      * The `SessionRevoked` (`superseded`) of a session a sign-in replaced comes
-     * back with the member, membership and tenant the sign-in admitted, the
-     * replaced session reloaded as revoked, the method that session records,
-     * and the reason unchanged.
+     * back naming the member, membership and tenant the sign-in admitted and
+     * the replaced session, with the method that session records and the reason
+     * unchanged.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASupersededRevocationRestoresItsModelsAndReason(): void
+    public function testASupersededRevocationRestoresItsValuesAndReason(): void
     {
         $first = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
 
@@ -167,12 +166,9 @@ final class SignInEventSerializationTest extends TestCase
 
         $event = self::roundTrip($this->recordedEvent(SessionRevoked::class));
 
-        $this->assertRestoredModels($event->context->identity, $event->context->principal, $event->context->tenant);
+        $this->assertNamesTheMember($event->context);
         self::assertSame(RevocationReason::SUPERSEDED, $event->reason);
-        self::assertSameModel($first->record, $event->context->session);
-        self::assertInstanceOf(Session::class, $event->context->session);
-        self::assertSame('superseded', $event->context->session->getRevokedReason());
-        self::assertSame('Renamed', self::clientNameOf($event->context->session));
+        EventContextAssertions::assertSession($first->record, $event->context);
         self::assertSame('members', $event->context->guard);
         self::assertSame('password', $event->context->method);
         self::assertEquals(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $event->context->client);
@@ -180,14 +176,14 @@ final class SignInEventSerializationTest extends TestCase
 
     /**
      * `SessionPending` for a sign-in that waits for a further factor comes back
-     * with its models and its pending session reloaded, still pending, and with
-     * what the session waits on and when its credential expires.
+     * naming its member, membership, tenant and pending session, with what the
+     * session waits on and when its credential expires.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSessionPendingRestoresItsModelsAndPendingSession(): void
+    public function testSessionPendingRestoresItsValues(): void
     {
         self::requireAFactor();
 
@@ -200,10 +196,8 @@ final class SignInEventSerializationTest extends TestCase
 
         $event = self::roundTrip($this->recordedEvent(SessionPending::class));
 
-        $this->assertRestoredModels($event->context->identity, $event->context->principal, $event->context->tenant);
-        self::assertInstanceOf(Session::class, $event->context->session);
-        self::assertSame($pending->id, $event->context->session->getSessionIdentifier());
-        self::assertSame(SessionStatus::PENDING, $event->context->session->getStatus());
+        $this->assertNamesTheMember($event->context);
+        EventContextAssertions::assertSession($pending->session, $event->context);
         self::assertSame('password', $event->context->method);
         self::assertEquals(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $event->context->client);
         self::assertSame(['mfa'], $event->requires);
@@ -212,14 +206,14 @@ final class SignInEventSerializationTest extends TestCase
 
     /**
      * `AuthenticationFailed` for an `attempt()` refused because a further
-     * factor is required comes back with the member, membership and tenant
-     * reloaded, and its reason and identifier unchanged.
+     * factor is required comes back naming the member, membership and tenant,
+     * with its reason and identifier unchanged.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAuthenticationFailedRestoresItsModels(): void
+    public function testAuthenticationFailedRestoresItsValues(): void
     {
         self::requireAFactor();
 
@@ -229,8 +223,8 @@ final class SignInEventSerializationTest extends TestCase
 
         $event = self::roundTrip($this->recordedEvent(AuthenticationFailed::class));
 
-        $this->assertRestoredModels($event->context->identity, $event->context->principal, $event->context->tenant);
-        self::assertNull($event->context->session);
+        $this->assertNamesTheMember($event->context);
+        EventContextAssertions::assertSession(null, $event->context);
         self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $event->reason);
         self::assertSame('password', $event->context->method);
         self::assertSame('member@example.test', $event->identifier);
@@ -238,14 +232,15 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * A queued event holds its models as identifiers and never the session's
-     * secrets: no token, no refresh digest, no password hash.
+     * A queued event holds plain values, no model and no model identifier, and
+     * never the session's secrets: no token, no refresh digest, no password
+     * hash.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAQueuedEventHoldsIdentifiersAndNoSecret(): void
+    public function testAQueuedEventHoldsValuesAndNoSecret(): void
     {
         $this->recordEvents([SignedIn::class]);
 
@@ -258,7 +253,8 @@ final class SignInEventSerializationTest extends TestCase
         $hash   = $this->member->getAuthPassword();
 
         self::assertNotNull($digest);
-        self::assertStringContainsString('ModelIdentifier', $queued);
+        self::assertStringNotContainsString('ModelIdentifier', $queued);
+        self::assertStringNotContainsString(sprintf('O:%d:"%s"', strlen(ActivatableTenantMember::class), ActivatableTenantMember::class), $queued);
         self::assertStringNotContainsString($session->tokens->accessToken->reveal(), $queued);
         self::assertStringNotContainsString($session->tokens->refreshToken?->reveal(), $queued);
         self::assertStringNotContainsString($digest, $queued);
@@ -266,9 +262,8 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * The identifiers an event snapshots when it is built come back unchanged
-     * after a queue, beside the models that are loaded again, and the snapshot
-     * of a real sign-in holds exactly the documented keys.
+     * The values an event holds come back unchanged after a queue, and those of
+     * a real sign-in are exactly the documented keys.
      *
      * @return void
      *
@@ -286,7 +281,7 @@ final class SignInEventSerializationTest extends TestCase
 
         $keys = [
             'occurred_at', 'guard', 'method', 'ip', 'user_agent', 'identity_type', 'identity_id', 'principal_type', 'principal_id',
-            'tenant_type', 'tenant_id', 'session_id', 'credential_id', 'scopes',
+            'tenant_type', 'tenant_id', 'session_id', 'credential_id', 'scopes', 'connection_id', 'request_reference',
         ];
 
         self::assertSame($this->recordedEvent(SignedIn::class)->context->toArray(), $context->toArray());
@@ -303,8 +298,8 @@ final class SignInEventSerializationTest extends TestCase
 
     /**
      * An event whose session, identity, principal and tenant were all deleted
-     * while it waited (a pruned session, an erased account) still restores: the
-     * models are `null`, and the snapshot names them as they were.
+     * while it waited (a pruned session, an erased account) still restores,
+     * naming them as they were.
      *
      * @return void
      *
@@ -324,18 +319,15 @@ final class SignInEventSerializationTest extends TestCase
         $copy = unserialize($queued);
 
         self::assertInstanceOf(SignedIn::class, $copy);
-        self::assertNull($copy->context->identity);
-        self::assertNull($copy->context->principal);
-        self::assertNull($copy->context->tenant);
-        self::assertNull($copy->context->session);
+        $this->assertNamesTheMember($copy->context);
         self::assertSame($event->context->toArray(), $copy->context->toArray());
         self::assertFalse($copy->refresh);
     }
 
     /**
      * A queued listener on the `sync` connection, which serialises the event as
-     * any queue does, gets it after an earlier listener deleted its rows: with
-     * no models and the whole snapshot.
+     * any queue does, gets it after an earlier listener deleted its rows, with
+     * every value as dispatched.
      *
      * @return void
      *
@@ -359,7 +351,7 @@ final class SignInEventSerializationTest extends TestCase
 
     /**
      * A queued listener on the `database` connection, run by a worker after the
-     * rows were deleted, gets the event with no models and the whole snapshot.
+     * rows were deleted, gets the event with every value as dispatched.
      *
      * @return void
      *
@@ -422,8 +414,7 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * The event as a queued listener receives it, after the member, the tenant
-     * and every session were renamed while it waited.
+     * The event as a queued listener receives it, restored with no query.
      *
      * @template TEvent of object
      *
@@ -432,16 +423,19 @@ final class SignInEventSerializationTest extends TestCase
      */
     private static function roundTrip(object $event): object
     {
-        $queued = serialize($event);
+        $queued  = serialize($event);
+        $queries = 0;
 
-        ActivatableTenantMember::query()->update(['email' => 'renamed@example.test']);
-        ActivatableTenant::query()->update(['name' => 'Renamed']);
-        Session::query()->update(['client_name' => 'Renamed']);
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
 
         $copy = unserialize($queued);
 
         self::assertInstanceOf($event::class, $copy);
         self::assertNotSame($event, $copy);
+        self::assertEquals($event, $copy);
+        self::assertSame(0, $queries);
 
         return $copy;
     }
@@ -460,8 +454,8 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * Assert the queued listener received the event once, with no models and
-     * the snapshot of the event as dispatched.
+     * Assert the queued listener received the event once, with the values of
+     * the event as dispatched.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\SignedIn  $dispatched
      * @return void
@@ -473,26 +467,10 @@ final class SignInEventSerializationTest extends TestCase
         $received = RecordSignedInLater::$received[0];
 
         self::assertNotSame($dispatched, $received);
-        self::assertNull($received->context->identity);
-        self::assertNull($received->context->principal);
-        self::assertNull($received->context->tenant);
-        self::assertNull($received->context->session);
+        $this->assertNamesTheMember($received->context);
         self::assertSame($dispatched->context->toArray(), $received->context->toArray());
         self::assertSame((string) $this->member->getKey(), $received->context->identityId); // @phpstan-ignore cast.string
         self::assertSame($dispatched->context->sessionId, $received->context->sessionId);
-    }
-
-    /**
-     * The client name stored on a restored session.
-     *
-     * @param  mixed  $record
-     * @return mixed
-     */
-    private static function clientNameOf(mixed $record): mixed
-    {
-        self::assertInstanceOf(Session::class, $record);
-
-        return $record->getAttribute('client_name');
     }
 
     /**
@@ -518,35 +496,15 @@ final class SignInEventSerializationTest extends TestCase
     }
 
     /**
-     * Assert the restored identity, principal and tenant are the seeded ones,
-     * reloaded as models.
+     * Assert the context names the seeded member, membership and tenant.
      *
-     * @param  mixed  $identity
-     * @param  mixed  $principal
-     * @param  mixed  $tenant
+     * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @return void
      */
-    private function assertRestoredModels(mixed $identity, mixed $principal, mixed $tenant): void
+    private function assertNamesTheMember(EventContext $context): void
     {
-        self::assertSameModel($this->member, $identity);
-        self::assertSameModel($this->membership, $principal);
-        self::assertSameModel($this->tenant, $tenant);
-        self::assertSame('renamed@example.test', $identity->email); // @phpstan-ignore property.nonObject
-        self::assertSame('Renamed', $tenant->name); // @phpstan-ignore property.nonObject
-    }
-
-    /**
-     * Assert the value is a model reloaded from the database as the expected
-     * one, not the instance the event was made with.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model  $expected
-     * @param  mixed  $actual
-     * @return void
-     */
-    private static function assertSameModel(Model $expected, mixed $actual): void
-    {
-        self::assertInstanceOf($expected::class, $actual);
-        self::assertNotSame($expected, $actual);
-        self::assertTrue($expected->is($actual));
+        EventContextAssertions::assertIdentity($this->member, $context);
+        EventContextAssertions::assertPrincipal($this->membership, $context);
+        EventContextAssertions::assertTenant($this->tenant, $context);
     }
 }

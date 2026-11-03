@@ -78,7 +78,7 @@ binding and what it takes over from the manager it replaces.
 ## Implementation Anchors
 
 - `src/AuthenticationServiceProvider.php`: `register()`, `ownAuthManager()`, `wireGuardRebinds()`.
-- `src/AuthManager.php`: `inheritStateFrom()`.
+- `src/AuthManager.php`: `inheritStateFrom()`; `src/Support/ClosureRebinding.php`: `onto()`, the closures it rebinds.
 - `src/Sessions/SignInMethodManager.php`: `extend()`.
 
 ## Authoritative Tests
@@ -91,6 +91,7 @@ binding and what it takes over from the manager it replaces.
 - `tests/Feature/AuthManagerCustomizationTest.php`
 - `tests/Feature/AuthManagerReplacementTest.php`
 - `tests/Feature/AuthManagerTest.php` `testInheritStateFrom*`
+- `tests/Unit/Support/ClosureRebindingTest.php`
 
 ## Change Triggers
 

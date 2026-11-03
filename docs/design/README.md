@@ -19,8 +19,8 @@ The current note set is:
   successful event order for `attempt()`, direct `login()`, bearer auth, and refresh.
 - `guard-context.md`: the one context a guard's flows run on (its name, provider, resolver, dispatcher, request and
   credential timebox), how a rebind reaches every flow built before it, and what a flow may keep from it.
-- `event-model.md`: the context every package event carries, what survives a queue, when an event that reports a write
-  is dispatched, and the one failure event.
+- `event-model.md`: the context every package event carries as plain values, why an event crosses a queue as it is and
+  how a listener loads a model itself, when an event that reports a write is dispatched, and the one failure event.
 - `outcomes.md`: how the package's services answer: refusals as values, what `null` and `bool` may mean, the shape of a
   result, throttling as an outcome, and the named exceptions.
 - `refresh-rotation-and-replay.md`: why refresh is stateful, how per-session rotation works, the grace window for the
@@ -75,6 +75,10 @@ The current note set is:
 - `proofs-and-freshness.md`: the proofs a session records and its provenance, how `auth_time` and `amr` are derived
   from them, how a session steps up and reauthenticates in place, and how freshness is judged for a sensitive operation
   on the proof that meets it.
+- `authentication-context.md`: what `Auth::context()` answers for a policy's conditions, built from what the guard
+  validated and the session's proofs, held while the bound state is unchanged and forgotten when a proof changes, the
+  package's keys and the additional verification recorded on a proof, and the contributors that add keys under a
+  namespace of their own.
 - `external-sign-in.md`: how a result an external identity provider verified signs in, only through the link contract
   the application binds, what the session records of how it began, how it reauthenticates through the very link that
   established it with the session's row locked last, and how a link's sessions end when it is removed or its scope

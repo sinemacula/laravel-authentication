@@ -16,9 +16,6 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Contracts\Session as SessionContract;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
@@ -29,6 +26,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
@@ -149,12 +147,8 @@ final class CustomEventsIntegrationTest extends TestCase
         Event::assertDispatched(PrincipalAssigned::class, function (PrincipalAssigned $event): bool {
 
             self::assertSame(self::JWT_GUARD, $event->context->guard);
-            self::assertInstanceOf(Principal::class, $event->context->principal);
-
-            $identity = $event->context->principal->getIdentity();
-
-            self::assertInstanceOf(StubPrincipal::class, $identity);
-            self::assertSame(self::USER_EMAIL, $identity->getAttribute('email'));
+            self::assertSame(StubPrincipal::class, $event->context->principalType);
+            self::assertSame(IdentifierCoercion::stringify(StubPrincipal::query()->where('email', self::USER_EMAIL)->value('id')), $event->context->principalId);
 
             return true;
         });
@@ -201,8 +195,7 @@ final class CustomEventsIntegrationTest extends TestCase
         Event::assertDispatched(SessionAuthenticated::class, function (SessionAuthenticated $event) use ($session): bool {
 
             self::assertSame(self::JWT_GUARD, $event->context->guard);
-            self::assertInstanceOf(SessionContract::class, $event->context->session);
-            self::assertSame($session->getKey(), $event->context->session->getSessionIdentifier());
+            self::assertSame(IdentifierCoercion::stringify($session->getKey()), $event->context->sessionId);
 
             return true;
         });
@@ -286,9 +279,8 @@ final class CustomEventsIntegrationTest extends TestCase
         Event::assertDispatched(Refreshed::class, function (Refreshed $event): bool {
 
             self::assertSame(self::JWT_GUARD, $event->context->guard);
-            self::assertInstanceOf(Identity::class, $event->context->identity);
-            self::assertInstanceOf(StubPrincipal::class, $event->context->identity);
-            self::assertSame(self::USER_EMAIL, $event->context->identity->getAttribute('email'));
+            self::assertSame(StubPrincipal::class, $event->context->identityType);
+            self::assertSame(IdentifierCoercion::stringify(StubPrincipal::query()->where('email', self::USER_EMAIL)->value('id')), $event->context->identityId);
 
             return true;
         });

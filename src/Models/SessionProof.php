@@ -46,6 +46,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property ?string $key_protection
  * @property ?bool $accepted
  * @property ?bool $multifactor
+ * @property ?bool $additional_verification
  * @property ?array<array-key, mixed> $evidence
  * @property list<string> $methods
  * @property string $authenticatable_type
@@ -100,18 +101,19 @@ final class SessionProof extends Model
     protected function casts(): array
     {
         return [
-            'user_presence'      => 'boolean',
-            'user_verification'  => 'boolean',
-            'backup_eligible'    => 'boolean',
-            'backup_state'       => 'boolean',
-            'phishing_resistant' => 'boolean',
-            'accepted'           => 'boolean',
-            'multifactor'        => 'boolean',
-            'evidence'           => 'array',
-            'methods'            => 'array',
-            'authenticated_at'   => 'datetime',
-            'voided_at'          => 'datetime',
-            'created_at'         => 'datetime',
+            'user_presence'           => 'boolean',
+            'user_verification'       => 'boolean',
+            'backup_eligible'         => 'boolean',
+            'backup_state'            => 'boolean',
+            'phishing_resistant'      => 'boolean',
+            'accepted'                => 'boolean',
+            'multifactor'             => 'boolean',
+            'additional_verification' => 'boolean',
+            'evidence'                => 'array',
+            'methods'                 => 'array',
+            'authenticated_at'        => 'datetime',
+            'voided_at'               => 'datetime',
+            'created_at'              => 'datetime',
         ];
     }
 }

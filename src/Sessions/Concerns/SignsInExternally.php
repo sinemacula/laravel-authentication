@@ -72,8 +72,11 @@ trait SignsInExternally
      * against a revocation but never ask the contract again, so they add to the
      * adapter's locks and never replace them. A database error, a serialization
      * failure included, and an exception from the link contract propagate, so
-     * the whole transaction can be retried. Failures are results: Laravel's
-     * `Failed` and then `AuthenticationFailed` (flow `sign_in`) report them.
+     * the whole transaction can be retried. Once the session commits,
+     * `ExternalResultRedeemed` (flow `sign_in`) follows the session's own
+     * events, with the result's connection and request reference. Failures are
+     * results: Laravel's `Failed` and then `AuthenticationFailed` (flow
+     * `sign_in`) report them, with the connection and request reference too.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
@@ -93,7 +96,7 @@ trait SignsInExternally
             return $resolved instanceof Refused ? $resolved : $this->startFor($resolved[0], $context->principal, $method, $context, $resolved[1]);
         });
 
-        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $this->bound($outcome, $transport);
+        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, [], null, $result) : $this->bound($outcome, $transport);
     }
 
     /**
@@ -124,9 +127,11 @@ trait SignsInExternally
      * Call it inside the transaction the adapter takes its own locks in, on the
      * storage connection: the session's row is locked last, and a database
      * error, a serialization failure included, propagates. Once committed,
-     * `Reauthenticated` (method `external_provider`) reports it; a refusal
-     * reports `AuthenticationFailed` (flow `reauthentication`) and is answered,
-     * never thrown.
+     * `Reauthenticated` (method `external_provider`) reports it, then
+     * `ExternalResultRedeemed` (flow `reauthentication`) with the result's
+     * connection and request reference; a refusal reports
+     * `AuthenticationFailed` (flow `reauthentication`, with the connection and
+     * request reference) and is answered, never thrown.
      *
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result

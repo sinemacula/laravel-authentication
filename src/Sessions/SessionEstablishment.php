@@ -16,13 +16,16 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Events\ExternalResultRedeemed;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SessionPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
@@ -51,11 +54,12 @@ use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
  *
  * It schedules what reports the session once committed on the session's
  * connection (`SessionPending`, or `SessionRevoked` for the session replaced,
- * `SessionCreated` and `SignedIn`) and never binds the guard: the session
- * service binds after it returns, so a bind listener that throws cannot
- * withhold a report. It runs on the guard's context: its events carry the
- * client of the sign-in they report, and go to the context's dispatcher as it
- * is when they are dispatched.
+ * `SessionCreated` and `SignedIn`, then, for a session an external provider's
+ * result established, `ExternalResultRedeemed` with the connection and the
+ * request reference) and never binds the guard: the session service binds after
+ * it returns, so a bind listener that throws cannot withhold a report. It runs
+ * on the guard's context: its events carry the client of the sign-in they
+ * report, and go to the context's dispatcher as it is when they are dispatched.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -247,7 +251,7 @@ final readonly class SessionEstablishment
 
         return $session === null
             ? $this->establish($identity, $selection, $identifierType, $context, $proof, $attemptWindows, null, $now)
-            : $this->signedIn($session, $proven, $tenant, $context);
+            : $this->signedIn($session, $proven, $tenant, $context, $proof);
     }
 
     /**
@@ -301,8 +305,18 @@ final readonly class SessionEstablishment
             array_map(static fn (PendingRequirement $requirement): string => $requirement->value, $requires),
             $expiresAt,
         );
+        $redeemed = $this->redeemed($draft->proof, $context->client, $identity, $principal, $tenant, $record);
 
-        $this->afterCommit->run($record, fn () => $this->context->dispatch($event));
+        $this->afterCommit->run($record, function () use ($event, $redeemed): void {
+
+            $this->context->dispatch($event);
+
+            if ($redeemed === null) {
+                return;
+            }
+
+            $this->context->dispatch($redeemed);
+        });
 
         return SignInResult::pending($pending, $credential);
     }
@@ -361,9 +375,10 @@ final readonly class SessionEstablishment
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $superseded
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      */
-    private function signedIn(SignedInSession $session, (EloquentSession&Model)|null $superseded, ?Tenant $tenant, SignInContext $context): SignInResult
+    private function signedIn(SignedInSession $session, (EloquentSession&Model)|null $superseded, ?Tenant $tenant, SignInContext $context, SignInProof $proof): SignInResult
     {
         $event   = new EventContext($this->context->name(), $context->client, $session->identity, $session->principal, $tenant, $session->record, $session->method);
         $revoked = $superseded === null ? null : new SessionRevoked(
@@ -372,8 +387,9 @@ final readonly class SessionEstablishment
         );
         $created  = new SessionCreated($event);
         $signedIn = new SignedIn($event, false);
+        $redeemed = $this->redeemed($proof, $context->client, $session->identity, $session->principal, $tenant, $session->record);
 
-        $this->afterCommit->run($session->record, function () use ($revoked, $created, $signedIn): void {
+        $this->afterCommit->run($session->record, function () use ($revoked, $created, $signedIn, $redeemed): void {
 
             if ($revoked !== null) {
                 $this->context->dispatch($revoked);
@@ -381,8 +397,57 @@ final readonly class SessionEstablishment
 
             $this->context->dispatch($created);
             $this->context->dispatch($signedIn);
+
+            if ($redeemed === null) {
+                return;
+            }
+
+            $this->context->dispatch($redeemed);
         });
 
         return SignInResult::signedIn($session);
+    }
+
+    /**
+     * The report of an external provider's result redeemed into the session,
+     * for a sign-in whose proof is the provider's: its connection and the
+     * authorisation request's reference, beside the session's identity,
+     * principal and tenant as established; `null` for any other sign-in.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
+     * @return ?\SineMacula\Laravel\Authentication\Events\ExternalResultRedeemed
+     */
+    private function redeemed(
+        SignInProof $proof,
+        ClientContext $client,
+        Identity $identity,
+        ?Principal $principal,
+        ?Tenant $tenant,
+        EloquentSession&Model $record,
+    ): ?ExternalResultRedeemed {
+        $provenance = $proof->provenance;
+
+        if ($provenance === null) {
+            return null;
+        }
+
+        $context = new EventContext(
+            $this->context->name(),
+            $client,
+            $identity,
+            $principal,
+            $tenant,
+            $record,
+            $proof->method,
+            connectionId: $provenance->connectionId,
+            requestReference: $proof->requestReference,
+        );
+
+        return new ExternalResultRedeemed($context, AuthenticationFlow::SIGN_IN);
     }
 }

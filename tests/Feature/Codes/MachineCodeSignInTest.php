@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use Tests\Concerns\InteractsWithCodeIdentities;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\CodeMachineClient;
 use Tests\TestCase;
 
@@ -107,7 +108,7 @@ final class MachineCodeSignInTest extends TestCase
         $failure = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([FailureReason::MACHINE_IDENTITY, AuthenticationFlow::SIGN_IN, $method], [$failure->reason, $failure->flow, $failure->context->method]);
-        self::assertTrue($machine->is($failure->context->identity));
+        EventContextAssertions::assertIdentity($machine, $failure->context);
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
         self::assertSame(0, DB::table('authentication_sessions')->count());
     }

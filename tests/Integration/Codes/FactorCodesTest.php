@@ -246,7 +246,8 @@ final class FactorCodesTest extends TestCase
         $failed  = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([CodeRequestStatus::REFUSED, FactorCodeRefusal::TYPE_NOT_ENABLED, null], [$request->status, $request->refusal, $request->challengeId]);
-        self::assertSame([AuthenticationFlow::FACTOR_CODE, FailureReason::FACTOR_CODE_REFUSED, null], [$failed->flow, $failed->reason, $failed->identifier]);
+        self::assertSame([AuthenticationFlow::FACTOR_CODE, FailureReason::FACTOR_CODE_REFUSED], [$failed->flow, $failed->reason]);
+        self::assertSame([null, null], [$failed->identifier, $failed->challengeId]);
         self::assertSame(0, DB::table('one_time_codes')->count());
 
         Queue::assertNothingPushed();
@@ -343,11 +344,12 @@ final class FactorCodesTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $check = $this->verify($binding, $challenge, '000000');
+        $check  = $this->verify($binding, $challenge, '000000');
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([FactorCodeOutcome::INVALID, $until, null], [$check->outcome, $check->lockedUntil, $check->verifiedAt]);
         self::assertSame([[$binding, $challenge, false]], array_map(static fn (array $report): array => array_slice($report, 0, 3), $this->counters->reports));
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame([FailureReason::INVALID_CREDENTIALS, $challenge], [$failed->reason, $failed->challengeId]);
         self::assertSame([1, 1], [self::column('attempts'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);
 
         $this->counters->report = FactorCodeAdmission::refused(FactorCodeRefusal::NOT_ACCEPTED);
@@ -522,32 +524,35 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Rows of `[challenge id, code]` a check refuses before anything else.
+     * Rows of `[challenge id, code, challenge id reported]` a check refuses
+     * before anything else: a challenge id not in the form the engine issues is
+     * never reported.
      *
-     * @return iterable<string, array{0: string, 1: string}>
+     * @return iterable<string, array{0: string, 1: string, 2: ?string}>
      */
     public static function provideMalformedChecks(): iterable
     {
         yield from [
-            'a short code'            => [self::NO_CHALLENGE, '13579'],
-            'a code with a letter'    => [self::NO_CHALLENGE, '13579O'],
-            'a challenge in capitals' => ['0195F4A2-7B1C-4000-8000-00000000000A', self::CODE],
-            'an empty challenge'      => ['', self::CODE],
+            'a short code'            => [self::NO_CHALLENGE, '13579', self::NO_CHALLENGE],
+            'a code with a letter'    => [self::NO_CHALLENGE, '13579O', self::NO_CHALLENGE],
+            'a challenge in capitals' => ['0195F4A2-7B1C-4000-8000-00000000000A', self::CODE, null],
+            'an empty challenge'      => ['', self::CODE, null],
         ];
     }
 
     /**
      * A malformed code or challenge id is invalid with nothing counted, the
-     * counters not asked and nothing reported.
+     * counters not asked and nothing reported to them.
      *
      * @param  string  $challenge
      * @param  string  $code
+     * @param  ?string  $reported
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideMalformedChecks')]
-    public function testAMalformedCheckCountsNothing(string $challenge, string $code): void
+    public function testAMalformedCheckCountsNothing(string $challenge, string $code, ?string $reported): void
     {
         $this->send($this->binding());
 
@@ -555,13 +560,11 @@ final class FactorCodesTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $check = $this->verify($this->binding(), $challenge, $code);
+        $check  = $this->verify($this->binding(), $challenge, $code);
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([FactorCodeOutcome::INVALID, $challenge], [$check->outcome, $check->challengeId]);
-        self::assertSame(
-            [FailureReason::INVALID_CREDENTIALS, AuthenticationFlow::FACTOR_CODE],
-            [$this->recordedEvent(AuthenticationFailed::class)->reason, $this->recordedEvent(AuthenticationFailed::class)->flow],
-        );
+        self::assertSame([FailureReason::INVALID_CREDENTIALS, AuthenticationFlow::FACTOR_CODE, $reported], [$failed->reason, $failed->flow, $failed->challengeId]);
         self::assertSame([[], []], [$this->counters->admitted, $this->counters->reports]);
         self::assertSame([0, 0], [self::column('attempts'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);
     }
@@ -591,7 +594,7 @@ final class FactorCodesTest extends TestCase
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([FactorCodeOutcome::RATE_LIMITED, 300], [$check->outcome, $check->retryAfter]);
-        self::assertSame([FailureReason::RATE_LIMITED, 300], [$failed->reason, $failed->retryAfter]);
+        self::assertSame([FailureReason::RATE_LIMITED, 300, $challenge], [$failed->reason, $failed->retryAfter, $failed->challengeId]);
         self::assertSame([], $this->counters->admitted);
         self::assertSame(1, self::column('attempts'));
     }

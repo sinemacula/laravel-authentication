@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -32,6 +33,7 @@ use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubSession;
@@ -173,8 +175,37 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertSame($identity, $guard->user());
         self::assertCount(2, $dispatched);
         self::assertInstanceOf(PrincipalAssigned::class, $dispatched[1]);
-        self::assertNull($dispatched[1]->context->session);
+        EventContextAssertions::assertSession(null, $dispatched[1]->context);
         self::assertNull($dispatched[1]->context->method);
+    }
+
+    /**
+     * A person's bearer token, which names no API key, is an access token in
+     * the guard's authentication context, and grants no scopes.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPersonsBearerTokenIsAnAccessTokenInItsContext(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->andReturn('i-1');
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $principal->shouldReceive('getTenant')->andReturnNull();
+
+        $this->provider->shouldReceive('retrieveById')->once()->with('i-1')->andReturn($identity);
+        $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($principal);
+        $this->events->shouldReceive('dispatch');
+
+        $context = $this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1'])))->authenticationContext();
+
+        self::assertNotNull($context);
+        self::assertSame('i-1', $context->identityId);
+        self::assertSame(CredentialKind::ACCESS_TOKEN, $context->credential);
+        self::assertNull($context->scopes);
     }
 
     /**
@@ -220,7 +251,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $failure->reason);
         self::assertSame(self::GUARD_NAME, $failure->context->guard);
         self::assertSame('203.0.113.9', $failure->context->client->ip);
-        self::assertNull($failure->context->identity);
+        EventContextAssertions::assertIdentity(null, $failure->context);
         self::assertNull($failure->retryAfter);
         self::assertFalse($guard->hasUser());
     }
@@ -304,7 +335,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertFalse($dispatched[4]->remember);
         self::assertInstanceOf(SignedIn::class, $dispatched[2]);
         self::assertTrue($dispatched[2]->refresh);
-        self::assertSame($guard->session(), $dispatched[2]->context->session);
+        EventContextAssertions::assertSession($guard->session(), $dispatched[2]->context);
         self::assertTrue($guard->hasUser());
     }
 

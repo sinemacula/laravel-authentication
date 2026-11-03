@@ -39,10 +39,13 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Codes\RefuseFactorCodes;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
+use SineMacula\Laravel\Authentication\Context\ContextContributors;
+use SineMacula\Laravel\Authentication\Context\GuardAuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\ExternalIdentityLinks;
@@ -93,6 +96,7 @@ use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
 use SineMacula\Laravel\Authentication\Tenancy\RequireNothingOfTenants;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\Fixtures\Context\ScriptedContributor;
 use Tests\Fixtures\Database\ShippedMigrations;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -711,6 +715,31 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertTrue($app->isShared(PasswordResetLinkSender::class));
         self::assertInstanceOf(NotifyingResetLinkSender::class, app(PasswordResetLinkSender::class));
+    }
+
+    /**
+     * The default authentication contexts, which ask the default guard, and the
+     * contributor registry are each bound as a singleton: a contributor a
+     * provider registers on one resolution of the registry is still there when
+     * a context is next built from another.
+     *
+     * @return void
+     */
+    public function testRegistersTheDefaultContextsAndOneContributorRegistry(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(AuthenticationContexts::class));
+        self::assertInstanceOf(GuardAuthenticationContexts::class, app(AuthenticationContexts::class));
+        self::assertSame(app(AuthenticationContexts::class), app(AuthenticationContexts::class));
+
+        self::assertTrue($app->isShared(ContextContributors::class));
+
+        app(ContextContributors::class)->register('sso', ScriptedContributor::class);
+
+        self::assertSame(['sso' => ScriptedContributor::class], app(ContextContributors::class)->registered());
     }
 
     /**

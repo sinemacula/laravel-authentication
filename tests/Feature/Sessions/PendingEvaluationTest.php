@@ -857,6 +857,18 @@ final class PendingEvaluationTest extends TestCase
             }
 
             /**
+             * Allow body credentials as the bound policy does.
+             *
+             * @param  string  $guard
+             * @return bool
+             */
+            #[\Override]
+            public function allowsClientSecretPost(string $guard): bool
+            {
+                return $this->policy->allowsClientSecretPost($guard);
+            }
+
+            /**
              * Refuse every identifier type as unverified.
              *
              * @param  string  $guard

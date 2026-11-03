@@ -49,6 +49,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Factors\FirstFactorMeetsRequirements;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -139,8 +140,8 @@ final class SessionEstablishmentTest extends TestCase
         self::assertTrue($result->isSignedIn());
         self::assertSame(1, DB::table('authentication_sessions')->count());
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame($result->session?->record, $this->recordedEvent(SignedIn::class)->context->session);
-        self::assertSame($result->session?->record, $this->recordedEvent(SessionCreated::class)->context->session);
+        EventContextAssertions::assertSession($result->session?->record, $this->recordedEvent(SignedIn::class)->context);
+        EventContextAssertions::assertSession($result->session?->record, $this->recordedEvent(SessionCreated::class)->context);
         self::assertFalse($this->recordedEvent(SignedIn::class)->refresh);
         self::assertTrue($guard->guest());
     }
@@ -233,8 +234,8 @@ final class SessionEstablishmentTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($first->record->getKey()), $revoked->context->sessionId);
         self::assertSame('api', $revoked->context->guard);
         self::assertSame('sso', $revoked->context->method);
-        self::assertSame($identity, $revoked->context->identity);
-        self::assertSame($identity, $revoked->context->principal);
+        EventContextAssertions::assertIdentity($identity, $revoked->context);
+        EventContextAssertions::assertPrincipal($identity, $revoked->context);
         self::assertSame(self::CLIENT_IP, $revoked->context->client->ip);
         self::assertSame(IdentifierCoercion::stringify($replaced->record->getKey()), $this->recordedEvent(SessionCreated::class)->context->sessionId);
         self::assertSame(IdentifierCoercion::stringify($replaced->record->getKey()), $this->recordedEvent(SignedIn::class)->context->sessionId);

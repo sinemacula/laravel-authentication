@@ -644,9 +644,10 @@ final class SignInProofsTest extends TestCase
      * An additional verification, the recovery-code fallback and multifactor
      * authentication stay apart: a recovery code satisfies the session as a
      * recovery code, never an additional factor, the check sees its kind and
-     * evaluation as recorded, and the token's `amr` carries its own values and
-     * `mfa` only once an accepted evaluation reports multifactor
-     * authentication, never because two factors were used.
+     * evaluation as recorded, never an additional verification whatever the
+     * adapter reported, and the token's `amr` carries its own values and `mfa`
+     * only once an accepted evaluation reports multifactor authentication,
+     * never because two factors were used.
      *
      * @return void
      *
@@ -677,7 +678,7 @@ final class SignInProofsTest extends TestCase
         [$recovery] = $judged->proofs(null, [ProofKind::RECOVERY_CODE, ProofKind::ADDITIONAL_FACTOR]);
 
         self::assertSame(ProofKind::RECOVERY_CODE, $recovery->kind);
-        self::assertEquals(new Evaluation(true, false), $recovery->evaluation);
+        self::assertEquals(new Evaluation(true, false, false), $recovery->evaluation);
         self::assertSame([], $judged->proofs(null, [ProofKind::ADDITIONAL_FACTOR]));
         self::assertSame(['pwd', 'kba'], self::amrOf($session->tokens->accessToken->reveal()));
 

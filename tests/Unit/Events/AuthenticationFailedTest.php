@@ -47,21 +47,37 @@ final class AuthenticationFailedTest extends TestCase
         self::assertSame(FailureReason::ACCOUNT_RATE_LIMITED, $event->reason);
         self::assertSame('ada@example.test', $event->identifier);
         self::assertSame(30, $event->retryAfter);
+        self::assertNull($event->challengeId);
     }
 
     /**
-     * The event serialises its models for queued listeners and survives a round
-     * trip; it is dispatched at once, by the flow that failed.
+     * The event keeps the id of the challenge the failed check answered.
      *
      * @return void
      */
-    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testKeepsTheChallengeItAnswered(): void
+    {
+        $challenge = '01a1a0b0-4e9b-7017-ad1e-a8b2eb72c999';
+        $event     = new AuthenticationFailed(self::context(), AuthenticationFlow::FACTOR_CODE, FailureReason::INVALID_CREDENTIALS, challengeId: $challenge);
+        $restored  = unserialize(serialize($event));
+
+        self::assertInstanceOf(AuthenticationFailed::class, $restored);
+        self::assertSame([$challenge, $challenge], [$event->challengeId, $restored->challengeId]);
+    }
+
+    /**
+     * The event holds no model, serialises as it is for queued listeners and
+     * survives a round trip; it is dispatched at once, by the flow that failed.
+     *
+     * @return void
+     */
+    public function testSerializesItsValuesAndDispatchesWhenTheSenderSays(): void
     {
         $context = self::context();
         $event   = new AuthenticationFailed($context, AuthenticationFlow::SIGN_IN, FailureReason::ACCOUNT_RATE_LIMITED, 'ada@example.test', 30);
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesModels::class, class_uses_recursive($event));
+        self::assertNotContains(SerializesModels::class, class_uses_recursive($event));
 
         $copy = unserialize(serialize($event));
 

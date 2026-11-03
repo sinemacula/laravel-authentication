@@ -15,9 +15,9 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for work deferred until a session's connection commits, against
- * real transactions on whichever engine the suite runs on, and a session kept
- * on a second connection.
+ * Feature tests for work deferred until a session's connection commits, or run
+ * if it rolls back, against real transactions on whichever engine the suite
+ * runs on, and a session kept on a second connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -212,6 +212,135 @@ final class AfterCommitTest extends TestCase
         $separate->commit();
 
         self::assertCount(2, $calls);
+    }
+
+    /**
+     * Work run on a rollback runs once when the session connection's
+     * transaction rolls back, never when it commits, and not at all outside a
+     * transaction, whose writes were committed as they were made.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRunsOnTheRollbackOfTheSessionConnectionsTransactionOnly(): void
+    {
+        $session = $this->record();
+        $calls   = new \ArrayObject;
+        $count   = self::counter($calls);
+
+        $this->afterCommit()->runIfRolledBack($session, $count);
+
+        DB::beginTransaction();
+
+        $this->afterCommit()->runIfRolledBack($session, $count);
+
+        DB::commit();
+
+        self::assertCount(0, $calls);
+
+        DB::beginTransaction();
+
+        $this->afterCommit()->runIfRolledBack($session, $count);
+
+        self::assertCount(0, $calls);
+
+        DB::rollBack();
+
+        self::assertCount(1, $calls);
+    }
+
+    /**
+     * Work run on a rollback inside a nested transaction runs, once, when
+     * either rolls back: the nested one, or the outer one after the nested one
+     * committed into it; and not when both commit.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRunsOnceOnTheRollbackOfANestedTransactionOrOfTheOneItIsNestedIn(): void
+    {
+        $session = $this->record();
+        $calls   = new \ArrayObject;
+        $count   = self::counter($calls);
+
+        DB::beginTransaction();
+        DB::beginTransaction();
+
+        $this->afterCommit()->runIfRolledBack($session, $count);
+
+        DB::commit();
+
+        self::assertCount(0, $calls);
+
+        DB::rollBack();
+
+        self::assertCount(1, $calls);
+
+        DB::beginTransaction();
+        DB::beginTransaction();
+
+        $this->afterCommit()->runIfRolledBack($session, $count);
+
+        DB::rollBack();
+
+        self::assertCount(2, $calls);
+
+        DB::rollBack();
+
+        self::assertCount(2, $calls);
+
+        DB::beginTransaction();
+        DB::beginTransaction();
+
+        $this->afterCommit()->runIfRolledBack($session, $count);
+
+        DB::commit();
+        DB::commit();
+
+        self::assertCount(2, $calls);
+    }
+
+    /**
+     * Work run on a rollback ignores what it cannot have been written in: a
+     * transaction open on another connection, the transaction wrapping a test
+     * under the testing traits' manager, and everything without a manager.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRunsOnNoRollbackItsWritesWereNotMadeIn(): void
+    {
+        $session = $this->record();
+        $calls   = new \ArrayObject;
+        $count   = self::counter($calls);
+
+        DB::beginTransaction();
+
+        $this->afterCommit()->runIfRolledBack(new SeparateConnectionSession, $count);
+        (new AfterCommit(static fn (): null => null))->runIfRolledBack($session, $count);
+
+        DB::rollBack();
+
+        self::assertCount(0, $calls);
+
+        $manager     = new TestingTransactionsManager([null]);
+        $afterCommit = new AfterCommit(static fn (): TestingTransactionsManager => $manager);
+        $connection  = DB::connection();
+
+        $connection->setTransactionManager($manager);
+        $connection->beginTransaction();
+
+        try {
+            $afterCommit->runIfRolledBack($session, $count);
+        } finally {
+            $connection->rollBack();
+            $connection->setTransactionManager(app('db.transactions'));
+        }
+
+        self::assertCount(0, $calls);
     }
 
     /**

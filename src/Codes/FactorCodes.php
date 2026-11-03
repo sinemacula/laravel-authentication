@@ -313,12 +313,15 @@ final readonly class FactorCodes
     }
 
     /**
-     * Report a check that was not verified with `AuthenticationFailed` and
-     * answer it.
+     * Report a check that was not verified with `AuthenticationFailed`, with
+     * the id of the challenge it checked when that is in the form the engine
+     * issues, and answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeCheck  $check
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @return \SineMacula\Laravel\Authentication\Codes\FactorCodeCheck
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function refuseCheck(FactorCodeCheck $check, EventContext $context): FactorCodeCheck
     {
@@ -331,7 +334,9 @@ final readonly class FactorCodes
             default                         => FailureReason::INVALID_CREDENTIALS,
         };
 
-        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::FACTOR_CODE, $reason, null, $check->retryAfter));
+        $challengeId = $this->container->make(OneTimeCodes::class)->isWellFormedChallenge($check->challengeId) ? $check->challengeId : null;
+
+        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::FACTOR_CODE, $reason, null, $check->retryAfter, $challengeId));
 
         return $check;
     }

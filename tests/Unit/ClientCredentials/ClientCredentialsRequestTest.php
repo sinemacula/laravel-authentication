@@ -30,25 +30,65 @@ final class ClientCredentialsRequestTest extends TestCase
         require $argv[1];
 
         $request = Illuminate\Http\Request::create('/oauth/token', 'POST', json_decode($argv[3], true), [], [], ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'], $argv[2]);
-        $read    = SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsRequest::read($request);
+        $read    = SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsRequest::read($request, true);
 
         echo is_string($read) ? $read : json_encode([$read->clientId, $read->scope]);
         PHP;
 
     /**
-     * Body credentials and a scope are read; the client did not use Basic.
+     * Body credentials and a scope are read where the application allows
+     * `client_secret_post`.
      *
      * @return void
      */
     public function testReadsBodyCredentialsAndAScope(): void
     {
-        $presented = ClientCredentialsRequest::read(self::request('grant_type=client_credentials&client_id=id&client_secret=secret&scope=a+b'));
+        $presented = ClientCredentialsRequest::read(self::request('grant_type=client_credentials&client_id=id&client_secret=secret&scope=a+b'), true);
 
         self::assertInstanceOf(PresentedClient::class, $presented);
         self::assertSame('id', $presented->clientId);
         self::assertSame('secret', $presented->clientSecret());
         self::assertSame('a b', $presented->scope);
-        self::assertFalse($presented->basic);
+    }
+
+    /**
+     * Where the application does not allow `client_secret_post`, credentials in
+     * the body, whole or in part, authenticate no client: `invalid_client`.
+     * Basic is read either way, and Basic with body credentials stays
+     * `invalid_request`.
+     *
+     * @return void
+     */
+    public function testRefusesBodyCredentialsUnlessTheApplicationAllowsThem(): void
+    {
+        $basic = ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode('id:secret')];
+
+        self::assertSame('invalid_client', ClientCredentialsRequest::read(self::request('grant_type=client_credentials&client_id=id&client_secret=secret'), false));
+        self::assertSame('invalid_client', ClientCredentialsRequest::read(self::request('grant_type=client_credentials&client_id=id'), false));
+        self::assertSame('invalid_request', ClientCredentialsRequest::read(self::request('grant_type=client_credentials&client_id=id', $basic), false));
+        self::assertInstanceOf(PresentedClient::class, ClientCredentialsRequest::read(self::request('grant_type=client_credentials', $basic), false));
+    }
+
+    /**
+     * A parameter sent without a value is treated as omitted (RFC 6749 section
+     * 3.1): an empty grant type names no grant, and an empty client id or
+     * secret beside Basic credentials is no body credential.
+     *
+     * @return void
+     */
+    public function testAParameterWithoutAValueIsOmitted(): void
+    {
+        $basic = ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode('id:secret')];
+
+        self::assertSame('invalid_request', ClientCredentialsRequest::read(self::request('grant_type=&client_id=id&client_secret=secret'), true));
+        self::assertSame('invalid_client', ClientCredentialsRequest::read(self::request('grant_type=client_credentials&client_id=&client_secret='), true));
+        self::assertSame('invalid_client', ClientCredentialsRequest::read(self::request('grant_type=client_credentials&client_id=id&client_secret='), true));
+
+        $presented = ClientCredentialsRequest::read(self::request('grant_type=client_credentials&client_id=&client_secret=&scope=', $basic), false);
+
+        self::assertInstanceOf(PresentedClient::class, $presented);
+        self::assertSame('id', $presented->clientId);
+        self::assertNull($presented->scope);
     }
 
     /**
@@ -62,22 +102,19 @@ final class ClientCredentialsRequestTest extends TestCase
     {
         $basic     = ['HTTP_AUTHORIZATION' => 'basic ' . base64_encode('my%20id:se%3Acr+et:x')];
         $request   = self::request('grant_type=client_credentials', $basic, 'application/x-www-form-urlencoded; charset=UTF-8');
-        $presented = ClientCredentialsRequest::read($request);
+        $presented = ClientCredentialsRequest::read($request, false);
 
         self::assertInstanceOf(PresentedClient::class, $presented);
         self::assertSame('my id', $presented->clientId);
         self::assertSame('se:cr et:x', $presented->clientSecret());
         self::assertNull($presented->scope);
-        self::assertTrue($presented->basic);
-        self::assertTrue(ClientCredentialsRequest::usesBasic($request));
     }
 
     /**
-     * Rows of
-     * `[body, server, content type, query, client id, secret, scope, basic]`:
-     * requests in form.
+     * Rows of `[body, server, content type, query, client id, secret, scope]`:
+     * requests in form, where the application allows `client_secret_post`.
      *
-     * @return iterable<string, array{0: string, 1: array<string, string>, 2: string, 3: array<string, string>, 4: string, 5: string, 6: ?string, 7: bool}>
+     * @return iterable<string, array{0: string, 1: array<string, string>, 2: string, 3: array<string, string>, 4: string, 5: string, 6: ?string}>
      */
     public static function provideClients(): iterable
     {
@@ -88,19 +125,19 @@ final class ClientCredentialsRequestTest extends TestCase
         $colon = ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode('id:se:cret')];
 
         yield from [
-            'body credentials'           => ["{$body}&scope=a", [], $form, [], 'id', 'secret', 'a', false],
-            'basic credentials'          => ['grant_type=client_credentials&scope=a+b', $basic, $form, [], 'id', 'secret', 'a b', true],
-            'a colon in a basic secret'  => ['grant_type=client_credentials', $colon, $form, [], 'id', 'se:cret', null, true],
-            'a media type in any case'   => [$body, [], $mixed, [], 'id', 'secret', null, false],
-            'another query parameter'    => [$body, [], $form, ['page' => '2'], 'id', 'secret', null, false],
-            'another parameter repeated' => ["{$body}&x=1&x=2", [], $form, [], 'id', 'secret', null, false],
+            'body credentials'           => ["{$body}&scope=a", [], $form, [], 'id', 'secret', 'a'],
+            'basic credentials'          => ['grant_type=client_credentials&scope=a+b', $basic, $form, [], 'id', 'secret', 'a b'],
+            'a colon in a basic secret'  => ['grant_type=client_credentials', $colon, $form, [], 'id', 'se:cret', null],
+            'a media type in any case'   => [$body, [], $mixed, [], 'id', 'secret', null],
+            'another query parameter'    => [$body, [], $form, ['page' => '2'], 'id', 'secret', null],
+            'another parameter repeated' => ["{$body}&x=1&x=2", [], $form, [], 'id', 'secret', null],
         ];
     }
 
     /**
-     * A request in form presents its client, scope and how it authenticated;
-     * the media type is matched without regard to case or spaces, and anything
-     * outside the four parameters is ignored.
+     * A request in form presents its client and scope; the media type is
+     * matched without regard to case or spaces, and anything outside the four
+     * parameters is ignored.
      *
      * @param  string  $body
      * @param  array<string, string>  $server
@@ -109,29 +146,19 @@ final class ClientCredentialsRequestTest extends TestCase
      * @param  string  $id
      * @param  string  $secret
      * @param  ?string  $scope
-     * @param  bool  $basic
      * @return void
      */
     #[DataProvider('provideClients')]
-    public function testReadsAClientInForm(
-        string $body,
-        array $server,
-        string $type,
-        array $query,
-        string $id,
-        #[\SensitiveParameter]
-        string $secret,
-        ?string $scope,
-        bool $basic,
-    ): void {
+    public function testReadsAClientInForm(string $body, array $server, string $type, array $query, string $id, #[\SensitiveParameter] string $secret, ?string $scope): void
+    {
         $request = self::request($body, $server, $type);
 
         $request->query->add($query);
 
-        $presented = ClientCredentialsRequest::read($request);
+        $presented = ClientCredentialsRequest::read($request, true);
 
         self::assertInstanceOf(PresentedClient::class, $presented);
-        self::assertSame([$id, $secret, $scope, $basic], [$presented->clientId, $presented->clientSecret(), $presented->scope, $presented->basic]);
+        self::assertSame([$id, $secret, $scope], [$presented->clientId, $presented->clientSecret(), $presented->scope]);
     }
 
     /**
@@ -173,7 +200,8 @@ final class ClientCredentialsRequestTest extends TestCase
     }
 
     /**
-     * A request not in form is refused with its RFC 6749 error.
+     * A request not in form is refused with its RFC 6749 error, whether the
+     * application allows `client_secret_post` or not.
      *
      * @param  string  $body
      * @param  array<string, string>  $server
@@ -185,7 +213,8 @@ final class ClientCredentialsRequestTest extends TestCase
     #[DataProvider('provideRefusedRequests')]
     public function testRefusesARequestNotInForm(string $body, array $server, string $type, string $method, string $error): void
     {
-        self::assertSame($error, ClientCredentialsRequest::read(self::request($body, $server, $type, $method)));
+        self::assertSame($error, ClientCredentialsRequest::read(self::request($body, $server, $type, $method), true));
+        self::assertSame($error, ClientCredentialsRequest::read(self::request($body, $server, $type, $method), false));
     }
 
     /**
@@ -200,7 +229,7 @@ final class ClientCredentialsRequestTest extends TestCase
 
             $request->query->set($name, 'x');
 
-            self::assertSame('invalid_request', ClientCredentialsRequest::read($request), $name);
+            self::assertSame('invalid_request', ClientCredentialsRequest::read($request, true), $name);
         }
     }
 
@@ -215,10 +244,10 @@ final class ClientCredentialsRequestTest extends TestCase
         $body = 'grant_type=client_credentials&client_id=id&client_secret=secret&scope=a';
 
         foreach (['grant_type' => 'client_credentials', 'scope' => 'a', 'client_id' => 'id', 'client_secret' => 'secret'] as $name => $value) {
-            self::assertSame('invalid_request', ClientCredentialsRequest::read(self::request("{$body}&{$name}%00x={$value}")), $name);
+            self::assertSame('invalid_request', ClientCredentialsRequest::read(self::request("{$body}&{$name}%00x={$value}"), true), $name);
         }
 
-        self::assertInstanceOf(PresentedClient::class, ClientCredentialsRequest::read(self::request("{$body}&extra%00x=1")));
+        self::assertInstanceOf(PresentedClient::class, ClientCredentialsRequest::read(self::request("{$body}&extra%00x=1"), true));
     }
 
     /**
@@ -280,7 +309,7 @@ final class ClientCredentialsRequestTest extends TestCase
 
             $repeats = in_array(array_key_first($read), ['grant_type', 'scope', 'client_id', 'client_secret'], true);
 
-            return $repeats !== (ClientCredentialsRequest::read(self::request("{$name}=x&{$body}")) === 'invalid_request');
+            return $repeats !== (ClientCredentialsRequest::read(self::request("{$name}=x&{$body}"), true) === 'invalid_request');
         });
 
         self::assertSame([], array_values($misread));
@@ -299,25 +328,34 @@ final class ClientCredentialsRequestTest extends TestCase
 
         $request->request->set('scope', null);
 
-        $presented = ClientCredentialsRequest::read($request);
+        $presented = ClientCredentialsRequest::read($request, true);
 
         self::assertInstanceOf(PresentedClient::class, $presented);
         self::assertNull($presented->scope);
     }
 
     /**
-     * Only an Authorization header with the Basic scheme counts as Basic.
+     * Only an Authorization header with the Basic scheme, in any case, counts
+     * as Basic: anything else leaves the body credentials to be read.
      *
      * @return void
      */
     public function testRecognizesTheBasicScheme(): void
     {
-        self::assertTrue(ClientCredentialsRequest::usesBasic(self::request('', ['HTTP_AUTHORIZATION' => 'Basic abc'])));
-        self::assertTrue(ClientCredentialsRequest::usesBasic(self::request('', ['HTTP_AUTHORIZATION' => 'BASIC'])));
-        self::assertFalse(ClientCredentialsRequest::usesBasic(self::request('', ['HTTP_AUTHORIZATION' => 'Basically abc'])));
-        self::assertFalse(ClientCredentialsRequest::usesBasic(self::request('', ['HTTP_AUTHORIZATION' => 'Bearer abc'])));
-        self::assertFalse(ClientCredentialsRequest::usesBasic(self::request('', ['HTTP_AUTHORIZATION' => 'Bearer Basic abc'])));
-        self::assertFalse(ClientCredentialsRequest::usesBasic(self::request('')));
+        $body = 'grant_type=client_credentials&client_id=body&client_secret=secret';
+
+        foreach (['Basic ' . base64_encode('id:s'), 'BASIC ' . base64_encode('id:s')] as $header) {
+            self::assertSame('invalid_request', ClientCredentialsRequest::read(self::request($body, ['HTTP_AUTHORIZATION' => $header]), true), $header);
+        }
+
+        self::assertSame('invalid_client', ClientCredentialsRequest::read(self::request('grant_type=client_credentials', ['HTTP_AUTHORIZATION' => 'BASIC']), true));
+
+        foreach (['Basically abc', 'Bearer abc', 'Bearer Basic abc'] as $header) {
+            $presented = ClientCredentialsRequest::read(self::request($body, ['HTTP_AUTHORIZATION' => $header]), true);
+
+            self::assertInstanceOf(PresentedClient::class, $presented, $header);
+            self::assertSame('body', $presented->clientId);
+        }
     }
 
     /**

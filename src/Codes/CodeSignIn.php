@@ -143,6 +143,21 @@ final readonly class CodeSignIn implements SignInMethod
     }
 
     /**
+     * The challenge id the input answers, when it is in the form the engine
+     * issues: a lower-case UUID.
+     *
+     * @param  array<array-key, mixed>  $input
+     * @return ?string
+     */
+    #[\Override]
+    public function challenge(#[\SensitiveParameter] array $input): ?string
+    {
+        $challenge = $input[self::CHALLENGE_KEY] ?? null;
+
+        return is_string($challenge) && $this->codes->isWellFormedChallenge($challenge) ? $challenge : null;
+    }
+
+    /**
      * Verify the identifier and code the input carries.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request

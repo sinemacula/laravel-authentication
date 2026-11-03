@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
@@ -380,7 +381,7 @@ final class ConnectionRevocationsTest extends TestCase
 
         foreach ($this->recorded as $event) {
             self::assertInstanceOf(SessionRevoked::class, $event);
-            self::assertSame($ada, $event->context->identity);
+            EventContextAssertions::assertIdentity($ada, $event->context);
             self::assertSame($reason, $event->reason);
         }
     }

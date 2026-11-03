@@ -17,13 +17,14 @@ Each holds its method, its channel (`password`, `sms`, `email`, `authenticator_a
 `unknown`, with the destination or credential reference: a code's address or number in its normal form, a passkey's own
 row id, a provider's connection id), the factor an adapter used, what was observed about the authenticator (user
 presence and verification, backup eligibility and state, phishing resistance, key protection: each `null` when it was
-not observed, which never counts as true), the adapter's evaluation (accepted, multifactor; none for a proof the package
-verified itself, except an external one whose evidence was accepted), the external provider's evidence once accepted,
-its `amr` values, its time and its binding (the identity, the application, the session and the purpose: `sign_in`,
-`reauthenticate` or `step_up`). A proof is never changed once recorded, except to be marked void, after which it never
-counts: when the factor package removes a factor, `factorRemoved()` voids the proofs the current session made with it,
-and the identity's other sessions end (see [Sign-in factors](#sign-in-factors)). A removed first-factor credential
-(`credentialRemoved()`) voids nothing.
+not observed, which never counts as true), the adapter's evaluation (accepted, multifactor, and whether it is an
+additional verification, as a further factor always is and an external provider's evidence is only when accepted for one
+or for multifactor authentication; none for a proof the package verified itself, except an external one whose evidence
+was accepted), the external provider's evidence once accepted, its `amr` values, its time and its binding (the identity,
+the application, the session and the purpose: `sign_in`, `reauthenticate` or `step_up`). A proof is never changed once
+recorded, except to be marked void, after which it never counts: when the factor package removes a factor,
+`factorRemoved()` voids the proofs the current session made with it, and the identity's other sessions end (see [Sign-in
+factors](#sign-in-factors)). A removed first-factor credential (`credentialRemoved()`) voids nothing.
 
 A session an external provider established (`signInExternally()`, see [External
 sign-in](signing-in.md#external-sign-in)) also records its provenance, once, in `proofs.provenance_table`: the
@@ -161,6 +162,7 @@ $result = Auth::sessions('api')->reauthenticateExternally($redeemed->sessionId, 
     subject: $redeemed->subject,
     authenticatedAt: $redeemed->authenticatedAt,
     evidence: $redeemed->evidence,
+    requestReference: $redeemed->requestReference,
 ));
 ```
 
@@ -189,7 +191,9 @@ committed after your first read is left out of that one token, which is then old
 renewed: no refresh token is issued, and the session row, its deadlines and its provenance are kept. Its `amr` gains the
 provider's private value, and `mfa`, only when the application's `ExternalEvidencePolicy` accepts the result's evidence
 (see [Proofs and provenance](#proofs-and-provenance)); otherwise only `auth_time` moves. `Reauthenticated` (method
-`external_provider`) reports it once committed. A step-up refuses an external proof.
+`external_provider`) reports it once committed, and then `ExternalResultRedeemed` (flow `reauthentication`), whose
+context carries the result's connection and request reference, as a refusal's `AuthenticationFailed` does. A step-up
+refuses an external proof.
 
 An adapter asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` whether a session, by its identifier,
 stands for such a reauthentication: `null` for one of the guard's live, active sessions of a person owned by the
@@ -421,17 +425,17 @@ the switch's read and its write, the row is read again with a lock and judged on
 is never tried twice.
 
 A switch schedules `PrincipalSwitched` for its commit on the session's connection, with the new principal and tenant in
-its context, the previous principal as the session recorded it (`previousPrincipalType`, `previousPrincipalId`)
-and, when it still resolves for the identity, the principal itself (`previousPrincipal`), the previous tenant's
-identifier (`previousTenantId`) and which of the two changed (`principalChanged`, `tenantChanged`), before it binds the
-guard to the destination in the destination tenant (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no
-`Login`; `Auth::tenant()` is the new tenant) once the switch commits too, so a listener that throws on those cannot
-withhold the report. Outside a transaction `PrincipalSwitched` is therefore dispatched before the bind events, and a
-listener on it reads the event's context, not the guard, which still holds the previous principal; inside your
-transaction both follow the commit, in that order, and a rollback drops both, leaving the guard unbound. The result
-carries the new pair at once (a cookie application's refresh cookie in it, which the package never queues: attach it
-only once your transaction has committed). A bind that waited for your commit binds only while the guard still serves
-the request and the session, read again, still acts as the destination principal in the destination tenant.
+its context, the previous principal as the session recorded it (`previousPrincipalType`, `previousPrincipalId`), the
+previous tenant's identifier (`previousTenantId`) and which of the two changed (`principalChanged`, `tenantChanged`),
+all plain values (a listener that needs the previous principal loads it), before it binds the guard to the destination
+in the destination tenant (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no `Login`; `Auth::tenant()` is
+the new tenant) once the switch commits too, so a listener that throws on those cannot withhold the report. Outside a
+transaction `PrincipalSwitched` is therefore dispatched before the bind events, and a listener on it reads the event's
+context, not the guard, which still holds the previous principal; inside your transaction both follow the commit, in
+that order, and a rollback drops both, leaving the guard unbound. The result carries the new pair at once (a cookie
+application's refresh cookie in it, which the package never queues: attach it only once your transaction has committed).
+A bind that waited for your commit binds only while the guard still serves the request and the session, read again,
+still acts as the destination principal in the destination tenant.
 
 ## Signing out and revoking sessions
 

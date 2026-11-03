@@ -23,8 +23,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
  * accepted at all, through the evidence policy bound in the container: only
  * when the policy accepts it for multifactor authentication, an additional
  * verification, phishing resistance or a minimum level, and then with what it
- * was accepted for;
- * never by default.
+ * was accepted for; never by default.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,14 +47,15 @@ final class EvidenceAcceptanceTest extends TestCase
 
     /**
      * Evidence the policy accepts for multifactor authentication is accepted as
-     * multifactor, after one question; evidence it accepts only for an
-     * additional verification is accepted, not as multifactor, after it was
-     * asked for multifactor first; evidence it accepts only for phishing
-     * resistance is accepted, not as multifactor, after both; evidence it
-     * accepts only for the lowest assurance level is accepted, not as
-     * multifactor, after all three; evidence it accepts for none is not
-     * accepted. Each question is the policy's `accepts()`, for the one part, of
-     * any age, about the subject, with reads pinned to the write connection.
+     * multifactor and as an additional verification, after one question;
+     * evidence it accepts only for an additional verification is accepted as
+     * one, not as multifactor, after it was asked for multifactor first;
+     * evidence it accepts only for phishing resistance is accepted, as neither,
+     * after both; evidence it accepts only for the lowest assurance level is
+     * accepted, as neither, after all three; evidence it accepts for none is
+     * not accepted. Each question is the policy's `accepts()`, for the one
+     * part, of any age, about the subject, with reads pinned to the write
+     * connection.
      *
      * @return void
      */
@@ -67,7 +67,7 @@ final class EvidenceAcceptanceTest extends TestCase
 
         $multifactor = $this->bind([RequirementKind::MULTIFACTOR]);
 
-        self::assertEquals(new Evaluation(true, true), EvidenceAcceptance::evaluate($evidence, $subject));
+        self::assertEquals(new Evaluation(true, true, true), EvidenceAcceptance::evaluate($evidence, $subject));
         self::assertCount(1, $multifactor->asked);
         self::assertSame([RequirementKind::MULTIFACTOR], $multifactor->asked[0]['requirement']->kinds());
         self::assertNull($multifactor->asked[0]['requirement']->multifactor?->maxAgeSeconds);
@@ -77,7 +77,7 @@ final class EvidenceAcceptanceTest extends TestCase
 
         $additional = $this->bind([RequirementKind::ADDITIONAL_VERIFICATION]);
 
-        self::assertEquals(new Evaluation(true, false), EvidenceAcceptance::evaluate($evidence, $subject));
+        self::assertEquals(new Evaluation(true, false, true), EvidenceAcceptance::evaluate($evidence, $subject));
         $kinds = array_map(static fn (array $asked): array => $asked['requirement']->kinds(), $additional->asked);
 
         self::assertSame([[RequirementKind::MULTIFACTOR], [RequirementKind::ADDITIONAL_VERIFICATION]], $kinds);
@@ -86,7 +86,7 @@ final class EvidenceAcceptanceTest extends TestCase
 
         $resistant = $this->bind([RequirementKind::PHISHING_RESISTANCE]);
 
-        self::assertEquals(new Evaluation(true, false), EvidenceAcceptance::evaluate($evidence, $subject));
+        self::assertEquals(new Evaluation(true, false, false), EvidenceAcceptance::evaluate($evidence, $subject));
         $kinds = array_map(static fn (array $asked): array => $asked['requirement']->kinds(), $resistant->asked);
 
         self::assertSame([[RequirementKind::MULTIFACTOR], [RequirementKind::ADDITIONAL_VERIFICATION], [RequirementKind::PHISHING_RESISTANCE]], $kinds);
@@ -95,7 +95,7 @@ final class EvidenceAcceptanceTest extends TestCase
 
         $level = $this->bind([RequirementKind::MINIMUM_LEVEL]);
 
-        self::assertEquals(new Evaluation(true, false), EvidenceAcceptance::evaluate($evidence, $subject));
+        self::assertEquals(new Evaluation(true, false, false), EvidenceAcceptance::evaluate($evidence, $subject));
         $kinds = array_map(static fn (array $asked): array => $asked['requirement']->kinds(), $level->asked);
 
         self::assertSame(

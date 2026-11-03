@@ -44,6 +44,21 @@ interface ApplicationPolicy
     public function allowsMethod(string $guard, string $method): bool;
 
     /**
+     * Whether a client credentials exchange of the application (its guard) may
+     * read the client's id and secret from the request body
+     * (`client_secret_post`). HTTP Basic is always accepted, as RFC 6749
+     * section 2.3.1 requires; credentials in the body are refused as
+     * `invalid_client` unless this allows them. Fail closed: a policy with no
+     * rule returns `false`.
+     *
+     * @param  string  $guard
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function allowsClientSecretPost(string $guard): bool;
+
+    /**
      * Decide whether the identity may sign in to the application with an
      * identifier of the type, whichever principal it then acts as: `null` when
      * it may, otherwise why not (`identifier_unverified` for an identifier the

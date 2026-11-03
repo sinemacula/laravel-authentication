@@ -49,6 +49,18 @@ final readonly class DelegatingApplicationPolicy implements ApplicationPolicy
      * The wrapped policy's answer.
      *
      * @param  string  $guard
+     * @return bool
+     */
+    #[\Override]
+    public function allowsClientSecretPost(string $guard): bool
+    {
+        return $this->inner->allowsClientSecretPost($guard);
+    }
+
+    /**
+     * The wrapped policy's answer.
+     *
+     * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?string  $identifierType
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason

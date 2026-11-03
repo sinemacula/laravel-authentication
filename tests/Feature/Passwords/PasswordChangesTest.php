@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use Tests\Concerns\InteractsWithPasswords;
 use Tests\Concerns\InteractsWithRateLimits;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\Integration\Fixtures\PasswordMachine;
 use Tests\TestCase;
@@ -126,7 +127,7 @@ final class PasswordChangesTest extends TestCase
 
         $event = $this->recordedEvent(PasswordSet::class);
 
-        self::assertSame([PasswordFlow::CHANGE, $kept->getKey()], [$event->flow, $event->context->session?->getSessionIdentifier()]);
+        self::assertSame([PasswordFlow::CHANGE, $kept->getKey()], [$event->flow, $event->context->sessionId]);
         self::assertSame([], array_filter($this->recorded, static fn (object $event): bool => $event instanceof AuthenticationFailed));
     }
 
@@ -160,7 +161,7 @@ final class PasswordChangesTest extends TestCase
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([AuthenticationFlow::PASSWORD_CHANGE, FailureReason::INVALID_CREDENTIALS], [$failed->flow, $failed->reason]);
-        self::assertTrue($identity->is($failed->context->identity));
+        EventContextAssertions::assertIdentity($identity, $failed->context);
 
         $this->recordEvents([AuthenticationFailed::class]);
 

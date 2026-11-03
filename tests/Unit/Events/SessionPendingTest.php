@@ -46,18 +46,19 @@ final class SessionPendingTest extends TestCase
     }
 
     /**
-     * The event serialises its models for queued listeners and survives a round
-     * trip. It does not ask the dispatcher to wait for a transaction: the
-     * package dispatches it once the pending session's own connection commits.
+     * The event holds no model, serialises as it is for queued listeners and
+     * survives a round trip. It does not ask the dispatcher to wait for a
+     * transaction: the package dispatches it once the pending session's own
+     * connection commits.
      *
      * @return void
      */
-    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsValuesAndDispatchesWhenTheSenderSays(): void
     {
         $event = new SessionPending(self::context(), ['principal'], CarbonImmutable::parse('2026-01-01 00:05:00'));
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesModels::class, class_uses_recursive($event));
+        self::assertNotContains(SerializesModels::class, class_uses_recursive($event));
 
         $copy = unserialize(serialize($event));
 

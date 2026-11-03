@@ -9,6 +9,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use Tests\Fixtures\Events\EventContextAssertions;
 
 /**
  * Feature tests for the contextual state surface on `AbstractGuard`
@@ -40,8 +41,8 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof PrincipalAssigned
-                    && $event->context->guard     === self::GUARD_NAME
-                    && $event->context->principal === $principal),
+                    && $event->context->guard === self::GUARD_NAME
+                    && EventContextAssertions::namesPrincipal($principal, $event->context)),
             );
 
         $guard->setPrincipal($principal);
@@ -64,8 +65,8 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof SessionAuthenticated
-                    && $event->context->guard   === self::GUARD_NAME
-                    && $event->context->session === $session),
+                    && $event->context->guard === self::GUARD_NAME
+                    && EventContextAssertions::namesSession($session, $event->context)),
             );
 
         $guard->setSession($session);

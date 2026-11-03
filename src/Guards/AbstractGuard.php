@@ -12,6 +12,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\HasGuardContext;
@@ -27,6 +28,7 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ExposesCollaborators;
+use SineMacula\Laravel\Authentication\Guards\Concerns\HoldsAuthenticationContext;
 use SineMacula\Laravel\Authentication\Guards\Concerns\RebindsCollaborators;
 use SineMacula\Laravel\Authentication\Guards\Concerns\SignsInWithCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
@@ -43,12 +45,13 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * conformance. Concrete subclasses provide payload extraction and call
  * `attempt()`/`login()` to bind the resolved context.
  *
- * Contextual binding is composed via `BindsContextualState`; the credential
- * event helpers via `ValidatesGuardCredentials`; the sign-in policy checks
- * behind `attempt()` via `SignsInWithCredentials`; ownership checks for
- * principal hints and pinned context via `VerifiesPinnedContext`; read access
- * to the guard's collaborators via `ExposesCollaborators`, and their rebinding
- * via `RebindsCollaborators`.
+ * Contextual binding is composed via `BindsContextualState`, and the
+ * authentication context of what it binds via `HoldsAuthenticationContext`;
+ * the credential event helpers via `ValidatesGuardCredentials`; the sign-in
+ * policy checks behind `attempt()` via `SignsInWithCredentials`; ownership
+ * checks for principal hints and pinned context via `VerifiesPinnedContext`;
+ * read access to the guard's collaborators via `ExposesCollaborators`, and
+ * their rebinding via `RebindsCollaborators`.
  *
  * The collaborators the constructor takes live in the guard's `GuardContext`
  * (`$this->context`, built here), the one copy every flow of the guard reads
@@ -60,7 +63,7 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  */
 abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardContext
 {
-    use BindsContextualState, ExposesCollaborators, RebindsCollaborators, SignsInWithCredentials, ValidatesGuardCredentials, VerifiesPinnedContext;
+    use BindsContextualState, ExposesCollaborators, HoldsAuthenticationContext, RebindsCollaborators, SignsInWithCredentials, ValidatesGuardCredentials, VerifiesPinnedContext;
 
     /** @var ?\Illuminate\Contracts\Auth\Authenticatable Last retrieved user; attached to the `Failed` event. */
     protected ?Authenticatable $lastRetrievedUser = null;
@@ -270,6 +273,8 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
         if ($principal === null) {
             throw new \InvalidArgumentException(sprintf('Guard %s could not resolve a default principal for identity %s; bind one with login().', $name, $user::class));
         }
+
+        $this->clearContextualState();
 
         $this->bindContext($user, $principal, null, self::boundTenant($principal), null);
 
@@ -486,15 +491,19 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     /**
      * Bind an identity to the guard and fire the standard Laravel
      * `Authenticated` event: the hook for a subclass that binds an identity on
-     * its own. The package's binds set the whole context before any event
-     * instead, so a listener reads all of it.
+     * its own. The authentication context held for the previous binding and the
+     * kind of credential it was made with are forgotten, so the next ask is
+     * built for this identity. The package's binds set the whole context before
+     * any event instead, so a listener reads all of it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return void
      */
     protected function setIdentity(Identity $identity): void
     {
-        $this->identity = $identity;
+        $this->identity              = $identity;
+        $this->authenticationContext = null;
+        $this->credentialKind        = null;
 
         $this->context->dispatch(new Authenticated($this->context->name(), $identity));
     }
@@ -556,9 +565,10 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     /**
      * Bind a context the guard verified itself, in the active tenant its
      * admission found, with the sign-in method to report and, for a context a
-     * credential authenticated, its identifier and the scopes it grants: clear
-     * prior state and settle the request, dispatch `Login` when it is a
-     * sign-in, then bind the triple and dispatch its events.
+     * credential the request presented authenticated, its identifier, the
+     * scopes it grants and its kind: clear prior state and settle the request,
+     * dispatch `Login` when it is a sign-in, then bind the triple and dispatch
+     * its events.
      *
      * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
      *
@@ -575,6 +585,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * @param  bool  $signIn
      * @param  ?string  $credentialId
      * @param  ?list<string>  $scopes
+     * @param  ?\SineMacula\Laravel\Authentication\Context\Enums\CredentialKind  $kind
      * @return void
      */
     protected function bindVerifiedContext(
@@ -587,10 +598,13 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
         #[\SensitiveParameter]
         ?string $credentialId = null,
         ?array $scopes = null,
+        ?CredentialKind $kind = null,
     ): void {
         $this->requestResolved = true;
 
         $this->clearContextualState();
+
+        $this->credentialKind = $kind;
 
         if ($signIn) {
             $this->context->dispatch(new Login($this->context->name(), $identity, false));

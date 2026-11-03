@@ -5,8 +5,6 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Events;
 
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
 
 /**
  * Dispatched when a session switches the principal it acts as, its active
@@ -24,12 +22,9 @@ use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
  * The context carries the guard, the client, the identity, the new principal
  * and the tenant it now acts in, the session and its method. The previous
  * principal is described by the morph class and identifier the session
- * recorded, taken when the event is built, and by the principal itself when it
- * still resolves for the identity (`null` otherwise); the previous tenant by
- * the identifier the session recorded (`null` for none). Like the context's
- * models, the previous principal is a live model: after a queue it is fetched
- * again, or `null` when its row is gone or it is not an Eloquent model; the
- * recorded morph class and identifiers are the record.
+ * recorded, and the previous tenant by the identifier the session recorded
+ * (`null` for none), all taken when the event is built: plain values, as the
+ * context's are.
  *
  * @api
  *
@@ -38,13 +33,10 @@ use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
  */
 final readonly class PrincipalSwitched implements AuthenticationEvent
 {
-    use SerializesLiveModels;
-
     /**
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $previousPrincipal
      * @param  ?string  $previousPrincipalType
      * @param  ?string  $previousPrincipalId
      * @param  ?string  $previousTenantId
@@ -55,9 +47,6 @@ final readonly class PrincipalSwitched implements AuthenticationEvent
 
         /** Who switched, to which principal and tenant, in which session, and from which client. */
         public EventContext $context,
-
-        /** The principal the session acted as before, when it still resolves. */
-        public ?Principal $previousPrincipal,
 
         /** The morph class the session recorded for the previous principal. */
         public ?string $previousPrincipalType,

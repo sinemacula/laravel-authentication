@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeyAssertions;
 use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Passkeys\VirtualAuthenticator;
 use Tests\TestCase;
 
@@ -322,7 +323,7 @@ final class PasskeyAssertionsTest extends TestCase
 
         self::assertSame(['api', 'passkey'], [$used->context->guard, $used->context->method]);
         self::assertSame([$passkey->id, '198.51.100.7'], [$used->context->credentialId, $used->context->client->ip]);
-        self::assertSame($identity, $used->context->identity);
+        EventContextAssertions::assertIdentity($identity, $used->context);
     }
 
     /**

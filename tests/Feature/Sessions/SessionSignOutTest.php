@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignOutResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
@@ -279,7 +280,7 @@ final class SessionSignOutTest extends TestCase
         self::assertSame(RevocationReason::SIGNED_OUT, $revoked->reason);
         self::assertSame(['api', 'password'], [$revoked->context->guard, $revoked->context->method]);
         self::assertSame(IdentifierCoercion::stringify($session->record->getKey()), $revoked->context->sessionId);
-        self::assertTrue($identity->is($revoked->context->identity));
+        EventContextAssertions::assertIdentity($identity, $revoked->context);
         self::assertTrue($identity->is($this->recordedEvent(Logout::class)->user));
         self::assertSame('api', $this->recordedEvent(Logout::class)->guard);
         self::assertSame('signed_out', $this->revokedReasonOf($session));
@@ -445,7 +446,6 @@ final class SessionSignOutTest extends TestCase
 
         $context = $this->recordedEvent(SessionRevoked::class)->context;
 
-        self::assertNull($context->identity);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->identityId);
     }
 

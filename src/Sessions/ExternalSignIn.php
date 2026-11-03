@@ -100,6 +100,6 @@ final readonly class ExternalSignIn
             $evidence,
         );
 
-        return [$link->identity, SignInProof::external(SignInMethodManager::EXTERNAL_METHOD, $provenance, $now, $evaluation)];
+        return [$link->identity, SignInProof::external(SignInMethodManager::EXTERNAL_METHOD, $provenance, $now, $evaluation, $result->requestReference)];
     }
 }

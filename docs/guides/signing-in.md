@@ -212,10 +212,11 @@ trusted server-side adapter hands over (from a handoff it redeemed, say), never 
 (`External\ExternalResult`) names the connection (the configured provider) it came through, the issuer and the subject
 the provider asserted, and optionally the connection's tenant, when the provider authenticated the identity, its
 deadline for its own session (SAML `SessionNotOnOrAfter`) and the version of the enforcement or policy the adapter
-checked, and the evidence the provider asserted of how it authenticated the identity (`External\ExternalEvidence`: its
-`amr` values, an `acr` value or SAML authentication context class reference, and the time it is for). It is off unless
-the application lists `external_provider` in its `methods` (`method_not_allowed` otherwise, the link contract never
-asked).
+checked, the evidence the provider asserted of how it authenticated the identity (`External\ExternalEvidence`: its `amr`
+values, an `acr` value or SAML authentication context class reference, and the time it is for), and the public reference
+of the authorisation request the result answers (`requestReference`, opaque, 1 to 255 characters), which only the
+redemption's events carry. It is off unless the application lists `external_provider` in its `methods`
+(`method_not_allowed` otherwise, the link contract never asked).
 
 The identity is the one the bound `Contracts\ExternalIdentityLinks` links the connection, issuer and subject to: only a
 link made through exactly that connection, for exactly that issuer and subject, never by email or any other attribute
@@ -252,8 +253,16 @@ $result = Auth::sessions('api')->signInExternally(new ExternalResult(
     sessionNotAfter: $redeemed->sessionNotAfter,
     policyVersion: $redeemed->enforcementVersion,
     evidence: $redeemed->evidence,
+    linkId: $redeemed->linkId,
+    requestReference: $redeemed->requestReference,
 ));
 ```
+
+Once the session commits, active or pending, `ExternalResultRedeemed` (flow `sign_in`) reports the redemption after the
+session's own events, with the connection and the request reference in its context (`connectionId`, `requestReference`),
+so a listener correlates it with the provider-side completion that reported the same reference; the redemption's
+`AuthenticationFailed` and `ExternalResultUnlinked` carry both too, and the session's own events correlate by session
+id.
 
 Call it inside the transaction in which the adapter takes its own locks, on the storage connection: the link contract is
 asked before anything of the sign-in is written, the session's writes are a savepoint there, and the reports and the
@@ -586,9 +595,11 @@ use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasskeyRemoval;
 Event::listen(PasskeyRemoved::class, RevokeSessionsOnPasskeyRemoval::class);
 ```
 
-It ends every session of the identity with `factor_removed`; to keep the current session signed in, call
-`Auth::sessions()->credentialRemoved($identity, Auth::session())` yourself instead. With a factor package, a passkey it
-associated as a factor is removed through `remove()` (its gate first), and the factor package then calls
+It ends every session of the identity with `factor_removed`, also when a global scope (a soft delete, a tenant or
+application scope) hides the identity from the request: the listener reads the identity without its model's global
+scopes. To keep the current session signed in, call `Auth::sessions()->credentialRemoved($identity, Auth::session())`
+yourself instead. With a factor package, a passkey it associated as a factor is removed through `remove()` (its gate
+first), and the factor package then calls
 `Auth::sessions()->factorRemoved()` (see [Sign-in factors](sessions.md#sign-in-factors)); register the listener
 alongside it only if every passkey removal should end every session. See `docs/design/passkeys.md`.
 
@@ -630,6 +641,11 @@ final readonly class BadgeSignIn implements SignInMethod
         return is_string($input['badge_number'] ?? null) ? $input['badge_number'] : null;
     }
 
+    public function challenge(array $input): ?string
+    {
+        return null;
+    }
+
     public function authenticate(SignInRequest $request): FirstFactor|FailureReason
     {
         $badge    = $this->identifier($request->guard, $request->input());
@@ -651,24 +667,28 @@ final readonly class BadgeSignIn implements SignInMethod
 identifier a guard that requires verified identifiers checks. Return `null` for a method that uses no identifier (an
 assertion that names the identity itself): then only the IP address is limited and the verified-identifier requirement
 does not apply. `identifier()` returns the identifier as the input gives it, for the limits and the failure events,
-never to look anyone up. `authenticate()` returns a `Proofs\FirstFactor` (the identity, the channel it proved itself
-over with its destination or credential reference of up to 255 characters, what was observed about the authenticator,
-`null` for anything not observed, and the RFC 8176 `amr` values the proof stands for, here `pin`: at most 8, each 1 to
-48 printable ASCII characters other than `"` and `\`, a private value namespaced like `urn:example:amr:badge`), or
-`FailureReason::INVALID_CREDENTIALS` for anything the input did not prove. The session records it as its first proof,
-and the access token's `amr` is derived from its values; `mfa` is reserved for an adapter's report of multifactor
-authentication, and a `FirstFactor` that names it throws an `InvalidArgumentException`. The package's own methods report
-`pwd` (password), `otp` (email code, and a code of any type registered with `extend()`), `sms` (phone code) and `pop`
-(passkey). A method may also answer `identifier_unverified`, but only once its input proved possession of the identifier
-(as a one-time code does), and `code_expired`, `code_exhausted`, `passkey_challenge_invalid` or
-`passkey_counter_regressed`; `code_expired`, `code_exhausted` and `passkey_counter_regressed` reach the event only, and
-the sign-in's result says `invalid_credentials`. Every other reason is the session service's to give, and a method that
-returns one throws a `LogicException` (see [Events](events.md#events)). A method must not bind a guard, issue tokens or
-write session state, and must hold no state between calls, since the manager keeps one instance per name for as long as
-the same application serves: the life of the process, or under Octane the request, whose sandbox builds its own. The
-credential timebox pads every refused sign-in, the method's own work included, to `timebox.credentials_microseconds`, so
-a method may answer an unknown identifier at once, as the example does; keep the method's worst case under that budget,
-and only a method whose work can take longer needs to do the same work whether or not the identifier exists.
+never to look anyone up. `challenge()` returns the id of the challenge the input answers when it is in the form the
+method issues (the package's code methods answer the `challenge` a code was sent for, and passkeys the ceremony's), or
+`null`, as here, for a method that answers none: every failure of the method's sign-in or reauthentication carries it in
+`AuthenticationFailed::$challengeId`. `authenticate()` returns a `Proofs\FirstFactor` (the identity, the channel it
+proved itself over with its destination or credential reference of up to 255 characters, what was observed about the
+authenticator, `null` for anything not observed, and the RFC 8176 `amr` values the proof stands for, here `pin`: at most
+8, each 1 to 48 printable ASCII characters other than `"` and `\`, a private value namespaced like
+`urn:example:amr:badge`), or `FailureReason::INVALID_CREDENTIALS` for anything the input did not prove. The session
+records it as its first proof, and the access token's `amr` is derived from its values; `mfa` is reserved for an
+adapter's report of multifactor authentication, and a `FirstFactor` that names it throws an `InvalidArgumentException`.
+The package's own methods report `pwd` (password), `otp` (email code, and a code of any type registered with
+`extend()`), `sms` (phone code) and `pop` (passkey). A method may also answer `identifier_unverified`, but only once its
+input proved possession of the identifier (as a one-time code does), and `code_expired`, `code_exhausted`,
+`passkey_challenge_invalid` or `passkey_counter_regressed`; `code_expired`, `code_exhausted` and
+`passkey_counter_regressed` reach the event only, and the sign-in's result says `invalid_credentials`. Every other
+reason is the session service's to give, and a method that returns one throws a `LogicException` (see
+[Events](events.md#events)). A method must not bind a guard, issue tokens or write session state, and must hold no state
+between calls, since the manager keeps one instance per name for as long as the same application serves: the life of the
+process, or under Octane the request, whose sandbox builds its own. The credential timebox pads every refused sign-in,
+the method's own work included, to `timebox.credentials_microseconds`, so a method may answer an unknown identifier at
+once, as the example does; keep the method's worst case under that budget, and only a method whose work can take longer
+needs to do the same work whether or not the identifier exists.
 
 A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
 checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
@@ -904,7 +924,7 @@ yours; what the package guarantees for each method and helper, and what its test
 | Identifier change request | Not applicable: the caller holds the identity; the answer never depends on whether another identity holds the new identifier                                                                        | Queued job for a code; a link is returned to send | Not applicable                                                                                               |
 | Passkey sign-in           | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials`                         | None                                              | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |
 | API key                   | `credential_invalid` for a malformed key, an unknown public part and a wrong secret; the key's status only once the secret verifies                                                                 | None                                              | No hasher; an unknown public part is checked against a dummy digest, so the work and statements are the same |
-| Client credentials        | 401 `invalid_client` with the same body for every client failure (a Basic challenge only to a Basic client); `slow_down` counts the client id as given, when limited                                | None                                              | As API key                                                                                                   |
+| Client credentials        | 401 `invalid_client` with the same body and Basic challenge for every client failure; `slow_down` counts the client id as given, when limited                                                       | None                                              | As API key                                                                                                   |
 
 The code request's answer for a number nobody has is `sent`, with the same expiry as any other; only the delivery job
 looks the number up, and it sends nothing to an unknown, unverified, inactive or machine identity, or to one that holds

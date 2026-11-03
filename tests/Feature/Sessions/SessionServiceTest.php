@@ -73,6 +73,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
@@ -255,10 +256,10 @@ final class SessionServiceTest extends TestCase
 
         foreach ([$created, $signedIn] as $event) {
             self::assertSame('api', $event->context->guard);
-            self::assertSame($session->identity, $event->context->identity);
-            self::assertSame($session->principal, $event->context->principal);
-            self::assertNull($event->context->tenant);
-            self::assertSame($session->record, $event->context->session);
+            EventContextAssertions::assertIdentity($session->identity, $event->context);
+            EventContextAssertions::assertPrincipal($session->principal, $event->context);
+            EventContextAssertions::assertTenant(null, $event->context);
+            EventContextAssertions::assertSession($session->record, $event->context);
             self::assertSame('password', $event->context->method);
             self::assertSame(self::CLIENT_IP, $event->context->client->ip);
             self::assertSame(self::CLIENT_AGENT, $event->context->client->userAgent);
@@ -399,6 +400,34 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
+     * A failed sign-in names the challenge its input answered once the guard
+     * allows the method; a method it does not allow fails with none, since
+     * nothing was checked, as a reauthentication does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedSignInNamesItsChallengeOnlyOnceTheMethodIsAllowed(): void
+    {
+        $this->registerTrustedMethod(FailureReason::INVALID_CREDENTIALS);
+
+        $policy = $this->policy();
+        $policy->shouldReceive('allowsMethod')->once()->with('api', 'trusted')->andReturnTrue();
+        $policy->shouldReceive('allowsMethod')->once()->with('api', 'trusted')->andReturnFalse();
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('trusted', ['challenge' => 'challenge-1'])->reason);
+        self::assertSame('challenge-1', $this->recordedEvent(AuthenticationFailed::class)->challengeId);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->signIn('trusted', ['challenge' => 'challenge-1'])->reason);
+        self::assertNull($this->recordedEvent(AuthenticationFailed::class)->challengeId);
+    }
+
+    /**
      * An attempt over its limit fails with the wait, without checking the
      * input; one under it takes a slot for the identifier as given, its type
      * and the client's IP address, then one on the account its password is
@@ -508,7 +537,7 @@ final class SessionServiceTest extends TestCase
         $mismatch = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), new SignInContext(new ClientContext(null, null), principal: $foreign));
 
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $mismatch->reason);
-        self::assertNull($this->recordedEvent(AuthenticationFailed::class)->context->principal);
+        EventContextAssertions::assertPrincipal(null, $this->recordedEvent(AuthenticationFailed::class)->context);
 
         $membership->delete();
         $foreign->delete();
@@ -535,8 +564,8 @@ final class SessionServiceTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         $this->assertSignInFails(FailureReason::TENANT_INACTIVE, $this->sessions('members')->signIn('password', self::credentials('member@example.test')));
-        self::assertSameModel($member, $this->recordedEvent(AuthenticationFailed::class)->context->identity);
-        self::assertNull($this->recordedEvent(AuthenticationFailed::class)->context->principal);
+        EventContextAssertions::assertIdentity($member, $this->recordedEvent(AuthenticationFailed::class)->context);
+        EventContextAssertions::assertPrincipal(null, $this->recordedEvent(AuthenticationFailed::class)->context);
         self::assertSame(0, Session::query()->count());
     }
 
@@ -567,12 +596,12 @@ final class SessionServiceTest extends TestCase
 
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
-        self::assertSameModel($member, $failed->context->identity);
-        self::assertNull($failed->context->principal);
-        self::assertNull($failed->context->tenant);
+        EventContextAssertions::assertIdentity($member, $failed->context);
+        EventContextAssertions::assertPrincipal(null, $failed->context);
+        EventContextAssertions::assertTenant(null, $failed->context);
         self::assertSame('password', $failed->context->method);
         self::assertSame('member@example.test', $failed->identifier);
-        self::assertSame($failed->context->identity, $this->recordedEvent(Failed::class)->user);
+        self::assertSame($member->getKey(), $this->recordedEvent(Failed::class)->user?->getAuthIdentifier());
     }
 
     /**
@@ -606,7 +635,7 @@ final class SessionServiceTest extends TestCase
 
         self::assertSame(FailureReason::ACCOUNT_RATE_LIMITED, $failed->reason);
         self::assertSame(90, $failed->retryAfter);
-        self::assertNull($failed->context->identity);
+        EventContextAssertions::assertIdentity(null, $failed->context);
         self::assertSame('ada@example.test', $failed->identifier);
         self::assertNull($this->recordedEvent(Failed::class)->user);
     }
@@ -748,15 +777,15 @@ final class SessionServiceTest extends TestCase
 
         self::assertNotNull($session);
         self::assertSameModel($membership, $session->principal);
-        self::assertSameModel($tenant, $this->recordedEvent(SessionCreated::class)->context->tenant);
-        self::assertSameModel($tenant, $this->recordedEvent(SignedIn::class)->context->tenant);
+        EventContextAssertions::assertTenant($tenant, $this->recordedEvent(SessionCreated::class)->context);
+        EventContextAssertions::assertTenant($tenant, $this->recordedEvent(SignedIn::class)->context);
 
         $pending = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->pending;
 
         self::assertNotNull($pending);
         self::assertSameModel($tenant, $pending->tenant);
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $pending->session->getTenantId());
-        self::assertSameModel($tenant, $this->recordedEvent(SessionPending::class)->context->tenant);
+        EventContextAssertions::assertTenant($tenant, $this->recordedEvent(SessionPending::class)->context);
         self::assertCount(2, $asked);
     }
 
@@ -1709,6 +1738,18 @@ final class SessionServiceTest extends TestCase
                 unset($guard, $input);
 
                 return $this->identifier;
+            }
+
+            /**
+             * The challenge the input names, when it names one.
+             *
+             * @param  array<array-key, mixed>  $input
+             * @return ?string
+             */
+            #[\Override]
+            public function challenge(#[\SensitiveParameter] array $input): ?string
+            {
+                return is_string($input['challenge'] ?? null) ? $input['challenge'] : null;
             }
 
             /**

@@ -53,7 +53,7 @@ final class PresentedClientTest extends TestCase
     #[DataProvider('provideClientIds')]
     public function testReportsOnlyAClientIdInForm(string $clientId, ?string $reported): void
     {
-        self::assertSame($reported, (new PresentedClient($clientId, 'secret', null, false))->reportedId());
+        self::assertSame($reported, (new PresentedClient($clientId, 'secret', null))->reportedId());
     }
 
     /**
@@ -64,7 +64,7 @@ final class PresentedClientTest extends TestCase
      */
     public function testTheSecretIsShownByNoDump(): void
     {
-        $presented = new PresentedClient('ak_abcdefghijklmnop', self::SECRET, 'read', true);
+        $presented = new PresentedClient('ak_abcdefghijklmnop', self::SECRET, 'read');
 
         self::assertSame(self::SECRET, $presented->clientSecret());
 

@@ -44,7 +44,7 @@ final class IdentifierChangeEventsTest extends TestCase
 
         self::assertInstanceOf(AuthenticationEvent::class, $event);
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesModels::class, class_uses_recursive($event));
+        self::assertNotContains(SerializesModels::class, class_uses_recursive($event));
         self::assertSame($context, $event->context());
 
         $copy = unserialize(serialize($event));
@@ -69,7 +69,7 @@ final class IdentifierChangeEventsTest extends TestCase
 
         self::assertInstanceOf(AuthenticationEvent::class, $event);
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesModels::class, class_uses_recursive($event));
+        self::assertNotContains(SerializesModels::class, class_uses_recursive($event));
         self::assertSame($context, $event->context());
 
         $copy = unserialize(serialize($event));

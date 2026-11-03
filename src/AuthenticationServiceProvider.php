@@ -31,10 +31,13 @@ use SineMacula\Laravel\Authentication\Applications\AdmitAnyPrincipal;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Codes\RefuseFactorCodes;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
+use SineMacula\Laravel\Authentication\Context\ContextContributors;
+use SineMacula\Laravel\Authentication\Context\GuardAuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
@@ -151,6 +154,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->singletonIf(ScopeRegistry::class, AcceptAnyScope::class);
         $this->app->singletonIf(BreachedPasswordChecker::class, NoBreachedPasswordCheck::class);
         $this->app->singletonIf(PasswordResetLinkSender::class, NotifyingResetLinkSender::class);
+        $this->app->singletonIf(AuthenticationContexts::class, GuardAuthenticationContexts::class);
+        $this->app->singletonIf(ContextContributors::class);
         $this->app->bindIf(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singletonIf(
             JwtTokenServiceFactory::class,

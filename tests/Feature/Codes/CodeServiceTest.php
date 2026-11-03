@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Fixtures\Codes\RecordingFactorCodeCounters;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
@@ -443,7 +444,7 @@ final class CodeServiceTest extends TestCase
      * A verification code that is wrong, malformed, expired or exhausted, or
      * was sent to a number the identity no longer has, verifies nothing: the
      * outcome says why, not concealed, and the reason is reported for the
-     * identity.
+     * identity and the challenge.
      *
      * @param  string  $before
      * @param  string  $code
@@ -472,12 +473,14 @@ final class CodeServiceTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, IdentifierVerified::class]);
 
-        self::assertSame($outcome, $this->codeService()->verify($identity, 'phone', self::challenge(), $code)->outcome);
+        $challenge = self::challenge();
+
+        self::assertSame($outcome, $this->codeService()->verify($identity, 'phone', $challenge, $code)->outcome);
 
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
-        self::assertSame([AuthenticationFlow::IDENTIFIER_VERIFICATION, $reason, null], [$failed->flow, $failed->reason, $failed->identifier]);
-        self::assertTrue($identity->is($failed->context->identity));
+        self::assertSame([AuthenticationFlow::IDENTIFIER_VERIFICATION, $reason, null, $challenge], [$failed->flow, $failed->reason, $failed->identifier, $failed->challengeId]);
+        EventContextAssertions::assertIdentity($identity, $failed->context);
         self::assertCount(1, $this->recorded);
         self::assertFalse($identity->fresh()?->hasVerifiedIdentifier('phone'));
     }
@@ -591,7 +594,7 @@ final class CodeServiceTest extends TestCase
         $reasons = array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $failures);
 
         self::assertSame([FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS], $reasons);
-        self::assertTrue($none->is($failures[0]->context->identity));
+        EventContextAssertions::assertIdentity($none, $failures[0]->context);
         self::assertSame(['198.51.100.4', self::CLIENT_IP], [$failures[0]->context->client->ip, $failures[1]->context->client->ip]);
         self::assertSame([0, 0], [DB::table('one_time_codes')->count(), DB::table('rate_limits')->count()]);
     }
@@ -882,9 +885,10 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * A verification check names its challenge: a malformed id is `invalid` and
-     * counts nothing; another challenge's id is `invalid` and spends no attempt
-     * on the live one.
+     * A verification check names its challenge: a malformed id is `invalid`,
+     * counts nothing and is never reported as a challenge; another challenge's
+     * id is `invalid`, spends no attempt on the live one and is reported as the
+     * challenge the check answered.
      *
      * @return void
      *
@@ -895,9 +899,16 @@ final class CodeServiceTest extends TestCase
         $identity  = self::seedCodeIdentity(verified: false);
         $challenge = (string) $this->codeService()->sendVerification($identity, 'phone')->challengeId;
 
+        $this->recordEvents([AuthenticationFailed::class]);
+
         self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', strtoupper($challenge), self::CODE)->outcome);
         self::assertSame(0, self::counterHits('identifier_verification', 'per_account', AccountAttempts::account($identity)));
+        self::assertNull($this->recordedEvent(AuthenticationFailed::class)->challengeId);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
         self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::NO_CHALLENGE, self::CODE)->outcome);
+        self::assertSame(self::NO_CHALLENGE, $this->recordedEvent(AuthenticationFailed::class)->challengeId);
         self::assertSame(0, self::storedAttempts());
         self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'phone', $challenge, self::CODE)->outcome);
     }
@@ -941,7 +952,7 @@ final class CodeServiceTest extends TestCase
         $failed  = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([VerificationOutcome::RATE_LIMITED, false], [$limited->outcome, $limited->is(VerificationOutcome::VERIFIED)]);
-        self::assertSame([AuthenticationFlow::IDENTIFIER_VERIFICATION, FailureReason::RATE_LIMITED], [$failed->flow, $failed->reason]);
+        self::assertSame([AuthenticationFlow::IDENTIFIER_VERIFICATION, FailureReason::RATE_LIMITED, $challenge], [$failed->flow, $failed->reason, $failed->challengeId]);
         self::assertGreaterThan(0, $failed->retryAfter);
         self::assertSame($failed->retryAfter, $limited->retryAfter);
         self::assertSame(2, self::storedAttempts());

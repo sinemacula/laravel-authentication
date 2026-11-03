@@ -43,6 +43,7 @@ use SineMacula\Laravel\Authentication\Testing\FakeBreachedPasswordChecker;
 use Tests\Concerns\DefinesPasswordChangeRoute;
 use Tests\Concerns\InspectsTraces;
 use Tests\Concerns\InteractsWithPasswords;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Passwords\FailingBreachedPasswordChecker;
 use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\Integration\Fixtures\PasswordMachine;
@@ -150,7 +151,7 @@ final class PasswordServiceTest extends TestCase
         self::assertSame(PasswordFlow::REGISTRATION, $event->flow);
         self::assertSame($event->context, $event->context());
         self::assertSame(['web', self::CLIENT_IP, (string) $identity->id], [$event->context->guard, $event->context->client->ip, $event->context->identityId]);
-        self::assertNull($event->context->session);
+        EventContextAssertions::assertSession(null, $event->context);
     }
 
     /**
@@ -278,7 +279,7 @@ final class PasswordServiceTest extends TestCase
         $event = $this->recordedEvent(PasswordSet::class);
 
         self::assertSame(PasswordFlow::CHANGE, $event->flow);
-        self::assertSame($kept, $event->context->session);
+        EventContextAssertions::assertSession($kept, $event->context);
     }
 
     /**

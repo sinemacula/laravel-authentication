@@ -540,7 +540,8 @@ final class JwtGuardBenchHarness
     }
 
     /**
-     * Instantiate a fresh JwtGuard for the supplied request.
+     * Instantiate a fresh JwtGuard for the supplied request, held by the auth
+     * manager as the guard resolved under its name.
      *
      * @param  string  $name
      * @param  \SineMacula\Laravel\Authentication\Providers\ModelProvider  $provider
@@ -549,7 +550,7 @@ final class JwtGuardBenchHarness
      */
     private function makeGuard(string $name, ModelProvider $provider, Request $request): JwtGuard
     {
-        return new JwtGuard(
+        $guard = new JwtGuard(
             $name,
             $provider,
             $this->resolver,
@@ -564,6 +565,13 @@ final class JwtGuardBenchHarness
             ),
             BenchRequest::refreshTransport(...),
         );
+
+        /** @var \Benchmarks\Support\BenchAuthManager $auth */
+        $auth = Container::getInstance()->make('auth');
+
+        $auth->hold($guard);
+
+        return $guard;
     }
 
     /**

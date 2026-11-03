@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\ProvenIdentitySignIn;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
@@ -189,7 +190,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         self::assertSame(FailureReason::MACHINE_IDENTITY, $failure->reason);
         self::assertSame(AuthenticationFlow::SIGN_IN, $failure->flow);
-        self::assertTrue($machine->is($failure->context->identity));
+        EventContextAssertions::assertIdentity($machine, $failure->context);
         self::assertSame(0, DB::table('authentication_sessions')->count());
     }
 
@@ -226,7 +227,7 @@ final class MachineIdentitySignInTest extends TestCase
         $failure = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([FailureReason::MACHINE_IDENTITY, AuthenticationFlow::SIGN_IN, PasskeySignIn::NAME], [$failure->reason, $failure->flow, $failure->context->method]);
-        self::assertTrue($machine->is($failure->context->identity));
+        EventContextAssertions::assertIdentity($machine, $failure->context);
         self::assertSame(0, DB::table('authentication_sessions')->count());
     }
 
@@ -279,7 +280,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         self::assertSame(FailureReason::MACHINE_IDENTITY, $failure->reason);
         self::assertSame(AuthenticationFlow::BEARER, $failure->flow);
-        self::assertInstanceOf(MachineClient::class, $failure->context->identity);
+        self::assertSame(MachineClient::class, $failure->context->identityType);
         self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
     }
 

@@ -37,7 +37,7 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 final readonly class GuardApplicationPolicy implements ApplicationPolicy
 {
     /** @var list<string> Keys an `application` block may hold. */
-    private const array KEYS = ['methods', 'require_verified_identifier'];
+    private const array KEYS = ['methods', 'require_verified_identifier', 'client_secret_post'];
 
     /**
      * Constructor.
@@ -68,6 +68,21 @@ final readonly class GuardApplicationPolicy implements ApplicationPolicy
     public function allowsMethod(string $guard, string $method): bool
     {
         return in_array($method, $this->settings($guard)['methods'], true);
+    }
+
+    /**
+     * Whether the guard's `client_secret_post` is set, letting a client
+     * credentials exchange read the client from the request body.
+     *
+     * @param  string  $guard
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     */
+    #[\Override]
+    public function allowsClientSecretPost(string $guard): bool
+    {
+        return $this->settings($guard)['client_secret_post'];
     }
 
     /**
@@ -145,7 +160,7 @@ final readonly class GuardApplicationPolicy implements ApplicationPolicy
      * malformed one fails closed whichever check runs first.
      *
      * @param  string  $guard
-     * @return array{methods: list<non-empty-string>, require_verified_identifier: bool}
+     * @return array{methods: list<non-empty-string>, require_verified_identifier: bool, client_secret_post: bool}
      *
      * @throws \InvalidArgumentException
      */
@@ -165,13 +180,16 @@ final readonly class GuardApplicationPolicy implements ApplicationPolicy
             throw new \InvalidArgumentException(self::message($guard, 'methods', 'a list of lower-case sign-in method names'));
         }
 
-        if (!is_bool($settings['require_verified_identifier'])) {
-            throw new \InvalidArgumentException(self::message($guard, 'require_verified_identifier', 'true or false'));
+        foreach (['require_verified_identifier', 'client_secret_post'] as $key) {
+            if (!is_bool($settings[$key])) {
+                throw new \InvalidArgumentException(self::message($guard, $key, 'true or false'));
+            }
         }
 
         return [
             'methods'                     => $settings['methods'],
             'require_verified_identifier' => $settings['require_verified_identifier'],
+            'client_secret_post'          => $settings['client_secret_post'],
         ];
     }
 

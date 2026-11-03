@@ -45,6 +45,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Passwords\RecordingTimebox;
 use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -233,8 +234,8 @@ final class SessionReauthenticationTest extends TestCase
         self::assertSame([FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS], [$wrong->reason, $foreign->reason]);
         self::assertSame([AuthenticationFailed::class, AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(
-            [[AuthenticationFlow::REAUTHENTICATION, FailureReason::INVALID_CREDENTIALS], [AuthenticationFlow::REAUTHENTICATION, FailureReason::INVALID_CREDENTIALS]],
-            array_map(static fn (object $event): array => $event instanceof AuthenticationFailed ? [$event->flow, $event->reason] : [], $this->recorded),
+            [[AuthenticationFlow::REAUTHENTICATION, FailureReason::INVALID_CREDENTIALS, null], [AuthenticationFlow::REAUTHENTICATION, FailureReason::INVALID_CREDENTIALS, null]],
+            array_map(static fn (object $event): array => $event instanceof AuthenticationFailed ? [$event->flow, $event->reason, $event->challengeId] : [], $this->recorded),
         );
         self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
         self::assertSame(1, self::counterHits('sign_in', 'per_account', AccountAttempts::account($signedIn->identity)));
@@ -242,7 +243,9 @@ final class SessionReauthenticationTest extends TestCase
 
     /**
      * A method the application does not allow is refused before anything is
-     * counted, and a machine credential kind is no method at all.
+     * counted and before its driver is built, naming no challenge whether a
+     * method is registered under it or not, and a machine credential kind is no
+     * method at all.
      *
      * @return void
      *
@@ -263,9 +266,67 @@ final class SessionReauthenticationTest extends TestCase
         );
         self::assertSame(0, DB::table('rate_limits')->count());
 
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $unregistered = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
+
+        self::assertSame([FailureReason::METHOD_NOT_ALLOWED, null], [$unregistered->reason, $this->recordedEvent(AuthenticationFailed::class)->challengeId]);
+
+        $built = false;
+
+        app(SignInMethodManager::class)->extend('badge', function () use (&$built): SignInMethod {
+
+            $built = true;
+
+            return new RefusalIgnoringSignIn;
+        });
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $disallowed = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
+
+        self::assertSame([FailureReason::METHOD_NOT_ALLOWED, null], [$disallowed->reason, $this->recordedEvent(AuthenticationFailed::class)->challengeId]);
+        self::assertFalse($built);
+        self::assertSame(0, DB::table('rate_limits')->count());
+
         $this->expectException(\InvalidArgumentException::class);
 
         $this->sessions()->reauthenticate($signedIn->record, 'api_key', []);
+    }
+
+    /**
+     * A method the application allows but no driver is registered under names
+     * no challenge: a revoked session is refused as revoked and reported with
+     * no challenge, and a live one throws when the method is asked to verify.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAllowedMethodNoDriverIsRegisteredUnderNamesNoChallenge(): void
+    {
+        $signedIn = $this->signedIn();
+
+        config()->set('auth.guards.api.application.methods', ['password', 'badge']);
+
+        self::assertNotContains('badge', app(SignInMethodManager::class)->names());
+
+        DB::table('authentication_sessions')->where('id', $signedIn->record->getKey())->update(['revoked_at' => $this->now]);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $revoked = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
+
+        self::assertSame(
+            [FailureReason::SESSION_REVOKED, FailureReason::SESSION_REVOKED, null],
+            [$revoked->reason, $this->recordedEvent(AuthenticationFailed::class)->reason, $this->recordedEvent(AuthenticationFailed::class)->challengeId],
+        );
+
+        DB::table('authentication_sessions')->where('id', $signedIn->record->getKey())->update(['revoked_at' => null]);
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
     }
 
     /**
@@ -490,10 +551,9 @@ final class SessionReauthenticationTest extends TestCase
 
         self::assertSame([FailureReason::IDENTITY_INACTIVE, null], [$result->reason, $result->accessToken]);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
-        self::assertSame(
-            [AuthenticationFlow::REAUTHENTICATION, FailureReason::IDENTITY_INACTIVE, $signedIn->identity->getAuthIdentifier(), $signedIn->record->getKey()],
-            [$failure->flow, $failure->reason, $failure->context->identity?->getAuthIdentifier(), $failure->context->session?->getSessionIdentifier()],
-        );
+        self::assertSame([AuthenticationFlow::REAUTHENTICATION, FailureReason::IDENTITY_INACTIVE], [$failure->flow, $failure->reason]);
+        EventContextAssertions::assertIdentity($signedIn->identity, $failure->context);
+        EventContextAssertions::assertSession($signedIn->record, $failure->context);
         self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
         self::assertSame(
             [1, 1],

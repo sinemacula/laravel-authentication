@@ -136,4 +136,15 @@ interface GuardBinding
      * @return void
      */
     public function forgetIdentity(Identity $identity): void;
+
+    /**
+     * Forget the authentication context the guard holds, keeping the binding,
+     * when it is bound to the session, without resolving the request: a flow
+     * that changed the session's proofs calls it once the change commits or
+     * rolls back, so the next ask builds the context from them.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return void
+     */
+    public function forgetAuthenticationContext(Session $session): void;
 }

@@ -5,18 +5,26 @@ declare(strict_types = 1);
 namespace Benchmarks\Support;
 
 use Carbon\Carbon;
-use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Container\Container;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Facade;
+use Illuminate\Foundation\Application;
+use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Listeners\RecordSessionUsage;
+use SineMacula\Laravel\Authentication\Providers\ModelProvider;
+use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use Tests\Unit\Stubs\PlainIdentityFixture;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\StubIdentity;
+use Tests\Unit\Stubs\StubRequestResolvingGuard;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Runtime benchmark fixtures for session last-use writes.
+ * Runtime benchmark fixtures for session last-use writes, on the path every
+ * request takes: each session is the one a guard the auth manager already
+ * resolved has bound, under its own guard name, so the listener writes it in
+ * place and reads nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -25,6 +33,9 @@ final class RecordSessionUsageBenchHarness
 {
     /** @var int Number of mutable write-path sessions to pre-seed. */
     private const int WRITE_SESSION_POOL_SIZE = 128;
+
+    /** @var \Illuminate\Foundation\Application */
+    private readonly Application $app;
 
     /** @var \SineMacula\Laravel\Authentication\Listeners\RecordSessionUsage */
     private readonly RecordSessionUsage $listener;
@@ -46,23 +57,28 @@ final class RecordSessionUsageBenchHarness
      */
     public function __construct()
     {
-        BenchDatabase::boot();
-
         $now = Carbon::createStrict(2026, 4, 10, 12, 0, 0);
         Carbon::setTestNow($now);
 
-        $config = new ConfigRepository([
-            'authentication' => [
-                'session' => [
-                    'last_used_throttle_seconds' => 60,
-                ],
-            ],
-        ]);
+        $guards = ['bench-fresh' => ['driver' => 'bench-usage'], 'bench-check' => ['driver' => 'bench-usage']];
 
-        $container = new Container;
-        $container->instance('config', $config);
-        Facade::setFacadeApplication($container);
+        for ($index = 0; $index < self::WRITE_SESSION_POOL_SIZE; $index++) {
+            $guards['bench-stale-' . $index] = ['driver' => 'bench-usage'];
+        }
 
+        $app = PackageBenchApplication::create($guards);
+
+        $app['config']->set('authentication.session.last_used_throttle_seconds', 60);
+        $app['auth']->extend('bench-usage', fn (Application $app, string $name): StubRequestResolvingGuard => new StubRequestResolvingGuard(
+            $name,
+            new ModelProvider($app->make('hash'), StubIdentity::class),
+            new DefaultPrincipalResolver,
+            $app->make('events'),
+            BenchRequest::client(),
+            new Timebox,
+        ));
+
+        $this->app      = $app;
         $this->listener = new RecordSessionUsage;
 
         $this->createSchema();
@@ -77,6 +93,8 @@ final class RecordSessionUsageBenchHarness
 
         $this->freshSession = $freshSession;
 
+        $this->bind('bench-fresh', $freshSession);
+
         for ($index = 0; $index < self::WRITE_SESSION_POOL_SIZE; $index++) {
 
             $session = new StubSession;
@@ -86,6 +104,8 @@ final class RecordSessionUsageBenchHarness
                 'refresh_key'  => 'bench-session-stale-' . $index,
                 'last_used_at' => null,
             ])->save();
+
+            $this->bind('bench-stale-' . $index, $session);
 
             $this->staleSessions[] = $session;
         }
@@ -100,7 +120,7 @@ final class RecordSessionUsageBenchHarness
      */
     public function runWithinThrottleSkip(): void
     {
-        ($this->listener)(self::bound($this->freshSession));
+        ($this->listener)(self::bound('bench-fresh', $this->freshSession));
     }
 
     /**
@@ -110,17 +130,17 @@ final class RecordSessionUsageBenchHarness
      */
     public function runStaleTimestampWrite(): void
     {
-        $session = $this->staleSessions[$this->staleSessionIndex % count($this->staleSessions)];
+        $index = $this->staleSessionIndex % count($this->staleSessions);
         $this->staleSessionIndex++;
 
-        ($this->listener)(self::bound($session));
+        ($this->listener)(self::bound('bench-stale-' . $index, $this->staleSessions[$index]));
     }
 
     /**
      * Run each benchmarked path once and throw unless it reaches the outcome
      * its name describes: a session used within the throttle writes nothing,
-     * and one never used writes its last use. Both run on sessions of their
-     * own, so the benchmark's sessions are untouched.
+     * and one never used writes its last use, neither reading anything. Both
+     * run on sessions of their own, so the benchmark's sessions are untouched.
      *
      * @return void
      *
@@ -138,12 +158,15 @@ final class RecordSessionUsageBenchHarness
                 'last_used_at' => $lastUsedAt,
             ])->save();
 
+            $this->bind('bench-check', $session);
+
             $statements = BenchOutcome::statementsOf(function () use ($session): void {
-                ($this->listener)(self::bound($session));
+                ($this->listener)(self::bound('bench-check', $session));
             });
             $wrote = array_filter($statements, static fn (string $statement): bool => str_starts_with($statement, 'update')) !== [];
+            $read  = array_filter($statements, static fn (string $statement): bool => str_starts_with($statement, 'select')) !== [];
 
-            BenchOutcome::assert($path, $wrote === $writes);
+            BenchOutcome::assert($path, $wrote === $writes && !$read);
         }
     }
 
@@ -166,13 +189,34 @@ final class RecordSessionUsageBenchHarness
     }
 
     /**
-     * The event of the session bound for the benchmark's client.
+     * Resolve the named guard through the auth manager and bind it to the
+     * session, as a request's authentication binds it.
      *
+     * @param  string  $guard
+     * @param  \Tests\Unit\Stubs\StubSession  $session
+     * @return void
+     */
+    private function bind(string $guard, StubSession $session): void
+    {
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $auth */
+        $auth     = $this->app->make('auth');
+        $resolved = $auth->guard($guard);
+
+        assert($resolved instanceof StubRequestResolvingGuard);
+
+        $resolved->login(new PlainIdentityFixture(1), new PlainPrincipalFixture('p-1'), $session);
+    }
+
+    /**
+     * The event of the session the named guard bound, for the benchmark's
+     * client.
+     *
+     * @param  string  $guard
      * @param  \Tests\Unit\Stubs\StubSession  $session
      * @return \SineMacula\Laravel\Authentication\Events\SessionAuthenticated
      */
-    private static function bound(StubSession $session): SessionAuthenticated
+    private static function bound(string $guard, StubSession $session): SessionAuthenticated
     {
-        return new SessionAuthenticated(new EventContext('api', ClientContext::fromRequest(BenchRequest::client()), session: $session));
+        return new SessionAuthenticated(new EventContext($guard, ClientContext::fromRequest(BenchRequest::client()), session: $session));
     }
 }

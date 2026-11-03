@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\AccessOnlyCutoffIdentity;
 use Tests\Integration\Fixtures\AccessOnlyMember;
 use Tests\Integration\Fixtures\CutoffMembership;
@@ -150,8 +151,8 @@ final class RevocationScopeTest extends TestCase
 
         self::assertSame(self::NOW, $membership->fresh()?->getTokensValidAfter()?->format('Y-m-d H:i:s'));
         self::assertCount(2, $this->reported);
-        self::assertSame($membership, $this->reported[0]->context->principal);
-        self::assertInstanceOf(AccessOnlyMember::class, $this->reported[0]->context->identity);
+        EventContextAssertions::assertPrincipal($membership, $this->reported[0]->context);
+        self::assertSame(AccessOnlyMember::class, $this->reported[0]->context->identityType);
         self::assertSame((string) $member->id, $this->reported[0]->context->identityId);
     }
 

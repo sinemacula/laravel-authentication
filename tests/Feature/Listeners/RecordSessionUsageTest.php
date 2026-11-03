@@ -6,29 +6,39 @@ namespace Tests\Feature\Listeners;
 
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Container\Container;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
-use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Listeners\RecordSessionUsage;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\UncastSession;
+use Tests\TestCase;
+use Tests\Unit\Stubs\PlainIdentityFixture;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\PlainSessionFixture;
 use Tests\Unit\Stubs\StubBareSession;
+use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubSession;
 
 /**
- * Feature tests for the RecordSessionUsage listener.
- *
- * Uses Orchestra Testbench with an in-memory sqlite connection and a
- * manually-created session table so the listener's persistence is exercised
- * end-to-end without the package migration.
+ * Feature tests for the RecordSessionUsage listener, which the event names the
+ * session to by its identifier only: on the path every request takes, the
+ * session the event's guard has bound is written in place, with nothing read;
+ * otherwise the session is read by its identifier through the configured
+ * session model, and one that is gone, or is not an Eloquent session, records
+ * nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,7 +48,7 @@ use Tests\Unit\Stubs\StubSession;
 #[CoversClass(RecordSessionUsage::class)]
 final class RecordSessionUsageTest extends TestCase
 {
-    use InteractsWithSessionRecords, MockeryPHPUnitIntegration;
+    use InteractsWithSessionRecords;
 
     /** @var string Timestamp format for assertions. */
     private const string DATETIME_FORMAT = 'Y-m-d H:i:s';
@@ -68,9 +78,9 @@ final class RecordSessionUsageTest extends TestCase
         Carbon::setTestNow($this->now);
 
         config()->set('authentication.session.last_used_throttle_seconds', 60);
+        config()->set('authentication.session.model', StubSession::class);
 
         self::createSessionRecordTable('stub_sessions');
-        self::createSessionRecordTable('authentication_sessions');
     }
 
     /**
@@ -84,16 +94,15 @@ final class RecordSessionUsageTest extends TestCase
     {
         Carbon::setTestNow();
 
-        Schema::dropIfExists('authentication_sessions');
         Schema::dropIfExists('stub_sessions');
 
         parent::tearDown();
     }
 
     /**
-     * A first use records the time, the request's IP address, and its user
-     * agent on the row in one update, and mirrors them on the in-memory model
-     * as persisted state.
+     * A first use of the session the guard has bound records the time, the
+     * request's IP address, and its user agent on the row in one update, with
+     * nothing read, and mirrors them on the bound model as persisted state.
      *
      * @return void
      */
@@ -101,7 +110,11 @@ final class RecordSessionUsageTest extends TestCase
     {
         $session = $this->persistedSession(null);
 
-        (new RecordSessionUsage)(self::bound($session, self::IP, self::USER_AGENT));
+        $this->bindGuardTo($session);
+
+        $queries = $this->countQueries(static fn () => (new RecordSessionUsage)(self::bound($session, self::IP, self::USER_AGENT)));
+
+        self::assertSame(1, $queries);
 
         $row = $this->storedRow($session->id);
 
@@ -113,6 +126,123 @@ final class RecordSessionUsageTest extends TestCase
         self::assertSame(self::IP, $session->getAttribute('last_used_ip'));
         self::assertSame(self::USER_AGENT, $session->getAttribute('last_used_user_agent'));
         self::assertFalse($session->isDirty(['last_used_at', 'last_used_ip', 'last_used_user_agent']));
+    }
+
+    /**
+     * A session no resolved guard has bound, or one the guard has not bound, is
+     * read by its identifier through the configured session model and written
+     * there; the instance the event was built from is not touched.
+     *
+     * @return void
+     */
+    public function testASessionTheGuardHasNotBoundIsReadByItsIdentifier(): void
+    {
+        $session = $this->persistedSession(null);
+
+        $queries = $this->countQueries(static fn () => (new RecordSessionUsage)(self::bound($session, self::IP, self::USER_AGENT)));
+
+        self::assertSame(2, $queries);
+        self::assertSame(self::IP, $this->storedRow($session->id)['last_used_ip']);
+        self::assertNull($session->getAttribute('last_used_ip'));
+
+        $other = $this->persistedSession(null);
+
+        $this->bindGuardTo($session);
+
+        (new RecordSessionUsage)(self::bound($other, self::IP, self::USER_AGENT));
+
+        self::assertSame(self::IP, $this->storedRow($other->id)['last_used_ip']);
+        self::assertNull($other->getAttribute('last_used_ip'));
+    }
+
+    /**
+     * A guard resolved for the request but not yet asked, its bearer token one
+     * it would refuse, has bound no session: the session is read by its
+     * identifier and written, and the guard's request is left unresolved, so
+     * nothing is refused.
+     *
+     * @return void
+     */
+    public function testAGuardNotYetAskedHasItsRequestLeftUnresolved(): void
+    {
+        $session = $this->persistedSession(null);
+
+        Event::fake([AuthenticationFailed::class]);
+
+        app()->instance('request', Request::create('/', server: ['HTTP_AUTHORIZATION' => 'Bearer not-a-token']));
+
+        Auth::forgetGuards();
+
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $queries = $this->countQueries(static fn () => (new RecordSessionUsage)(self::bound($session, self::IP, self::USER_AGENT)));
+
+        self::assertSame(2, $queries);
+        self::assertSame(self::IP, $this->storedRow($session->id)['last_used_ip']);
+        self::assertFalse($guard->hasUser());
+
+        Event::assertNotDispatched(AuthenticationFailed::class);
+    }
+
+    /**
+     * An event that names a session but no guard, as a session that records no
+     * guard does, has the session read by its identifier and written.
+     *
+     * @return void
+     */
+    public function testAnEventNamingNoGuardHasTheSessionReadByItsIdentifier(): void
+    {
+        $session = $this->persistedSession(null);
+        $event   = new SessionAuthenticated(new EventContext(null, new ClientContext(self::IP, self::USER_AGENT), sessionId: $session->id));
+
+        self::assertSame(2, $this->countQueries(static fn () => (new RecordSessionUsage)($event)));
+        self::assertSame(self::IP, $this->storedRow($session->id)['last_used_ip']);
+    }
+
+    /**
+     * An event that names no session, or a session whose row is gone, records
+     * nothing; one that names none reads nothing either.
+     *
+     * @return void
+     */
+    public function testNoSessionOrAGoneOneRecordsNothing(): void
+    {
+        $none = new SessionAuthenticated(new EventContext('api', new ClientContext(self::IP, self::USER_AGENT)));
+
+        self::assertSame(0, $this->countQueries(static fn () => (new RecordSessionUsage)($none)));
+
+        $gone = $this->persistedSession(null);
+
+        $gone->delete();
+
+        self::assertSame(1, $this->countQueries(static fn () => (new RecordSessionUsage)(self::bound($gone, self::IP, self::USER_AGENT))));
+    }
+
+    /**
+     * An event that names no session is done with before the auth manager is
+     * resolved, so it needs nothing bound: in a container that binds nothing,
+     * it resolves nothing and does not throw.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testAnEventNamingNoSessionResolvesNothing(): void
+    {
+        $container = Container::getInstance();
+        $empty     = new Container;
+
+        Container::setInstance($empty);
+
+        try {
+            (new RecordSessionUsage)(new SessionAuthenticated(new EventContext('api', new ClientContext(self::IP, self::USER_AGENT))));
+        } finally {
+            Container::setInstance($container);
+        }
+
+        self::assertFalse($empty->resolved('auth'));
     }
 
     /**
@@ -220,9 +350,13 @@ final class RecordSessionUsageTest extends TestCase
     public function testThrottlesASessionWhoseLastUseIsStoredUncast(): void
     {
         $session = new UncastSession;
-        $session->forceFill(['last_used_at' => $this->now->format(self::DATETIME_FORMAT)])->save();
+        $owner   = ['authenticatable_type' => 'owner', 'authenticatable_id' => '1'];
+
+        $session->forceFill([...self::liveSession(), ...$owner, 'last_used_at' => $this->now->format(self::DATETIME_FORMAT)])->save();
 
         $session = UncastSession::query()->findOrFail($session->getKey());
+
+        $this->bindGuardTo($session);
 
         Carbon::setTestNow($this->now->copy()->addSeconds(30));
 
@@ -284,16 +418,16 @@ final class RecordSessionUsageTest extends TestCase
     }
 
     /**
-     * A generic `Session` that is not an Eloquent model is ignored without a
+     * A bound `Session` that is not an Eloquent model is ignored without a
      * query.
      *
      * @return void
      */
     public function testIgnoresASessionThatIsNotAnEloquentModel(): void
     {
-        $session = \Mockery::mock(Session::class);
-        $session->shouldReceive('getSessionIdentifier')->andReturn('plain-session');
-        $session->shouldNotReceive('getLastUsedAt');
+        $session = new PlainSessionFixture('plain-session');
+
+        $this->bindGuardTo($session);
 
         $queries = $this->countQueries(fn () => (new RecordSessionUsage)(self::bound($session, self::IP, self::USER_AGENT)));
 
@@ -301,15 +435,17 @@ final class RecordSessionUsageTest extends TestCase
     }
 
     /**
-     * A persisted Eloquent model that implements only the generic `Session`
-     * contract, without the column names the write needs, is ignored.
+     * A bound, persisted Eloquent model that implements only the generic
+     * `Session` contract, without the column names the write needs, is ignored.
      *
      * @return void
      */
     public function testIgnoresAPersistedModelOutsideTheEloquentSessionBoundary(): void
     {
-        $session         = new StubBareSession;
+        $session         = new StubBareSession(['id' => 'bare-session']);
         $session->exists = true;
+
+        $this->bindGuardTo($session);
 
         $queries = $this->countQueries(fn () => (new RecordSessionUsage)(self::bound($session, self::IP, self::USER_AGENT)));
 
@@ -317,14 +453,16 @@ final class RecordSessionUsageTest extends TestCase
     }
 
     /**
-     * An Eloquent session that was never saved is ignored: nothing is written
-     * and the in-memory model is left as it was.
+     * A bound Eloquent session that was never saved is ignored: nothing is
+     * written and the in-memory model is left as it was.
      *
      * @return void
      */
     public function testIgnoresAnUnpersistedEloquentSession(): void
     {
-        $session = new StubSession;
+        $session = new StubSession(['id' => '01a1a0b0-4e9b-7017-ad1e-a8b2eb72c999', 'tenant_id' => null]);
+
+        $this->bindGuardTo($session);
 
         $queries = $this->countQueries(fn () => (new RecordSessionUsage)(self::bound($session, self::IP, self::USER_AGENT)));
 
@@ -333,7 +471,8 @@ final class RecordSessionUsageTest extends TestCase
     }
 
     /**
-     * Define the test environment: in-memory sqlite connection.
+     * Configure the `api` guard whose bound session the listener writes in
+     * place.
      *
      * @param  mixed  $app
      * @return void
@@ -343,17 +482,35 @@ final class RecordSessionUsageTest extends TestCase
     #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
+        parent::defineEnvironment($app);
+
         assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('database.default', 'testing');
-        $config->set('database.connections.testing', [
-            'driver'   => 'sqlite',
-            'database' => ':memory:',
-            'prefix'   => '',
-        ]);
+        $config->set('auth.providers.identities', ['driver' => 'model', 'model' => StubIdentity::class]);
+        $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities']);
+    }
+
+    /**
+     * Bind the `api` guard to the session, with its own report of the bind held
+     * back, so only the call the test makes records a use.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return void
+     */
+    private function bindGuardTo(Session $session): void
+    {
+        Event::fake([SessionAuthenticated::class]);
+
+        Auth::forgetGuards();
+
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $guard->login(new PlainIdentityFixture(1), new PlainPrincipalFixture('p-1'), $session);
     }
 
     /**
@@ -381,7 +538,7 @@ final class RecordSessionUsageTest extends TestCase
     private function persistedSession(?Carbon $lastUsedAt, array $state = []): StubSession
     {
         $session = new StubSession;
-        $session->forceFill(['last_used_at' => $lastUsedAt, ...$state])->save();
+        $session->forceFill(['last_used_at' => $lastUsedAt, 'tenant_id' => null, ...$state])->save();
 
         return $session;
     }

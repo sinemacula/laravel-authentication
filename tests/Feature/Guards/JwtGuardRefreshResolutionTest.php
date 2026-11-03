@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubIdentity;
@@ -588,9 +589,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertCount(1, $refreshed);
         self::assertInstanceOf(Refreshed::class, $refreshed[0]);
         self::assertSame(self::GUARD_NAME, $refreshed[0]->context->guard);
-        self::assertSame($identity, $refreshed[0]->context->identity);
-        self::assertSame($principal, $refreshed[0]->context->principal);
-        self::assertSame($session, $refreshed[0]->context->session);
+        EventContextAssertions::assertIdentity($identity, $refreshed[0]->context);
+        EventContextAssertions::assertPrincipal($principal, $refreshed[0]->context);
+        EventContextAssertions::assertSession($session, $refreshed[0]->context);
     }
 
     /**
@@ -673,7 +674,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertSame($refreshed->context, $signedIn->context);
         self::assertTrue($signedIn->refresh);
         self::assertSame('password', $signedIn->context->method);
-        self::assertSame($session, $signedIn->context->session);
+        EventContextAssertions::assertSession($session, $signedIn->context);
     }
 
     /**

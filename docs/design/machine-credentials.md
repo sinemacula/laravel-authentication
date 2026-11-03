@@ -49,6 +49,15 @@ authorisation package decides what they allow.
   read by primary key on the writer, must be the token's guard's, not revoked and not expired, the subject a machine,
   and `CredentialBinding` must hold for the loaded identity, principal and tenant. Revoking the key, or the end of a
   rotation's overlap, ends its tokens at the next request.
+- A bearer credential's kind is decided by form, totally: one with a `.` is a `jwt` guard's, one without an `api_key`
+  guard's (`Http\BearerForms`). The package's `auth` middleware records the guards a route lists on the request
+  (`BearerForms::ROUTE_GUARDS`, `null` for the default guard); a package guard reading a credential of the other kind's
+  form on a route that also lists a guard of that kind (by `auth.guards.<name>.driver`) treats it as no credential,
+  before any parse, query or event, so on a route listing both kinds a failed JWT is reported once (flow `bearer`) and
+  never looked up as a key, and a key once (flow `api_key`) and never parsed. Once a route listing both kinds recorded
+  its guards, that holds for every later ask in the request, a guard asked directly included. Routes listing one kind,
+  and guards asked on a request the middleware did not record (no `auth` middleware, or before it runs), read every
+  credential. Revocation is checked on every request either way (a key by its lookup, a client token by its key's).
 - Keys live on the storage connection (`Database\StorageConnection`), like every other package table, not on a
   connection the session model decides: an `api_key` guard never reads the session model, so an application whose only
   guards are `api_key` guards needs none configured. The guard fails when it is built on a storage connection setting
@@ -86,18 +95,26 @@ authorisation package decides what they allow.
 
 ## Failure / Edge Cases
 
-- The exchange's request is read only from a form-encoded POST body; a parameter in the query string, repeated or not
-  a string is `invalid_request`, as are Basic and body credentials together. No client authentication or malformed
-  Basic is `invalid_client`. Request failures are reported as `invalid_credentials` and not counted.
+- The exchange's request is read only from a form-encoded POST body; a parameter in the query string, repeated or not a
+  string is `invalid_request`, as are Basic and body credentials together, and a parameter without a value is omitted
+  (RFC 6749 3.1). No client authentication, malformed Basic, or body credentials on an application that does not set
+  `client_secret_post` (default `false`, `ApplicationPolicy::allowsClientSecretPost()`; Basic is always accepted, RFC
+  6749 2.3.1) is `invalid_client`. Request failures are reported as `invalid_credentials`, before any query, and not
+  counted.
 - Every failure to authenticate the client (unknown, wrong secret, revoked, expired, another guard's key, owner or
-  principal problems) is `invalid_client` (401, with a Basic challenge for a Basic client), counted per IP address; only
-  a principal the application policy refuses as `principal_ineligible` is `unauthorized_client` (a policy that gives any
-  other reason gets `invalid_client`). A guard whose application does not list `client_credentials` answers
-  `unauthorized_client` before looking at the key. A scope not granted is `invalid_scope`, not counted. Past its limit
-  an address gets 429 `slow_down` (RFC 8628's registered error). Each failure's `AuthenticationFailed` names the client
-  id only when it is a key's public part in form (`PresentedClient::reportedId()`), else none: a client that sends its
-  whole key as the id, or swaps id and secret, would otherwise put the secret in an event (rule: no event field carries
-  a secret), as the `api_key` guard already never names one.
+  principal problems) is `invalid_client` (401, always with `WWW-Authenticate: Basic realm="<guard>"`, since a 401
+  carries a challenge whatever method the client used, RFC 7235 3.1), counted per IP address; only a principal the
+  application policy refuses as `principal_ineligible` is `unauthorized_client` (a policy that gives any other reason
+  gets `invalid_client`). A guard whose application does not list `client_credentials` answers `unauthorized_client`
+  before looking at the key. A scope not granted is `invalid_scope`, not counted. Past its limit an address gets 429
+  `slow_down`: the package's own answer, outside RFC 6749 (which defines no rate-limit error), with the code RFC 8628
+  registered. `invalid_grant` is never answered (the grant is the client's own authentication), no error carries
+  `error_description` (optional in RFC 6749 5.2; the package words nothing a client reads), and TLS on the token route
+  is the deployment's to require (RFC 6749 3.2), since `isSecure()` depends on the trusted proxies. Each failure's
+  `AuthenticationFailed` names the client id only when it is a key's public part in form
+  (`PresentedClient::reportedId()`), else none: a client that sends its whole key as the id, or swaps id and secret,
+  would otherwise put the secret in an event (rule: no event field carries a secret), as the `api_key` guard already
+  never names one.
 - `client_credentials.per_identifier` (per client id as given) is off by default. A client id is public (RFC 6749 2.2;
   it is the key's public part, shown in summaries and events), so a count on it lets anyone who knows it keep the real
   client out from any address, and it buys nothing against a 238-bit secret, the reason the `api_key` guard counts

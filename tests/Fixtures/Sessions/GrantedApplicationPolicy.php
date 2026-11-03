@@ -53,6 +53,18 @@ final readonly class GrantedApplicationPolicy implements ApplicationPolicy
     }
 
     /**
+     * The wrapped policy's answer.
+     *
+     * @param  string  $guard
+     * @return bool
+     */
+    #[\Override]
+    public function allowsClientSecretPost(string $guard): bool
+    {
+        return $this->inner->allowsClientSecretPost($guard);
+    }
+
+    /**
      * Refuse an identifier whose type the identity has no verification row for
      * as `identifier_unverified`, otherwise answer as the wrapped policy.
      *

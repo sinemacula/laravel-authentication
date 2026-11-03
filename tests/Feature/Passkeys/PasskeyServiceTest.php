@@ -49,6 +49,7 @@ use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Passkeys\RecordingPasskeyFactorGate;
 use Tests\Fixtures\Passkeys\VirtualAuthenticator;
@@ -257,7 +258,7 @@ final class PasskeyServiceTest extends TestCase
 
         self::assertSame(['api', 'passkey', null], [$event->context->guard, $event->context->method, $event->context->scopes]);
         self::assertSame([$passkey->id, (string) $identity->id], [$event->context->credentialId, $event->context->identityId]);
-        self::assertSame($identity, $event->context->identity);
+        EventContextAssertions::assertIdentity($identity, $event->context);
         self::assertSame([self::CLIENT_IP, self::CLIENT_AGENT], [$event->context->client->ip, $event->context->client->userAgent]);
     }
 

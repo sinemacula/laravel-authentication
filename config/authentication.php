@@ -292,10 +292,10 @@ return [
     | Applications
     |---------------------------------------------------------------------------
     |
-    | An application is a guard: each app being signed into (`admin`, `console`,
-    | `mobile`) is one. These are the defaults every application starts from; a
-    | guard overrides any of them in an `application` block on its
-    | `config/auth.php` entry, where a key that is present wins, `null`
+    | An application is a guard: each app being signed into (`admin`,
+    | `console`, `mobile`) is one. These are the defaults every application
+    | starts from; a guard overrides any of them in an `application` block on
+    | its `config/auth.php` entry, where a key that is present wins, `null`
     | included. `methods` lists the sign-in methods that may start the
     | application's sessions, by the lower-case names they are registered under
     | (or, for a session the application starts itself, the name it passes to
@@ -305,23 +305,29 @@ return [
     | default, so each application lists what it uses: an empty list refuses
     | every sign-in, refresh, code and password reset request as
     | `method_not_allowed` (and every client credentials exchange as
-    | `unauthorized_client`), and `authentication:check` warns about a `jwt`
-    | guard that lists nothing, or only `api_key`, which a `jwt` guard never
-    | accepts. `require_verified_identifier` refuses a sign-in with an
-    | identifier (an email address, say) the identity has not verified; sign-ins
-    | that use no identifier, such as SSO, are not affected. A malformed value,
-    | or an unknown key, fails closed with an `InvalidArgumentException` naming
-    | the guard and the key when the guard's policy is first used. Which
-    | principals may use an application, and which tenants they may act in, are
-    | not settings here but the `ApplicationAccess` and `TenantAccess`
-    | contracts: by default any principal may use any application, in its own
-    | tenant only.
+    | `unauthorized_client`, or as `invalid_client` for a client that sends its
+    | credentials in the body where `client_secret_post` does not allow them),
+    | and `authentication:check` warns about a `jwt` guard that lists nothing,
+    | or only `api_key`, which a `jwt` guard never accepts.
+    | `require_verified_identifier` refuses a sign-in with an identifier (an
+    | email address, say) the identity has not verified; sign-ins that use no
+    | identifier, such as SSO, are not affected. `client_secret_post` lets a
+    | client credentials exchange read the client's id and secret from the
+    | request body; off, only HTTP Basic is accepted (RFC 6749 requires every
+    | server to accept it) and body credentials are refused as
+    | `invalid_client`. A malformed value, or an unknown key, fails closed with
+    | an `InvalidArgumentException` naming the guard and the key when the
+    | guard's policy is first used. Which principals may use an application,
+    | and which tenants they may act in, are not settings here but the
+    | `ApplicationAccess` and `TenantAccess` contracts: by default any
+    | principal may use any application, in its own tenant only.
     |
     */
 
     'application' => [
         'methods'                     => [],
         'require_verified_identifier' => false,
+        'client_secret_post'          => false,
     ],
 
     /*

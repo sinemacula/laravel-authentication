@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -103,6 +104,21 @@ final readonly class PasskeySignIn implements SignInMethod
     public function identifier(string $guard, #[\SensitiveParameter] array $input): null
     {
         return null;
+    }
+
+    /**
+     * The ceremony's challenge id the input answers, when it is in the form a
+     * passkey challenge is issued in: a UUID.
+     *
+     * @param  array<array-key, mixed>  $input
+     * @return ?string
+     */
+    #[\Override]
+    public function challenge(#[\SensitiveParameter] array $input): ?string
+    {
+        $challenge = $input[self::CHALLENGE_KEY] ?? null;
+
+        return is_string($challenge) && Str::isUuid($challenge) ? $challenge : null;
     }
 
     /**

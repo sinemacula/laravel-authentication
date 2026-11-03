@@ -13,7 +13,10 @@ use SineMacula\Laravel\Authentication\Callers\Caller;
 use SineMacula\Laravel\Authentication\Callers\CallerCredentials;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
+use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
+use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
@@ -29,19 +32,21 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Support\ClosureRebinding;
 
 /**
  * Package AuthManager.
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
- * (`identity`, `principal`, `session`, `tenant`, `scopes`), guard-scoped
- * `jwt()` issuance, each JWT guard's `sessions()`, `codes()`, `passwords()`,
- * `passkeys()`, `identifierChanges()`, `refreshTransport()` and
- * `clientCredentials()`, the API keys of an `api_key` or JWT guard
- * (`apiKeys()`), and the caller of a request (`caller()`) directly on the
- * manager. Each contextual accessor forwards to the active guard when it
- * implements `ContextualGuard`, otherwise returns `null`. Bound to the `auth`
- * container key by `AuthenticationServiceProvider`.
+ * (`identity`, `principal`, `session`, `tenant`, `scopes`), the request's
+ * authentication context (`context()`), guard-scoped `jwt()` issuance, each JWT
+ * guard's `sessions()`, `codes()`, `passwords()`, `passkeys()`,
+ * `identifierChanges()`, `refreshTransport()` and `clientCredentials()`, the
+ * API keys of an `api_key` or JWT guard (`apiKeys()`), and the caller of a
+ * request (`caller()`) directly on the manager. Each contextual accessor
+ * forwards to the active guard when it implements `ContextualGuard`, otherwise
+ * returns `null`. Bound to the `auth` container key by
+ * `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -81,18 +86,18 @@ class AuthManager extends IlluminateAuthManager
         $creators = $replaced->customCreators;
 
         foreach ($creators as $driver => $creator) {
-            $this->customCreators[$driver] = $this->rebindFrom($replaced, $creator);
+            $this->customCreators[$driver] = ClosureRebinding::onto($replaced, $this, $creator);
         }
 
         /** @var array<string, \Closure(): mixed> $providerCreators */
         $providerCreators = $replaced->customProviderCreators;
 
         foreach ($providerCreators as $driver => $creator) {
-            $this->customProviderCreators[$driver] = $this->rebindFrom($replaced, $creator);
+            $this->customProviderCreators[$driver] = ClosureRebinding::onto($replaced, $this, $creator);
         }
 
         $this->guards       = $replaced->guards;
-        $this->userResolver = $this->rebindFrom($replaced, $replaced->userResolver);
+        $this->userResolver = ClosureRebinding::onto($replaced, $this, $replaced->userResolver);
     }
 
     /**
@@ -321,6 +326,41 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
+     * The named package guard, when it is already resolved; `null` when it is
+     * not, or is not a package guard. Creates no guard and resolves no request.
+     *
+     * @param  string  $name
+     * @return (\SineMacula\Laravel\Authentication\Contracts\ContextualGuard&\SineMacula\Laravel\Authentication\Contracts\GuardBinding)|null
+     *
+     * @internal
+     */
+    public function resolvedGuard(string $name): (ContextualGuard&GuardBinding)|null
+    {
+        $guard = $this->guards[$name] ?? null;
+
+        return $guard instanceof AbstractGuard ? $guard : null;
+    }
+
+    /**
+     * The authentication context of the request being served: what the bound
+     * `AuthenticationContexts` answers (by default, the context the default
+     * guard holds), or `null` for a guest and on a guard that is not
+     * contextual. Built at most once per unchanged authentication state.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Context\AuthenticationContext
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function context(): ?AuthenticationContext
+    {
+        return $this->app->make(AuthenticationContexts::class)->current();
+    }
+
+    /**
      * The active identity, when the active guard is contextual.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
@@ -415,29 +455,5 @@ class AuthManager extends IlluminateAuthManager
         }
 
         return $resolved;
-    }
-
-    /**
-     * The closure, bound to this manager when it is an anonymous one bound to
-     * the replaced manager; any other is returned as it is (a first-class
-     * callable keeps the object whose method it is).
-     *
-     * @param  \Illuminate\Auth\AuthManager  $replaced
-     * @param  \Closure(): mixed  $closure
-     * @return \Closure(): mixed
-     */
-    private function rebindFrom(IlluminateAuthManager $replaced, \Closure $closure): \Closure
-    {
-        $reflector = new \ReflectionFunction($closure);
-
-        if (!$reflector->isAnonymous() || $reflector->getClosureThis() !== $replaced) {
-            return $closure;
-        }
-
-        $rebound = $closure->bindTo($this);
-
-        assert($rebound instanceof \Closure);
-
-        return $rebound;
     }
 }

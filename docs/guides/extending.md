@@ -22,7 +22,7 @@ inheritance:
 | Gating factor changes             | Call `Auth::sessions()->factorChange()` before adding, replacing or removing a factor or making recovery codes   |
 | Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
 | Passkeys registered as factors    | Bind your own `PasskeyFactorGate`; it is asked inside each passkey registration and removal                      |
-| Application decisions             | Implement `ApplicationPolicy` (methods, lifetimes, identifiers) and bind it in the container                     |
+| Application decisions             | Implement `ApplicationPolicy` (methods, body client credentials, lifetimes, identifiers) and bind it             |
 | Who may use an application        | Implement `ApplicationAccess` and bind it in the container                                                       |
 | Tenants a principal may act in    | Implement `TenantAccess` and bind it in the container                                                            |
 | Tenants named by identifier       | Implement `TenantResolver` and bind it in the container                                                          |
@@ -40,6 +40,8 @@ inheritance:
 | Freshness of sensitive operations | Configure `freshness` per operation and guard, or implement `FreshnessPolicy` and bind it in the container       |
 | Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                          |
 | Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                           |
+| Authentication context keys       | Implement `AuthenticationContextContributor` and register it with `ContextContributors::register()`              |
+| Authentication context source     | Type-hint `AuthenticationContexts` (rebind it in a test), or call `Auth::context()`                              |
 
 The `password` method is the package's own: `attempt()`, `validate()` and the password rehash use it directly, so
 `extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a
@@ -281,15 +283,19 @@ guard type has no `$this->name`, `$this->provider`, `$this->resolver`, `$this->e
 in the guard's credential timebox, the one `attempt()` and `validate()` run in.
 
 `bindVerifiedContext()` binds what it is given and checks none of it, so a guard type admits what its credential named
-first, as the package's guards do: the application must allow the method it reports, the identity, the principal
-and the principal's tenant must be active (`Admission\ActivationPolicy`), the application policy must admit the
-identity, and `ApplicationAccess` must let the principal use the application, each asked inside
-`WriteConnection::during()` as the package asks them. The tenant the activity check loaded is the one it binds:
+first, as the package's guards do: the application must allow the method it reports, the identity, the principal and the
+principal's tenant must be active (`Admission\ActivationPolicy`), the application policy must admit the identity, and
+`ApplicationAccess` must let the principal use the application, each asked inside `WriteConnection::during()` as the
+package asks them. The tenant the activity check loaded is the one it binds. A guard type that authenticated a
+credential the request presented names its kind last (`kind:`, a `Context\Enums\CredentialKind`), so the request's
+[authentication context](#authentication-context) says what was presented; one that names none reports `credential` as
+`null`, as a sign-in in the request does:
 
 ```php
 use Illuminate\Container\Container;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -349,7 +355,7 @@ final class HeaderKeyGuard extends AbstractGuard
             return null;
         }
 
-        $this->bindVerifiedContext($identity, $principal, null, $tenant, 'header_key', false);
+        $this->bindVerifiedContext($identity, $principal, null, $tenant, 'header_key', false, kind: CredentialKind::API_KEY);
 
         return $identity;
     }
@@ -431,6 +437,9 @@ the one it replaces (`AuthManager::inheritStateFrom()`): the drivers from `Auth:
 same instances. Those calls keep working from any provider's `register()` or `boot()`, and `Auth::` reaches the
 package's manager even when it was used before the package booted.
 
+The flows that change a session's proofs reach the guards the request already resolved through the internal
+`AuthManager::resolvedGuard()`, which never creates one.
+
 What a subclass of Laravel's manager adds itself, its methods and overrides, is not kept: the replacement is not a
 decorator. To customise the manager, extend the package's `AuthManager` and bind it to `auth` in a `register()`; the
 package keeps it and registers its drivers on it. Bind `auth` only there: a manager bound to it after the package boots
@@ -506,6 +515,9 @@ seam has a default that works alone.
   transaction that inserts a new passkey and may associate it as a factor (`PasskeyFactorAssociation`, carried in the
   `PasskeyRegistration`'s `factor`), and `removing()` inside the one that deletes it; either may refuse by throwing,
   which rolls the change back whole. The default, `Passkeys\NoPasskeyFactors`, associates nothing and refuses nothing.
+- Every failed check of one of this package's challenges reports `AuthenticationFailed` with the challenge's id
+  (`challengeId`), the id the factor package's own per-attempt events carry, so both can be followed per challenge; the
+  context is plain values the factor package reads as scalars (see [Events](events.md#events)).
 - A factor's one-time codes (a text message or email factor, and the confirmation of one being enrolled) are this
   package's challenges: `Auth::codes($guard)->sendFactorCode($binding, $client)` sends one and answers a `CodeRequest`
   with its `challengeId`, and `verifyFactorCode($binding, $challengeId, $code, $client)` checks it and answers a
@@ -577,6 +589,73 @@ $passed = $result->isVerified();   // else $result->reason
   [Credential scopes](machine-credentials.md#credential-scopes)).
 - Bind `Contracts\ScopeRegistry` to hold the scopes a credential is issued with to real permissions (the default,
   `AcceptAnyScope`, accepts any well-formed scope).
+- A policy condition reads the request's authentication context (see [Authentication context](#authentication-context)):
+  type-hint `Contracts\AuthenticationContexts` and call `current()`, the seam a test rebinds, or call `Auth::context()`.
+
+### Authentication context
+
+`Auth::context()` answers a `Context\AuthenticationContext` (`null` for a guest, and on a guard that is not one of the
+package's): what the request is authenticated as, in plain values, for an authorisation policy's conditions. It is the
+bound `Contracts\AuthenticationContexts` that answers; the default, `Context\GuardAuthenticationContexts`, asks the
+default guard, which the route's `auth` middleware made the one that authenticated it (`auth:admin,api` gives the
+context of whichever guard did). The guard builds it from what it validated (the request's credential, the session and
+the session's proofs, the request as the trusted proxies resolve it), never from input or from a token's claims, on the
+first ask after its bound state last changed, and holds it while that state is unchanged: a request reads the session's
+proofs for it at most once however often it asks (one aggregate read on the write connection, and none for an API key or
+a client credentials token), and nothing outlives the request, under Octane too. Every bind, sign-out and
+`setPrincipal()` or `setSession()` forgets it, and so does a step-up, a reauthentication, a satisfied further factor and
+a further factor's removal once each commits, for every guard the request resolved that is bound to the session. One
+rolled back forgets it too, so a context built inside its transaction never outlives the proofs it read there.
+
+The package's own keys are under the reserved `authentication` namespace, read with `get('authentication.<key>')`,
+`has()` (true for a key held with a `null` value) or `toArray()`, and are stable once released:
+
+| Key                              | Value                                                                                                                                                                                                                                                                                     |
+|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `subject_type`                   | `person`, or `machine` for a `MachineIdentity`                                                                                                                                                                                                                                            |
+| `identity_type`, `identity_id`   | The identity's morph class (an Eloquent model's morph class, else its class name) and auth identifier                                                                                                                                                                                     |
+| `principal_type`, `principal_id` | The principal's, the identity's own in two-dimensional mode                                                                                                                                                                                                                               |
+| `tenant_type`, `tenant_id`       | The active tenant's, `null` when the request acts in none; a trusted bind's tenant that cannot be loaded throws `TenantUnavailableException`, as `Auth::tenant()` does                                                                                                                    |
+| `application`                    | The guard's name, a token's `client_id`                                                                                                                                                                                                                                                   |
+| `session_id`                     | The bound session's identifier, `null` without one                                                                                                                                                                                                                                        |
+| `amr`                            | The session's `amr` values from its proofs, as an access token carries them: `mfa` only for multifactor authentication, `otp` for an email code, `urn:sinemacula:amr:external_provider` for an external sign-in; `[]` without a session                                                   |
+| `auth_time`                      | Unix seconds of the session's newest counting proof, `null` without a session                                                                                                                                                                                                             |
+| `mfa`                            | `true` when an accepted additional verification is on the session: a further factor its adapter accepted, or an external provider's evidence the evidence contract accepted for an additional verification or multifactor authentication. Never counted from `amr`, never a recovery code |
+| `recovery_code`                  | `true` when an accepted recovery code is on the session                                                                                                                                                                                                                                   |
+| `multifactor`                    | `true` when an accepted evaluation on the session reported multifactor authentication, exactly when `amr` carries `mfa`                                                                                                                                                                   |
+| `seconds_since_step_up`          | Seconds from the newest proof that set `mfa` or `recovery_code`, at sign-in or later, to when the context was built; `null` for none                                                                                                                                                      |
+| `credential`                     | `access_token`, `api_key` or `client_credentials`; `null` for a sign-in or a trusted bind (`login()`, `setUser()`, `authenticateAs()`) made in the request, and for a guard type that names none                                                                                          |
+| `scopes`                         | As `Auth::scopes()`: `null` for a person's session, the granted list otherwise                                                                                                                                                                                                            |
+| `ip`                             | The client's address as Laravel resolves it through the application's trusted proxies, `null` when it is not a valid one                                                                                                                                                                  |
+
+`mfa` and `multifactor` answer different questions: `mfa` is "MFA present" (an additional verification was accepted),
+`multifactor` is whether multifactor authentication was reported. Evidence the evidence contract accepted only for
+phishing resistance or a minimum level is neither, and is recorded on its proof as such
+(`Proofs\Evaluation::$additionalVerification`); an adapter's further factor is always an additional verification and
+its recovery code never is, whatever its evaluation says, and each is recorded on its proof so.
+
+A sibling package or the application adds keys under a namespace of its own: implement
+`Contracts\AuthenticationContextContributor` and register it in a service provider's `boot()`:
+
+```php
+use SineMacula\Laravel\Authentication\Context\ContextContributors;
+
+$this->app->make(ContextContributors::class)->register('sso', SsoContextContributor::class);
+```
+
+It is resolved from the container serving the request each time a context is built, in the order registered, and asked
+once with a `Context\ContributionSubject`: the package's keys, the live identity, principal, tenant and session, and
+`provenance()`, the session's external provenance (`Proofs\Provenance`: the connection and its tenant, the provider's
+authentication time and deadline, the policy version, the link and the accepted evidence with the provider's own `amr`),
+read on the write connection the first time it is asked for. It answers its keys without the namespace: each a
+lower-case letter and then up to 63 lower-case letters, digits or underscores, each value `null`, a scalar or an array
+of them. Anything else fails loudly with a `LogicException` naming the namespace and key, and so does asking for the
+context it is being asked to build; an exception it throws reaches the caller (a policy cannot be judged on part of a
+context). A namespace is a lower-case letter and then up to 31 lower-case letters, digits or underscores;
+`authentication` is the package's, and a second registration of a namespace is a `LogicException`, so no contributor's
+keys can overwrite another's. `mfa` and `sso` are kept for the further-factor and single sign-on packages' adapters,
+which register them; the package registers none. A test builds an `AuthenticationContext` itself (its constructor is
+public, and refuses contributed keys no contributor could give) or binds a fake `AuthenticationContexts`.
 
 ### Single sign-on (`laravel-sso`)
 
@@ -588,15 +667,17 @@ $passed = $result->isVerified();   // else $result->reason
   so no external result signs anyone in until the identity package's adapter binds `laravel-sso`'s links. Linking, and
   the links, are `laravel-sso`'s; this package stores none.
 - Inside the transaction in which it redeems a handoff, after `laravel-sso`'s own locks, the adapter hands the verified
-  result, naming the link it redeemed it through (`linkId`), to
-  `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
+  result, naming the link it redeemed it through (`linkId`) and the authorisation request's public reference
+  (`requestReference`), to `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
   sign-in](signing-in.md#external-sign-in)). The application must list `external_provider` in its `methods`. The
   identity is reloaded through the guard's provider, and activity, the application policy, the additional-factor policy,
   the choice of principal and the tenant's authentication policy all apply; no attempt limit or timebox does, since
-  nothing is guessed. The package takes no lock before the link contract is asked, so every row of its own it locks
-  (the link's connection guard, then any session the sign-in replaces) is locked after the adapter's own. A database
-  error, a PostgreSQL serialization failure included, propagates for the adapter to retry the whole transaction. The
-  contract must answer exactly the link the result names (`link_mismatch` otherwise).
+  nothing is guessed. The package takes no lock before the link contract is asked, so every row of its own it locks (the
+  link's connection guard, then any session the sign-in replaces) is locked after the adapter's own. A database error, a
+  PostgreSQL serialization failure included, propagates for the adapter to retry the whole transaction. The contract
+  must answer exactly the link the result names (`link_mismatch` otherwise). Once committed, `ExternalResultRedeemed`
+  reports the redemption with the connection and the request reference, which the redemption's failures carry too, so
+  they correlate with `laravel-sso`'s completion events.
 - A result linked to no identity dispatches `ExternalResultUnlinked` and fails as `external_result_unlinked`. The event
   is informational: `laravel-iam` provisions on `laravel-sso`'s own unlinked-result event, before any handoff is issued,
   never on this one, since provisioning on both would provision twice.
@@ -636,9 +717,11 @@ $passed = $result->isVerified();   // else $result->reason
 - With `laravel-iam` installed, it maps every package event into the audit log, and there is nothing to wire. Without
   it, register an `EventMapper` for `Contracts\AuthenticationEvent` with `AuditLog::map()`, giving each event an
   explicit, dotted code (see [Events](events.md#events) for an example).
-- Every package event carries one `Events\EventContext`, so one mapper records them all from its snapshot: when, the
-  guard, the client, the identity, principal and tenant by type and identifier, the session's identifier, the method,
-  and the credential and its scopes, never a secret.
+- Every package event carries one `Events\EventContext`, so one mapper records them all from its plain values: when, the
+  guard, the client, the identity, principal and tenant by type and identifier (`identityType`/`identityId`,
+  `principalType`/`principalId`, `tenantType`/`tenantId`), the session's identifier (`sessionId`), the method, the
+  credential and its scopes (`credentialId`, `scopes`), and for a redeemed external result the connection and the
+  request reference, never a model and never a secret. A failure's `challengeId` names the challenge it answered.
 - Events that report a write are dispatched once it commits on the written row's connection, and never for a rolled-back
   one, so a mapped event is recorded at once and only for what happened.
 - `laravel-audit-log` also records Laravel's own `Login`, `Failed` and `Logout`. This package's guards dispatch those

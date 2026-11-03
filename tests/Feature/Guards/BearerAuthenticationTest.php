@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use Tests\Fixtures\Events\EventContextAssertions;
 
 /**
  * Feature tests for the bearer path's principal and "tokens valid after"
@@ -181,9 +182,9 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
 
         self::assertNull($this->guardFor($identity, $principal)->user());
         self::assertInstanceOf(AuthenticationFailed::class, $failure);
-        self::assertSame($identity, $failure->context->identity);
-        self::assertSame($principal, $failure->context->principal);
-        self::assertNull($failure->context->session);
+        EventContextAssertions::assertIdentity($identity, $failure->context);
+        EventContextAssertions::assertPrincipal($principal, $failure->context);
+        EventContextAssertions::assertSession(null, $failure->context);
     }
 
     /**
@@ -259,9 +260,9 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
-                && $event->flow              === AuthenticationFlow::BEARER
-                && $event->reason            === FailureReason::MACHINE_IDENTITY
-                && $event->context->identity === $machine));
+                && $event->flow   === AuthenticationFlow::BEARER
+                && $event->reason === FailureReason::MACHINE_IDENTITY
+                && EventContextAssertions::namesIdentity($machine, $event->context)));
 
         self::assertNull($this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1'])))->user());
     }

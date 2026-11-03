@@ -34,8 +34,8 @@ final class EventContextTest extends TestCase
      * For an event about the session row, a loaded row stands in for an
      * identity, principal or tenant that was not loaded: the snapshots take the
      * owner, the principal and the active tenant's identifier it records (with
-     * no morph class for the tenant, which the row does not record), and the
-     * models stay unknown. A part that was loaded wins over the row.
+     * no morph class for the tenant, which the row does not record). A part
+     * that was loaded wins over the row.
      *
      * @return void
      */
@@ -53,13 +53,10 @@ final class EventContextTest extends TestCase
 
         $context = new EventContext('api', new ClientContext(null, null), session: $session, fromSession: true);
 
-        self::assertNull($context->identity);
-        self::assertNull($context->principal);
         self::assertSame('user', $context->identityType);
         self::assertSame('7', $context->identityId);
         self::assertSame('member', $context->principalType);
         self::assertSame('12', $context->principalId);
-        self::assertNull($context->tenant);
         self::assertNull($context->tenantType);
         self::assertSame('tenant-5', $context->tenantId);
 

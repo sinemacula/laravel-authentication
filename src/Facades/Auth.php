@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static \SineMacula\Laravel\Authentication\Contracts\Session|null session()
  * @method static \SineMacula\Laravel\Authentication\Contracts\Tenant|null tenant()
  * @method static list<string>|null scopes()
+ * @method static \SineMacula\Laravel\Authentication\Context\AuthenticationContext|null context()
  * @method static \SineMacula\Laravel\Authentication\Jwt\JwtTokenService jwt(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Sessions\SessionService sessions(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport refreshTransport(?string $guard = null)
@@ -39,6 +40,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static \SineMacula\Laravel\Authentication\Callers\Caller|null caller()
  * @method static void inheritStateFrom(\Illuminate\Auth\AuthManager $replaced)
  * @method static void forgetGuardState()
+ * @method static (\SineMacula\Laravel\Authentication\Contracts\ContextualGuard&\SineMacula\Laravel\Authentication\Contracts\GuardBinding)|null resolvedGuard(string $name)
  */
 final class Auth extends IlluminateAuth
 {

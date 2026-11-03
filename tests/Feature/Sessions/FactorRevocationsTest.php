@@ -410,7 +410,7 @@ final class FactorRevocationsTest extends TestCase
         $event = $this->recorded[1];
 
         self::assertInstanceOf(SessionRevoked::class, $event);
-        self::assertSame($current->record->getKey(), $event->context->session?->getSessionIdentifier());
+        self::assertSame($current->record->getKey(), $event->context->sessionId);
         self::assertSame(IdentifierCoercion::stringify($current->record->getAttribute('principal_id')), $event->context->principalId);
     }
 
@@ -613,6 +613,56 @@ final class FactorRevocationsTest extends TestCase
 
         Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
 
+        self::assertSame($current->record->getKey(), $guard->session()?->getSessionIdentifier());
+    }
+
+    /**
+     * A current session that stays active once its proofs made with the factor
+     * are voided has the context of the guard bound to it forgotten at once:
+     * the rest of the caller's transaction no longer holds the further factor.
+     * A rollback forgets it again, so the context holds the factor once more;
+     * once the removal commits, the context still lacks it and the session
+     * stays bound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAVoidedProofIsForgottenFromTheContextAtOnce(): void
+    {
+        $current = $this->signedIn();
+
+        $this->stepUp($current, 'factor-a');
+
+        $guard = $this->boundGuard($current);
+        $held  = $guard->authenticationContext();
+
+        self::assertTrue($held?->mfa);
+
+        DB::beginTransaction();
+
+        Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
+
+        $inside = $guard->authenticationContext();
+
+        self::assertNotSame($held, $inside);
+        self::assertFalse($inside?->mfa);
+
+        DB::rollBack();
+
+        self::assertTrue($guard->authenticationContext()?->mfa);
+
+        DB::transaction(static function () use ($current, $guard): void {
+
+            Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
+
+            self::assertFalse($guard->authenticationContext()->mfa);
+        });
+
+        $after = $guard->authenticationContext();
+
+        self::assertNotNull($after);
+        self::assertFalse($after->mfa);
         self::assertSame($current->record->getKey(), $guard->session()?->getSessionIdentifier());
     }
 

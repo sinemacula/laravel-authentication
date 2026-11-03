@@ -11,6 +11,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -107,13 +108,16 @@ final class ProofWriterTest extends TestCase
         self::assertSame(ChannelKind::AUTHENTICATOR_APP->value, $row->getAttribute('channel_kind'));
         self::assertSame('factor-1', $row->getAttribute('factor_reference'));
         self::assertTrue((bool) $row->getAttribute('accepted'));
+        self::assertTrue((bool) $row->getAttribute('additional_verification'));
         self::assertNull($row->getAttribute('evidence'));
         self::assertSame('2026-04-06 12:00:00', CarbonImmutable::parse($row->getRawOriginal('authenticated_at'))->toDateTimeString());
     }
 
     /**
      * An external proof whose evidence was accepted is recorded with that
-     * evidence, as JSON in its stored form, hidden from serialisation.
+     * evidence, as JSON in its stored form, hidden from serialisation, and with
+     * what it was accepted for: here neither multifactor authentication nor an
+     * additional verification.
      *
      * @return void
      *
@@ -132,7 +136,7 @@ final class ProofWriterTest extends TestCase
             new Channel(ChannelKind::EXTERNAL_PROVIDER, 'conn-a'),
             null,
             new ObservedProperties,
-            new Evaluation(true, true),
+            new Evaluation(true, false, false),
             ['urn:sinemacula:amr:external_provider'],
             CarbonImmutable::now(),
             $evidence,
@@ -142,11 +146,63 @@ final class ProofWriterTest extends TestCase
 
         $row = SessionProof::query()->findOrFail(self::JUDGED_PROOF_ID);
 
+        self::assertSame([true, false, false], [$row->accepted, $row->multifactor, $row->additional_verification]);
+
         $stored = $row->getRawOriginal('evidence');
 
         self::assertIsString($stored);
         self::assertSame(['methods' => ['hwk', 'pin'], 'context' => 'phrh', 'authenticated_at' => '2026-04-06T11:59:00+00:00'], json_decode($stored, true));
         self::assertArrayNotHasKey('evidence', $row->toArray());
+    }
+
+    /**
+     * Rows of `[the proof's kind, its evaluation, the additional verification
+     * recorded]`: a further factor always is one and a recovery code never is,
+     * whatever the adapter reported; an external proof is what its evaluation
+     * says; a proof without an evaluation records nothing.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, 1: ?\SineMacula\Laravel\Authentication\Proofs\Evaluation, 2: ?bool}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideAdditionalVerifications(): iterable
+    {
+        yield 'a further factor the adapter says is not one' => [ProofKind::ADDITIONAL_FACTOR, new Evaluation(true, false, false), true];
+        yield 'a recovery code the adapter says is one' => [ProofKind::RECOVERY_CODE, new Evaluation(true, false, true), false];
+        yield 'an external proof accepted for one' => [ProofKind::EXTERNAL_REAUTHENTICATION, new Evaluation(true, false, true), true];
+        yield 'an external proof accepted for a level only' => [ProofKind::EXTERNAL_REAUTHENTICATION, new Evaluation(true, false, false), false];
+        yield 'a first factor reauthentication' => [ProofKind::FIRST_FACTOR_REAUTHENTICATION, null, null];
+    }
+
+    /**
+     * Whether a proof is recorded as an additional verification follows from
+     * its kind for a further factor or a recovery code, so a proof read back
+     * says what the authentication context reads.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind  $kind
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\Evaluation  $evaluation
+     * @param  ?bool  $recorded
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideAdditionalVerifications')]
+    public function testAProofIsRecordedAsAnAdditionalVerificationByItsKind(ProofKind $kind, ?Evaluation $evaluation, ?bool $recorded): void
+    {
+        $this->seedIdentity();
+
+        $channel = new Channel(ChannelKind::AUTHENTICATOR_APP);
+        $proof   = new NewProof($kind, Purpose::REAUTHENTICATE, 'totp', $channel, null, new ObservedProperties, $evaluation, ['otp'], CarbonImmutable::now());
+
+        ProofWriter::record($this->newSession(), 'api', $proof, self::JUDGED_PROOF_ID);
+
+        self::assertSame($recorded, SessionProof::query()->findOrFail(self::JUDGED_PROOF_ID)->additional_verification);
     }
 
     /**

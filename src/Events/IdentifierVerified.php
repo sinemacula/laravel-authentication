@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Events;
 
-use Illuminate\Queue\SerializesModels;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 
 /**
@@ -27,8 +26,6 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
  */
 final readonly class IdentifierVerified implements AuthenticationEvent
 {
-    use SerializesModels;
-
     /**
      * Constructor.
      *

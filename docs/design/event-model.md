@@ -13,11 +13,16 @@ to these events, so the shape and the timing are a contract.
   `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) do not.
 - A context holds the guard (`null` only for a session that records none, or a verification link refused before its
   guard could be trusted), the client of the request being served (IP address and user agent, cleaned by
-  `ClientContext`), and, as far as the flow established them, the identity, the principal, the tenant it acts within,
-  the session, and the sign-in method (for a session's events, the method it records). Where a credential is involved it
-  also holds the credential's id (`credentialId`: an API key's or a passkey's id) and the scopes it grants (`scopes`:
-  the granted list for an API key or a client credentials token, `[]` for a machine bound without one, `null` for a
-  human identity's session). A part that was not established is `null`.
+  `ClientContext`), and, as far as the flow established them, the identity, the principal, the tenant it acts within
+  and the session, each by morph class and identifier only, and the sign-in method (for a session's events, the method
+  it records). Where a credential is involved it also holds the credential's id (`credentialId`: an API key's or a
+  passkey's id) and the scopes it grants (`scopes`: the granted list for an API key or a client credentials token, `[]`
+  for a machine bound without one, `null` for a human identity's session). A redeemed external result's own events
+  (`ExternalResultRedeemed`, and a refused redemption's `AuthenticationFailed` and `ExternalResultUnlinked`) also hold
+  the connection (`connectionId`) and the authorisation request's public reference (`requestReference`, when the result
+  had one), so a listener correlates them with the provider-side completion; the session events a redemption causes do
+  not, and correlate with `ExternalResultRedeemed` by the session's identifier. A part that was not established is
+  `null`.
 - A context snapshots, when it is built, when (`occurredAt`, a `CarbonImmutable` to the microsecond), and, as strings,
   the identity's morph class (an Eloquent model's morph class, else its class name; the class name too for a model an
   enforced morph map leaves out, so building a context never throws `ClassMorphViolationException` for a tenant that
@@ -34,20 +39,29 @@ to these events, so the shape and the timing are a contract.
   query. Every other event keeps the snapshots of what it holds, even when it carries a session: an
   identity's `SignedOutEverywhere` (its session is the one kept), a `SessionPending` waiting on a choice of principal
   and a switch refused for its target name no principal.
-- Everything in a context but its four models is the snapshot: facts fixed at event time, the record audit sinks keep,
-  which survives a queue unchanged; `toArray()` gives it as scalars (snake_case keys, `occurred_at` as an ISO 8601 UTC
-  string to the microsecond, the client as `ip` and `user_agent`), a payload a sink can store or queue on its own. It is
-  attribution, not the whole record: the event's class and its own fields (a failure's flow and reason, a switch's
-  previous principal) say what happened.
-- The models are a convenience. A synchronous listener gets the instances the package holds. Across a queue
-  (`Events\Concerns\SerializesLiveModels`, used by `EventContext` and for `PrincipalSwitched::$previousPrincipal`) an
-  Eloquent model crosses as Laravel's model identifier and is fetched again from the writer when the event is restored,
-  in its state then and with the relations it had loaded, or comes back `null` once its row is gone (a soft-deleted row
-  is still there, and is restored); a database error still surfaces. A part that is not an Eloquent model does not cross
-  and is `null` after a queue, so no arbitrary object enters the payload. A restored model is current state, not
-  evidence of what was authorised: audit sinks record the snapshot.
-- No event field carries a token, a digest, a password, a pending credential or any other secret. The session's digests
-  are hidden from its serialisation; like Laravel's own auth events, the live identity model holds its attributes.
+- Everything in a context is the snapshot: facts fixed at event time, the record audit sinks keep, which survives a
+  queue unchanged; `toArray()` gives it as scalars (snake_case keys, `occurred_at` as an ISO 8601 UTC string to the
+  microsecond, the client as `ip` and `user_agent`, and `connection_id` and `request_reference`), a payload a sink can
+  store or queue on its own. It is attribution, not the whole record: the event's class and its own fields (a failure's
+  flow, reason and challenge, a switch's previous principal) say what happened.
+- No package event holds a model. `EventContext` takes the identity, principal, tenant and session as constructor inputs
+  only, reads their types and identifiers once and keeps none of them, and an event's own fields are values too
+  (`PrincipalSwitched` keeps the previous principal's morph class and identifier, not the principal). So no package
+  event uses `SerializesModels`: an event crosses a queue as it is, its restore runs no query, and it cannot fail on, or
+  bring back, a row that changed or is gone since it happened. A listener that needs a model loads it itself, on the
+  write connection, from the type and identifier, and treats a row that is gone as nothing to do: `RecordSessionUsage`
+  takes the session a package guard already resolved has bound when its identifier is the event's
+  (`AuthManager::resolvedGuard()`, which creates no guard), so the bind that dispatched the event reads nothing more,
+  and otherwise reads the session by identifier (`SessionLookup::find()`); `RevokeSessionsOnPasskeyRemoval` reloads the
+  identity by its auth identifier (the column `ModelProvider` reads, which need not be the key) from the model
+  `identityType` names (through the morph map or directly), with none of the model's global scopes, and acts only when
+  that is an Eloquent identity model and the row is there. A provider's scoping (soft
+  deletes, a tenant or application scope) would hide an identity that lost a passkey while out of scope, and its
+  sessions would be live again once it was visible. Laravel's own auth events (`Attempting`, `Validated`, `Login`,
+  `Authenticated`, `Failed`, `Logout`) keep their models.
+- No event field carries a token, a digest, a password, a pending credential or any other secret, and no model's
+  attributes: a context holds types and identifiers only. Laravel's own auth events, like any that carry a model, hold
+  the identity's attributes.
 - An event that reports a write is dispatched through `Database\AfterCommit` on the written row's connection: at once
   when that connection has no open transaction, on its commit otherwise, and never on rollback. No package event
   implements `ShouldDispatchAfterCommit`, which would defer it to the last transaction of any connection. Events that
@@ -62,8 +76,20 @@ to these events, so the shape and the timing are a contract.
 - One failure event, `AuthenticationFailed`, reports every failed sign-in, refresh, switch, bearer token, API
   key, client credentials exchange, request for a one-time code and verification by code or link, with the flow
   (`AuthenticationFlow`) and a reason (`FailureReason`), the identifier a sign-in named, and the wait of a rate-limited
-  failure. Where Laravel's `Failed` fires as well, it fires first and `AuthenticationFailed` second; a bearer token or
-  an API key fires neither `Attempting` nor `Failed`, and its failure at most once per request.
+  failure. A failure of a check against a challenge (a one-time code checked by `FactorCodes`, `CodeService::verify()`,
+  `IdentifierChangeService::confirmByCode()` or a code reset, and every sign-in method failure in `signIn()` and a
+  first-factor `reauthenticate()`) also names the challenge it answered (`challengeId`), when the id is in the form the
+  package issues, else `null`; the session service never reads a method's input itself, but asks the method
+  (`SignInMethod::challenge()`), and only once the application allowed the method: a `method_not_allowed` failure of
+  either names none, since nothing was checked. A refused send of a factor code names none. Where Laravel's `Failed`
+  fires as well, it fires first and `AuthenticationFailed` second; a bearer token or an API key fires neither
+  `Attempting` nor `Failed`.
+- Each refusal is reported once: a guard settles and reports its request's credential at most once (asking
+  `Auth::user()`, `Auth::context()`, `Auth::caller()` or `check()` again reports nothing more), each service call
+  reports its own refusal, and building the authentication context reports nothing. On a route whose `auth` middleware
+  lists a `jwt` and an `api_key` guard, a bearer credential is reported only by the guard of the kind its form belongs
+  to (see `machine-credentials.md`); a route listing several guards of one kind gets one report from each guard that
+  refuses it, each naming its guard.
 - A sign-in method may refuse only with a sign-in method reason (`FailureReason::isSignInMethodReason()`:
   `invalid_credentials`, `identifier_unverified` once its input proved the identifier is held, `code_expired`,
   `code_exhausted`, `passkey_challenge_invalid` and `passkey_counter_regressed`); any other reason is the session
@@ -118,6 +144,10 @@ to these events, so the shape and the timing are a contract.
   the replaced key's id) and `ApiKeyRevoked` carry the key's owner, principal, tenant, id and scopes, after the key's
   connection commits; `ClientCredentialsGranted`, which reports no write, is dispatched at once with the key's id and
   the scopes granted (see `machine-credentials.md`).
+- Redemption: `ExternalResultRedeemed` (flow `sign_in` or `reauthentication`) reports a redeemed external result once
+  the redemption commits on the session's connection, after the session's own events (`SessionCreated` and `SignedIn`,
+  `SessionPending`, or `Reauthenticated`), with the connection and request reference in its context; a rolled-back
+  redemption reports nothing (see `external-sign-in.md`).
 
 ## Failure / Edge Cases
 
@@ -133,13 +163,15 @@ to these events, so the shape and the timing are a contract.
 - A refresh refused by the limits (`rate_limited`) carries the wait in `retryAfter`, which the refresh's result carries
   too.
 - A queued listener of an event whose session, identity, principal or tenant was deleted before it ran (a pruned
-  session, an erased account) still gets the event, with that model `null` and the snapshot naming it as it was.
+  session, an erased account) still gets the event as it was, the snapshot naming what was deleted; restoring it reads
+  nothing, and a listener that reloads the model finds none.
 
 ## Implementation Anchors
 
-- `src/Events/EventContext.php` (`toArray()`), `src/Events/Concerns/SerializesLiveModels.php`,
+- `src/Events/EventContext.php` (`toArray()`), `src/Support/MorphClass.php`, `src/Events/ContextEvent.php`,
   `src/Contracts/AuthenticationEvent.php`,
-  `src/Events/AuthenticationFailed.php`,
+  `src/Events/AuthenticationFailed.php` (`challengeId`), `src/Contracts/SignInMethod.php` (`challenge()`),
+  `src/Events/ExternalResultRedeemed.php`,
   `src/Events/Enums/FailureReason.php`, `src/Events/Enums/AuthenticationFlow.php`,
   `src/Events/Enums/RevocationReason.php`.
 - `src/Guards/Concerns/BindsContextualState.php`: `bindContext()`, `boundContext()`, `boundTenant()`, and the context
@@ -154,20 +186,34 @@ to these events, so the shape and the timing are a contract.
   concealment.
 - `src/Sessions/SessionRevocations.php`: `endSessions()`, the `SessionRevoked` and `SignedOutEverywhere` contexts.
 - `src/Database/AfterCommit.php`: the commit-bound dispatch.
+- `src/Listeners/RecordSessionUsage.php`, `src/Listeners/RevokeSessionsOnPasskeyRemoval.php`: the listeners that load
+  their own models; `src/AuthManager.php` (`resolvedGuard()`).
 
 ## Authoritative Tests
 
 - `tests/Unit/Events/EventContextTest.php`
+  `testKeepsThePlainPartsAndNamesTheModels`, `testHoldsNoModel`, `testKeepsTheConnectionAndTheRequestReference`,
   `testRecordsWhenItWasBuilt`, `testSnapshotsEveryReferenceAsAString`, `testRecordsEloquentModelsByTheirMorphClass`,
   `testSnapshotsDoNotFollowLaterChanges`, `testKeepsANamedSessionIdWithoutASession`,
   `testKeepsTheCredentialAndItsScopes`, `testToArrayIsTheSnapshotAsScalars`, `testSurvivesASerializeRoundTrip`,
   `testAModelAnEnforcedMorphMapLeavesOutIsRecordedByItsClassName`
-- `tests/Feature/Events/Concerns/SerializesLiveModelsTest.php`
-  `testALiveModelIsFetchedAgainInItsStateThen`, `testALiveModelWhoseRowIsGoneComesBackNull`,
-  `testAPartThatIsNotAnEloquentModelDoesNotCross`, `testADatabaseErrorStillSurfaces`,
-  `testAPreviousPrincipalWhoseRowIsGoneComesBackNull`, `testALiveModelNamedByItsMorphAliasIsRestored`
-- `tests/Integration/Events/ReplicaSerializesLiveModelsTest.php`
-  `testALiveModelIsFetchedAgainFromTheWriter`
+- `tests/Integration/Events/ReplicaEventContextTest.php`
+  `testAnEventRestoresWithoutAQuery`
+- `tests/Unit/Events/AuthenticationFailedTest.php` `testKeepsTheChallengeItAnswered`;
+  `tests/Unit/Events/PrincipalSwitchedTest.php`, `tests/Unit/Events/ExternalResultRedeemedTest.php`
+- `tests/Feature/Codes/CodeSignInTest.php` `testARefusedReauthenticationNamesItsChallenge`;
+  `tests/Feature/Passwords/ResetSubmissionsTest.php` `testALimitedCodeResetNamesItsChallenge`
+- `tests/Feature/Context/GuardAuthenticationContextsTest.php` `testARefusedCredentialIsReportedOncePerRequest`;
+  `tests/Feature/Http/BearerFormsTest.php`
+- `tests/Feature/Sessions/ExternalSignInTest.php` `testARedemptionIsReportedAfterTheSessionsOwnEvents`,
+  `testAPendingRedemptionIsReportedAndARolledBackOneIsNot`, `testARefusedRedemptionNamesTheConnectionAndTheRequest`;
+  `tests/Feature/Sessions/ExternalReauthenticationTest.php` `testARedemptionIsReportedAfterTheReauthentication`
+- `tests/Feature/Listeners/RecordSessionUsageTest.php` `testASessionTheGuardHasNotBoundIsReadByItsIdentifier`,
+  `testNoSessionOrAGoneOneRecordsNothing`; `tests/Feature/Listeners/RevokeSessionsOnPasskeyRemovalTest.php`
+  `testAnIdentityAGlobalScopeHidesHasItsSessionsRevoked`, `testAnIdentityIsReadByItsAuthIdentifierNotItsKey`,
+  `testAnEventNamingNoIdentityRevokesNothing`; on a lagging
+  replica, `tests/Integration/Listeners/RecordSessionUsageTest.php` and
+  `tests/Integration/Listeners/RevokeSessionsOnPasskeyRemovalTest.php`
 - `tests/Integration/Events/EveryEventRestoresTest.php`
   `testTheEventRestoresWithItsSnapshotOnceItsRowsAreGone`, `testEveryPackageEventIsChecked`
 - `tests/Feature/Events/EventContextTest.php`
@@ -182,7 +228,8 @@ to these events, so the shape and the timing are a contract.
   `testAListenerOnAuthenticatedSeesTheWholeContext`, `testTheBindEventsCarryTheWholeContext`,
   `testATenantThatCannotBeLoadedIsReportedAsNone`, `testAMisconfiguredTenantPropagatesFromATrustedBind`
 - `tests/Integration/Events/SignInEventSerializationTest.php`
-  `testAQueuedEventHoldsIdentifiersAndNoSecret`, `testTheSnapshotsSurviveTheQueue`,
+  `testSignedInAndSessionCreatedRestoreTheirValues`, `testAQueuedEventHoldsValuesAndNoSecret`,
+  `testTheSnapshotsSurviveTheQueue`,
   `testAnEventWhoseRowsWereDeletedStillRestores`, `testAQueuedListenerOnTheSyncConnectionGetsTheSnapshotOfDeletedRows`,
   `testAQueuedListenerRunByAWorkerGetsTheSnapshotOfDeletedRows`
 - `tests/Integration/Events/CustomEventsIntegrationTest.php`
@@ -212,7 +259,8 @@ to these events, so the shape and the timing are a contract.
 
 Update this note when any of the following change:
 
-- the parts of `EventContext`, what it snapshots, or how its models cross a queue
+- the parts of `EventContext`, what it snapshots, or the rule that no package event holds a model
+- which failures name the challenge they answered, or what counts as one report per request
 - an event that stops implementing `AuthenticationEvent`, or a new package event
 - the commit-bound dispatch of an event that reports a write, or its place before the bind
 - the failure event, its flows or its reasons

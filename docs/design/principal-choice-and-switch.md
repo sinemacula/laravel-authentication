@@ -103,11 +103,12 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   id is answered by the retry rule against the row as it now is (after the owner is checked again), and anything else
   fails for its reason, a replay (`rotation_reuse`) revoking the session as a first judgement does. There is never a
   second swap.
-- `SessionPending` and `PrincipalSwitched` are dispatched through `AfterCommit` on the session model's
-  connection. `PrincipalSwitched` is dispatched only when the principal or the tenant changed; it carries the session's
-  recorded previous morph class and identifier, the previous tenant's identifier, which of the two changed, and the
-  previous principal only when the hinted path still returns that very principal (same type and identifier), or the
-  principal itself on a tenant-only switch.
+- `SessionPending` and `PrincipalSwitched` are dispatched through `AfterCommit` on the session model's connection.
+  `PrincipalSwitched` is dispatched only when the principal or the tenant changed; it carries, as plain values taken
+  when it is built, the morph class and identifier the session recorded for the previous principal
+  (`previousPrincipalType`, `previousPrincipalId`), the identifier it recorded for the previous tenant
+  (`previousTenantId`, `null` for none), and which of the two changed. It holds no model, so nothing is resolved to
+  report the previous principal.
 
 ## Success Path
 
@@ -139,7 +140,7 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 - Two context changes in one second: the second records `switched_at` one second after the first, so the tokens it
   issues are refused until the client refreshes after that second; no token issued before it is ever revived.
 - A previous principal that no longer resolves (deleted, or recorded under a type the morph map no longer uses) is
-  reported by its snapshot only.
+  reported as every previous principal is, by the type and identifier the session recorded.
 - A choice whose identity no longer resolves through the guard's provider is no choice (`pending()` returns `null`,
   `choose()` fails as `pending_invalid`).
 - The comparison of the expiry against `$now` reads the absolute deadline; the idle deadline is never later, so the
@@ -148,8 +149,8 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 ## Implementation Anchors
 
 - `src/Sessions/SessionService.php`: `principals()`, `pending()`, `choose()`;
-  `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`, `switchFromRequest()`, `switched()`,
-  `previousPrincipal()`; `src/Sessions/Concerns/LooksUpSessions.php`: `principal()`; a chosen session is activated by
+  `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`, `switchFromRequest()`, `switched()`;
+  `src/Sessions/Concerns/LooksUpSessions.php`: `principal()`; a chosen session is activated by
   `src/Sessions/PendingSessions.php` (`choose()`) over `src/Sessions/SessionActivation.php` and then bound by the
   service.
 - `src/Sessions/PendingEvaluation.php`: `principals()`, `principal()`, `selection()`, `named()`, `destination()`,
@@ -190,7 +191,7 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   `testContextChangesCompareTheDestinationWithTheLoadedSession`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php` (a switch proven by the refresh cookie, its
   cross-site checks, and the rotated cookie)
-- `tests/Performance/SessionSwitchQueryBudgetTest.php` (eight reads and one write per switch, from the request
+- `tests/Performance/SessionSwitchQueryBudgetTest.php` (seven reads and one write per switch, from the request
   too; seven reads and no write per grace retry; the counters' writes alone for a refusal, and their read alone when
   rate-limited; the reads, the counters' writes and the insert of a sign-in left pending on a choice, the reads of a
   choice listed, and the reads and writes of a choice made; and a time ceiling for switches, retries and refusals)

@@ -65,7 +65,9 @@ final readonly class ExternalResults
         $link = $this->container->make(ExternalIdentityLinks::class)->find($result->connectionId, $result->issuer, $result->subject);
 
         if ($link === null) {
-            $this->context->dispatch(new ExternalResultUnlinked(new EventContext($this->context->name(), $client), $result->connectionId, $result->issuer));
+            $context = new EventContext($this->context->name(), $client, connectionId: $result->connectionId, requestReference: $result->requestReference);
+
+            $this->context->dispatch(new ExternalResultUnlinked($context, $result->issuer));
         }
 
         return $link;

@@ -48,18 +48,19 @@ final class SignedOutEverywhereTest extends TestCase
     }
 
     /**
-     * The event serialises its models for queued listeners and survives a round
-     * trip, and it does not ask the dispatcher to wait for a transaction: the
-     * package dispatches it once the session connection commits.
+     * The event holds no model, serialises as it is for queued listeners and
+     * survives a round trip, and it does not ask the dispatcher to wait for a
+     * transaction: the package dispatches it once the session connection
+     * commits.
      *
      * @return void
      */
-    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsValuesAndDispatchesWhenTheSenderSays(): void
     {
         $event = new SignedOutEverywhere(self::context(), RevocationReason::SIGNED_OUT_EVERYWHERE, 0, null);
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesModels::class, class_uses_recursive($event));
+        self::assertNotContains(SerializesModels::class, class_uses_recursive($event));
 
         $copy = unserialize(serialize($event));
 

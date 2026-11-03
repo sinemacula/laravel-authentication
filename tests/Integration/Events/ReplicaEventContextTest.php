@@ -7,26 +7,29 @@ namespace Tests\Integration\Events;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
-use PHPUnit\Framework\Attributes\CoversTrait;
-use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
+use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\TestCase;
 
 /**
- * Proves a queued event fetches its live models again from the write
- * connection: a model written moments ago, which only the primary holds yet,
- * comes back from a restore rather than reading as gone.
+ * Proves a queued event needs no database to come back: built from a model
+ * written moments ago, which only the primary holds yet, it restores from the
+ * values it holds, reading neither the replica, which would not find the row,
+ * nor the primary.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversTrait(SerializesLiveModels::class)]
-final class ReplicaSerializesLiveModelsTest extends TestCase
+#[CoversClass(EventContext::class)]
+final class ReplicaEventContextTest extends TestCase
 {
     use InteractsWithLaggingReplica;
 
@@ -63,21 +66,31 @@ final class ReplicaSerializesLiveModelsTest extends TestCase
     }
 
     /**
-     * A tenant only the primary holds is restored from it.
+     * An event about a tenant only the primary holds restores with the tenant's
+     * type and identifier, and runs no query.
      *
      * @return void
      */
-    public function testALiveModelIsFetchedAgainFromTheWriter(): void
+    public function testAnEventRestoresWithoutAQuery(): void
     {
         $tenant = ActivatableTenant::query()->create(['name' => 'Fresh', 'is_active' => true]);
 
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('activatable_tenants')->count());
 
-        $copy = unserialize(serialize(new EventContext('api', new ClientContext(null, null), tenant: $tenant)));
+        $event   = new SessionRevoked(new EventContext('api', new ClientContext(null, null), tenant: $tenant), RevocationReason::REVOKED);
+        $payload = serialize($event);
+        $queries = 0;
 
-        self::assertInstanceOf(EventContext::class, $copy);
-        self::assertInstanceOf(ActivatableTenant::class, $copy->tenant);
-        self::assertTrue($tenant->is($copy->tenant));
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        $copy = unserialize($payload);
+
+        self::assertInstanceOf(SessionRevoked::class, $copy);
+        self::assertEquals($event, $copy);
+        self::assertSame([ActivatableTenant::class, IdentifierCoercion::stringify($tenant->getKey())], [$copy->context->tenantType, $copy->context->tenantId]);
+        self::assertSame(0, $queries);
     }
 
     /**

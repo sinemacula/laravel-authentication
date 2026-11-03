@@ -38,6 +38,7 @@ JWT settings are read once and kept (see [Configuration lifetimes](operations.md
 | `jwt.audience`                                       | none (required)                                                              | `AUTHENTICATION_JWT_AUDIENCE`                              | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
 | `application.methods`                                | `[]`                                                                         |                                                            | yes       | [Applications](#applications)                                         |
 | `application.require_verified_identifier`            | `false`                                                                      |                                                            | yes       | [Applications](#applications)                                         |
+| `application.client_secret_post`                     | `false`                                                                      |                                                            | yes       | [Applications](#applications)                                         |
 | `identifiers.normalizers`                            | `['email' => EmailNormalizer::class, 'phone' => E164PhoneNormalizer::class]` |                                                            |           | [Identifiers](identity-models.md#identifiers)                         |
 | `rate_limits.table`                                  | `rate_limits`                                                                | `AUTHENTICATION_RATE_LIMITS_TABLE`                         |           | [Rate limits](#rate-limits)                                           |
 | `rate_limits.connection`                             | `null`                                                                       | `AUTHENTICATION_RATE_LIMITS_CONNECTION`                    |           | [Rate limits](#rate-limits)                                           |
@@ -308,23 +309,25 @@ and a guard overrides any key in an `application` block of its own:
 |-------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `methods`                     | `[]`    | The sign-in methods that may start the application's sessions, `external_provider` for external sign-in, and the machine credentials (`api_key`, `client_credentials`) it accepts (lower-case names) |
 | `require_verified_identifier` | `false` | Refuse a sign-in with an identifier the identity has not verified                                                                                                                                    |
+| `client_secret_post`          | `false` | Let a client credentials exchange read the client's id and secret from the request body; off, only HTTP Basic is accepted and body credentials are `invalid_client`                                  |
 
 Every feature is opt-in, so an application allows nothing until it lists it: with the default empty `methods` (or a
 guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`, `signInExternally()`), refresh, switch, one-time
 code request and password reset request is refused as `method_not_allowed`, a password never reauthenticates
 (`reauthentication_required`), an `api_key` guard refuses every key, and a client credentials exchange answers
-`unauthorized_client`. A session still pending (on a further factor or a choice of principal) when its method is removed
-is refused as `method_not_allowed` when it is next acted on, and stays pending until its credential expires. An empty
-list is a valid setting, not an error: an application in access-only mode issues its tokens itself, and an operator can
-empty the list to stop an application's sign-ins and refreshes without revoking anything. The list decides who may start
-or continue a session, not who holds one: access tokens already issued keep working until they expire, and a session
-refreshes again, if it is otherwise still valid, once its method is listed again. `authentication:check` warns about a
-`jwt` guard whose `methods` lists nothing, or only `api_key`, which a `jwt` guard never accepts; any other name counts,
-registered or not, since the application can start a session under it with `start()`, and `external_provider` allows
-external sign-in (see [External sign-in](signing-in.md#external-sign-in)). It reports an `api_key` guard that does not
-allow `api_key` as a problem, whatever policy is bound, since such a guard has no other use. A policy of your own, even
-one that wraps the package's, gets no warning, since the names it allows are its own. A change reaches a long-running
-process only after a restart (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
+`unauthorized_client` (a client that sends its credentials in the body, which the default `client_secret_post` does not
+allow, `invalid_client`). A session still pending (on a further factor or a choice of principal) when its method is
+removed is refused as `method_not_allowed` when it is next acted on, and stays pending until its credential expires. An
+empty list is a valid setting, not an error: an application in access-only mode issues its tokens itself, and an
+operator can empty the list to stop an application's sign-ins and refreshes without revoking anything. The list decides
+who may start or continue a session, not who holds one: access tokens already issued keep working until they expire, and
+a session refreshes again, if it is otherwise still valid, once its method is listed again. `authentication:check` warns
+about a `jwt` guard whose `methods` lists nothing, or only `api_key`, which a `jwt` guard never accepts; any other name
+counts, registered or not, since the application can start a session under it with `start()`, and `external_provider`
+allows external sign-in (see [External sign-in](signing-in.md#external-sign-in)). It reports an `api_key` guard that
+does not allow `api_key` as a problem, whatever policy is bound, since such a guard has no other use. A policy of your
+own, even one that wraps the package's, gets no warning, since the names it allows are its own. A change reaches a
+long-running process only after a restart (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
 
 The session layer asks the application before it issues anything: a sign-in with a method it does not list fails with
 `method_not_allowed`, at sign-in and again on every refresh, so a valid credential for one application cannot open or
@@ -335,6 +338,12 @@ external sign-in through `signInExternally()`, and refreshes are not gated, sinc
 session vouches for them. The check is made before any principal is resolved, so an unverified identifier gets
 `identifier_unverified` whether or not the identity has a principal yet, and the answer cannot tell whether it has been
 invited anywhere. A switch is held to the identifier type its session's sign-in used, which the session records.
+
+`client_secret_post` decides how a client of a `client_credentials` application may authenticate (see [Client
+credentials](machine-credentials.md#client-credentials)). HTTP Basic (`client_secret_basic`) is always accepted, as RFC
+6749 section 2.3.1 requires of every server; credentials in the form body (`client_secret_post`), which RFC 6749 does
+not recommend, are refused as `invalid_client`, before any query, unless the application sets it. A policy of your own
+answers it through `allowsClientSecretPost($guard)`, and `authentication:check` asks it of every `jwt` guard.
 
 A guard key that is present wins, `null` included; a guard `application` entry of `null` means no overrides. Nothing
 falls back to a literal: a key missing from both blocks, a value of the wrong shape (`null` or a map for `methods`, or a

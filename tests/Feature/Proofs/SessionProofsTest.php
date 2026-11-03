@@ -699,6 +699,55 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
+     * The history tells an external proof whose evidence was accepted for an
+     * additional verification from one accepted only for a level, from the
+     * stored flag, while both add their values, and reads each further factor
+     * as one; a proof read back carries the flag on its evaluation, which a
+     * further factor always sets and a recovery code never does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheHistoryReadsWhetherAProofIsAnAdditionalVerification(): void
+    {
+        $record   = $this->signedIn()->record;
+        $evidence = new ExternalEvidence(['hwk'], 'phrh', $this->now->addMinutes(3));
+
+        self::recordExternal($record, $this->now->addMinutes(3), $evidence, evaluation: new Evaluation(true, false, false));
+
+        $level = SessionProofs::history($record);
+
+        self::assertFalse($level->hasAdditionalVerification());
+        self::assertNull($level->steppedUpAt());
+        self::assertSame(['pwd', FirstFactor::EXTERNAL_PROVIDER_METHOD], $level->methods());
+
+        self::recordExternal($record, $this->now->addMinutes(4), $evidence, evaluation: new Evaluation(true, false, true));
+
+        $verified = SessionProofs::history($record);
+
+        self::assertTrue($verified->hasAdditionalVerification());
+        self::assertFalse($verified->isMultifactor());
+        self::assertSame($this->now->addMinutes(4)->getTimestamp(), $verified->steppedUpAt()?->getTimestamp());
+
+        self::recordProof($record, ProofKind::RECOVERY_CODE, $this->now->addMinutes(5), ['kba'], new Evaluation(true, false));
+
+        $recovered = SessionProofs::history($record);
+
+        self::assertTrue($recovered->hasRecoveryCode());
+        self::assertSame($this->now->addMinutes(5)->getTimestamp(), $recovered->steppedUpAt()?->getTimestamp());
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->subMinute(), ['otp'], new Evaluation(true, false, false));
+        self::recordProof($record, ProofKind::RECOVERY_CODE, $this->now->subMinute(), ['kba'], new Evaluation(true, false));
+
+        $factor   = SessionProofs::newestMeeting($record, new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR]), $this->now);
+        $recovery = SessionProofs::newestMeeting($record, new FreshnessRequirement(900, [ProofKind::RECOVERY_CODE]), $this->now);
+
+        self::assertEquals(new Evaluation(true, false, true), $factor?->evaluation);
+        self::assertEquals(new Evaluation(true, false, false), $recovery?->evaluation);
+    }
+
+    /**
      * The accepted evidence is every piece the session's counting proofs hold,
      * newest by the evidence's own time first (not by the proof's), and of
      * evidence asserting the same methods and context only the newest; never a
@@ -838,19 +887,25 @@ final class SessionProofsTest extends TestCase
 
     /**
      * Record a reauthentication at the external provider on the session, with
-     * its evidence accepted as multifactor when it carries any, and with the
-     * factor reference given.
+     * its evidence accepted as multifactor (or as the evaluation given) when it
+     * carries any, and with the factor reference given.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \Carbon\CarbonImmutable  $at
      * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  ?string  $factor
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\Evaluation  $evaluation
      * @return void
      *
      * @throws \Throwable
      */
-    private static function recordExternal(EloquentSession&Model $session, CarbonImmutable $at, ?ExternalEvidence $evidence, ?string $factor = null): void
-    {
+    private static function recordExternal(
+        EloquentSession&Model $session,
+        CarbonImmutable $at,
+        ?ExternalEvidence $evidence,
+        ?string $factor = null,
+        ?Evaluation $evaluation = null,
+    ): void {
         ProofWriter::record($session, (string) $session->getGuard(), new NewProof(
             ProofKind::EXTERNAL_REAUTHENTICATION,
             Purpose::REAUTHENTICATE,
@@ -858,7 +913,7 @@ final class SessionProofsTest extends TestCase
             new Channel(ChannelKind::EXTERNAL_PROVIDER, 'conn-a'),
             $factor,
             new ObservedProperties,
-            $evidence === null ? null : new Evaluation(true, true),
+            $evidence === null ? null : $evaluation ?? new Evaluation(true, true),
             [FirstFactor::EXTERNAL_PROVIDER_METHOD],
             $at,
             $evidence,

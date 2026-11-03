@@ -141,7 +141,7 @@ final readonly class SessionActivation
         $context = new EventContext($this->context->name(), $client, $identity, $principal, $tenant, $session, $method);
 
         $first
-            ? $this->reportSignIn($session, $context, $superseded)
+            ? $this->reportSignIn($session, $context, $destination, $superseded)
             : $this->afterCommit->run($session, fn () => $this->context->dispatch(new SessionActivated($context)));
 
         return new SignedInSession($identity, $principal, $session, $tokens, $method, $reservations);
@@ -305,13 +305,16 @@ final readonly class SessionActivation
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $superseded
      * @return void
      */
-    private function reportSignIn(EloquentSession&Model $session, EventContext $context, (EloquentSession&Model)|null $superseded): void
+    private function reportSignIn(EloquentSession&Model $session, EventContext $context, Admitted $destination, (EloquentSession&Model)|null $superseded): void
     {
+        [$identity, $principal, $tenant] = [$destination->identity, $destination->principal, $destination->tenant];
+
         $revoked = $superseded === null ? null : new SessionRevoked(
-            new EventContext($this->context->name(), $context->client, $context->identity, $context->principal, $context->tenant, $superseded, $superseded->getSignInMethod()),
+            new EventContext($this->context->name(), $context->client, $identity, $principal, $tenant, $superseded, $superseded->getSignInMethod()),
             RevocationReason::SUPERSEDED,
         );
 

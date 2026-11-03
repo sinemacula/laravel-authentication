@@ -46,6 +46,20 @@ final readonly class FailingSignIn implements SignInMethod
     }
 
     /**
+     * No challenge.
+     *
+     * @param  array<array-key, mixed>  $input
+     * @return null
+     */
+    #[\Override]
+    public function challenge(#[\SensitiveParameter] array $input): null
+    {
+        unset($input);
+
+        return null;
+    }
+
+    /**
      * Fail while verifying.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request

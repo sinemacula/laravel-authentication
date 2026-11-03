@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Events;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Queue\SerializesModels;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 
@@ -39,8 +38,6 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
  */
 final readonly class SignedOutEverywhere implements AuthenticationEvent
 {
-    use SerializesModels;
-
     /**
      * Constructor.
      *

@@ -237,6 +237,16 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
+     * A password answers no challenge, whatever the input carries.
+     *
+     * @return void
+     */
+    public function testAPasswordAnswersNoChallenge(): void
+    {
+        self::assertNull($this->method('email')->challenge(['email' => 'ada@example.test', 'challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']));
+    }
+
+    /**
      * `authenticate()` passes the provider only the identifier and the
      * password, so no other input key reaches a query, and returns the identity
      * whose password matches.

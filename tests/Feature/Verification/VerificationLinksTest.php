@@ -219,7 +219,7 @@ final class VerificationLinksTest extends TestCase
 
         $failed = $this->failure(FailureReason::LINK_EXPIRED);
 
-        self::assertSame([self::GUARD, null, 'Mail/1.0'], [$failed->context->guard, $failed->context->identity, $failed->context->client->userAgent]);
+        self::assertSame([self::GUARD, null, 'Mail/1.0'], [$failed->context->guard, $failed->context->identityId, $failed->context->client->userAgent]);
 
         $this->events = [];
 

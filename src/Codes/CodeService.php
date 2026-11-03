@@ -191,12 +191,13 @@ final readonly class CodeService
      */
     public function verify(Identity $identity, string $type, string $challengeId, #[\SensitiveParameter] string $code, ?ClientContext $client = null): LimitedOutcome
     {
-        $binding = $this->verificationBinding($identity, $type);
-        $context = new EventContext($this->context->name(), $client ?? $this->context->client(), $identity);
-        $codes   = $this->collaborator(OneTimeCodes::class);
+        $binding   = $this->verificationBinding($identity, $type);
+        $context   = new EventContext($this->context->name(), $client ?? $this->context->client(), $identity);
+        $codes     = $this->collaborator(OneTimeCodes::class);
+        $challenge = $codes->isWellFormedChallenge($challengeId) ? $challengeId : null;
 
-        if ($binding === null || !$codes->isWellFormed($code) || !$codes->isWellFormedChallenge($challengeId)) {
-            return $this->refuseVerification($context, FailureReason::INVALID_CREDENTIALS);
+        if ($binding === null || $challenge === null || !$codes->isWellFormed($code)) {
+            return $this->refuseVerification($context, FailureReason::INVALID_CREDENTIALS, $challenge);
         }
 
         $limiter     = $this->collaborator(AttemptLimiter::class);
@@ -205,7 +206,7 @@ final readonly class CodeService
         );
 
         if ($reservation->retryAfter !== null) {
-            $this->report($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, FailureReason::RATE_LIMITED, null, $reservation->retryAfter);
+            $this->report($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, FailureReason::RATE_LIMITED, null, $reservation->retryAfter, $challenge);
 
             return new LimitedOutcome(VerificationOutcome::RATE_LIMITED, $reservation->retryAfter);
         }
@@ -218,7 +219,7 @@ final readonly class CodeService
 
         return $failure === null
             ? self::verifierOutcome($this->collaborator(IdentifierVerifier::class)->verify($this->context->name(), $identity, $type, $binding->identifier, $context->client))
-            : $this->refuseVerification($context, $failure);
+            : $this->refuseVerification($context, $failure, $challenge);
     }
 
     /**
@@ -400,11 +401,12 @@ final readonly class CodeService
      *
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  ?string  $challengeId
      * @return \SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome<\SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome>
      */
-    private function refuseVerification(EventContext $context, FailureReason $reason): LimitedOutcome
+    private function refuseVerification(EventContext $context, FailureReason $reason, ?string $challengeId): LimitedOutcome
     {
-        $this->report($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, $reason, null, null);
+        $this->report($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, $reason, null, null, $challengeId);
 
         return new LimitedOutcome(match ($reason) {
             FailureReason::CODE_EXPIRED   => VerificationOutcome::EXPIRED,
@@ -436,11 +438,12 @@ final readonly class CodeService
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?string  $identifier
      * @param  ?int  $retryAfter
+     * @param  ?string  $challengeId
      * @return void
      */
-    private function report(EventContext $context, AuthenticationFlow $flow, FailureReason $reason, ?string $identifier, ?int $retryAfter): void
+    private function report(EventContext $context, AuthenticationFlow $flow, FailureReason $reason, ?string $identifier, ?int $retryAfter, ?string $challengeId = null): void
     {
-        $this->context->dispatch(new AuthenticationFailed($context, $flow, $reason, $identifier, $retryAfter));
+        $this->context->dispatch(new AuthenticationFailed($context, $flow, $reason, $identifier, $retryAfter, $challengeId));
     }
 
     /**

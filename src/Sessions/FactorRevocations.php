@@ -9,10 +9,12 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Context\ContextForgetting;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\SharedConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -51,7 +53,10 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * runs on the session model's connection in one transaction, a savepoint inside
  * the caller's. Once that commits, the guard first forgets its binding, so the
  * rest of the request is not authenticated as a session it ended even when a
- * listener throws, and then its events are reported.
+ * listener throws, and then its events are reported. A current session whose
+ * proofs were voided has the authentication context of every resolved guard
+ * bound to it forgotten at once, and again once the removal commits or rolls
+ * back, whether it stays active or not.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -274,6 +279,11 @@ final readonly class FactorRevocations
         }
 
         ProofWriter::void($locked, $guard, $factor, $now);
+        ContextForgetting::now($locked);
+
+        $container = $this->container;
+
+        ContextForgetting::onSettle(new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null), $locked);
 
         return $pending ? new FactorRemoval($revoked) : $this->judge($identity, $locked, $revoked, $ended, $now);
     }

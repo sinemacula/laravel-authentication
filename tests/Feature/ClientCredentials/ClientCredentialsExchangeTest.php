@@ -6,6 +6,7 @@ namespace Tests\Feature\ClientCredentials;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -108,9 +109,11 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         $response->assertOk()
             ->assertHeader('Pragma', 'no-cache')
-            ->assertJsonStructure(['access_token', 'token_type', 'expires_in', 'scope'])
+            ->assertHeader('Content-Type', 'application/json')
+            ->assertHeaderMissing('WWW-Authenticate')
             ->assertJson(['token_type' => 'Bearer', 'expires_in' => 900, 'scope' => 'invoices:read reports']);
 
+        self::assertSame(['access_token', 'token_type', 'expires_in', 'scope'], array_keys((array) $response->json()));
         self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
 
         $claims = $this->claims($response);
@@ -210,13 +213,15 @@ final class ClientCredentialsExchangeTest extends TestCase
             'basic not base64'      => ['grant_type=client_credentials', ['HTTP_AUTHORIZATION' => 'Basic not*base64'], 'invalid_client'],
             'basic without a colon' => ['grant_type=client_credentials', ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode('nocolon')], 'invalid_client'],
             'basic empty'           => ['grant_type=client_credentials', ['HTTP_AUTHORIZATION' => 'Basic'], 'invalid_client'],
+            'an empty grant type'   => ["grant_type=&{$body}", [], 'invalid_request'],
+            'an empty client'       => ['grant_type=client_credentials&client_id=&client_secret=', [], 'invalid_client'],
         ];
     }
 
     /**
      * A request not in form is refused with the RFC 6749 error, reported as
      * invalid credentials, and not counted against any limit; `invalid_client`
-     * answers 401, with a Basic challenge when the client tried Basic.
+     * answers 401 with a Basic challenge, whatever the client tried.
      *
      * @param  string  $body
      * @param  array<string, string>  $server
@@ -230,9 +235,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         $response->assertStatus($error === 'invalid_client' ? 401 : 400)->assertExactJson(['error' => $error]);
 
-        $basic = str_starts_with($server['HTTP_AUTHORIZATION'] ?? '', 'Basic');
-
-        self::assertSame($error === 'invalid_client' && $basic ? 'Basic realm="m2m"' : null, $response->headers->get('WWW-Authenticate'));
+        self::assertSame($error === 'invalid_client' ? 'Basic realm="m2m"' : null, $response->headers->get('WWW-Authenticate'));
         self::assertSame(0, DB::table('rate_limits')->count());
 
         $failure = $this->machineEventsOf(AuthenticationFailed::class);
@@ -393,15 +396,73 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * A client authenticated in the body that fails gets no Basic challenge.
+     * A client authenticated in the body that fails gets the Basic challenge
+     * too: every 401 carries one (RFC 7235 section 3.1), and Basic is the
+     * method every client may use.
      *
      * @return void
      */
-    public function testABodyClientGetsNoBasicChallenge(): void
+    public function testABodyClientGetsTheBasicChallengeToo(): void
     {
         $this->token('grant_type=client_credentials&client_id=ak_zzzzzzzzzzzzzzzz&client_secret=' . str_repeat('a', 40))
             ->assertStatus(401)
-            ->assertHeaderMissing('WWW-Authenticate');
+            ->assertExactJson(['error' => 'invalid_client'])
+            ->assertHeader('WWW-Authenticate', 'Basic realm="m2m"');
+    }
+
+    /**
+     * A guard whose application does not set `client_secret_post`, the shipped
+     * default, refuses credentials in the body as `invalid_client` (401, the
+     * Basic challenge) before any query, reported as invalid credentials and
+     * counted against nothing; the same client authenticated with Basic gets
+     * its token.
+     *
+     * @return void
+     */
+    public function testBodyCredentialsAreRefusedUnlessTheApplicationAllowsThem(): void
+    {
+        [$account, $membership] = $this->seedAccount();
+
+        $issued  = $this->apiKeys('m2m_accounts')->issue($account, $membership);
+        $queries = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
+
+        $this->token('grant_type=client_credentials&' . $this->body($issued), [], '/oauth/accounts/token')
+            ->assertStatus(401)
+            ->assertExactJson(['error' => 'invalid_client'])
+            ->assertHeader('WWW-Authenticate', 'Basic realm="m2m_accounts"')
+            ->assertHeader('Pragma', 'no-cache');
+
+        self::assertSame([], $queries);
+
+        $failure = $this->machineEventsOf(AuthenticationFailed::class);
+
+        self::assertCount(1, $failure);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $failure[0]->reason);
+        self::assertNull($failure[0]->identifier);
+        self::assertSame(0, DB::table('rate_limits')->count());
+        self::assertNull(DB::table('api_keys')->value('last_used_at'));
+
+        $this->token('grant_type=client_credentials', $this->basic($issued), '/oauth/accounts/token')->assertOk();
+    }
+
+    /**
+     * Empty client parameters beside Basic credentials are treated as omitted
+     * (RFC 6749 section 3.1), so they are not a second authentication, and an
+     * empty scope asks for every granted scope.
+     *
+     * @return void
+     */
+    public function testEmptyParametersBesideBasicAreOmitted(): void
+    {
+        [, $issued] = $this->machineKey(['read']);
+
+        $this->token('grant_type=client_credentials&client_id=&client_secret=&scope=', $this->basic($issued))
+            ->assertOk()
+            ->assertJson(['scope' => 'read']);
     }
 
     /**
@@ -438,6 +499,8 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->machineEventsOf(AuthenticationFailed::class)[0]->reason);
         self::assertSame(0, DB::table('rate_limits')->count());
+        self::assertNull(DB::table('api_keys')->value('last_used_at'));
+        self::assertSame(0, DB::table('authentication_sessions')->count());
     }
 
     /**
@@ -695,7 +758,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         self::assertFalse($refused->isGranted());
         self::assertSame('invalid_client', $refused->error);
-        self::assertFalse($refused->toResponse(request())->headers->has('WWW-Authenticate'));
+        self::assertSame('Basic realm="m2m"', $refused->toResponse(request())->headers->get('WWW-Authenticate'));
         self::assertSame(FailureReason::CREDENTIAL_INVALID, $refused->reason);
         self::assertSame(self::MACHINE_IP, $this->machineEventsOf(AuthenticationFailed::class)[0]->context->client->ip);
     }
@@ -801,7 +864,7 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * Configure the guards.
+     * Configure the guards, `m2m` allowing credentials in the body.
      *
      * @param  mixed  $app
      * @return void
@@ -813,7 +876,11 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureMachineGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureMachineGuards($config);
+
+        $config->set('auth.guards.m2m.application.client_secret_post', true);
     }
 
     /**

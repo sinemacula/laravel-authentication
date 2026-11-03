@@ -422,7 +422,7 @@ final class SignInAdmissionTest extends TestCase
     {
         $config = new Repository([
             'auth'           => ['guards' => ['api' => ['driver' => 'jwt', 'application' => ['require_verified_identifier' => true]]]],
-            'authentication' => ['application' => ['methods' => ['password'], 'require_verified_identifier' => false]],
+            'authentication' => ['application' => ['methods' => ['password'], 'require_verified_identifier' => false, 'client_secret_post' => false]],
         ]);
 
         return new GuardApplicationPolicy($config, (new \ReflectionClass(JwtTokenServiceFactory::class))->newInstanceWithoutConstructor());

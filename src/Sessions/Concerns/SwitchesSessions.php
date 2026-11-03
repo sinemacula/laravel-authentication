@@ -7,8 +7,6 @@ namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -28,8 +26,6 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
-use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
-use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * The session service's switch of the principal a session acts as, its active
@@ -204,7 +200,6 @@ trait SwitchesSessions
 
             $event = new PrincipalSwitched(
                 new EventContext($this->context->name(), $client, $session->identity, $session->principal, $session->tenant, $session->record, $session->method),
-                $switched->principalChanged ? $this->previousPrincipal($session->identity, $switched->previousType, $switched->previousId) : $session->principal,
                 $switched->previousType,
                 $switched->previousId,
                 $switched->previousTenantId,
@@ -224,27 +219,5 @@ trait SwitchesSessions
         );
 
         return SwitchResult::switched(new SignedInSession($session->identity, $session->principal, $session->record, $tokens, (string) $session->method));
-    }
-
-    /**
-     * The principal the session recorded before a switch, resolved through the
-     * hinted path when it still comes back as that very principal, else `null`.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  ?string  $type
-     * @param  ?string  $id
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     *
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    private function previousPrincipal(Identity $identity, ?string $type, ?string $id): ?Principal
-    {
-        $principal = $id === null ? null : $this->context->resolver()->resolve($identity, $id);
-
-        return $principal !== null
-            && PrincipalReference::type($principal) === $type
-            && IdentifierCoercion::matches($principal->getPrincipalIdentifier(), $id)
-            ? $principal
-            : null;
     }
 }

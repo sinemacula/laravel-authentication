@@ -47,6 +47,7 @@ use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
@@ -274,7 +275,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         self::assertNull($refused->retryAfter);
         self::assertSame(FailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(280, $this->recordedEvent(AuthenticationFailed::class)->retryAfter);
-        self::assertNull($this->recordedEvent(AuthenticationFailed::class)->context->identity);
+        EventContextAssertions::assertIdentity(null, $this->recordedEvent(AuthenticationFailed::class)->context);
         self::assertSame('ada@example.test', $this->recordedEvent(AuthenticationFailed::class)->identifier);
 
         Carbon::setTestNow(Carbon::now()->addSeconds(280));

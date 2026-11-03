@@ -7,6 +7,7 @@ namespace Tests\Performance;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
@@ -21,7 +22,9 @@ use Tests\Concerns\InteractsWithMachineCredentials;
  * Query-budget contracts for the client credentials exchange and the bearer
  * path of its tokens: an exchange costs the limiter's check, the key and its
  * owner, and the last-use write; a refused client the same lookups and its
- * counted failure, with no password hashing either way; and a client token
+ * counted failure, with no password hashing either way; a grant the
+ * application does not allow, or credentials in the body it does not allow,
+ * nothing at all; and a client token
  * costs one query more than any session-less access token, its key read by its
  * primary key.
  *
@@ -131,6 +134,42 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
         self::assertTrue($granted->isGranted());
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $claims[Claims::TENANT_ID->value] ?? null);
+    }
+
+    /**
+     * A guard whose application does not list `client_credentials` refuses the
+     * exchange before anything is read or counted, and so does a guard that
+     * does not allow `client_secret_post` refuse credentials in the body: both
+     * cost no query.
+     *
+     * @return void
+     */
+    public function testARefusedGrantOrClientAuthenticationMethodCostsNothing(): void
+    {
+        $machine = $this->seedMachine();
+        $issued  = $this->apiKeys('m2m')->issue($machine, $machine);
+
+        $public = $issued->summary->publicId;
+        $secret = substr($issued->key()->reveal(), 20);
+        $body   = "grant_type=client_credentials&client_id={$public}&client_secret={$secret}";
+
+        parse_str($body, $parameters);
+
+        $request = Request::create('/oauth/token', 'POST', $parameters, [], [], ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'], $body);
+
+        $this->startMachineRequest();
+
+        $post = $this->assertQueryBudget(0, 0, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->fromRequest($request));
+
+        self::assertSame('invalid_client', $post->error);
+
+        config()->set('auth.guards.m2m.application.methods', []);
+
+        $this->startMachineRequest();
+
+        $off = $this->assertQueryBudget(0, 0, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange($public, $secret));
+
+        self::assertSame('unauthorized_client', $off->error);
     }
 
     /**

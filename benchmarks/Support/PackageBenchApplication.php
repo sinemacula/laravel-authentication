@@ -10,6 +10,7 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Facade;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
@@ -19,7 +20,9 @@ use SineMacula\Laravel\Authentication\Models\Session;
  * service provider is registered, not booted, over the shared sqlite database,
  * a dispatcher, the package's shipped configuration (with a signing key, and a
  * credentials timebox short enough not to pad the paths timed) and the guards
- * given, and `PlainBenchHasher`, so a password check costs next to nothing.
+ * given, the package's auth manager under `auth` (which a flow that records a
+ * proof asks for the guards to forget their authentication contexts on), and
+ * `PlainBenchHasher`, so a password check costs next to nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -61,6 +64,7 @@ final class PackageBenchApplication
         $app->instance('db', BenchDatabase::connectionResolver());
         $app->instance('events', $events);
         $app->instance('hash', new PlainBenchHasher);
+        $app->instance('auth', new AuthManager($app));
 
         $app->register(AuthenticationServiceProvider::class);
 

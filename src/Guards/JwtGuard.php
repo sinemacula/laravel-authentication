@@ -7,10 +7,12 @@ namespace SineMacula\Laravel\Authentication\Guards;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Http\BearerForms;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
@@ -133,7 +135,9 @@ final class JwtGuard extends AbstractGuard
     /**
      * Resolve the identity from the request's bearer token. `user()` calls this
      * at most once per request, so a rejected token is reported once. A request
-     * without a token attempts nothing and dispatches nothing.
+     * without a token attempts nothing and dispatches nothing, nor does one
+     * whose credential is in API key form on a route that also lists an
+     * `api_key` guard: that guard reads it (see `BearerForms`).
      *
      * Fail-closed: a token that claims a specific `principal` or `sid` but does
      * not resolve to that exact principal/session is rejected rather than
@@ -147,9 +151,10 @@ final class JwtGuard extends AbstractGuard
     #[\Override]
     protected function resolveUserFromRequest(): ?Identity
     {
-        $token = $this->context->request()->bearerToken();
+        $request = $this->context->request();
+        $token   = $request->bearerToken();
 
-        if ($token === null || $token === '') {
+        if ($token === null || $token === '' || BearerForms::defersTo(BearerForms::JWT, $request, $token)) {
             return null;
         }
 
@@ -193,6 +198,7 @@ final class JwtGuard extends AbstractGuard
             false,
             $outcome->credentialId,
             $outcome->scopes,
+            $outcome->credentialId === null ? CredentialKind::ACCESS_TOKEN : CredentialKind::CLIENT_CREDENTIALS,
         );
 
         return $admitted->identity;

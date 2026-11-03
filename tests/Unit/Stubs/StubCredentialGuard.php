@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Unit\Stubs;
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
@@ -51,7 +52,7 @@ final class StubCredentialGuard extends AbstractGuard
      */
     public function bindCredential(Identity $identity, Principal $principal, #[\SensitiveParameter] string $credentialId, array $scopes): void
     {
-        $this->bindVerifiedContext($identity, $principal, null, null, 'api_key', false, $credentialId, $scopes);
+        $this->bindVerifiedContext($identity, $principal, null, null, 'api_key', false, $credentialId, $scopes, kind: CredentialKind::API_KEY);
     }
 
     /**

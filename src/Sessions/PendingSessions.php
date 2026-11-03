@@ -9,10 +9,12 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Context\ContextForgetting;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -60,7 +62,9 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * judged again, so the session activates, stays pending, or moves on to the
  * choice. A refusal writes nothing (a proof given with it is not stored) and
  * never revokes the session, which waits until its credential expires; only
- * `discard()` ends one early.
+ * `discard()` ends one early. Once a proof `satisfy()` stored commits, or rolls
+ * back, every resolved guard bound to the session forgets the authentication
+ * context it holds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -79,6 +83,7 @@ final readonly class PendingSessions
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingEvaluation  $evaluation
      * @param  \SineMacula\Laravel\Authentication\Sessions\SessionActivation  $activation
      * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationWriter  $revocations
+     * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      */
     public function __construct(
 
@@ -93,6 +98,9 @@ final readonly class PendingSessions
 
         /** Revokes a discarded pending session and reports it once committed. */
         private RevocationWriter $revocations,
+
+        /** Defers forgetting the authentication contexts of a session until the proof it was given commits or rolls back. */
+        private AfterCommit $afterCommit,
     ) {}
 
     /**
@@ -197,6 +205,8 @@ final readonly class PendingSessions
             }
 
             ProofWriter::record($session, $this->context->name(), NewProof::fromResult($proof));
+
+            ContextForgetting::onSettle($this->afterCommit, $session);
 
             return $this->settle($session, $identity, $principal, $admitted, $now, $this->proven($session));
         });

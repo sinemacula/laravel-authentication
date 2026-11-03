@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubModel;
 use Tests\Unit\Stubs\StubSession;
@@ -113,8 +114,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
     /**
      * A rejected token is attempted once per request: repeated `user()`,
-     * `check()` and accessor calls neither re-run the lookups nor report the
-     * failure again.
+     * `check()`, accessor and authentication context calls neither re-run the
+     * lookups nor report the failure again.
      *
      * @return void
      *
@@ -136,6 +137,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         self::assertNull($guard->user());
         self::assertFalse($guard->check());
         self::assertNull($guard->principal());
+        self::assertNull($guard->authenticationContext());
+        self::assertNull($guard->authenticationContext());
     }
 
     /**
@@ -488,7 +491,10 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-hinted')
             ->andReturn($principal);
 
-        $this->expectRejection(FailureReason::PRINCIPAL_MISMATCH, static fn (EventContext $context): bool => $context->identity === $identity && $context->principal === null);
+        $this->expectRejection(
+            FailureReason::PRINCIPAL_MISMATCH,
+            static fn (EventContext $context): bool => EventContextAssertions::namesIdentity($identity, $context) && EventContextAssertions::namesPrincipal(null, $context),
+        );
 
         self::assertNull($guard->user());
     }
@@ -906,10 +912,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $this->expectRejection(FailureReason::SESSION_UNKNOWN, static fn (EventContext $context): bool => $context->identity === $identity
-            && $context->principal                                                                                           === $principal
-            && $context->session                                                                                             === null
-            && $context->sessionId                                                                                           === 'not-a-uuid');
+        $this->expectRejection(FailureReason::SESSION_UNKNOWN, static fn (EventContext $context): bool => EventContextAssertions::namesIdentity($identity, $context)
+            && EventContextAssertions::namesPrincipal($principal, $context)
+            && $context->sessionId === 'not-a-uuid');
 
         self::assertNull($guard->user());
     }
@@ -1024,11 +1029,10 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $this->expectRejection(FailureReason::SESSION_UNKNOWN, static fn (EventContext $context): bool => $context->identity === $identity
-            && $context->principal                                                                                           === $principal
-            && $context->session                                                                                             === null
-            && $context->sessionId                                                                                           === self::MISSING_SESSION_ID
-            && $context->guard                                                                                               === self::GUARD_NAME);
+        $this->expectRejection(FailureReason::SESSION_UNKNOWN, static fn (EventContext $context): bool => EventContextAssertions::namesIdentity($identity, $context)
+            && EventContextAssertions::namesPrincipal($principal, $context)
+            && $context->sessionId === self::MISSING_SESSION_ID
+            && $context->guard     === self::GUARD_NAME);
 
         self::assertNull($guard->user());
     }
@@ -1204,7 +1208,10 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $this->expectRejection($reason, static fn (EventContext $context): bool => $context->identity === $identity && $context->session === $session);
+        $this->expectRejection(
+            $reason,
+            static fn (EventContext $context): bool => EventContextAssertions::namesIdentity($identity, $context) && EventContextAssertions::namesSession($session, $context),
+        );
 
         self::assertNull($guard->user());
         self::assertNull($guard->session());

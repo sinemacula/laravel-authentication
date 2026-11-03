@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\ExternalResultRedeemed;
 use SineMacula\Laravel\Authentication\Events\ExternalResultUnlinked;
 use SineMacula\Laravel\Authentication\Events\Reauthenticated;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
@@ -42,6 +43,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\External\MethodTrustingEvidencePolicy;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
@@ -146,6 +148,49 @@ final class ExternalReauthenticationTest extends TestCase
         $event = $this->recordedEvent(Reauthenticated::class);
 
         self::assertSame(['api', 'external_provider'], [$event->context->guard, $event->context->method]);
+    }
+
+    /**
+     * A reauthentication reports `ExternalResultRedeemed` (flow
+     * `reauthentication`) after `Reauthenticated`, naming the session, the
+     * connection and the request reference; a refused one names both on its
+     * `AuthenticationFailed`, and reports no redemption.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARedemptionIsReportedAfterTheReauthentication(): void
+    {
+        $signedIn = $this->signedInExternally();
+
+        $this->clockAt($this->now->addHour());
+        $this->recordEvents([Reauthenticated::class, ExternalResultRedeemed::class, AuthenticationFailed::class]);
+
+        $through = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->now->addMinutes(59), requestReference: 'request-5');
+
+        self::assertTrue($this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $through)->isIssued());
+        self::assertSame([Reauthenticated::class, ExternalResultRedeemed::class], $this->recordedClasses());
+
+        $redeemed = $this->recordedEvent(ExternalResultRedeemed::class);
+
+        self::assertSame(AuthenticationFlow::REAUTHENTICATION, $redeemed->flow);
+        self::assertSame(['external_provider', 'connection-7', 'request-5'], [$redeemed->context->method, $redeemed->context->connectionId, $redeemed->context->requestReference]);
+        EventContextAssertions::assertIdentity($signedIn->identity, $redeemed->context);
+        EventContextAssertions::assertSession($signedIn->record, $redeemed->context);
+        self::assertNull($this->recordedEvent(Reauthenticated::class)->context->connectionId);
+
+        $this->recordEvents([Reauthenticated::class, ExternalResultRedeemed::class, AuthenticationFailed::class]);
+
+        $through = new ExternalResult('connection-7', self::ISSUER, 'subject-1', requestReference: 'request-6');
+        $refused = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $through);
+
+        self::assertSame(FailureReason::PROOF_INVALID, $refused->reason);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(
+            ['connection-7', 'request-6'],
+            [$this->recordedEvent(AuthenticationFailed::class)->context->connectionId, $this->recordedEvent(AuthenticationFailed::class)->context->requestReference],
+        );
     }
 
     /**
@@ -339,7 +384,7 @@ final class ExternalReauthenticationTest extends TestCase
         self::assertSame([ExternalResultUnlinked::class, AuthenticationFailed::class], $this->recordedClasses());
         $unlinked = $this->recordedEvent(ExternalResultUnlinked::class);
 
-        self::assertSame(['connection-7', self::ISSUER], [$unlinked->connectionId, $unlinked->issuer]);
+        self::assertSame(['connection-7', self::ISSUER], [$unlinked->context->connectionId, $unlinked->issuer]);
     }
 
     /**
@@ -365,7 +410,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->reauthenticate($signedIn->record)->reason);
         self::assertInstanceOf(AuthenticationFailed::class, $this->recorded[1]);
-        self::assertNull($this->recorded[1]->context->session);
+        EventContextAssertions::assertSession(null, $this->recorded[1]->context);
         self::assertCount($asked, $this->externalLinks()->asked);
 
         config()->set('auth.guards.api.application', ['methods' => ['external_provider']]);

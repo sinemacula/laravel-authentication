@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithChangeableIdentities;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\EagerTenantMembership;
@@ -148,7 +149,6 @@ final class SessionRevocationsTest extends TestCase
 
         $context = $this->recordedEvent(SessionRevoked::class)->context;
 
-        self::assertNull($context->identity);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->identityId);
         self::assertSame($identity->getMorphClass(), $context->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->principalId);
@@ -180,7 +180,6 @@ final class SessionRevocationsTest extends TestCase
 
         $context = $this->recordedEvent(SessionRevoked::class)->context;
 
-        self::assertNull($context->tenant);
         self::assertSame('gone', $context->tenantId);
         self::assertSame('signed_out', DB::table('authentication_sessions')->value('revoked_reason'));
     }
@@ -263,7 +262,6 @@ final class SessionRevocationsTest extends TestCase
         $revoked = $this->recordedEvent(SessionRevoked::class)->context;
 
         self::assertSame(self::idOf($other), $revoked->sessionId);
-        self::assertNull($revoked->principal);
         self::assertSame($identity->getMorphClass(), $revoked->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $revoked->principalId);
         self::assertNull(DB::table('authentication_sessions')->where('id', self::idOf($current))->value('revoked_at'));
@@ -383,7 +381,6 @@ final class SessionRevocationsTest extends TestCase
 
         $context = $this->recordedEvent(SessionRevoked::class)->context;
 
-        self::assertNull($context->principal);
         self::assertSame($identity->getMorphClass(), $context->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->principalId);
         self::assertSame(1, $revocations->principalDeactivated($identity));
@@ -496,7 +493,7 @@ final class SessionRevocationsTest extends TestCase
 
         self::assertSame(1, $revocations->tenantDeactivated($tenant, []));
         self::assertSame([SessionRevoked::class], $this->recordedClasses());
-        self::assertSame($tenant, $this->recordedEvent(SessionRevoked::class)->context->tenant);
+        EventContextAssertions::assertTenant($tenant, $this->recordedEvent(SessionRevoked::class)->context);
         self::assertSame(RevocationReason::TENANT_DEACTIVATED, $this->recordedEvent(SessionRevoked::class)->reason);
         self::assertSame(1, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
         self::assertSame(0, $revocations->tenantDeactivated($tenant, []));

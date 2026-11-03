@@ -8,7 +8,6 @@ use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
-use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -28,22 +27,20 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 final class PrincipalSwitchedTest extends TestCase
 {
     /**
-     * The event keeps its context, the previous principal, as resolved and as
-     * the session recorded it, the previous tenant the session recorded, and
-     * which of the two changed.
+     * The event keeps its context, the previous principal as the session
+     * recorded it, the previous tenant the session recorded, and which of the
+     * two changed.
      *
      * @return void
      */
     public function testKeepsItsContextAndThePreviousPrincipal(): void
     {
-        $context  = self::context();
-        $previous = new PlainPrincipalFixture('p-1');
-        $event    = new PrincipalSwitched($context, $previous, PlainPrincipalFixture::class, 'p-1', 't-1', true, false);
+        $context = self::context();
+        $event   = new PrincipalSwitched($context, PlainPrincipalFixture::class, 'p-1', 't-1', true, false);
 
         self::assertInstanceOf(AuthenticationEvent::class, $event);
         self::assertSame($context, $event->context);
         self::assertSame($context, $event->context());
-        self::assertSame($previous, $event->previousPrincipal);
         self::assertSame(PlainPrincipalFixture::class, $event->previousPrincipalType);
         self::assertSame('p-1', $event->previousPrincipalId);
         self::assertSame('t-1', $event->previousTenantId);
@@ -52,28 +49,26 @@ final class PrincipalSwitchedTest extends TestCase
     }
 
     /**
-     * The event survives a round trip for queued listeners, its previous
-     * principal leniently: one that is not an Eloquent model does not cross and
-     * comes back `null`, while the recorded morph class and identifiers and the
-     * changes are kept. It does not ask the dispatcher to wait for a
-     * transaction: the package dispatches it once the switch commits.
+     * The event survives a round trip for queued listeners as the values it
+     * holds: the recorded morph class and identifiers and the changes are kept.
+     * It does not ask the dispatcher to wait for a transaction: the package
+     * dispatches it once the switch commits.
      *
      * @return void
      */
-    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsValuesAndDispatchesWhenTheSenderSays(): void
     {
-        $event = new PrincipalSwitched(self::context(), new PlainPrincipalFixture('9'), 'membership', '9', null, false, true);
+        $event = new PrincipalSwitched(self::context(), 'membership', '9', null, false, true);
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesLiveModels::class, class_uses_recursive($event));
 
         $copy = unserialize(serialize($event));
 
         self::assertInstanceOf(PrincipalSwitched::class, $copy);
+        self::assertEquals($event, $copy);
         self::assertSame('7', $copy->context->identityId);
         self::assertSame('p-2', $copy->context->principalId);
         self::assertSame('switched-session', $copy->context->sessionId);
-        self::assertNull($copy->previousPrincipal);
         self::assertSame('membership', $copy->previousPrincipalType);
         self::assertSame('9', $copy->previousPrincipalId);
         self::assertNull($copy->previousTenantId);

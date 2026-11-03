@@ -153,6 +153,30 @@ protects, so throttle the routes for that. A machine has no interactive sign-in:
 (`method_not_allowed`) and checks nothing. `Auth::guard('machine')->validate(['api_key' => $key])` says whether a key
 would authenticate, binding and dispatching nothing.
 
+### Tokens and keys on one route
+
+A route may accept both a `jwt` guard's tokens and an `api_key` guard's keys, in either order (`auth:api,machine` or
+`auth:machine,api`). Both arrive as `Authorization: Bearer`, so the package tells them apart by form: a credential
+containing a `.` is a JWT (a compact JWS always has two), one without is an API key (a key never has one). On a route
+whose `auth` middleware lists a guard of each kind, each guard reads only credentials of its own form and treats the
+other's as no credential at all: it parses nothing, queries nothing and reports nothing. So a token that fails JWT
+validation (a bad signature, the wrong `typ`, expired, the wrong `iss` or `aud`, another guard's, a segment missing or
+extra, bad base64url) is reported once, as `AuthenticationFailed` with flow `bearer`, and never looked up as a key; a
+refused key, or any other string without a dot, is reported once with flow `api_key` and never parsed as a token; and a
+valid credential of either kind authenticates with no failure reported. A client credentials token is a JWT: it is its
+`jwt` guard's alone, which holds it to its key by id on every request, never by a lookup of the key's public part.
+
+Revocation is checked on every request either way: a key revoked between two requests is `credential_revoked` on the
+second, and so is the next request with a client credentials token whose key was revoked.
+
+The `auth` middleware (the package's, which the `auth` alias resolves to, or one of yours that extends it) records the
+guards the route lists on the request before trying them, and the rule holds for every later ask in that request: on a
+route listing both kinds, a controller's `Auth::guard('machine')->user()` with a JWT answers `null` and reports nothing,
+since the JWT is not its own. A route listing one kind of guard, and a guard asked on a request the middleware did not
+record (no `auth` middleware, or asked before it runs), reads every credential itself. A route listing two guards of one
+kind (`auth:api,m2m`) gets one report from each guard that refuses the credential, each naming its guard: they are two
+applications' refusals, not one.
+
 Every other operation names the principal the key must belong to, and treats a key of another principal or guard as
 absent, even one whose guard, type or identifier the column's collation counts as equal (`alice` and `Alice` under
 MySQL's default `_ci` collations). These are privileged operations: authorise your caller to manage that principal's
@@ -191,8 +215,8 @@ $schedule->command('model:prune', ['--model' => [\SineMacula\Laravel\Authenticat
 The OAuth 2.0 client credentials grant (RFC 6749 section 4.4) exchanges a machine's API key for a short-lived access
 token of a `jwt` guard. The key is issued on that guard (`Auth::apiKeys('m2m')->issue(...)`): its public part is the
 OAuth `client_id` and its secret the `client_secret`, so a key is either presented to an `api_key` guard or exchanged on
-a `jwt` guard, never both, and rotating a key gives its client a new id. The application lists the grant in its
-`application.methods`:
+a `jwt` guard, never both, and rotating a key gives its client a new id. The grant is off until an application lists
+it in its `application.methods`:
 
 ```php
 'm2m' => [
@@ -201,6 +225,11 @@ a `jwt` guard, never both, and rotating a key gives its client a new id. The app
     'application' => ['methods' => ['client_credentials']],
 ],
 ```
+
+A client authenticates with HTTP Basic (`client_secret_basic`), which RFC 6749 section 2.3.1 requires every server to
+accept. Credentials in the form body (`client_secret_post`), which RFC 6749 does not recommend, are accepted only where
+the application sets `'client_secret_post' => true` beside its methods; otherwise they are refused as `invalid_client`,
+before any query and without counting.
 
 Routes stay yours; the exchange reads the request and answers in RFC 6749's shapes:
 
@@ -211,15 +240,17 @@ Route::post('/oauth/token', fn () => Auth::clientCredentials('m2m')->fromRequest
 ```
 
 `fromRequest()` reads a form-encoded POST: `grant_type=client_credentials`, an optional `scope` (space-separated), and
-the client authenticated with HTTP Basic (`client_id:client_secret`, each form-url-encoded) or with `client_id` and
-`client_secret` in the body, never both. A parameter in the query string, given twice or not a string is refused
-rather than ignored, so a credential in a URL never works. `exchange($clientId, $clientSecret, $scope)` does the same
-for a client id and secret your code read itself. The result is `Responsable`, answered with `Cache-Control: no-store`
-and `Pragma: no-cache`, or read with `isGranted()`, `accessToken` (a `Secret`), `expiresIn`, `scopes`, `error` and
-`reason`. Its `toArray()` is the response body alone with the token revealed, for a response you build yourself and must
-not let be stored; a granted result encoded as JSON any other way (`json_encode()`, `response()->json()`) throws
-`SecretNotRevealedException` rather than send the token without `no-store`, and a failed one encodes as its error body.
-Either way `reason`, which only your code and the event should see, never reaches a client:
+the client authenticated with HTTP Basic (`client_id:client_secret`, each form-url-encoded) or, where the application
+allows it, with `client_id` and `client_secret` in the body, never both. A parameter in the query string, given twice or
+not a string is refused rather than ignored, so a credential in a URL never works, and a parameter sent without a value
+is treated as omitted (RFC 6749 section 3.1), so `grant_type=` names no grant and an empty `client_id` beside Basic is
+no second authentication. `exchange($clientId, $clientSecret, $scope)` does the same for a client id and secret your
+code read itself. The result is `Responsable`, answered with `Cache-Control: no-store` and `Pragma: no-cache`, or read
+with `isGranted()`, `accessToken` (a `Secret`), `expiresIn`, `scopes`, `error` and `reason`. Its `toArray()` is the
+response body alone with the token revealed, for a response you build yourself and must not let be stored; a granted
+result encoded as JSON any other way (`json_encode()`, `response()->json()`) throws `SecretNotRevealedException` rather
+than send the token without `no-store`, and a failed one encodes as its error body. Either way `reason`, which only your
+code and the event should see, never reaches a client:
 
 | Outcome                                                                                 | Response                       |
 |-----------------------------------------------------------------------------------------|--------------------------------|
@@ -228,6 +259,7 @@ Either way `reason`, which only your code and the event should see, never reache
 | No `grant_type`; Basic and body credentials together                                    | 400 `invalid_request`          |
 | A `grant_type` other than `client_credentials`                                          | 400 `unsupported_grant_type`   |
 | No client authentication, malformed Basic, an unknown client or a wrong secret          | 401 `invalid_client`           |
+| Body credentials where the application does not set `client_secret_post`                | 401 `invalid_client`           |
 | A revoked, expired or another guard's key; its owner unknown, not a machine or inactive | 401 `invalid_client`           |
 | Its principal or tenant no longer the key's, or inactive                                | 401 `invalid_client`           |
 | The application lacks `client_credentials`, or refuses the principal as ineligible      | 400 `unauthorized_client`      |
@@ -236,18 +268,25 @@ Either way `reason`, which only your code and the event should see, never reache
 
 A granted response is `{"access_token": "...", "token_type": "Bearer", "expires_in": 900, "scope": "invoices:read"}`,
 without `scope` when the token grants none (RFC 6749 has no empty scope value; the token's own `scope` claim is then
-`""`); `invalid_client` carries `WWW-Authenticate: Basic` for a client that used Basic. A principal the application
-policy refuses as `principal_ineligible` is `unauthorized_client`, and one it refuses for any other reason
-`invalid_client`. `slow_down` is not an RFC 6749 error but a registered OAuth one (RFC 8628), used because RFC 6749
-defines no rate-limit error. Only failures to authenticate the client count against the `client_credentials` limits (100
-per IP address a minute by default), and each is answered alike. Failures are not counted per client id by default: a
-client id is not a secret (RFC 6749 section 2.2), so a limit on it would let anyone who knows it hold the real client
-back from any address, while against a 40-character random secret it protects nothing. Set
-`rate_limits.client_credentials.per_identifier` only if you accept that. No scope asks for every scope the key grants;
-otherwise the token grants exactly those asked for. Every failure dispatches `AuthenticationFailed` (flow
-`client_credentials`, the client id when it is a key's public part in form, else none, so a whole key or a secret sent
-as the id never reaches a listener, and the key once found) and a grant `ClientCredentialsGranted`, with the key and the
-scopes granted.
+`""`), and never a `refresh_token`. Every `invalid_client` is a 401 with `WWW-Authenticate: Basic realm="<guard>"`,
+however the client authenticated: a 401 always carries a challenge (RFC 7235 section 3.1), and Basic is the method every
+client may use. An error body is `{"error": "<code>"}` alone: `error_description` is optional in RFC 6749 section 5.2,
+and the package words nothing a client reads, so add one in your own response if you want it. A principal the
+application policy refuses as `principal_ineligible` is `unauthorized_client`, and one it refuses for any other reason
+`invalid_client`. `invalid_grant` is never answered: for this grant the client's own authentication is the grant, and a
+failed one is `invalid_client`. `slow_down` is outside RFC 6749, which defines no rate-limit error: it is the package's
+own answer to a client past its limit, with a code the OAuth registry holds (RFC 8628). Only failures to authenticate
+the client count against the `client_credentials` limits (100 per IP address a minute by default), and each is answered
+alike. Failures are not counted per client id by default: a client id is not a secret (RFC 6749 section 2.2), so a limit
+on it would let anyone who knows it hold the real client back from any address, while against a 40-character random
+secret it protects nothing. Set `rate_limits.client_credentials.per_identifier` only if you accept that. No scope asks
+for every scope the key grants; otherwise the token grants exactly those asked for. Every failure dispatches
+`AuthenticationFailed` (flow `client_credentials`, the client id when it is a key's public part in form, else none, so a
+whole key or a secret sent as the id never reaches a listener, and the key once found) and a grant
+`ClientCredentialsGranted`, with the key and the scopes granted.
+
+RFC 6749 section 3.2 requires TLS on the token endpoint. That is the deployment's to enforce, since whether a request
+arrived over TLS depends on your trusted proxies (`$request->isSecure()`); the exchange does not check it.
 
 The token is an access token of the guard with no session: the client (the key's non-human identity) in `sub` with the
 subject type `machine` in `sub_type`, the key's id in `cid` and its scopes in `scope`; it lives the guard's access

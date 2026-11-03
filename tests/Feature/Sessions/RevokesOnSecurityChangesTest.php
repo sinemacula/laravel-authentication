@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\CutoffIdentity;
@@ -244,7 +245,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
 
         foreach ($this->recorded as $event) {
             self::assertTrue($event instanceof SessionRevoked || $event instanceof SignedOutEverywhere);
-            self::assertSame($tenant, $event->context->tenant);
+            EventContextAssertions::assertTenant($tenant, $event->context);
             self::assertSame(RevocationReason::TENANT_DEACTIVATED, $event->reason);
         }
 

@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithMachineCredentials;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineAccount;
 use Tests\Integration\Fixtures\MachineClient;
@@ -429,7 +430,7 @@ final class ApiKeyGuardTest extends TestCase
 
         $this->getWithKey('/machine/me', $issued->key()->reveal())->assertUnauthorized();
         $this->assertRefused(FailureReason::IDENTITY_INACTIVE, $issued->id);
-        self::assertTrue($machine->is($this->dispatchedOf(AuthenticationFailed::class)[0]->context->identity));
+        EventContextAssertions::assertIdentity($machine, $this->dispatchedOf(AuthenticationFailed::class)[0]->context);
 
         $machine->delete();
 

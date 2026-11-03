@@ -41,9 +41,11 @@ final class EvidenceAcceptance
     private function __construct() {}
 
     /**
-     * The evaluation of the evidence once accepted (accepted, and multifactor
-     * when the policy accepts it for multifactor authentication), or `null`
-     * when it is insufficient.
+     * The evaluation of the evidence once accepted (accepted; multifactor when
+     * the policy accepts it for multifactor authentication; an additional
+     * verification when it accepts it for that or for multifactor
+     * authentication, not when only for phishing resistance or a level), or
+     * `null` when it is insufficient.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
@@ -62,19 +64,16 @@ final class EvidenceAcceptance
             static fn (): bool => $policy->accepts($evidence, $requirement, $subject),
         );
 
-        if ($accepts(new Requirement(multifactor: new RequirementPart))) {
-            return new Evaluation(true, true);
-        }
-
-        $parts = [
-            new Requirement(additionalVerification: new RequirementPart),
-            new Requirement(phishingResistance: new RequirementPart),
-            new Requirement(minimumLevel: new LevelRequirement(AssuranceLevel::AAL1)),
+        $answers = [
+            [new Requirement(multifactor: new RequirementPart), new Evaluation(true, true, true)],
+            [new Requirement(additionalVerification: new RequirementPart), new Evaluation(true, false, true)],
+            [new Requirement(phishingResistance: new RequirementPart), new Evaluation(true, false, false)],
+            [new Requirement(minimumLevel: new LevelRequirement(AssuranceLevel::AAL1)), new Evaluation(true, false, false)],
         ];
 
-        foreach ($parts as $part) {
-            if ($accepts($part)) {
-                return new Evaluation(true, false);
+        foreach ($answers as [$requirement, $evaluation]) {
+            if ($accepts($requirement)) {
+                return $evaluation;
             }
         }
 

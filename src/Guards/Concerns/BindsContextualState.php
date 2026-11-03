@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Validated;
 use SineMacula\Laravel\Authentication\Admission\TenantAdmission;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -21,17 +22,20 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Holds the identity -> principal -> session triple bound to a guard, with the
- * active tenant, the credential that authenticated it and the scopes that
- * credential grants, and exposes accessors plus setters that fire the
- * contextual events. Each event carries the whole bound context, set before it
- * is dispatched, with the request's client.
+ * active tenant, the credential that authenticated it, its kind and the scopes
+ * it grants, and exposes accessors plus setters that fire the contextual
+ * events. Each event carries the whole bound context, set before it is
+ * dispatched, with the request's client. The authentication context of the
+ * bound state is built on first ask and held beside it, and forgotten whenever
+ * the bound state changes.
  *
  * Every accessor goes through the host guard's `user()`, so the first access on
  * a request resolves it, as Laravel's own guards do, even on a route without
  * authentication middleware.
  *
  * Expects the using class to hold the guard's `GuardContext` in
- * `$this->context`, whose name, dispatcher and request it reads, and to declare
+ * `$this->context`, whose name, dispatcher and request it reads, to use
+ * `HoldsAuthenticationContext`, whose context it forgets, and to declare
  * `bindVerifiedContext()`, which `loginVerified()` binds through, and
  * `forgetUser()`, which `forgetSession()` forgets through.
  *
@@ -65,6 +69,9 @@ trait BindsContextualState
 
     /** @var ?\SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException Why the active tenant a trusted bind found cannot be loaded, when it cannot. */
     protected ?TenantUnavailableException $unavailableTenant = null;
+
+    /** @var ?\SineMacula\Laravel\Authentication\Context\Enums\CredentialKind The kind of credential the request presented, when the guard authenticated one. */
+    protected ?CredentialKind $credentialKind = null;
 
     /**
      * Return the authenticated identity, if any, resolving the request on first
@@ -187,7 +194,8 @@ trait BindsContextualState
     {
         $this->user();
 
-        $this->principal = $principal;
+        $this->principal             = $principal;
+        $this->authenticationContext = null;
 
         $this->bindTenant(self::trustedTenant($principal, $this->session));
 
@@ -224,7 +232,8 @@ trait BindsContextualState
     {
         $this->user();
 
-        $this->session = $session;
+        $this->session               = $session;
+        $this->authenticationContext = null;
 
         if ($this->principal !== null) {
             $this->bindTenant(self::trustedTenant($this->principal, $session));
@@ -296,20 +305,23 @@ trait BindsContextualState
     }
 
     /**
-     * Clear identity, principal, session and credential state without firing
-     * events. The caller dispatches any events.
+     * Clear identity, principal, session and credential state, and the
+     * authentication context built from them, without firing events. The caller
+     * dispatches any events.
      *
      * @return void
      */
     protected function clearContextualState(): void
     {
-        $this->identity          = null;
-        $this->principal         = null;
-        $this->session           = null;
-        $this->credentialId      = null;
-        $this->scopes            = null;
-        $this->activeTenant      = null;
-        $this->unavailableTenant = null;
+        $this->identity              = null;
+        $this->principal             = null;
+        $this->session               = null;
+        $this->credentialId          = null;
+        $this->credentialKind        = null;
+        $this->scopes                = null;
+        $this->activeTenant          = null;
+        $this->unavailableTenant     = null;
+        $this->authenticationContext = null;
     }
 
     /**
