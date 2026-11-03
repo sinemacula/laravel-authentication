@@ -7,6 +7,7 @@ namespace Tests\Feature\Proofs;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -26,6 +28,7 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\KeyProtection;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofHistory;
@@ -659,6 +662,77 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
+     * An external proof whose evidence was accepted counts like any other: its
+     * values join `amr`, with `mfa` when its acceptance reports multifactor,
+     * and it reads back with its evidence; one whose evidence was not accepted
+     * only moves the time.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAcceptedExternalProofCountsAndReadsBackWithItsEvidence(): void
+    {
+        $record = $this->signedIn()->record;
+
+        self::recordExternal($record, $this->now->addMinutes(2), null);
+
+        self::assertSame(['pwd'], AuthenticationClaims::forSession($record)->methods);
+
+        $evidence = new ExternalEvidence(['hwk'], 'phrh', $this->now->addMinutes(3));
+
+        self::recordExternal($record, $this->now->addMinutes(3), $evidence);
+
+        $summary = AuthenticationClaims::forSession($record);
+        $read    = SessionProofs::query($record, null, [ProofKind::EXTERNAL_REAUTHENTICATION], 5);
+
+        self::assertSame($this->now->addMinutes(3)->getTimestamp(), $summary->authenticatedAt->getTimestamp());
+        self::assertSame(['pwd', FirstFactor::EXTERNAL_PROVIDER_METHOD, 'mfa'], $summary->methods);
+        self::assertCount(2, $read);
+        self::assertEquals(new Evaluation(true, true), $read[0]->evaluation);
+        self::assertEquals($evidence, $read[0]->evidence);
+        self::assertNull($read[1]->evaluation);
+        self::assertNull($read[1]->evidence);
+    }
+
+    /**
+     * The accepted evidence is the newest by the evidence's own time among the
+     * session's counting proofs: not the newest proof, never a voided proof's,
+     * and never what a row holds malformed; a session that holds none has none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheAcceptedEvidenceIsTheNewestByItsOwnTime(): void
+    {
+        $record = $this->signedIn()->record;
+
+        self::assertNull(SessionProofs::acceptedEvidence($record));
+
+        $older  = new ExternalEvidence(['otp'], null, $this->now->subMinutes(10));
+        $newest = new ExternalEvidence(['hwk'], 'phrh', $this->now->subMinutes(2));
+        $voided = new ExternalEvidence(['pin'], null, $this->now->subMinute());
+
+        self::recordExternal($record, $this->now->addMinutes(5), $older);
+        self::recordExternal($record, $this->now->addMinutes(3), $newest);
+        self::recordExternal($record, $this->now->addMinutes(1), $voided, 'voided-factor');
+        self::recordExternal($record, $this->now->addMinutes(7), null);
+
+        ProofWriter::void($record, 'api', 'voided-factor', $this->now);
+
+        self::assertEquals($newest, SessionProofs::acceptedEvidence($record));
+
+        DB::table('authentication_proofs')
+            ->where('channel_kind', ChannelKind::EXTERNAL_PROVIDER->value)
+            ->whereNotNull('evidence')
+            ->whereNull('voided_at')
+            ->update(['evidence' => '{"methods":"broken"}']);
+
+        self::assertNull(SessionProofs::acceptedEvidence($record));
+    }
+
+    /**
      * Configure the session guards.
      *
      * @param  mixed  $app
@@ -690,6 +764,35 @@ final class SessionProofsTest extends TestCase
         self::assertNotNull($session);
 
         return $session;
+    }
+
+    /**
+     * Record a reauthentication at the external provider on the session, with
+     * its evidence accepted as multifactor when it carries any, and with the
+     * factor reference given.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \Carbon\CarbonImmutable  $at
+     * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
+     * @param  ?string  $factor
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    private static function recordExternal(EloquentSession&Model $session, CarbonImmutable $at, ?ExternalEvidence $evidence, ?string $factor = null): void
+    {
+        ProofWriter::record($session, (string) $session->getGuard(), new NewProof(
+            ProofKind::EXTERNAL_REAUTHENTICATION,
+            Purpose::REAUTHENTICATE,
+            'external_provider',
+            new Channel(ChannelKind::EXTERNAL_PROVIDER, 'conn-a'),
+            $factor,
+            new ObservedProperties,
+            $evidence === null ? null : new Evaluation(true, true),
+            [FirstFactor::EXTERNAL_PROVIDER_METHOD],
+            $at,
+            $evidence,
+        ));
     }
 
     /**

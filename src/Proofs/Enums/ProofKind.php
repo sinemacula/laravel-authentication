@@ -38,8 +38,7 @@ enum ProofKind: string
 
     /**
      * Whether the kind is a further factor or its recovery-code fallback: the
-     * only kinds an adapter's verification records, and the only ones that may
-     * report multifactor authentication.
+     * only kinds an adapter's verification records.
      *
      * @return bool
      */
@@ -51,7 +50,9 @@ enum ProofKind: string
     /**
      * Whether the kind proves the first factor again on an active session, with
      * this package's method or at the external provider: it renews the
-     * authentication time and nothing else.
+     * authentication time and nothing else, unless it carries an accepted
+     * evaluation, which only a reauthentication at the external provider whose
+     * evidence the evidence contract accepted can.
      *
      * @return bool
      */

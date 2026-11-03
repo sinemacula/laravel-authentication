@@ -6,21 +6,24 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 
 /**
  * How a session established through an external identity provider began: the
  * connection and its tenant, when the provider authenticated the identity, the
  * provider's own deadline for its session (SAML `SessionNotOnOrAfter`), the
- * version of the enforcement or policy the caller checked, and the id of the
- * link the result was mapped to its identity through.
+ * version of the enforcement or policy the caller checked, the id of the link
+ * the result was mapped to its identity through, and the evidence the provider
+ * asserted, once accepted.
  *
  * Built by the session service from a trusted server-side adapter's result and
  * the link the link contract found, never from what a client sent. The session
  * records it once, beside its proofs, and nothing rewrites it: a later
  * reauthentication at the provider is a proof of its own, and must come through
- * the very link recorded here. The evidence the provider asserted is not part
- * of it, and no evidence is recorded with it: nothing decides yet whether a
- * provider's evidence is accepted. Times are kept to the whole second.
+ * the very link recorded here. It carries the provider's evidence only when the
+ * evidence contract accepted it (`External\EvidenceAcceptance`), and the first
+ * factor then carries the acceptance; evidence that was not accepted is never
+ * recorded. Times are kept to the whole second.
  *
  * @api
  *
@@ -50,6 +53,7 @@ final readonly class Provenance
      * @param  ?\Carbon\CarbonInterface  $sessionNotAfter
      * @param  ?string  $policyVersion
      * @param  ?string  $linkId
+     * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      *
      * @throws \InvalidArgumentException
      */
@@ -72,6 +76,9 @@ final readonly class Provenance
 
         /** The id of the link the result was mapped to its identity through, opaque and compared exactly; `null` for none. */
         public ?string $linkId = null,
+
+        /** The evidence the provider asserted, once the evidence contract accepted it. */
+        public ?ExternalEvidence $evidence = null,
     ) {
         self::assertText($connectionId, self::ID_MAX_LENGTH, 'connection id');
         self::assertText($tenantId, self::ID_MAX_LENGTH, 'tenant id');

@@ -11,9 +11,10 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
 /**
  * How a session established through an external identity provider began, one
  * row per such session, keyed by the session's key: the connection and its
- * tenant, the provider's authentication time and session deadline (no evidence:
- * nothing accepts any yet), the policy version the caller checked, and the id
- * of the link the result was mapped to its identity through.
+ * tenant, the provider's authentication time, the evidence it asserted once the
+ * evidence contract accepted it, the provider's session deadline, the policy
+ * version the caller checked, and the id of the link the result was mapped to
+ * its identity through.
  *
  * Kept on the storage connection with the sessions, in the table named by
  * `authentication.proofs.provenance_table`, written once with the session and

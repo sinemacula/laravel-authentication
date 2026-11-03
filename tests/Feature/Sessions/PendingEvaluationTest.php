@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Applications\AdmitAnyPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
@@ -26,6 +27,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
@@ -39,6 +41,7 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
+use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
@@ -51,6 +54,7 @@ use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Factors\FirstFactorMeetsRequirements;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
@@ -637,6 +641,38 @@ final class PendingEvaluationTest extends TestCase
         app()->instance(RequirementCheck::class, new FirstFactorMeetsRequirements);
 
         self::assertTrue($this->evaluation('members')->owedFactor($member, $evidence->firstFactor, $client, null, null, null, null, $now, $evidence)->isEmpty());
+    }
+
+    /**
+     * At sign-in through an external provider, evidence the evidence policy
+     * accepted and says meets the identity-level requirement leaves nothing
+     * owed, without a further factor; the default evidence policy leaves it
+     * owed, as the check finds it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAtSignInAcceptedEvidenceMeetsTheIdentityLevelRequirement(): void
+    {
+        [$member] = $this->seedMember();
+
+        $this->factorRequired = true;
+
+        $now      = CarbonImmutable::now();
+        $accepted = new ExternalEvidence(['otp'], null, $now);
+        $evidence = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a', evidence: $accepted), $now, new Evaluation(true, false)));
+        $client   = new ClientContext(null, null);
+
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $owed = fn (): Requirement => $this->evaluation('members')->owedFactor($member, $evidence->firstFactor, $client, null, null, null, null, $now, $evidence);
+
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION], $owed()->kinds());
+
+        app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::ADDITIONAL_VERIFICATION]));
+
+        self::assertTrue($owed()->isEmpty());
     }
 
     /**

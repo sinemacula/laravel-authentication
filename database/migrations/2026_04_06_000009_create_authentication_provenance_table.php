@@ -51,7 +51,8 @@ return new class extends Migration {
             $blueprint->dateTime('provider_authenticated_at', 0)->nullable();
 
             // The evidence the provider asserted, once the evidence contract
-            // accepted it, as JSON; nothing records any yet.
+            // accepted it, as JSON; `null` when it asserted none or none was
+            // accepted.
             $blueprint->text('accepted_evidence')->nullable();
 
             $blueprint->dateTime('provider_session_expires_at', 0)->nullable();

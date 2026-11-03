@@ -7,10 +7,12 @@ namespace Tests\Feature\Proofs;
 use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
@@ -79,6 +81,51 @@ final class SignInProofTest extends TestCase
         self::assertSame('2026-04-06 12:00:00.000000', $atTheSecond->authenticatedAt->format('Y-m-d H:i:s.u'));
         self::assertSame('2026-04-06 12:00:00.000000', $ahead->authenticatedAt->format('Y-m-d H:i:s.u'));
         self::assertSame('2026-04-06 12:00:00.000000', $untimed->authenticatedAt->format('Y-m-d H:i:s.u'));
+    }
+
+    /**
+     * An external sign-in whose evidence was accepted carries the acceptance on
+     * its first factor and the evidence with it, as written and as read back;
+     * one without carries neither.
+     *
+     * @return void
+     */
+    public function testAnExternalFirstFactorCarriesItsAcceptedEvidence(): void
+    {
+        $now        = CarbonImmutable::parse('2026-04-06 12:00:00');
+        $evidence   = new ExternalEvidence(['hwk'], 'phrh', $now->subMinute());
+        $evaluation = new Evaluation(true, true);
+        $proof      = SignInProof::external('sso', new Provenance('connection-7', evidence: $evidence), $now, $evaluation);
+
+        self::assertSame($evaluation, $proof->evaluation);
+        self::assertSame([$evaluation, $evidence], [$proof->firstFactor()->evaluation, $proof->firstFactor()->evidence]);
+        self::assertSame([$evaluation, $evidence], [$proof->recorded()->evaluation, $proof->recorded()->evidence]);
+
+        $plain = SignInProof::external('sso', new Provenance('connection-7'), $now);
+
+        self::assertSame([null, null, null], [$plain->evaluation, $plain->firstFactor()->evaluation, $plain->recorded()->evidence]);
+    }
+
+    /**
+     * The acceptance and the evidence come together or not at all: an
+     * evaluation with no evidence, or evidence with no evaluation, is a
+     * programming error.
+     *
+     * @return void
+     */
+    public function testAnExternalFirstFactorRefusesHalfAnAcceptance(): void
+    {
+        $now      = CarbonImmutable::parse('2026-04-06 12:00:00');
+        $evidence = new ExternalEvidence(['hwk'], null, $now);
+
+        foreach ([[new Provenance('connection-7'), new Evaluation(true, false)], [new Provenance('connection-7', evidence: $evidence), null]] as [$provenance, $evaluation]) {
+            try {
+                SignInProof::external('sso', $provenance, $now, $evaluation);
+                self::fail('Half an acceptance was taken.');
+            } catch (\LogicException $exception) {
+                self::assertSame('An external sign-in carries the acceptance of the provider\'s evidence and that evidence together, or neither.', $exception->getMessage());
+            }
+        }
     }
 
     /**

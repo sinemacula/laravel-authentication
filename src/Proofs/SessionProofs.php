@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
@@ -28,10 +29,10 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * and only counting ones: one not voided, and, for a further factor or a
  * recovery code, one its adapter accepted (only accepted ones are stored, so
  * this is a second line). `history()` reads them in one aggregate query,
- * grouped by kind, `amr` values and multifactor report with each group's newest
- * time, so its rows are bounded by the distinct combinations the session
- * recorded rather than by how many it recorded. `newestMeeting()` reads the
- * newest one a freshness requirement takes, with `LIMIT 1`, on the proofs'
+ * grouped by kind, `amr` values, multifactor report and acceptance with each
+ * group's newest time, so its rows are bounded by the distinct combinations the
+ * session recorded rather than by how many it recorded. `newestMeeting()` reads
+ * the newest one a freshness requirement takes, with `LIMIT 1`, on the proofs'
  * session, kind and time index. `query()` reads a bounded page of them for a
  * requirement check, `firstFactor()` the first factor the session signed in
  * with, `connectionId()` the connection its provenance records, and
@@ -44,6 +45,9 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  */
 final class SessionProofs
 {
+    /** @var int The most proofs carrying evidence one read of the newest evidence takes. */
+    public const int EVIDENCE_LIMIT = 50;
+
     /**
      * Disallow instantiation; utility container only.
      */
@@ -64,9 +68,9 @@ final class SessionProofs
 
         $rows = WriteConnection::during($model, static fn (): array => self::counting($session)
             ->toBase()
-            ->select(['kind', 'methods', 'multifactor'])
+            ->select(['kind', 'methods', 'multifactor', 'accepted'])
             ->selectRaw("max({$at}) as newest")
-            ->groupBy(['kind', 'methods', 'multifactor'])
+            ->groupBy(['kind', 'methods', 'multifactor', 'accepted'])
             ->get()
             ->all());
 
@@ -158,6 +162,38 @@ final class SessionProofs
             ->first());
 
         return $proof instanceof SessionProof ? self::recorded($proof) : null;
+    }
+
+    /**
+     * The newest evidence an external provider asserted for the session and the
+     * evidence contract accepted, by the evidence's own time, among its
+     * counting proofs that carry any (its external first factor and its
+     * external reauthentications), or `null` when none does: one bounded read
+     * of at most `EVIDENCE_LIMIT` of them, newest first, on the proofs' session
+     * index. Evidence a row holds malformed is no evidence.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return ?\SineMacula\Laravel\Authentication\External\ExternalEvidence
+     */
+    public static function acceptedEvidence(Session $session): ?ExternalEvidence
+    {
+        $stored = WriteConnection::during(new SessionProof, static fn (): array => self::counting($session)
+            ->whereIn('kind', [ProofKind::FIRST_FACTOR->value, ProofKind::EXTERNAL_REAUTHENTICATION->value])
+            ->whereNotNull('evidence')
+            ->orderByDesc('authenticated_at')
+            ->orderByDesc('id')
+            ->limit(self::EVIDENCE_LIMIT)
+            ->get(['evidence'])
+            ->all());
+
+        $newest = null;
+
+        foreach ($stored as $proof) {
+            $evidence = ExternalEvidence::fromStored($proof->evidence);
+            $newest   = $evidence !== null && ($newest === null || $evidence->authenticatedAt->greaterThan($newest->authenticatedAt)) ? $evidence : $newest;
+        }
+
+        return $newest;
     }
 
     /**
@@ -261,7 +297,7 @@ final class SessionProofs
      *
      * @param  \SineMacula\Laravel\Authentication\Models\SessionProof  $model
      * @param  object  $row
-     * @return array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, at: \Carbon\CarbonImmutable}
+     * @return array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, accepted: bool, at: \Carbon\CarbonImmutable}
      */
     private static function summary(SessionProof $model, object $row): array
     {
@@ -270,6 +306,7 @@ final class SessionProofs
             'kind'             => $values['kind']        ?? null,
             'methods'          => $values['methods']     ?? null,
             'multifactor'      => $values['multifactor'] ?? null,
+            'accepted'         => $values['accepted']    ?? null,
             'authenticated_at' => $values['newest']      ?? null,
         ]);
 
@@ -277,6 +314,7 @@ final class SessionProofs
             'kind'        => ProofKind::from($proof->kind),
             'methods'     => AuthenticationMethods::kept($proof->methods),
             'multifactor' => $proof->multifactor === true,
+            'accepted'    => $proof->accepted    === true,
             'at'          => CarbonImmutable::instance($proof->authenticated_at),
         ];
     }
@@ -313,6 +351,7 @@ final class SessionProofs
             $evaluation,
             AuthenticationMethods::kept($proof->methods),
             CarbonImmutable::instance($proof->authenticated_at),
+            ExternalEvidence::fromStored($proof->evidence),
         );
     }
 }

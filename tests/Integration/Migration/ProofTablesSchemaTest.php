@@ -84,10 +84,11 @@ final class ProofTablesSchemaTest extends TestCase
 
     /**
      * The proofs table holds each proof's session, kind and purpose, method,
-     * channel and factor, observations, evaluation, `amr` values, binding, time
-     * and voiding; only what a proof may lack is nullable (each observation and
-     * the evaluation, which are `null` when not observed or not an adapter's),
-     * and the id is the primary key.
+     * channel and factor, observations, evaluation, accepted external evidence,
+     * `amr` values, binding, time and voiding; only what a proof may lack is
+     * nullable (each observation, the evaluation and the evidence, which are
+     * `null` when not observed, not an adapter's or not accepted), and the id
+     * is the primary key.
      *
      * @return void
      */
@@ -107,6 +108,7 @@ final class ProofTablesSchemaTest extends TestCase
             'channel_kind'         => false,
             'channel_reference'    => true,
             'created_at'           => true,
+            'evidence'             => true,
             'factor_reference'     => true,
             'guard'                => false,
             'id'                   => false,

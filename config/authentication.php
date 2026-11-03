@@ -104,8 +104,9 @@ return [
     | provider the session began with is a reserved kind: nothing records it
     | yet. A session an external provider established also records how it
     | began (the connection and its tenant, the provider's authentication time
-    | and session deadline, and the policy version checked, but no evidence:
-    | nothing accepts any yet) in `provenance_table`. Both live on the storage
+    | and session deadline, the policy version checked, and the provider's
+    | evidence once the bound `ExternalEvidencePolicy` accepted it, which by
+    | default it never does) in `provenance_table`. Both live on the storage
     | connection, are read from the write connection, and are pruned with
     | their sessions by the session model's `model:prune`. A code proof's
     | destination is personal data, kept no longer than its session. Each table

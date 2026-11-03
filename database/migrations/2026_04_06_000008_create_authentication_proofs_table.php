@@ -67,6 +67,11 @@ return new class extends Migration {
             $blueprint->boolean('accepted')->nullable();
             $blueprint->boolean('multifactor')->nullable();
 
+            // The evidence an external provider asserted for the proof, as
+            // JSON, once the evidence contract accepted it; `null` for every
+            // other proof.
+            $blueprint->text('evidence')->nullable();
+
             // The proof's `amr` values as a JSON list. A bounded string rather
             // than text, so the claims query can group by it on every database.
             // Its JSON is ASCII (the values are, and the cast escapes anything

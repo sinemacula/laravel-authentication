@@ -6,25 +6,37 @@ namespace SineMacula\Laravel\Authentication\Requirements;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Container\Container;
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\External\EvidenceAcceptance;
+use SineMacula\Laravel\Authentication\External\EvidenceSubject;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 
 /**
  * Judges whether a session, or a sign-in about to write one, meets a
- * requirement on its authentication, as the bound `RequirementCheck` sees it:
- * the one judge of the identity-level requirement and of a tenant's.
+ * requirement on its authentication: the one judge of the identity-level
+ * requirement and of a tenant's.
  *
  * A requirement that asks for nothing is met, and nothing is read or asked. A
  * session with no first factor (neither the sign-in's evidence nor a stored
- * one) meets no other. Otherwise the check is asked inside
- * `WriteConnection::during()` for the identity, with a subject whose proofs are
- * the sign-in's own, in memory, or the session's, each read a bounded query on
- * the write connection; with neither evidence nor a session there are none.
+ * one) meets no other. A session an external provider established, holding
+ * evidence the evidence contract accepted, meets it when the bound
+ * `ExternalEvidencePolicy` says its newest accepted evidence meets the whole of
+ * it: the sign-in's own, in memory, or, only when the first factor's channel is
+ * the external provider, the newest its proofs record, one bounded read on the
+ * write connection. Otherwise, or when the evidence falls short, the bound
+ * `RequirementCheck` judges it, as the factor package sees it: evidence never
+ * meets part of a requirement and leaves the rest to the factor package's
+ * proofs. Either is asked inside `WriteConnection::during()` for the identity;
+ * the check with a subject whose proofs are the sign-in's own, in memory, or
+ * the session's, each read a bounded query on the write connection; with
+ * neither evidence nor a session there are none.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -74,10 +86,8 @@ final class RequirementJudge
             return false;
         }
 
-        $subject = new RequirementSubject($identity, $application, $session, $firstFactor, $now, self::reader($session, $evidence));
-        $check   = Container::getInstance()->make(RequirementCheck::class);
-
-        return WriteConnection::during($identity, static fn (): bool => $check->evaluate($subject, $requirement)->isMet());
+        return self::meetsByEvidence($application, $identity, $session, $firstFactor, $now, $evidence, $requirement)
+            || self::meetsByCheck($application, $identity, $session, $firstFactor, $now, $evidence, $requirement);
     }
 
     /**
@@ -98,6 +108,82 @@ final class RequirementJudge
         $firstFactor ??= $evidence?->firstFactor;
 
         return $firstFactor === null && $session !== null ? SessionProofs::firstFactor($session) : $firstFactor;
+    }
+
+    /**
+     * Whether the bound `RequirementCheck` finds the requirement met, asked
+     * inside `WriteConnection::during()` for the identity, about the session's
+     * proofs or the sign-in's.
+     *
+     * @param  string  $application
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @return bool
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private static function meetsByCheck(
+        string $application,
+        Identity $identity,
+        ?Session $session,
+        RecordedProof $firstFactor,
+        CarbonImmutable $now,
+        ?SessionEvidence $evidence,
+        Requirement $requirement,
+    ): bool {
+        $subject = new RequirementSubject($identity, $application, $session, $firstFactor, $now, self::reader($session, $evidence));
+        $check   = Container::getInstance()->make(RequirementCheck::class);
+
+        return WriteConnection::during($identity, static fn (): bool => $check->evaluate($subject, $requirement)->isMet());
+    }
+
+    /**
+     * Whether the newest external evidence the session, or the sign-in, holds
+     * accepted meets the whole requirement, as the bound
+     * `ExternalEvidencePolicy` says; `false` when it holds none.
+     *
+     * @param  string  $application
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @return bool
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    private static function meetsByEvidence(
+        string $application,
+        Identity $identity,
+        ?Session $session,
+        RecordedProof $firstFactor,
+        CarbonImmutable $now,
+        ?SessionEvidence $evidence,
+        Requirement $requirement,
+    ): bool {
+        $connectionId = $firstFactor->channel->kind === ChannelKind::EXTERNAL_PROVIDER ? $firstFactor->channel->reference : null;
+
+        if ($connectionId === null) {
+            return false;
+        }
+
+        $external = $evidence !== null || $session === null ? $evidence?->externalEvidence : SessionProofs::acceptedEvidence($session);
+
+        if ($external === null) {
+            return false;
+        }
+
+        $subject = new EvidenceSubject($identity, $application, $connectionId, $now);
+        $policy  = Container::getInstance()->make(ExternalEvidencePolicy::class);
+        $judged  = EvidenceAcceptance::asOf($external, $subject);
+
+        return WriteConnection::during($identity, static fn (): bool => $policy->meets($judged, $requirement, $subject));
     }
 
     /**

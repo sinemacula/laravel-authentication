@@ -7,8 +7,12 @@ namespace Tests\Performance;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
 use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
@@ -16,10 +20,21 @@ use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Freshness\Operations;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationClaims;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationSummary;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
+use SineMacula\Laravel\Authentication\Proofs\NewProof;
+use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
+use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\FactorChangeGate;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
@@ -28,13 +43,14 @@ use SineMacula\Laravel\Authentication\Sessions\SessionStepUp;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\External\ScriptedEvidencePolicy;
 
 /**
  * Query-budget and timing contracts for a session's proofs: what a step-up and
  * a reauthentication cost, what asking the freshness policy and the
  * factor-change gate costs (nothing for an operation with no requirement), and
- * that the claims and freshness reads stay one query each, and quick, however
- * many proofs a session holds.
+ * that the claims, freshness and accepted-evidence reads stay one query each,
+ * and quick, however many proofs a session holds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,6 +64,7 @@ use Tests\Concerns\InteractsWithSessions;
 #[CoversClass(SessionProofs::class)]
 #[CoversClass(AuthenticationClaims::class)]
 #[CoversClass(FactorChangeGate::class)]
+#[CoversClass(RequirementJudge::class)]
 final class ProofQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithProofs, InteractsWithSessions;
@@ -201,6 +218,56 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
         self::assertSame($now->getTimestamp(), $newest?->authenticatedAt->getTimestamp());
         self::assertLessThan(self::READ_CEILING_SECONDS, $claims);
         self::assertLessThan(self::READ_CEILING_SECONDS, $fresh);
+    }
+
+    /**
+     * The newest accepted evidence is one query however many external proofs a
+     * session holds, within its ceiling, and judging an external session's
+     * requirement on it costs that one read beside its first factor's; the
+     * requirement check is not asked once the evidence meets it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheAcceptedEvidenceReadIsBoundedHoweverManyProofsASessionHolds(): void
+    {
+        $record   = $this->signedIn()->record;
+        $identity = $record->authenticatable()->first();
+
+        self::assertInstanceOf(Identity::class, $identity);
+
+        DB::table('authentication_proofs')->delete();
+
+        foreach (range(0, self::MANY) as $index) {
+            $at = $this->now->toImmutable()->addSeconds($index);
+
+            ProofWriter::record($record, 'api', new NewProof(
+                $index === 0 ? ProofKind::FIRST_FACTOR : ProofKind::EXTERNAL_REAUTHENTICATION,
+                $index === 0 ? Purpose::SIGN_IN : Purpose::REAUTHENTICATE,
+                'sso',
+                new Channel(ChannelKind::EXTERNAL_PROVIDER, 'conn-a'),
+                null,
+                new ObservedProperties,
+                new Evaluation(true, true),
+                [FirstFactor::EXTERNAL_PROVIDER_METHOD],
+                $at,
+                new ExternalEvidence(['hwk'], null, $at),
+            ));
+        }
+
+        app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]));
+
+        $now     = $this->now->toImmutable()->addSeconds(self::MANY);
+        $started = hrtime(true);
+        $newest  = $this->assertQueryBudget(1, 0, static fn (): ?ExternalEvidence => SessionProofs::acceptedEvidence($record));
+        $read    = (hrtime(true) - $started) / 1e9;
+
+        self::assertSame($now->getTimestamp(), $newest?->authenticatedAt->getTimestamp());
+        self::assertLessThan(self::READ_CEILING_SECONDS, $read);
+        $requirement = new Requirement(multifactor: new RequirementPart);
+
+        self::assertTrue($this->assertQueryBudget(2, 0, static fn (): bool => RequirementJudge::isMet('api', $identity, $record, null, $now, null, $requirement)));
     }
 
     /**

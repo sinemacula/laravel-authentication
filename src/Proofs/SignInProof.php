@@ -14,7 +14,8 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
  * What a sign-in proved before its session exists, carried through
  * establishment to the session's first proofs: the sign-in method, the first
  * factor's channel, observed properties, `amr` values and time, and the
- * provenance of a session established through an external provider.
+ * provenance of a session established through an external provider, with the
+ * acceptance of the provider's evidence when it was accepted.
  *
  * The session records them as it is written, pending or active, so the time the
  * credentials were verified carries to the active session unchanged; a further
@@ -39,6 +40,7 @@ final readonly class SignInProof
      * @param  list<string>  $methods
      * @param  \Carbon\CarbonImmutable  $authenticatedAt
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\Provenance  $provenance
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\Evaluation  $evaluation
      */
     private function __construct(
 
@@ -62,6 +64,9 @@ final readonly class SignInProof
 
         /** How a session established through an external provider began, if it was. */
         public ?Provenance $provenance = null,
+
+        /** The acceptance of the provider's evidence, when it was accepted. */
+        public ?Evaluation $evaluation = null,
     ) {}
 
     /**
@@ -82,15 +87,25 @@ final readonly class SignInProof
      * The proof of a sign-in an external provider verified, under the named
      * method: the connection as its channel, the private external-provider
      * `amr` value, and the provider's authentication time, or now when it gave
-     * none or one after now (the clocks disagree), with the provenance.
+     * none or one after now (the clocks disagree), with the provenance. The
+     * first factor carries the evaluation `External\EvidenceAcceptance` gave
+     * the provider's evidence when it was accepted, and the provenance carries
+     * that evidence: the two come together or not at all.
      *
      * @param  string  $method
      * @param  \SineMacula\Laravel\Authentication\Proofs\Provenance  $provenance
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\Evaluation  $evaluation
      * @return self
+     *
+     * @throws \LogicException
      */
-    public static function external(string $method, Provenance $provenance, CarbonImmutable $now): self
+    public static function external(string $method, Provenance $provenance, CarbonImmutable $now, ?Evaluation $evaluation = null): self
     {
+        if (($evaluation === null) !== ($provenance->evidence === null)) {
+            throw new \LogicException('An external sign-in carries the acceptance of the provider\'s evidence and that evidence together, or neither.');
+        }
+
         $now = $now->startOfSecond();
         $at  = $provenance->providerAuthenticatedAt;
 
@@ -102,6 +117,7 @@ final readonly class SignInProof
             [FirstFactor::EXTERNAL_PROVIDER_METHOD],
             $at === null || $at->greaterThan($now) ? $now : $at,
             $provenance,
+            $evaluation,
         );
     }
 
@@ -126,7 +142,18 @@ final readonly class SignInProof
      */
     public function firstFactor(): NewProof
     {
-        return new NewProof(ProofKind::FIRST_FACTOR, Purpose::SIGN_IN, $this->method, $this->channel, null, $this->observed, null, $this->methods, $this->authenticatedAt);
+        return new NewProof(
+            ProofKind::FIRST_FACTOR,
+            Purpose::SIGN_IN,
+            $this->method,
+            $this->channel,
+            null,
+            $this->observed,
+            $this->evaluation,
+            $this->methods,
+            $this->authenticatedAt,
+            $this->provenance?->evidence,
+        );
     }
 
     /**
@@ -146,9 +173,10 @@ final readonly class SignInProof
             $factor->channel,
             null,
             $factor->observed,
-            null,
+            $factor->evaluation,
             $factor->methods,
             $factor->authenticatedAt,
+            $factor->evidence,
         );
     }
 

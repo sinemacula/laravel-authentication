@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Proofs;
 
 use Carbon\CarbonImmutable;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 
@@ -32,6 +33,7 @@ final readonly class NewProof
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\Evaluation  $evaluation
      * @param  list<string>  $methods
      * @param  \Carbon\CarbonImmutable  $authenticatedAt
+     * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      */
     public function __construct(
 
@@ -61,6 +63,9 @@ final readonly class NewProof
 
         /** When it was made, to the whole second. */
         public CarbonImmutable $authenticatedAt,
+
+        /** The evidence an external provider asserted, once accepted, for an external proof. */
+        public ?ExternalEvidence $evidence = null,
     ) {}
 
     /**

@@ -18,21 +18,31 @@ Each holds its method, its channel (`password`, `sms`, `email`, `authenticator_a
 row id, a provider's connection id), the factor an adapter used, what was observed about the authenticator (user
 presence and verification, backup eligibility and state, phishing resistance, key protection: each `null` when it was
 not observed, which never counts as true), the adapter's evaluation (accepted, multifactor; none for a proof the package
-verified itself), its `amr` values, its time and its binding (the identity, the application, the session and the
-purpose: `sign_in`, `reauthenticate` or `step_up`). A proof is never changed once recorded, except to be marked void,
-after which it never counts: when the factor package removes a factor, `factorRemoved()` voids the proofs the current
-session made with it, and the identity's other sessions end (see [Sign-in factors](#sign-in-factors)). A removed
-first-factor credential (`credentialRemoved()`) voids nothing.
+verified itself, except an external one whose evidence was accepted), the external provider's evidence once accepted,
+its `amr` values, its time and its binding (the identity, the application, the session and the purpose: `sign_in`,
+`reauthenticate` or `step_up`). A proof is never changed once recorded, except to be marked void, after which it never
+counts: when the factor package removes a factor, `factorRemoved()` voids the proofs the current session made with it,
+and the identity's other sessions end (see [Sign-in factors](#sign-in-factors)). A removed first-factor credential
+(`credentialRemoved()`) voids nothing.
 
 A session an external provider established (`signInExternally()`, see [External
 sign-in](signing-in.md#external-sign-in)) also records its provenance, once, in `proofs.provenance_table`: the
-connection and its tenant, the provider's authentication time, no evidence (nothing yet decides whether a provider's
-evidence is accepted, so none is recorded), the provider's deadline for its session (which also caps the session's
-absolute deadline, the earlier of it and the sign-in's own winning), the policy version the adapter checked, and the id
-of the link the result was mapped to its identity through, kept byte for byte. A later reauthentication at the provider
-is a proof of its own and never rewrites how the session began. The provenance is indexed by connection and by tenant:
-the sessions a connection established are revoked through it (see [Connections and links](#connections-and-links));
-there is no lookup by connection or tenant yet.
+connection and its tenant, the provider's authentication time, the evidence the provider asserted once accepted, the
+provider's deadline for its session (which also caps the session's absolute deadline, the earlier of it and the
+sign-in's own winning), the policy version the adapter checked, and the id of the link the result was mapped to its
+identity through, kept byte for byte. A later reauthentication at the provider is a proof of its own and never rewrites
+how the session began. The provenance is indexed by connection and by tenant: the sessions a connection established are
+revoked through it (see [Connections and links](#connections-and-links)); there is no lookup by connection or tenant
+yet.
+
+A provider's evidence (its `amr` values, its `acr` value or SAML authentication context class reference, and the time it
+is for) counts for nothing until the application binds an `ExternalEvidencePolicy` that accepts it (see
+[Tenant authentication policies](extending.md#tenant-authentication-policies)). Evidence the policy says meets
+multifactor authentication or an additional verification is accepted: it is recorded with the proof that brought it, and
+with the provenance at sign-in; the proof's evaluation is accepted, and multifactor when it met multifactor
+authentication, so `amr` gains `mfa`; and the identity-level requirement and a tenant's are met when the policy says the
+newest accepted evidence meets the whole of one. Evidence that is not accepted is never recorded, and a reauthentication
+at the provider without accepted evidence renews `auth_time` and nothing else.
 
 Proofs and provenance belong to the session's key, so they carry unchanged from a pending session to the active one it
 becomes, and across every refresh and switch. A sign-in that replaces a session the client proved it holds is a new

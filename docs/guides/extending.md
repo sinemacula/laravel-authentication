@@ -28,6 +28,7 @@ inheritance:
 | Tenants named by identifier       | Implement `TenantResolver` and bind it in the container                                                          |
 | Tenant authentication policies    | Implement `TenantAuthenticationPolicy` and bind it; call `tenantPolicyChanged()` when it changes                 |
 | Judging a further factor          | Implement `RequirementCheck` and bind it in the container (a further-factor package binds one)                   |
+| Accepting a provider's evidence   | Implement `ExternalEvidencePolicy` and bind it in the container (by default no evidence is accepted)             |
 | Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
 | Identifier normal forms           | Implement `IdentifierNormalizer`, register it by type in the config                                              |
 | One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
@@ -182,6 +183,51 @@ time, and `proofs($since, $kinds, $limit)`, a bounded query over its counting pr
 kinds left unmet. It judges the identity-level requirement the additional-factor policy answers as well as a tenant's.
 The default, `MeetNoRequirement`, meets nothing: an identity or a tenant that requires a further factor admits no
 session until a factor package binds its check. The package never asks it with an empty requirement.
+
+Whether an external identity provider's evidence counts is `Contracts\ExternalEvidencePolicy`'s to say: `meets()` takes
+an `External\ExternalEvidence` (the provider's `amr` values, its `acr` value or SAML authentication context class
+reference, and the time it is for), a `Requirement` and an `External\EvidenceSubject` (the identity, the application,
+the connection that asserted it and the time it is judged at), and answers whether the evidence meets the whole
+requirement. The default, `External\InsufficientEvidence`, meets nothing, so a provider's evidence counts for nothing
+until you bind a policy that trusts it:
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
+use SineMacula\Laravel\Authentication\External\EvidenceSubject;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+
+final class TrustedProviderEvidence implements ExternalEvidencePolicy
+{
+    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
+    {
+        $trusted = TrustedConnection::query()->where('connection_id', $subject->connectionId)->exists();
+        $fresh   = $evidence->authenticatedAt->greaterThan($subject->now->subSeconds($requirement->multifactor?->maxAgeSeconds ?? 43200));
+
+        return $trusted && $fresh && in_array('mfa', $evidence->methods, true)
+            && $requirement->minimumLevel === null && $requirement->phishingResistance === null;
+    }
+}
+
+$this->app->singleton(ExternalEvidencePolicy::class, TrustedProviderEvidence::class);
+```
+
+The package asks it in two places, inside `WriteConnection::during()` for the identity:
+
+- When a sign-in or reauthentication at a provider brings evidence, it asks whether the evidence meets multifactor
+  authentication and, if not, an additional verification, each of any age. Evidence that meets either is accepted: it
+  is recorded with the proof (and, at sign-in, with the session's provenance), the proof's evaluation is accepted, and
+  multifactor when it met multifactor authentication, so `amr` gains `mfa`. Evidence that meets neither is not
+  recorded and counts for nothing; a reauthentication at the provider then renews `auth_time` and nothing else.
+- When the identity-level requirement or a tenant's is judged on a session an external provider established that holds
+  accepted evidence, it asks whether the newest accepted evidence (by its own time) meets the whole requirement. When
+  it does, the requirement is met and `RequirementCheck` is not asked; when it does not, `RequirementCheck` judges the
+  session's proofs as it does any other session's. Evidence never meets part of a requirement and leaves the rest to
+  the factor package's proofs: which factors combine stays the factor package's.
+
+Judge any maximum age the requirement gives on `$evidence->authenticatedAt` against `$subject->now`; evidence dated
+after the time it is judged at is judged as of that time. An exception the policy throws reaches the caller and rolls
+back the transaction it was asked in.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
@@ -516,9 +562,10 @@ $passed = $result->isVerified();   // else $result->reason
 - The session records the method `external_provider` and its provenance once (the connection and its tenant, the
   provider's authentication time, its session deadline, the policy version and the link's id), indexed by connection and
   by tenant. Its first proof is the provider's, with the private `amr` value `urn:sinemacula:amr:external_provider`, and
-  the provider's deadline caps the session. The provider's own `amr` values and evidence are the SSO package's: none of
-  them reaches this package's `amr`. The application can stop allowing `external_provider`, and those sessions stop
-  refreshing.
+  the provider's deadline caps the session. The provider's own `amr` values never become this package's: its evidence
+  counts only once the application's `ExternalEvidencePolicy` accepts it (see [Tenant authentication
+  policies](#tenant-authentication-policies)), and is recorded only then. The application can stop allowing
+  `external_provider`, and those sessions stop refreshing.
 - A tenant that requires sign-in through its connections says so through its `TenantAuthenticationPolicy` (see
   [Tenant authentication policies](#tenant-authentication-policies)): a session established through none of them is
   refused as `sso_required`, at sign-in and at refresh (which also revokes it).

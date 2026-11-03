@@ -191,6 +191,7 @@ final class BenchSchema
             $blueprint->string('key_protection', 16)->nullable();
             $blueprint->boolean('accepted')->nullable();
             $blueprint->boolean('multifactor')->nullable();
+            $blueprint->text('evidence')->nullable();
             $blueprint->string('methods', 1024);
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');

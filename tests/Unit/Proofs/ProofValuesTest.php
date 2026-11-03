@@ -10,6 +10,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationMethods;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
@@ -346,6 +347,7 @@ final class ProofValuesTest extends TestCase
         self::assertNull($bare->providerAuthenticatedAt);
         self::assertNull($bare->sessionNotAfter);
         self::assertNull((new Provenance('connection-7'))->linkId);
+        self::assertNull($bare->evidence);
         self::assertSame([255, 64], [Provenance::ID_MAX_LENGTH, Provenance::VERSION_MAX_LENGTH]);
 
         $wide = new Provenance(str_repeat('é', 255), str_repeat('é', 255), policyVersion: str_repeat('é', 64), linkId: str_repeat('é', 255));
@@ -354,6 +356,10 @@ final class ProofValuesTest extends TestCase
             [str_repeat('é', 255), str_repeat('é', 255), str_repeat('é', 64), str_repeat('é', 255)],
             [$wide->connectionId, $wide->tenantId, $wide->policyVersion, $wide->linkId],
         );
+
+        $evidence = new ExternalEvidence(['pwd', 'otp'], 'urn:acr:mfa', CarbonImmutable::parse('2026-04-06 11:58:00'));
+
+        self::assertSame($evidence, (new Provenance('connection-7', evidence: $evidence))->evidence);
     }
 
     /**
@@ -410,6 +416,7 @@ final class ProofValuesTest extends TestCase
             [$result->channel, $result->observed, $result->evaluation, $result->authenticatedAt],
             [$proof->channel, $proof->observed, $proof->evaluation, $proof->authenticatedAt],
         );
+        self::assertNull($proof->evidence);
     }
 
     /**
@@ -445,6 +452,7 @@ final class ProofValuesTest extends TestCase
         ]);
         self::assertSame(ChannelKind::PASSWORD, $proof->channel->kind);
         self::assertNull($proof->observed->userPresence);
+        self::assertNull($proof->evidence);
     }
 
     /**

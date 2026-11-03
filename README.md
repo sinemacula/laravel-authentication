@@ -54,7 +54,8 @@ are caught on the server.
 - **Pending sessions**: a sign-in that still owes a further factor or a choice of principal waits as a pending session,
   with a short-lived credential that allows only the actions it owes; an identity's factor policy and a tenant's
   authentication policy each answer a requirement (an additional verification, multifactor, a minimum assurance level,
-  phishing resistance), judged against the session's proofs, and a tenant may require single sign-on of the sessions
+  phishing resistance), judged against the session's proofs, or against an external provider's evidence once the
+  application's evidence policy accepts it (never by default), and a tenant may require single sign-on of the sessions
   acting in it.
 - **Sessions**: timestamped proofs of every sign-in and an external provider's provenance on each session, step-up and
   reauthentication with `auth_time` and `amr` derived from the proofs, per-operation freshness judged on the proof that
