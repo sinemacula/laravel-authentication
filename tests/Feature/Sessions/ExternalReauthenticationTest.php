@@ -380,7 +380,8 @@ final class ExternalReauthenticationTest extends TestCase
      * A session that is another guard's, revoked, pending, ended or a machine's
      * takes no external reauthentication, nor does an identifier that names no
      * session or cannot be a key, and the link contract is never asked for
-     * them.
+     * them. A machine's session that is also revoked is refused as revoked: the
+     * session's own refusal comes before its owner's.
      *
      * @return void
      *
@@ -401,6 +402,7 @@ final class ExternalReauthenticationTest extends TestCase
             [['revoked_at' => null, 'status' => 'pending'], FailureReason::SESSION_PENDING],
             [['status' => 'active', 'idle_expires_at' => $this->now], FailureReason::SESSION_EXPIRED],
             [['idle_expires_at' => $this->now->addHour(), 'authenticatable_type' => MachineClient::class], FailureReason::MACHINE_IDENTITY],
+            [['revoked_at' => $this->now], FailureReason::SESSION_REVOKED],
         ];
 
         foreach ($states as [$state, $reason]) {
