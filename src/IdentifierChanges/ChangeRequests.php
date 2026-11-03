@@ -348,7 +348,6 @@ final readonly class ChangeRequests
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     private function write(Identity&Model $identity, RequestedChange $change, ?array $link, EventContext $context): IdentifierChangeRequest|int
     {

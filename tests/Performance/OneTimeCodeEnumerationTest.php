@@ -413,11 +413,17 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
      * one, so a known identifier's answer and an unknown one's compare.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeRequest  $request
-     * @return array{0: \SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus, 1: ?string, 2: ?int, 3: bool}
+     * @return array{0: \SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus, 1: ?string, 2: ?int, 3: bool, 4: ?string}
      */
     private static function shape(CodeRequest $request): array
     {
-        return [$request->status, $request->expiresAt?->toIso8601String(), $request->retryAfter, preg_match(self::CHALLENGE_PATTERN, (string) $request->challengeId) === 1];
+        return [
+            $request->status,
+            $request->expiresAt?->toIso8601String(),
+            $request->retryAfter,
+            preg_match(self::CHALLENGE_PATTERN, (string) $request->challengeId) === 1,
+            $request->resendAvailableAt?->toIso8601String(),
+        ];
     }
 
     /**

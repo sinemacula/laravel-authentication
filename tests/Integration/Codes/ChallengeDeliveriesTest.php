@@ -472,7 +472,8 @@ final class ChallengeDeliveriesTest extends TestCase
     /**
      * A resend whose challenge another request ends between its read and its
      * write (a check that used it) is written as a new challenge instead, so a
-     * used challenge never comes back to life.
+     * used challenge never comes back to life; it says when the next may be
+     * made as the resend would have, here once its window ends.
      *
      * @return void
      *
@@ -480,6 +481,8 @@ final class ChallengeDeliveriesTest extends TestCase
      */
     public function testAResendOvertakenByAUseStartsANewChallenge(): void
     {
+        config()->set('authentication.codes.max_deliveries', 2);
+
         $binding = self::binding();
         $first   = self::codes()->issue($binding, $this->now);
 
@@ -496,6 +499,7 @@ final class ChallengeDeliveriesTest extends TestCase
             [$next->challengeId, null, 2],
             [DB::table('one_time_codes')->value('challenge_id'), DB::table('one_time_codes')->value('consumed_at'), self::column('deliveries')],
         );
+        self::assertSame(1800, $this->resendAfter($next));
     }
 
     /**
@@ -555,6 +559,73 @@ final class ChallengeDeliveriesTest extends TestCase
     }
 
     /**
+     * Each delivery says when the next may be made, and the engine agrees: a
+     * request a second before is refused and one at that second is delivered.
+     * It is the cooldown after the delivery (a new window's first included),
+     * the window's end once the window has had all its deliveries (a first one,
+     * when the window allows only one) or would cut a code shorter than the
+     * cooldown (never a reset link's token, which it does not cut), the
+     * cooldown again when it ends after the window does, and the delivery's own
+     * second with no cooldown.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testEachDeliverySaysWhenTheNextMayBeMade(): void
+    {
+        config()->set('authentication.codes.max_deliveries', 3);
+
+        $binding = self::binding();
+
+        self::assertSame(60, $this->resendAfter(self::codes()->issue($binding, $this->now)));
+        self::assertSame(120, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(60))));
+        self::assertSame(1800, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(120))));
+        self::assertSame(1860, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(1800))));
+
+        DB::table('one_time_codes')->delete();
+        config()->set('authentication.codes.max_deliveries', 1);
+
+        self::assertSame(1800, $this->resendAfter(self::codes()->issue($binding, $this->now)));
+        self::assertSame(3600, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(1800))));
+
+        DB::table('one_time_codes')->delete();
+        config()->set('authentication.codes.max_deliveries', 3);
+        config()->set('authentication.codes.resend_cooldown_seconds', 0);
+
+        self::assertSame(0, $this->resendAfter(self::codes()->issue($binding, $this->now)));
+        self::assertSame(10, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(10))));
+
+        config()->set('authentication.codes.resend_cooldown_seconds', 60);
+
+        DB::table('one_time_codes')->delete();
+        config()->set('authentication.codes.max_deliveries', 10);
+
+        self::codes()->issue($binding, $this->now);
+
+        self::assertSame(1740, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(1680))));
+
+        DB::table('one_time_codes')->delete();
+        self::codes()->issue($binding, $this->now);
+
+        self::assertSame(1800, $this->resendAfter(self::codes()->issue($binding, $this->now->addSeconds(1700))));
+
+        DB::table('one_time_codes')->delete();
+
+        $link = self::linkBinding();
+
+        self::codes()->issueToken($link, $this->now, 3600);
+
+        self::assertSame(1760, $this->resendAfter(self::codes()->issueToken($link, $this->now->addSeconds(1700), 3600), $link));
+
+        DB::table('one_time_codes')->delete();
+        config()->set('authentication.codes.max_deliveries', 2);
+        self::codes()->issueToken($link, $this->now, 3600);
+
+        self::assertSame(1830, $this->resendAfter(self::codes()->issueToken($link, $this->now->addSeconds(1770), 3600), $link));
+    }
+
+    /**
      * The attempts counted against the live code.
      *
      * @return int
@@ -566,6 +637,35 @@ final class ChallengeDeliveriesTest extends TestCase
         self::assertIsNumeric($attempts);
 
         return (int) $attempts;
+    }
+
+    /**
+     * The second, counted from the start of the test, from which the issued
+     * code says another may be delivered, once the engine has refused a request
+     * the second before and delivered one at it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\DeliveryRefusal|\SineMacula\Laravel\Authentication\Codes\IssuedCode  $issued
+     * @param  ?\SineMacula\Laravel\Authentication\Codes\CodeBinding  $token
+     * @return int
+     *
+     * @throws \Random\RandomException
+     */
+    private function resendAfter(DeliveryRefusal|IssuedCode $issued, ?CodeBinding $token = null): int
+    {
+        self::assertInstanceOf(IssuedCode::class, $issued);
+
+        $at    = $issued->resendAvailableAt;
+        $issue = static fn (CarbonImmutable $when): DeliveryRefusal|IssuedCode => $token === null
+            ? self::codes()->issue(self::binding(), $when)
+            : self::codes()->issueToken($token, $when, 3600);
+        $row = (array) DB::table('one_time_codes')->sole();
+
+        self::assertInstanceOf(DeliveryRefusal::class, $issue($at->subSecond()));
+        self::assertInstanceOf(IssuedCode::class, $issue($at));
+
+        DB::table('one_time_codes')->update($row);
+
+        return (int) $this->now->diffInSeconds($at);
     }
 
     /**

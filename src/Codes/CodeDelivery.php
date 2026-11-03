@@ -52,7 +52,7 @@ final readonly class CodeDelivery
         /** How long the secret works for, at most. */
         public int $ttlSeconds,
 
-        /** The secret and its issuance, before its challenge and expiry are known. */
+        /** The secret and its issuance, before its challenge, expiry and resend time are known. */
         private IssuedCode $secret,
     ) {
         $this->issueId     = $secret->issueId;
@@ -76,7 +76,7 @@ final readonly class CodeDelivery
     {
         $digest  = $keys->binding($binding);
         $issueId = Str::uuid()->toString();
-        $issued  = new IssuedCode($secret, $issueId, $now->addSeconds($ttlSeconds), Str::uuid()->toString());
+        $issued  = new IssuedCode($secret, $issueId, $now->addSeconds($ttlSeconds), Str::uuid()->toString(), $now);
 
         return new self($digest, $keys->context($binding), $keys->code($digest, $issueId, $secret), $now, $ttlSeconds, $issued);
     }
@@ -136,16 +136,18 @@ final readonly class CodeDelivery
 
     /**
      * The code issued once the delivery is written, for the challenge it was
-     * written to, working until the time given.
+     * written to, working until the time given, with when another may be
+     * delivered to its key.
      *
      * @param  string  $challengeId
      * @param  \Carbon\CarbonImmutable  $expiresAt
+     * @param  \Carbon\CarbonImmutable  $resendAvailableAt
      * @return \SineMacula\Laravel\Authentication\Codes\IssuedCode
      *
      * @throws \InvalidArgumentException
      */
-    public function issued(string $challengeId, CarbonImmutable $expiresAt): IssuedCode
+    public function issued(string $challengeId, CarbonImmutable $expiresAt, CarbonImmutable $resendAvailableAt): IssuedCode
     {
-        return new IssuedCode($this->secret->code(), $this->issueId, $expiresAt, $challengeId);
+        return new IssuedCode($this->secret->code(), $this->issueId, $expiresAt, $challengeId, $resendAvailableAt);
     }
 }

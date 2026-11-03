@@ -307,7 +307,8 @@ have been issued for it within the codes' `resend_cooldown_seconds` (`rate_limit
 delivery window must allow another delivery (`deliveries_exhausted`, with the wait until the window ends). Then a token
 or a code is issued for the identifier, whoever holds it, and its delivery queued (see [One-time
 codes](configuration.md#one-time-codes) for the delivery queue): the answer is a `CodeRequest`, `sent` with when it
-expires and, for a code, the challenge id its reset names (a resend of a live code keeps it). A link request answers
+expires, when another may be requested for the identifier (`resendAvailableAt`, the same for an identifier no one
+holds) and, for a code, the challenge id its reset names (a resend of a live code keeps it). A link request answers
 with the code requests' type as well (`CodeRequest` and `Codes\Enums\CodeRequestStatus`, as the route above imports): a
 reset link's token is issued and limited by the same engine as a code, is its own challenge (its answer carries no
 challenge id), and the answer has the same statuses. A newer link or code replaces the one before, which stops working

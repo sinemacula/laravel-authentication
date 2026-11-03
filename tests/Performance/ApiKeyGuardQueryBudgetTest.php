@@ -167,7 +167,9 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
 
         self::assertIsString($token);
 
-        $this->startMachineRequest(substr($token, 0, -2) . strrev(substr($token, -2)));
+        $signature = (int) strrpos($token, '.') + 1;
+
+        $this->startMachineRequest(substr_replace($token, $token[$signature] === 'A' ? 'B' : 'A', $signature, 1));
 
         $request = request();
         $request->attributes->set(BearerForms::ROUTE_GUARDS, ['machine', 'm2m']);

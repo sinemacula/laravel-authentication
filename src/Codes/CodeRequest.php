@@ -10,11 +10,11 @@ use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal;
 
 /**
  * How a request for a one-time code ended: sent, with the challenge it was
- * delivered for and when the code expires; rate limited, or out of deliveries
- * for the destination's window, with the seconds until another may be
- * requested; refused because the guard does not allow the method or the
- * identifier is not one; or, for a factor code, locked or refused by the factor
- * package.
+ * delivered for, when the code expires and when another may be requested; rate
+ * limited, or out of deliveries for the destination's window, with the seconds
+ * until another may be requested; refused because the guard does not allow the
+ * method or the identifier is not one; or, for a factor code, locked or refused
+ * by the factor package.
  *
  * A sign-in code, and a password reset link or code, is sent whether or not any
  * identity has the identifier, so the result is the same for an identifier no
@@ -22,6 +22,12 @@ use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal;
  * when the guard does not allow passwords. A code is checked with the challenge
  * id it was sent for, which a resend keeps; a reset link's token is its own
  * challenge and carries none.
+ *
+ * The time another may be requested is the destination's: the resend cooldown
+ * after this delivery, or the end of its delivery window when the window would
+ * refuse one before then. It is worked out from the destination's deliveries
+ * alone, so it is the same for an identifier no one has; the `code_request`
+ * rate limits can still refuse a request made after it.
  *
  * @api
  *
@@ -39,6 +45,7 @@ final readonly class CodeRequest
      * @param  ?string  $challengeId
      * @param  ?\Carbon\CarbonImmutable  $lockedUntil
      * @param  ?\SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal  $refusal
+     * @param  ?\Carbon\CarbonImmutable  $resendAvailableAt
      */
     private function __construct(
 
@@ -59,19 +66,24 @@ final readonly class CodeRequest
 
         /** Why the factor package refused, for `refused` only. */
         public ?FactorCodeRefusal $refusal = null,
+
+        /** When another code may be requested for the destination, for `sent` only. */
+        public ?CarbonImmutable $resendAvailableAt = null,
     ) {}
 
     /**
      * A code was issued and its delivery queued, for the challenge given (none
-     * for a reset link, whose token is its own).
+     * for a reset link, whose token is its own); another may be requested for
+     * the destination from the time given.
      *
      * @param  \Carbon\CarbonImmutable  $expiresAt
+     * @param  \Carbon\CarbonImmutable  $resendAvailableAt
      * @param  ?string  $challengeId
      * @return self
      */
-    public static function sent(CarbonImmutable $expiresAt, ?string $challengeId = null): self
+    public static function sent(CarbonImmutable $expiresAt, CarbonImmutable $resendAvailableAt, ?string $challengeId = null): self
     {
-        return new self(CodeRequestStatus::SENT, expiresAt: $expiresAt, challengeId: $challengeId);
+        return new self(CodeRequestStatus::SENT, expiresAt: $expiresAt, challengeId: $challengeId, resendAvailableAt: $resendAvailableAt);
     }
 
     /**

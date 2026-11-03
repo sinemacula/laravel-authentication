@@ -97,7 +97,6 @@ final readonly class OneTimeCodes
      *
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      *
      * @phpstan-impure
      */
@@ -120,7 +119,6 @@ final readonly class OneTimeCodes
      *
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      *
      * @phpstan-impure
      */
@@ -143,7 +141,6 @@ final readonly class OneTimeCodes
      *
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      *
      * @phpstan-impure
      */

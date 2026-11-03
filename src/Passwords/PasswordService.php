@@ -211,7 +211,6 @@ final readonly class PasswordService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function sendResetLink(#[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
     {
@@ -235,7 +234,6 @@ final readonly class PasswordService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function sendResetCode(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
     {

@@ -164,8 +164,8 @@ only duplicate them.
    (`OneTimeCodes::issueToken()`: 32 random bytes, base64url, 43 characters, stored as its keyed hash, lifetime
    `passwords.reset.link_ttl_seconds`) or a code (`issue()`). Within the resend cooldown: `rate_limited`.
 5. `QueuedDelivery::dispatch(new SendPasswordReset($binding, $issued), new OneTimeCode)`; the answer is
-   `CodeRequest::sent($expiresAt)`. No identity is looked up, so the statements and the time are the same for any
-   identifier.
+   `CodeRequest::sent($expiresAt, $resendAvailableAt)`. No identity is looked up, so the statements and the time are the
+   same for any identifier.
 
 `SendPasswordReset` (encrypted, queued) resolves the binding's guard by name and takes its context
 (`Runtime\JwtGuardContexts::named()`, the lookup the one-time code job makes): a guard that `auth.guards` does not

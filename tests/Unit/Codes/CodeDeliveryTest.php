@@ -84,7 +84,7 @@ final class CodeDeliveryTest extends TestCase
 
     /**
      * The code issued carries the secret, the delivery's issuance, and the
-     * challenge and expiry it was written for.
+     * challenge, expiry and resend time it was written for.
      *
      * @return void
      */
@@ -93,10 +93,11 @@ final class CodeDeliveryTest extends TestCase
         [$keys, $binding, $now] = self::fixture();
 
         $delivery = CodeDelivery::for($keys, $binding, self::CODE, $now, 600);
-        $issued   = $delivery->issued('challenge-1', $now->addSeconds(120));
+        $issued   = $delivery->issued('challenge-1', $now->addSeconds(120), $now->addSeconds(60));
 
         self::assertSame([self::CODE, $delivery->issueId, 'challenge-1'], [$issued->code(), $issued->issueId, $issued->challengeId]);
         self::assertTrue($now->addSeconds(120)->equalTo($issued->expiresAt));
+        self::assertTrue($now->addSeconds(60)->equalTo($issued->resendAvailableAt));
     }
 
     /**

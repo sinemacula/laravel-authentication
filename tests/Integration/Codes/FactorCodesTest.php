@@ -130,8 +130,8 @@ final class FactorCodesTest extends TestCase
     /**
      * An admitted send issues an `mfa` challenge under the destination and the
      * identity, bound to its transaction, queues its delivery to the identity,
-     * and answers the challenge id; the counters are asked once and told
-     * nothing, since nothing was attempted.
+     * and answers the challenge id and when another may be sent; the counters
+     * are asked once and told nothing, since nothing was attempted.
      *
      * @return void
      *
@@ -146,6 +146,7 @@ final class FactorCodesTest extends TestCase
         self::assertSame(CodeRequestStatus::SENT, $request->status);
         self::assertSame($row['challenge_id'], $request->challengeId);
         self::assertTrue($this->now->addSeconds(600)->equalTo($request->expiresAt));
+        self::assertTrue($this->now->addSeconds(60)->equalTo($request->resendAvailableAt));
         self::assertSame(
             [self::bindingDigest(CodeBinding::factor('mobile', $binding)), 'mfa', 'mobile', 1],
             [$row['id'], $row['purpose'], $row['guard'], (int) $row['deliveries']],
