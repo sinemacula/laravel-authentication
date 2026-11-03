@@ -81,8 +81,9 @@ trait HoldsAuthenticationContext
     /**
      * Forget the authentication context the guard holds, so the next ask builds
      * it again, when the bound session is the one given: a flow that changed
-     * the session's proofs calls it once the change commits. A binding to any
-     * other session, and a request not yet resolved, are left alone.
+     * the session's proofs calls it once the change commits or rolls back. A
+     * binding to any other session, and a request not yet resolved, are left
+     * alone.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @return void

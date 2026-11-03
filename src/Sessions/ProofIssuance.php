@@ -44,10 +44,11 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * transaction), and one access token issued, its `auth_time` and `amr` derived
  * from the proofs, the new one included, and answered with when it expires (the
  * access lifetime from its issue, never past the session's end). Once the proof
- * commits, every resolved guard bound to the session forgets the authentication
- * context it holds, so the rest of the request sees the proof. Nothing else is
- * written: the refresh token, the deadlines and the session row stay as they
- * were, so a concurrent refresh's compare-and-swap is unaffected.
+ * commits or rolls back, every resolved guard bound to the session forgets the
+ * authentication context it holds, so the rest of the request reads the proofs
+ * as they then stand. Nothing else is written: the refresh token, the deadlines
+ * and the session row stay as they were, so a concurrent refresh's
+ * compare-and-swap is unaffected.
  *
  * Every check and the token are judged at the second the lock is taken, not
  * when the caller began: a credential's verification and the wait for the lock
