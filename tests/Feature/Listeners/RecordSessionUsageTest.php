@@ -6,6 +6,7 @@ namespace Tests\Feature\Listeners;
 
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Container\Container;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -217,6 +218,31 @@ final class RecordSessionUsageTest extends TestCase
         $gone->delete();
 
         self::assertSame(1, $this->countQueries(static fn () => (new RecordSessionUsage)(self::bound($gone, self::IP, self::USER_AGENT))));
+    }
+
+    /**
+     * An event that names no session is done with before the auth manager is
+     * resolved, so it needs nothing bound: in a container that binds nothing,
+     * it resolves nothing and does not throw.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testAnEventNamingNoSessionResolvesNothing(): void
+    {
+        $container = Container::getInstance();
+        $empty     = new Container;
+
+        Container::setInstance($empty);
+
+        try {
+            (new RecordSessionUsage)(new SessionAuthenticated(new EventContext('api', new ClientContext(self::IP, self::USER_AGENT))));
+        } finally {
+            Container::setInstance($container);
+        }
+
+        self::assertFalse($empty->resolved('auth'));
     }
 
     /**
