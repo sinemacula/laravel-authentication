@@ -63,7 +63,9 @@ session holds; the token's claims and every freshness answer are worked out from
   (multifactor when it met multifactor authentication). Evidence that is not accepted is recorded nowhere and counts for
   nothing; there is no partial acceptance. A result's evidence is never dated after the provider's time the result gives
   (`ExternalResult` refuses it): the provider's time times the proof, the evidence's own time is what its acceptance and
-  any requirement judged on it age.
+  any requirement judged on it age. Evidence that is not valid UTF-8, or whose stored JSON (every character outside
+  ASCII escaped, up to twelve bytes for one) would exceed `ExternalEvidence::STORED_MAX_BYTES` (65,535, a MySQL `TEXT`
+  column), is refused when it is built, so evidence once accepted is always written.
 - Freshness takes no provider's evidence: a proof that carries accepted evidence never meets a freshness requirement
   that asks for multifactor authentication (`SessionProofs::newestMeeting()`), since the evidence was accepted as of any
   age and the proof is timed at the provider's time, not the evidence's. It still meets one that does not, on its time.

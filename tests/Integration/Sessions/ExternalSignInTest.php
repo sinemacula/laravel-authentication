@@ -11,19 +11,23 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Sessions\ExternalSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\TestCase;
 
 /**
@@ -174,6 +178,31 @@ final class ExternalSignInTest extends TestCase
         }
 
         self::assertSame(1, SessionProvenance::query()->where('link_id', 'link-a')->count());
+    }
+
+    /**
+     * The largest evidence the evidence takes, all of it outside ASCII and
+     * outside the basic plane, is written with the first proof and the
+     * provenance on every engine, and reads back unchanged from both.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheLargestEvidenceIsStoredWhole(): void
+    {
+        app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]));
+
+        $now      = CarbonImmutable::now();
+        $methods  = [...array_fill(0, 21, str_repeat("\u{1F600}", 255)), str_repeat("\u{1F600}", 80)];
+        $stored   = ['methods' => $methods, 'context' => '', 'authenticated_at' => $now->utc()->toIso8601String()];
+        $room     = ExternalEvidence::STORED_MAX_BYTES - strlen((string) json_encode($stored));
+        $evidence = new ExternalEvidence($methods, str_repeat('c', $room), $now);
+        $record   = $this->sessions()->signInExternally($this->linkedResult($this->seedIdentity(), evidence: $evidence))->session?->record;
+
+        self::assertNotNull($record);
+        self::assertEquals($evidence, SessionProofs::acceptedEvidence($record));
+        self::assertEquals($evidence, SessionProofs::provenance($record)?->evidence);
     }
 
     /**

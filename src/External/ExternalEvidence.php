@@ -17,7 +17,11 @@ use Carbon\CarbonInterface;
  * from what a client sent. It counts for nothing on its own: only once the
  * bound `Contracts\ExternalEvidencePolicy` says it meets a requirement is it
  * accepted, and only accepted evidence is recorded. The time is kept to the
- * whole second.
+ * whole second. Its values are counted in characters, but it is stored as JSON
+ * that escapes every character outside ASCII, up to twelve bytes for one, so
+ * evidence that is not valid UTF-8, or whose stored form would exceed
+ * `STORED_MAX_BYTES`, is refused here rather than by the database once
+ * accepted.
  *
  * @api
  *
@@ -34,6 +38,9 @@ final readonly class ExternalEvidence
 
     /** @var int Longest authentication context, in characters. */
     public const int CONTEXT_MAX_LENGTH = 1024;
+
+    /** @var int Most bytes the evidence takes as stored, in JSON: the length of a MySQL `TEXT` column. */
+    public const int STORED_MAX_BYTES = 65535;
 
     /** @var \Carbon\CarbonImmutable The time the evidence is for, to the whole second. */
     public CarbonImmutable $authenticatedAt;
@@ -65,6 +72,12 @@ final readonly class ExternalEvidence
         }
 
         $this->authenticatedAt = CarbonImmutable::instance($authenticatedAt)->startOfSecond();
+
+        $stored = json_encode($this->toArray());
+
+        if ($stored === false || strlen($stored) > self::STORED_MAX_BYTES) {
+            throw new \InvalidArgumentException(sprintf('An external provider\'s evidence must be valid UTF-8 and at most %d bytes as stored.', self::STORED_MAX_BYTES));
+        }
     }
 
     /**

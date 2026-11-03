@@ -90,6 +90,35 @@ final class ExternalEvidenceTest extends TestCase
     }
 
     /**
+     * Evidence whose stored JSON, every character outside ASCII escaped (twelve
+     * bytes for one outside the basic plane), takes exactly the most bytes it
+     * may is kept; a byte more, though every value fits in characters, is
+     * refused, as is evidence that is not valid UTF-8.
+     *
+     * @return void
+     */
+    public function testTheEvidenceIsRefusedWhenItsStoredFormDoesNotFit(): void
+    {
+        $at      = CarbonImmutable::parse('2026-04-06 11:58:00');
+        $methods = [...array_fill(0, 21, str_repeat("\u{1F600}", 255)), str_repeat("\u{1F600}", 80)];
+        $room    = ExternalEvidence::STORED_MAX_BYTES - strlen((string) json_encode(['methods' => $methods, 'context' => '', 'authenticated_at' => $at->utc()->toIso8601String()]));
+        $fits    = new ExternalEvidence($methods, str_repeat('c', $room), $at);
+
+        self::assertSame(65535, ExternalEvidence::STORED_MAX_BYTES);
+        self::assertSame(ExternalEvidence::STORED_MAX_BYTES, strlen((string) json_encode($fits->toArray())));
+
+        foreach ([[$methods, str_repeat('c', $room + 1)], [["\xff"], null]] as [$refused, $context]) {
+            try {
+                new ExternalEvidence($refused, $context, $at);
+
+                self::fail('The evidence should have been refused.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertSame('An external provider\'s evidence must be valid UTF-8 and at most 65535 bytes as stored.', $exception->getMessage());
+            }
+        }
+    }
+
+    /**
      * The stored form holds the methods, the context and the time in UTC as ISO
      * 8601, whatever the time zone it was given in, and reads back as the same
      * evidence.
