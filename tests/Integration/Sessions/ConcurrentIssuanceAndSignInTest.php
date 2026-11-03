@@ -69,11 +69,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 {
     use InteractsWithExternalSignIns, InteractsWithIsolationLevels, InteractsWithProofs, InteractsWithSessions;
 
-    /** @var int How long the first side holds its transaction once the second is about to insert its proof, in microseconds. */
-    private const int HOLD_MICROSECONDS = 1000000;
-
-    /** @var float The time, in seconds, that separates a sign-in that waited for the first side from one that did not. */
-    private const float WAIT_THRESHOLD_SECONDS = 0.5;
+    /** @var int How long the first side holds its transaction open for the second to finish once it is about to insert its proof, in seconds. */
+    private const int HOLD_SECONDS = 1;
 
     /** @var int How long either side waits for the other's signal before giving up, in seconds. */
     private const int SIGNAL_TIMEOUT_SECONDS = 10;
@@ -177,7 +174,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
             return (string) IdentifierCoercion::stringify($session->record->getKey());
         });
 
-        self::assertSame(self::waitsAt($level), $reported['waited'] >= self::WAIT_THRESHOLD_SECONDS);
+        self::assertSame(self::waitsAt($level), $reported['blocked']);
         self::assertSame(['first_factor'], DB::table('authentication_proofs')->where('session_id', $reported['result'])->pluck('kind')->all());
         self::assertTrue(DB::table('authentication_provenance')->where('session_id', $reported['result'])->exists());
         self::assertSame(2, DB::table('authentication_sessions')->where('status', 'active')->whereNull('revoked_at')->count());
@@ -243,7 +240,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
             return $their;
         });
 
-        self::assertSame(self::waitsAt($level), $reported['waited'] >= self::WAIT_THRESHOLD_SECONDS);
+        self::assertSame(self::waitsAt($level), $reported['blocked']);
         self::assertContains($kind->value, DB::table('authentication_proofs')->where('session_id', $their)->pluck('kind')->all());
     }
 
@@ -367,14 +364,15 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     /**
      * Issue here inside a caller's transaction at the isolation level, start
      * the second side in another process once it has issued, hold the
-     * transaction open until the second side is about to insert its proof and a
-     * while after, then commit, and return what the second side reported: what
-     * it returned, and how long it took.
+     * transaction open until the second side is about to insert its proof and
+     * then until it finishes, for no longer than the hold, then commit, and
+     * return what the second side returned and whether it was blocked: still
+     * unfinished when the transaction committed.
      *
      * @param  \Closure(): ?\SineMacula\Laravel\Authentication\Secrets\Secret  $issue
      * @param  string  $level
      * @param  \Closure(): string  $second
-     * @return array{result: string, waited: float}
+     * @return array{result: string, blocked: bool}
      *
      * @throws \Throwable
      */
@@ -396,7 +394,11 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
                     touch($inserting);
                 });
 
-                return $second();
+                $result = $second();
+
+                touch("{$this->outcomes}/finished");
+
+                return $result;
             });
         }
 
@@ -410,7 +412,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
             self::abandon($pid, 'The second side never reached the insert of its proof, so the two did not overlap.');
         }
 
-        usleep(self::HOLD_MICROSECONDS);
+        $finished = self::wasSignalled("{$this->outcomes}/finished", self::HOLD_SECONDS);
 
         DB::commit();
 
@@ -421,9 +423,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
         self::assertIsArray($reported);
         self::assertArrayNotHasKey('error', $reported);
         self::assertIsString($reported['result']);
-        self::assertIsFloat($reported['waited']);
 
-        return ['result' => $reported['result'], 'waited' => $reported['waited']];
+        return ['result' => $reported['result'], 'blocked' => !$finished];
     }
 
     /**
@@ -441,8 +442,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
     /**
      * In the forked process: wait to be started, run the second side on a
-     * connection of its own, report its outcome and how long it took, and end
-     * without running the parent's shutdown.
+     * connection of its own, report its outcome, and end without running the
+     * parent's shutdown.
      *
      * @param  \Closure(): string  $second
      * @return never
@@ -453,9 +454,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
         try {
             if (self::wasSignalled("{$this->outcomes}/start")) {
-                $started = microtime(true);
-                $result  = $second();
-                $outcome = ['result' => $result, 'waited' => microtime(true) - $started];
+                $outcome = ['result' => $second()];
             }
         } catch (\Throwable $e) {
             $outcome = ['error' => $e::class . ': ' . $e->getMessage()];
@@ -470,14 +469,15 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
     /**
      * Wait for the other side to create the signal file, for no longer than the
-     * timeout: whether it did.
+     * timeout in seconds: whether it did.
      *
      * @param  string  $signal
+     * @param  int  $timeout
      * @return bool
      */
-    private static function wasSignalled(string $signal): bool
+    private static function wasSignalled(string $signal, int $timeout = self::SIGNAL_TIMEOUT_SECONDS): bool
     {
-        $deadline = microtime(true) + self::SIGNAL_TIMEOUT_SECONDS;
+        $deadline = microtime(true) + $timeout;
 
         while (!is_file($signal) && microtime(true) < $deadline) {
             usleep(5000);
