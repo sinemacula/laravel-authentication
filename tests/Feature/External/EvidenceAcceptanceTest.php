@@ -47,9 +47,11 @@ final class EvidenceAcceptanceTest extends TestCase
      * Evidence the policy says meets multifactor authentication is accepted as
      * multifactor, after one question; evidence it says meets only an
      * additional verification is accepted, not as multifactor, after it was
-     * asked for multifactor first; evidence that meets neither is not accepted.
-     * Each question asks for the one part, of any age, about the subject, with
-     * reads pinned to the write connection.
+     * asked for multifactor first; evidence it says meets only phishing
+     * resistance is accepted, not as multifactor, after both; evidence that
+     * meets none (a minimum level alone) is not accepted. Each question asks
+     * for the one part, of any age, about the subject, with reads pinned to the
+     * write connection.
      *
      * @return void
      */
@@ -76,10 +78,19 @@ final class EvidenceAcceptanceTest extends TestCase
         self::assertNull($additional->asked[1]['requirement']->additionalVerification?->maxAgeSeconds);
         self::assertTrue($additional->asked[1]['pinned']);
 
-        $neither = $this->bind([RequirementKind::PHISHING_RESISTANCE]);
+        $resistant = $this->bind([RequirementKind::PHISHING_RESISTANCE]);
+
+        self::assertEquals(new Evaluation(true, false), EvidenceAcceptance::evaluate($evidence, $subject));
+        $kinds = array_map(static fn (array $asked): array => $asked['requirement']->kinds(), $resistant->asked);
+
+        self::assertSame([[RequirementKind::MULTIFACTOR], [RequirementKind::ADDITIONAL_VERIFICATION], [RequirementKind::PHISHING_RESISTANCE]], $kinds);
+        self::assertNull($resistant->asked[2]['requirement']->phishingResistance?->maxAgeSeconds);
+        self::assertTrue($resistant->asked[2]['pinned']);
+
+        $none = $this->bind([RequirementKind::MINIMUM_LEVEL]);
 
         self::assertNull(EvidenceAcceptance::evaluate($evidence, $subject));
-        self::assertCount(2, $neither->asked);
+        self::assertCount(3, $none->asked);
     }
 
     /**

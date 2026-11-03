@@ -234,10 +234,10 @@ and tenant, the provider's time and deadline, the policy version and the id of t
 recorded with the session, pending or active, and never rewritten, and the provider's deadline is folded into the
 context's (see [A sign-in's own deadline](#a-sign-ins-own-deadline)), so the earlier of the two caps the session's
 absolute deadline. The evidence counts only when the application's `ExternalEvidencePolicy` accepts it for the linked
-identity (as multifactor authentication or an additional verification): the first proof then carries the acceptance, so
-the token's `amr` gains `mfa` when it met multifactor authentication, the provenance records the evidence, and the
-identity-level requirement and a tenant's are judged against it at once. Evidence it does not accept is never recorded
-(see [Proofs and provenance](sessions.md#proofs-and-provenance)).
+identity (as multifactor authentication, an additional verification or phishing resistance): the first proof then
+carries the acceptance, so the token's `amr` gains `mfa` when it met multifactor authentication, the provenance records
+the evidence, and the identity-level requirement and a tenant's are judged against it at once. Evidence it does not
+accept is never recorded (see [Proofs and provenance](sessions.md#proofs-and-provenance)).
 
 ```php
 use SineMacula\Laravel\Authentication\External\ExternalResult;

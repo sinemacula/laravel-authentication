@@ -459,6 +459,34 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
+     * A tenant that requires only phishing resistance is met by evidence the
+     * evidence contract says meets phishing resistance but neither multifactor
+     * authentication nor an additional verification (a single hardware key):
+     * the evidence is accepted, recorded, not as multifactor, and the sign-in
+     * starts active.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEvidenceMeetingOnlyPhishingResistanceMeetsATenantThatRequiresIt(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        $evidence = new ExternalEvidence(['hwk'], null, $this->now);
+        $policy   = new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v4', new Requirement(phishingResistance: new RequirementPart)));
+
+        $this->app?->instance(TenantAuthenticationPolicy::class, $policy);
+        $this->app?->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::PHISHING_RESISTANCE]));
+
+        $met = $this->sessions('members')->signInExternally($this->linkedResult($member, evidence: $evidence), self::asPrincipal($membership));
+
+        self::assertTrue($met->isSignedIn());
+        self::assertSame([true, false], [SessionProof::query()->sole()->accepted, SessionProof::query()->sole()->multifactor]);
+        self::assertNotNull(SessionProof::query()->sole()->evidence);
+    }
+
+    /**
      * A sign-in that names no context takes the request's client, and the
      * provider's deadline alone caps the session.
      *

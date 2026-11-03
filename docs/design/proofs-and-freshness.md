@@ -52,18 +52,18 @@ session holds; the token's claims and every freshness answer are worked out from
   external one whose evidence was not accepted, renews `auth_time` and adds no value (`ProofHistory`, which
   `SessionProofs::history()` groups by acceptance too). A session with no counting first factor issues no token (a
   `LogicException`).
-- An external provider's evidence (`External\ExternalEvidence`: its `amr` values, its `acr` value or SAML
-  authentication context class reference, the time it is for) is accepted only when the bound
-  `Contracts\ExternalEvidencePolicy` says it meets multifactor authentication or, failing that, an additional
-  verification, each of any age, asked inside `WriteConnection::during()` for the identity
+- An external provider's evidence (`External\ExternalEvidence`: its `amr` values, its `acr` value or SAML authentication
+  context class reference, the time it is for) is accepted only when the bound `Contracts\ExternalEvidencePolicy` says
+  it meets multifactor authentication or, failing that, an additional verification or then phishing resistance, each of
+  any age and for no tenant, asked inside `WriteConnection::during()` for the identity
   (`External\EvidenceAcceptance::evaluate()`). The default, `InsufficientEvidence`, meets nothing, so by default no
   evidence is accepted. Accepted evidence is recorded with its proof (`proofs.evidence`, the first factor's at sign-in
   and an `external_reauthentication`'s) and, at sign-in, the provenance's `accepted_evidence`, dated no later than the
   time it was judged at (`EvidenceAcceptance::asOf()`), and the proof carries the acceptance as its evaluation
   (multifactor when it met multifactor authentication). Evidence that is not accepted is recorded nowhere and counts for
-  nothing; there is no partial acceptance. A result's evidence is never dated after the provider's time the result
-  gives (`ExternalResult` refuses it): the provider's time times the proof, the evidence's own time is what its
-  acceptance and any requirement judged on it age.
+  nothing; there is no partial acceptance. A result's evidence is never dated after the provider's time the result gives
+  (`ExternalResult` refuses it): the provider's time times the proof, the evidence's own time is what its acceptance and
+  any requirement judged on it age.
 - Freshness takes no provider's evidence: a proof that carries accepted evidence never meets a freshness requirement
   that asks for multifactor authentication (`SessionProofs::newestMeeting()`), since the evidence was accepted as of any
   age and the proof is timed at the provider's time, not the evidence's. It still meets one that does not, on its time.

@@ -234,10 +234,11 @@ $this->app->singleton(ExternalEvidencePolicy::class, TrustedProviderEvidence::cl
 The package asks it in two places, inside `WriteConnection::during()` for the identity:
 
 - When a sign-in or reauthentication at a provider brings evidence, it asks whether the evidence meets multifactor
-  authentication and, if not, an additional verification, each of any age. Evidence that meets either is accepted: it
-  is recorded with the proof (and, at sign-in, with the session's provenance), the proof's evaluation is accepted, and
-  multifactor when it met multifactor authentication, so `amr` gains `mfa`. Evidence that meets neither is not
-  recorded and counts for nothing; a reauthentication at the provider then renews `auth_time` and nothing else.
+  authentication and, if not, an additional verification and then phishing resistance, each of any age and for no
+  tenant. Evidence that meets any of them is accepted: it is recorded with the proof (and, at sign-in, with the
+  session's provenance), the proof's evaluation is accepted, and multifactor when it met multifactor authentication, so
+  `amr` gains `mfa`. Evidence that meets none (a minimum level alone has no level to ask for, so it is never asked) is
+  not recorded and counts for nothing; a reauthentication at the provider then renews `auth_time` and nothing else.
 - When the identity-level requirement or a tenant's is judged on a session an external provider established that holds
   accepted evidence, it asks whether the newest accepted evidence (by its own time) meets the whole requirement. When
   it does, the requirement is met and `RequirementCheck` is not asked; when it does not, `RequirementCheck` judges the

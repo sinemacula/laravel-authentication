@@ -36,17 +36,17 @@ revoked through it (see [Connections and links](#connections-and-links)); there 
 yet.
 
 A provider's evidence (its `amr` values, its `acr` value or SAML authentication context class reference, and the time it
-is for) counts for nothing until the application binds an `ExternalEvidencePolicy` that accepts it (see
-[Tenant authentication policies](extending.md#tenant-authentication-policies)). Evidence the policy says meets
-multifactor authentication or an additional verification is accepted: it is recorded with the proof that brought it, and
-with the provenance at sign-in; the proof's evaluation is accepted, and multifactor when it met multifactor
-authentication, so `amr` gains `mfa`; and the identity-level requirement and a tenant's are met when the policy says the
-newest accepted evidence meets the whole of one. Evidence that is not accepted is never recorded, and a reauthentication
-at the provider without accepted evidence renews `auth_time` and nothing else. Freshness takes no provider's evidence: a
-provider's proof meets a freshness requirement on its own time, but never one that asks for multifactor authentication,
-whatever its evidence says. A result's evidence may not be dated after the provider's time the result gives (an
-`InvalidArgumentException`): that time times the proof, and the evidence's own time is what its acceptance and a
-requirement judged on it age.
+is for) counts for nothing until the application binds an `ExternalEvidencePolicy` that accepts it (see [Tenant
+authentication policies](extending.md#tenant-authentication-policies)). Evidence the policy says meets multifactor
+authentication, an additional verification or phishing resistance is accepted: it is recorded with the proof that
+brought it, and with the provenance at sign-in; the proof's evaluation is accepted, and multifactor when it met
+multifactor authentication, so `amr` gains `mfa`; and the identity-level requirement and a tenant's are met when the
+policy says the newest accepted evidence meets the whole of one. Evidence that is not accepted is never recorded, and a
+reauthentication at the provider without accepted evidence renews `auth_time` and nothing else. Freshness takes no
+provider's evidence: a provider's proof meets a freshness requirement on its own time, but never one that asks for
+multifactor authentication, whatever its evidence says. A result's evidence may not be dated after the provider's time
+the result gives (an `InvalidArgumentException`): that time times the proof, and the evidence's own time is what its
+acceptance and a requirement judged on it age.
 
 Proofs and provenance belong to the session's key, so they carry unchanged from a pending session to the active one it
 becomes, and across every refresh and switch. A sign-in that replaces a session the client proved it holds is a new

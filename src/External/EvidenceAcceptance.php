@@ -14,14 +14,17 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 /**
  * Decides whether an external provider's evidence is accepted at all, and so
  * whether it is recorded and counts: only when the bound
- * `ExternalEvidencePolicy` says it meets an additional verification or
- * multifactor authentication, of any age. Anything else (the default policy,
- * evidence that meets neither) is insufficient, and nothing is recorded.
+ * `ExternalEvidencePolicy` says it meets multifactor authentication, an
+ * additional verification or phishing resistance, of any age. Anything else
+ * (the default policy, evidence that meets none) is insufficient, and nothing
+ * is recorded. A minimum assurance level has no level to ask for on its own, so
+ * evidence that meets a level and none of the three is not accepted.
  *
  * The policy is asked first for multifactor authentication and, only when that
- * is not met, for an additional verification, each inside
- * `WriteConnection::during()` for the identity. Evidence dated after the time
- * it is judged at (the clocks disagree) is judged as of that time.
+ * is not met, for an additional verification and then for phishing resistance,
+ * stopping at the first it meets, each inside `WriteConnection::during()` for
+ * the identity and for no tenant. Evidence dated after the time it is judged at
+ * (the clocks disagree) is judged as of that time.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -61,7 +64,9 @@ final class EvidenceAcceptance
             return new Evaluation(true, true);
         }
 
-        return $meets(new Requirement(additionalVerification: new RequirementPart)) ? new Evaluation(true, false) : null;
+        return $meets(new Requirement(additionalVerification: new RequirementPart)) || $meets(new Requirement(phishingResistance: new RequirementPart))
+            ? new Evaluation(true, false)
+            : null;
     }
 
     /**
