@@ -62,9 +62,9 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * judged again, so the session activates, stays pending, or moves on to the
  * choice. A refusal writes nothing (a proof given with it is not stored) and
  * never revokes the session, which waits until its credential expires; only
- * `discard()` ends one early. Once a proof `satisfy()` stored commits, every
- * resolved guard bound to the session forgets the authentication context it
- * holds.
+ * `discard()` ends one early. Once a proof `satisfy()` stored commits, or rolls
+ * back, every resolved guard bound to the session forgets the authentication
+ * context it holds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -99,7 +99,7 @@ final readonly class PendingSessions
         /** Revokes a discarded pending session and reports it once committed. */
         private RevocationWriter $revocations,
 
-        /** Defers forgetting the authentication contexts of a session until the proof it was given commits. */
+        /** Defers forgetting the authentication contexts of a session until the proof it was given commits or rolls back. */
         private AfterCommit $afterCommit,
     ) {}
 
@@ -206,7 +206,7 @@ final readonly class PendingSessions
 
             ProofWriter::record($session, $this->context->name(), NewProof::fromResult($proof));
 
-            ContextForgetting::onCommit($this->afterCommit, $session);
+            ContextForgetting::onSettle($this->afterCommit, $session);
 
             return $this->settle($session, $identity, $principal, $admitted, $now, $this->proven($session));
         });

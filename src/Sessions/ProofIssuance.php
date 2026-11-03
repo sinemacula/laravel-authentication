@@ -76,7 +76,7 @@ final readonly class ProofIssuance
         /** The guard's token service, which issues the new access token. */
         private JwtTokenService $tokens,
 
-        /** Defers forgetting the authentication contexts of the session until its proof commits. */
+        /** Defers forgetting the authentication contexts of the session until its proof commits or rolls back. */
         private AfterCommit $afterCommit,
     ) {}
 
@@ -158,7 +158,7 @@ final readonly class ProofIssuance
 
         self::assertAdmits($admits, $admitted, $session, $now);
 
-        ContextForgetting::onCommit($this->afterCommit, $session);
+        ContextForgetting::onSettle($this->afterCommit, $session);
 
         $token   = $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
         $expires = $this->tokens->lifetimes()->accessExpiry($now, WriteConnection::during($session, static fn (): ?CarbonImmutable => SessionDeadlines::liveEnd($session, $now)));

@@ -620,7 +620,9 @@ final class FactorRevocationsTest extends TestCase
      * A current session that stays active once its proofs made with the factor
      * are voided has the context of the guard bound to it forgotten once the
      * removal commits: it no longer holds the further factor. Inside a caller's
-     * transaction that rolls back, the context is kept.
+     * transaction that rolls back, a context held from before is kept until the
+     * rollback, and one built inside it, without the further factor, is
+     * forgotten with it: either way the rest of the request holds the factor.
      *
      * @return void
      *
@@ -632,20 +634,34 @@ final class FactorRevocationsTest extends TestCase
 
         $this->stepUp($current, 'factor-a');
 
-        $guard  = $this->boundGuard($current);
-        $before = $guard->authenticationContext();
+        $guard = $this->boundGuard($current);
+        $held  = $guard->authenticationContext();
 
-        self::assertTrue($before?->mfa);
+        self::assertTrue($held?->mfa);
 
         DB::beginTransaction();
 
         Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
 
-        self::assertSame($before, $guard->authenticationContext());
+        self::assertSame($held, $guard->authenticationContext());
 
         DB::rollBack();
 
-        self::assertSame($before, $guard->authenticationContext());
+        self::assertTrue($guard->authenticationContext()->mfa);
+
+        $guard = $this->boundGuard($current);
+
+        DB::beginTransaction();
+
+        Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
+
+        self::assertFalse($guard->authenticationContext()?->mfa);
+
+        DB::rollBack();
+
+        $before = $guard->authenticationContext();
+
+        self::assertTrue($before->mfa);
 
         DB::transaction(static function () use ($current, $guard, $before): void {
 

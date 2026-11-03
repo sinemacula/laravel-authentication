@@ -282,7 +282,7 @@ final readonly class FactorRevocations
 
         $container = $this->container;
 
-        ContextForgetting::onCommit(new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null), $locked);
+        ContextForgetting::onSettle(new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null), $locked);
 
         return $pending ? new FactorRemoval($revoked) : $this->judge($identity, $locked, $revoked, $ended, $now);
     }

@@ -23,11 +23,12 @@ permission: a policy that reads the context is the application's.
   `forgetIdentity()`, `setRequest()` and so every new request and every queued job through `forgetGuardState()`),
   `setPrincipal()` and `setSession()`. `setUser()` clears the previous state before it binds, so a context or credential
   kind from the binding it replaces never survives it. A flow that changes a session's proofs forgets it too, once the
-  change commits on the session's connection and never on rollback (`Context\ContextForgetting::onCommit()`): a step-up,
-  a password or external reauthentication (`ProofIssuance::issue()`), a satisfied further factor
-  (`PendingSessions::satisfy()`) and a voided proof (`FactorRevocations`, also when the session stays active). It asks
-  only the package guards already resolved under the names in `auth.guards` (`AuthManager::resolvedGuard()`, which
-  creates no guard and resolves no request), and each forgets its context only when its bound session is that session
+  change commits on the session's connection, and also once it rolls back (`Context\ContextForgetting::onSettle()`),
+  since a context built inside the transaction after the change read proofs that never committed: a step-up, a password
+  or external reauthentication (`ProofIssuance::issue()`), a satisfied further factor (`PendingSessions::satisfy()`) and
+  a voided proof (`FactorRevocations`, also when the session stays active). It asks only the package guards already
+  resolved under the names in `auth.guards` (`AuthManager::resolvedGuard()`, which creates no guard and resolves no
+  request), and each forgets its context only when its bound session is that session
   (`GuardBinding::forgetAuthenticationContext()`).
 - It is built from what the guard validated, never from input and never from a token's claims
   (`Context\ContextBuilder`): the bound identity, principal, active tenant (`tenant()`, so a tenant a trusted bind
@@ -101,6 +102,9 @@ permission: a policy that reads the context is the application's.
   `LogicException` (the guard holds a building flag, cleared in a `finally`); an exception a contributor throws
   propagates: a policy is never judged on part of a context.
 - A database error in the proofs read propagates as a server error; nothing is cached past the guard's bound state.
+- A context first built inside a transaction after a step-up or reauthentication in it holds proofs that have not
+  committed; if the transaction rolls back (at any level, a nested one that had committed into it included), the guard
+  forgets it, so the rest of the request is judged on the proofs as they stand, never on one that was rolled back.
 - A guard built outside `auth.guards` is never asked to forget a context after a proof change; it forgets it on its next
   bind or request like any other.
 
@@ -123,7 +127,7 @@ permission: a policy that reads the context is the application's.
   `steppedUpAt()`), `src/Proofs/SessionProofs.php` (`history()`, `provenance()`), `src/Proofs/Evaluation.php`,
   `src/External/EvidenceAcceptance.php`; `database/migrations/2026_04_06_000008_create_authentication_proofs_table.php`
 - `src/Sessions/ProofIssuance.php`, `src/Sessions/PendingSessions.php`, `src/Sessions/FactorRevocations.php`: the
-  forgetting after commit
+  forgetting after commit or rollback; `src/Database/AfterCommit.php` (`runIfRolledBack()`)
 
 ## Authoritative Tests
 
@@ -138,7 +142,8 @@ permission: a policy that reads the context is the application's.
 - `tests/Feature/Guards/HoldsAuthenticationContextTest.php`: built once and held, forgotten by every change to the bound
   state, the forgetting scoped to its session, re-entry refused, an unloadable tenant
 - `tests/Feature/Context/ContextForgettingTest.php`: a step-up, a reauthentication and an external reauthentication seen
-  by the rest of the request, only once committed; `tests/Feature/Sessions/PendingSessionsTest.php`
+  by the rest of the request, only once committed, and a context built inside a transaction that made one forgotten
+  when it rolls back; `tests/Feature/Sessions/PendingSessionsTest.php`
   `testASatisfiedFactorIsSeenByTheContextOfAGuardBoundToTheSession`; `tests/Feature/Sessions/FactorRevocationsTest.php`
   `testAVoidedProofIsForgottenFromTheContextOnceTheRemovalCommits`
 - `tests/Feature/Context/ContributionSubjectTest.php`: the provenance read once

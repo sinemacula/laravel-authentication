@@ -28,8 +28,9 @@ use Tests\TestCase;
  * bound session's proofs change in the request: a step-up, a reauthentication
  * with the first factor and one at the external provider each have every
  * resolved guard bound to the session build it again once the proof commits,
- * never before and never for a rolled-back one, and no guard is created to do
- * so.
+ * never before, and once it rolls back, so a context built inside the
+ * transaction never outlives a proof that did not commit; no guard is created
+ * to do so.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,14 +110,15 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction the context is kept until the step-up
-     * commits, and a step-up rolled back with it forgets nothing.
+     * Inside a caller's transaction a context held from before the step-up is
+     * kept until the step-up commits; a step-up rolled back has it built again,
+     * from the proofs as they stand.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheContextIsForgottenOnlyOnceTheProofCommits(): void
+    public function testAHeldContextIsKeptUntilTheProofCommits(): void
     {
         $signedIn = $this->signedIn();
         $guard    = $this->bearerGuard($signedIn);
@@ -130,16 +132,142 @@ final class ContextForgettingTest extends TestCase
 
         DB::rollBack();
 
-        self::assertSame($before, $guard->authenticationContext());
+        $rolledBack = $guard->authenticationContext();
+
+        self::assertNotSame($before, $rolledBack);
+        self::assertEquals($before, $rolledBack);
 
         DB::beginTransaction();
 
         self::assertTrue(Auth::sessions('api')->stepUp($proof)->isIssued());
-        self::assertSame($before, $guard->authenticationContext());
+        self::assertSame($rolledBack, $guard->authenticationContext());
 
         DB::commit();
 
         self::assertTrue($guard->authenticationContext()?->mfa);
+    }
+
+    /**
+     * A context first built inside a caller's transaction after a step-up in it
+     * holds the uncommitted further factor; once the transaction rolls back the
+     * guard forgets it, so the rest of the request holds none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAContextBuiltInsideARolledBackStepUpIsForgotten(): void
+    {
+        $signedIn = $this->signedIn();
+        $guard    = $this->bearerGuard($signedIn);
+
+        $this->clockAt($this->now->addMinute());
+
+        DB::beginTransaction();
+
+        self::assertTrue(Auth::sessions('api')->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+
+        $inside = Auth::context();
+
+        self::assertSame([true, 0, $this->now->addMinute()->getTimestamp()], [$inside?->mfa, $inside?->secondsSinceStepUp, $inside?->authTime?->getTimestamp()]);
+
+        DB::rollBack();
+
+        $after = Auth::context();
+
+        self::assertSame([false, null, $this->now->getTimestamp()], [$after?->mfa, $after?->secondsSinceStepUp, $after?->authTime?->getTimestamp()]);
+        self::assertSame($after, $guard->authenticationContext());
+    }
+
+    /**
+     * A context first built inside a caller's transaction after a
+     * reauthentication in it holds the uncommitted authentication time; once
+     * the transaction rolls back the guard forgets it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAContextBuiltInsideARolledBackReauthenticationIsForgotten(): void
+    {
+        $signedIn = $this->signedIn();
+        $guard    = $this->bearerGuard($signedIn);
+
+        $this->clockAt($this->now->addMinutes(5));
+
+        DB::beginTransaction();
+
+        self::assertTrue(Auth::sessions('api')->reauthenticate($signedIn->record, 'password', self::credentials())->isIssued());
+        self::assertSame($this->now->addMinutes(5)->getTimestamp(), self::authTimeOf($guard));
+
+        DB::rollBack();
+
+        self::assertSame($this->now->getTimestamp(), self::authTimeOf($guard));
+    }
+
+    /**
+     * A step-up in a nested transaction that commits into the outer one is
+     * forgotten when the outer one rolls back, and one whose nested transaction
+     * rolls back is forgotten at once, the outer one going on.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAContextBuiltInsideANestedTransactionIsForgottenWhicheverRollsBack(): void
+    {
+        $signedIn = $this->signedIn();
+        $guard    = $this->bearerGuard($signedIn);
+        $proof    = self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey());
+
+        DB::beginTransaction();
+        DB::beginTransaction();
+
+        self::assertTrue(Auth::sessions('api')->stepUp($proof)->isIssued());
+        self::assertTrue($guard->authenticationContext()?->mfa);
+
+        DB::commit();
+        DB::rollBack();
+
+        self::assertFalse($guard->authenticationContext()->mfa);
+
+        $guard = $this->bearerGuard($signedIn);
+
+        DB::beginTransaction();
+        DB::beginTransaction();
+
+        self::assertTrue(Auth::sessions('api')->stepUp($proof)->isIssued());
+        self::assertTrue($guard->authenticationContext()?->mfa);
+
+        DB::rollBack();
+
+        self::assertFalse($guard->authenticationContext()->mfa);
+
+        DB::commit();
+
+        self::assertFalse($guard->authenticationContext()->mfa);
+    }
+
+    /**
+     * A guard configured under a numeric name is asked as every other is: the
+     * forgetting reaches the bound guard however the configuration keys them.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGuardConfiguredUnderANumericNameDoesNotStopTheForgetting(): void
+    {
+        $signedIn = $this->signedIn();
+        $guard    = $this->bearerGuard($signedIn);
+
+        self::assertFalse($guard->authenticationContext()?->mfa);
+
+        config()->set('auth.guards.7', config('auth.guards.api'));
+
+        self::assertArrayHasKey(7, config('auth.guards'));
+        self::assertTrue(Auth::sessions('api')->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+        self::assertTrue($guard->authenticationContext()->mfa);
     }
 
     /**

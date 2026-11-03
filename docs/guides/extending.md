@@ -600,7 +600,8 @@ first ask after its bound state last changed, and holds it while that state is u
 proofs for it at most once however often it asks (one aggregate read on the write connection, and none for an API key or
 a client credentials token), and nothing outlives the request, under Octane too. Every bind, sign-out and
 `setPrincipal()` or `setSession()` forgets it, and so does a step-up, a reauthentication, a satisfied further factor and
-a further factor's removal once each commits, for every guard the request resolved that is bound to the session.
+a further factor's removal once each commits, for every guard the request resolved that is bound to the session. One
+rolled back forgets it too, so a context built inside its transaction never outlives the proofs it read there.
 
 The package's own keys are under the reserved `authentication` namespace, read with `get('authentication.<key>')`,
 `has()` (true for a key held with a `null` value) or `toArray()`, and are stable once released:
