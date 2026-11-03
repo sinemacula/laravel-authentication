@@ -68,6 +68,12 @@ cannot be refreshed, switched, stepped up or reauthenticated (issuing for it thr
 proof a freshness check finds. A test that needs tokens or freshness for a session starts it through the session
 service (`Auth::sessions()->signIn()` or `start()`), which records the first factor as a real sign-in does.
 
+`Auth::context()` under the helpers is built from what they bound, as it is for any trusted bind: `credential` is `null`
+(no credential was presented, a machine acted as with scopes included), and `amr`, `auth_time`, `mfa` and the other
+proof keys come only from the proofs the session acted on records, so a session the test made itself reports none. A
+test of a policy condition on the credential kind or a further factor binds a fake `Contracts\AuthenticationContexts`
+or builds a `Context\AuthenticationContext` itself (see [Authentication context](extending.md#authentication-context)).
+
 ## Fakes
 
 Each fake binds a fresh instance in place of the package's or the application's binding with `fake()` (in the

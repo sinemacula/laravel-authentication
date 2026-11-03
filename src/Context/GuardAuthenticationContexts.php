@@ -28,6 +28,8 @@ final class GuardAuthenticationContexts implements AuthenticationContexts
      * @return ?\SineMacula\Laravel\Authentication\Context\AuthenticationContext
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */

@@ -67,8 +67,9 @@ token, a request that throws after authenticating, a sign-in that ends pending a
 jobs between them, in either order, each request seeing only its own identity, principal, tenant, session, scopes,
 caller, default guard and authentication context (`Auth::context()`), and reporting only its own failures. A context
 contributor is resolved from the container serving the request each time a context is built, so one that depends on a
-scoped service gets that request's instance; register contributors in a provider's `boot()`, not inside a request, which
-registers in that request's sandbox alone.
+scoped service gets that request's instance. Register contributors only in a provider's `boot()`: the registry the boot
+resolved is the one every request's sandbox shares, so a registration made inside a request outlives it, reaches every
+later request the worker serves, and the same registration in the next request throws as a duplicate.
 
 Outside Octane, each request rebinds Laravel's `request`, which resets every package guard already resolved: the
 identity, principal and session it bound, and whether it has resolved the request. A queue worker forgets only scoped

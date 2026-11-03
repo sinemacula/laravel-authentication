@@ -45,6 +45,9 @@ final readonly class RecordSessionUsage
      *
      * @param  \SineMacula\Laravel\Authentication\Events\SessionAuthenticated  $event
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function __invoke(SessionAuthenticated $event): void
     {
@@ -85,6 +88,7 @@ final readonly class RecordSessionUsage
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Session
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     private static function sessionOf(EventContext $context): ?Session

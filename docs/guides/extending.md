@@ -283,15 +283,19 @@ guard type has no `$this->name`, `$this->provider`, `$this->resolver`, `$this->e
 in the guard's credential timebox, the one `attempt()` and `validate()` run in.
 
 `bindVerifiedContext()` binds what it is given and checks none of it, so a guard type admits what its credential named
-first, as the package's guards do: the application must allow the method it reports, the identity, the principal
-and the principal's tenant must be active (`Admission\ActivationPolicy`), the application policy must admit the
-identity, and `ApplicationAccess` must let the principal use the application, each asked inside
-`WriteConnection::during()` as the package asks them. The tenant the activity check loaded is the one it binds:
+first, as the package's guards do: the application must allow the method it reports, the identity, the principal and the
+principal's tenant must be active (`Admission\ActivationPolicy`), the application policy must admit the identity, and
+`ApplicationAccess` must let the principal use the application, each asked inside `WriteConnection::during()` as the
+package asks them. The tenant the activity check loaded is the one it binds. A guard type that authenticated a
+credential the request presented names its kind last (`kind:`, a `Context\Enums\CredentialKind`), so the request's
+[authentication context](#authentication-context) says what was presented; one that names none reports `credential` as
+`null`, as a sign-in in the request does:
 
 ```php
 use Illuminate\Container\Container;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -351,7 +355,7 @@ final class HeaderKeyGuard extends AbstractGuard
             return null;
         }
 
-        $this->bindVerifiedContext($identity, $principal, null, $tenant, 'header_key', false);
+        $this->bindVerifiedContext($identity, $principal, null, $tenant, 'header_key', false, kind: CredentialKind::API_KEY);
 
         return $identity;
     }
@@ -620,7 +624,7 @@ The package's own keys are under the reserved `authentication` namespace, read w
 | `recovery_code`                  | `true` when an accepted recovery code is on the session                                                                                                                                                                                                                                   |
 | `multifactor`                    | `true` when an accepted evaluation on the session reported multifactor authentication, exactly when `amr` carries `mfa`                                                                                                                                                                   |
 | `seconds_since_step_up`          | Seconds from the newest proof that set `mfa` or `recovery_code`, at sign-in or later, to when the context was built; `null` for none                                                                                                                                                      |
-| `credential`                     | `access_token`, `api_key` or `client_credentials`; `null` for a sign-in or a trusted bind (`login()`, `setUser()`, `authenticateAs()`) made in the request                                                                                                                                |
+| `credential`                     | `access_token`, `api_key` or `client_credentials`; `null` for a sign-in or a trusted bind (`login()`, `setUser()`, `authenticateAs()`) made in the request, and for a guard type that names none                                                                                          |
 | `scopes`                         | As `Auth::scopes()`: `null` for a person's session, the granted list otherwise                                                                                                                                                                                                            |
 | `ip`                             | The client's address as Laravel resolves it through the application's trusted proxies, `null` when it is not a valid one                                                                                                                                                                  |
 

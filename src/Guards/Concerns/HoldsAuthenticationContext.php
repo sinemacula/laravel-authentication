@@ -47,7 +47,11 @@ trait HoldsAuthenticationContext
      *
      * @return ?\SineMacula\Laravel\Authentication\Context\AuthenticationContext
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function authenticationContext(): ?AuthenticationContext
     {
@@ -57,9 +61,7 @@ trait HoldsAuthenticationContext
             return null;
         }
 
-        if ($this->buildingAuthenticationContext) {
-            throw new \LogicException(sprintf('Guard [%s] was asked for its authentication context while building it: a contributor must not ask.', $this->context->name()));
-        }
+        $this->refuseReentry();
 
         if ($this->authenticationContext !== null) {
             return $this->authenticationContext;
@@ -93,5 +95,20 @@ trait HoldsAuthenticationContext
         }
 
         $this->authenticationContext = null;
+    }
+
+    /**
+     * Refuse an ask for the authentication context made while it is being
+     * built: a contributor must not ask for the context it is adding to.
+     *
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    private function refuseReentry(): void
+    {
+        if ($this->buildingAuthenticationContext) {
+            throw new \LogicException(sprintf('Guard [%s] was asked for its authentication context while building it: a contributor must not ask.', $this->context->name()));
+        }
     }
 }
