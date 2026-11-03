@@ -186,6 +186,7 @@ final class FailureReasonTest extends TestCase
             'connection_disabled',
             'connection_deleted',
             'link_removed',
+            'link_scope_widened',
         ], array_map(static fn (RevocationReason $reason): string => $reason->value, RevocationReason::cases()));
     }
 }

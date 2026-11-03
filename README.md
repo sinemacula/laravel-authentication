@@ -63,8 +63,8 @@ are caught on the server.
   meets it, a gate for changing a further factor, list and get one, sign out (by the access token, or by the refresh
   credential once the access token has expired), sign out everywhere, revoke on security changes (a further factor's
   removal ends the other sessions and judges the current one again without it) and when a connection is disabled or
-  deleted or a link to it removed, and list, get and switch to the principals an identity may use, or switch its active
-  tenant.
+  deleted or a link through it removed or its scope widened (only that link's sessions), and list, get and switch to the
+  principals an identity may use, or switch its active tenant.
 - **The caller of a request**: `Auth::caller()` reads who a request is from the access, refresh or pending credential
   its route authenticates with, and says whether a session, identity or principal is the caller's, so an application can
   scope its own route bindings.

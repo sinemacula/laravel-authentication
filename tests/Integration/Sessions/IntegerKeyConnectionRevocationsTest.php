@@ -151,8 +151,9 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
 
     /**
      * A removed link revokes every one of the identity's integer-keyed sessions
-     * the connection established once, across the chunk its numerically ordered
-     * keys break at, and leaves its other sessions alone.
+     * established through it once, across the chunk its numerically ordered
+     * keys break at, and leaves its other sessions alone; so does a widened
+     * link scope.
      *
      * @return void
      *
@@ -164,10 +165,15 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
 
         $this->insertSessions($identity);
 
-        self::assertSame(self::THROUGH, Auth::sessions('api')->linkRemoved($identity, 'conn-a'));
+        self::assertSame(self::THROUGH, Auth::sessions('api')->linkRemoved($identity, 'conn-a', 'link-1'));
         self::assertSame(self::THROUGH, DB::table(self::TABLE)->where('revoked_reason', 'link_removed')->count());
         self::assertSame([502, 503, 504], self::unrevoked());
-        self::assertSame(0, Auth::sessions('api')->linkRemoved($identity, 'conn-a'));
+        self::assertSame(0, Auth::sessions('api')->linkRemoved($identity, 'conn-a', 'link-1'));
+
+        DB::table(self::TABLE)->update(['revoked_at' => null, 'revoked_reason' => null]);
+
+        self::assertSame(self::THROUGH, Auth::sessions('api')->linkScopeWidened($identity, 'conn-a', 'link-1'));
+        self::assertSame([502, 503, 504], self::unrevoked());
     }
 
     /**
@@ -200,7 +206,7 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
 
         $revoked->exchangeArray([]);
 
-        self::assertSame(self::THROUGH, Auth::sessions('api')->linkRemoved($identity, 'conn-a'));
+        self::assertSame(self::THROUGH, Auth::sessions('api')->linkRemoved($identity, 'conn-a', 'link-1'));
         self::assertSame(range(1, self::THROUGH), $revoked->getArrayCopy());
     }
 
@@ -271,7 +277,8 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
 
     /**
      * Insert the identity's live sessions under keys 1 to 504: those up to
-     * `THROUGH` established through `conn-a`, the rest through `conn-b`.
+     * `THROUGH` established through `conn-a`'s `link-1`, the rest through
+     * `conn-b`'s.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @return void
@@ -298,6 +305,7 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
         $provenance = array_map(static fn (int $key): array => [
             'session_id'    => (string) $key,
             'connection_id' => $key <= self::THROUGH ? 'conn-a' : 'conn-b',
+            'link_id'       => 'link-1',
             'created_at'    => self::NOW,
         ], range(1, self::THROUGH + 3));
 

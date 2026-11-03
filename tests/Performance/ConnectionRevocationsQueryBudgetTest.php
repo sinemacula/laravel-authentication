@@ -20,7 +20,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
  * sessions cost one read of the provenance's connection index and one locking
  * read per chunk of 500, and one `UPDATE` per session; a link's cost one read
  * of the identity's sessions, one of their provenance and one locking read per
- * chunk; a trigger turned off reads and writes nothing.
+ * chunk, whichever of its triggers ends them, and a widened scope reported
+ * again writes nothing; a trigger turned off reads and writes nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -102,7 +103,8 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
 
     /**
      * A removed link reads the identity's sessions, their provenance and the
-     * locked sessions through the connection, and writes one `UPDATE` each.
+     * locked sessions through the link, and writes one `UPDATE` each; a widened
+     * scope costs the same.
      *
      * @return void
      *
@@ -118,7 +120,35 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
 
         $sessions = $this->sessions();
 
-        self::assertSame(2, $this->assertQueryBudget(3, 2, static fn (): int => $sessions->linkRemoved($identity, 'conn-a')));
+        self::assertSame(2, $this->assertQueryBudget(3, 2, static fn (): int => $sessions->linkRemoved($identity, 'conn-a', 'link-1')));
+
+        DB::table('authentication_sessions')->update(['revoked_at' => null, 'revoked_reason' => null]);
+
+        self::assertSame(2, $this->assertQueryBudget(3, 2, static fn (): int => $sessions->linkScopeWidened($identity, 'conn-a', 'link-1')));
+    }
+
+    /**
+     * A widened scope reported again for the same widening reads the identity's
+     * sessions and their provenance, finds nothing live through the link, locks
+     * nothing and writes nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAWidenedScopeReportedAgainWritesNothing(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->external($identity, 'conn-a');
+        $this->external($identity, 'conn-b');
+
+        $sessions = $this->sessions();
+
+        $widen = static fn (): int => $sessions->linkScopeWidened($identity, 'conn-a', 'link-1');
+
+        self::assertSame(1, $widen());
+        self::assertSame(0, $this->assertQueryBudget(2, 0, $widen));
     }
 
     /**

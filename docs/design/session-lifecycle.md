@@ -100,16 +100,19 @@ revoked, and when a session that ended is deleted. Starting a session is in
   ended or took back to pending (`factorRemoved()` with a current session) or to the identity (`factorReset()`, and
   `factorRemoved()` with none, since both end every session of it, through `GuardBinding::forgetIdentity()`).
   `credentialRemoved()` stays per event, the optional listener's or the application's.
-- `connectionDisabled()`, `connectionDeleted()` and `linkRemoved()` (`Sessions\ConnectionRevocations`, through
-  `Concerns\EndsConnectionSessions`) revoke the live sessions, pending ones included, of every guard that a connection
-  established (a link's: only that identity's), found 500 at a time (a connection's through the provenance connection
-  index, a link's through the identity's own sessions), each chunk locked in key order and revoked in one transaction.
-  A connection's chunks follow the session keys' own order (an integer key's numeric one, though the provenance holds
-  it as a string), so its locks are taken in one key order across chunks. After the commit the request's binding to any
-  session ended is forgotten (`GuardBinding::forgetSession()`), then one `SessionRevoked` reports each, so a listener
-  that throws cannot leave the binding. They move no cutoff, since the scope is the provenance rather than the
-  identity, and each can be turned off under `authentication.revocation.*` (`Sessions\RevocationSettings`), which
-  `authentication:check` validates.
+- `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()` and `linkScopeWidened()`
+  (`Sessions\ConnectionRevocations`, through `Concerns\EndsConnectionSessions`) revoke the live sessions, pending ones
+  included, of every guard that a connection established (a link's: only that identity's, whose provenance records both
+  the connection and that link id, byte for byte), found 500 at a time (a connection's through the provenance connection
+  index, a link's through the identity's own sessions and then their provenance by key), each chunk locked in key order
+  and revoked in one transaction. A connection's chunks follow the session keys' own order (an integer key's numeric
+  one, though the provenance holds it as a string), so its locks are taken in one key order across chunks. After the
+  commit the request's binding to any session ended is forgotten (`GuardBinding::forgetSession()`), then one
+  `SessionRevoked` reports each, so a listener that throws cannot leave the binding. They move no cutoff, since the
+  scope is the provenance rather than the identity. The first three can each be turned off under
+  `authentication.revocation.*` (`Sessions\RevocationSettings`), which `authentication:check` validates;
+  `linkScopeWidened()` (`link_scope_widened`) is mandatory, synchronous in the caller's transaction, and idempotent,
+  since a second call finds nothing live to revoke.
 - The optional listeners (`RevokeSessionsOnPasswordReset`, `RevokeSessionsOnPasswordChange`,
   `RevokeSessionsOnDeactivation`) run their revocation through `AfterCommit` on the changed model's connection, so a
   rolled-back change revokes nothing. They act through a jwt guard's session service: the guard bound to the

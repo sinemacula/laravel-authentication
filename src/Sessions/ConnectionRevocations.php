@@ -24,28 +24,32 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Ends the sessions an external provider's connection established, when the
- * connection is disabled or deleted, and an identity's sessions through it when
- * the identity's link to it is removed: every live session (pending ones
- * included, of every guard, unrevoked and before both deadlines) whose
- * provenance records the connection.
+ * connection is disabled or deleted, and an identity's sessions through one
+ * link, when the link is removed or its scope is widened: every live session
+ * (pending ones included, of every guard, unrevoked and before both deadlines)
+ * whose provenance records the connection, and for a link that very link.
  *
  * A connection's sessions are found through the provenance's connection index,
- * and a link's through the identity's own sessions, 500 at a time; each chunk
- * is locked in key order and revoked by the conditional revocation write, all
- * in one transaction on the session model's connection, a savepoint inside the
- * caller's. The provenance holds each key as a string, so a connection's chunks
- * follow the keys' own order (an integer key's numeric one, not its string
- * one): the locks the whole revocation holds are then taken in one key order,
- * as every other revocation takes them, and two revocations of overlapping
- * sessions never deadlock across a chunk. A connection is matched byte for
- * byte, whatever the provenance column's collation, so one connection's
- * revocation never ends the sessions of another whose id differs from it only
- * in case, accents or a trailing space. Once that commits, the guard first
- * forgets a binding to any session revoked, so the rest of the request is not
- * authenticated as a session it ended even when a listener throws, and then
- * `SessionRevoked` reports each one. No cutoff moves: the scope is how the
- * sessions began, not the identity. Each trigger can be turned off
- * (`RevocationSettings`), and then writes nothing.
+ * and a link's through the identity's own sessions, 500 at a time, whose
+ * provenance is then read by key and kept only when it records the connection
+ * and the link; each chunk is locked in key order and revoked by the
+ * conditional revocation write, all in one transaction on the session model's
+ * connection, a savepoint inside the caller's. The provenance holds each key as
+ * a string, so a connection's chunks follow the keys' own order (an integer
+ * key's numeric one, not its string one): the locks the whole revocation holds
+ * are then taken in one key order, as every other revocation takes them, and
+ * two revocations of overlapping sessions never deadlock across a chunk. A
+ * connection and a link are matched byte for byte, whatever the provenance
+ * columns' collation, so one connection's or link's revocation never ends the
+ * sessions of another whose id differs from it only in case, accents or a
+ * trailing space; a session with no link recorded is never one of a link's.
+ * Once that commits, the guard first forgets a binding to any session revoked,
+ * so the rest of the request is not authenticated as a session it ended even
+ * when a listener throws, and then `SessionRevoked` reports each one. No cutoff
+ * moves: the scope is how the sessions began, not the identity. Each per-event
+ * trigger can be turned off (`RevocationSettings`), and then writes nothing; a
+ * link's widened scope cannot. A revocation called again finds nothing live
+ * left to end, so it ends nothing and reports nothing more.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -101,7 +105,9 @@ final readonly class ConnectionRevocations
      */
     public function connection(string $connectionId, RevocationReason $reason, CarbonImmutable $now): int
     {
-        if (!$this->isEnabled($connectionId, $reason)) {
+        self::assertNamed('A connection', $connectionId);
+
+        if (!$this->isEnabled($reason)) {
             return 0;
         }
 
@@ -125,13 +131,17 @@ final readonly class ConnectionRevocations
     }
 
     /**
-     * End every live session of the identity the connection established
-     * (`link_removed`), unless the trigger is turned off. Returns how many
+     * End every live session of the identity established through the link (the
+     * connection and the link id given), with the reason of the trigger
+     * (`link_removed`, unless that trigger is turned off, or
+     * `link_scope_widened`, which no setting turns off). Returns how many
      * sessions this call revoked; an identity that is not an Eloquent model has
      * no sessions to end.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
+     * @param  string  $linkId
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  \Carbon\CarbonImmutable  $now
      * @return int
      *
@@ -140,15 +150,18 @@ final readonly class ConnectionRevocations
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
-    public function link(Identity $identity, string $connectionId, CarbonImmutable $now): int
+    public function link(Identity $identity, string $connectionId, string $linkId, RevocationReason $reason, CarbonImmutable $now): int
     {
-        if (!$this->isEnabled($connectionId, RevocationReason::LINK_REMOVED) || !$identity instanceof Model) {
+        self::assertNamed('A connection', $connectionId);
+        self::assertNamed('A link', $linkId);
+
+        if (!$this->isEnabled($reason) || !$identity instanceof Model) {
             return 0;
         }
 
         $model = SessionLookup::model();
 
-        return $model->getConnection()->transaction(function () use ($model, $identity, $connectionId, $now): int {
+        return $model->getConnection()->transaction(function () use ($model, $identity, $connectionId, $linkId, $reason, $now): int {
 
             $ended   = $this->forgetOnCommit($model);
             $revoked = 0;
@@ -156,7 +169,7 @@ final readonly class ConnectionRevocations
 
             do {
                 $keys = self::owned($model, $identity, $after, $now);
-                $revoked += $this->revoke($model, self::through($keys, $connectionId), $identity, RevocationReason::LINK_REMOVED, $now, $ended);
+                $revoked += $this->revoke($model, self::through($keys, $connectionId, $linkId), $identity, $reason, $now, $ended);
                 $after = $keys === [] ? null : $keys[count($keys) - 1];
             } while (count($keys) === self::CHUNK);
 
@@ -165,20 +178,33 @@ final readonly class ConnectionRevocations
     }
 
     /**
-     * Whether the trigger ends sessions, once the connection id names one.
+     * Refuse an empty id: a connection or a link is named by its id.
      *
-     * @param  string  $connectionId
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
-     * @return bool
+     * @param  string  $what
+     * @param  string  $id
+     * @return void
      *
      * @throws \InvalidArgumentException
      */
-    private function isEnabled(string $connectionId, RevocationReason $reason): bool
+    private static function assertNamed(string $what, string $id): void
     {
-        if ($connectionId === '') {
-            throw new \InvalidArgumentException('A connection is named by its id, which may not be empty.');
+        if ($id === '') {
+            throw new \InvalidArgumentException(sprintf('%s is named by its id, which may not be empty.', $what));
         }
+    }
 
+    /**
+     * Whether the trigger ends sessions: its setting, or always for one no
+     * setting turns off.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @return bool
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    private function isEnabled(RevocationReason $reason): bool
+    {
         return (new RevocationSettings($this->container->make(Repository::class)))->isEnabled($reason);
     }
 
@@ -253,22 +279,28 @@ final readonly class ConnectionRevocations
     }
 
     /**
-     * Those of the session keys the connection established, read from the
-     * provenance on the write connection.
+     * Those of the session keys established through the link (the connection
+     * and the link id given), read from the provenance on the write connection
+     * and kept only when both match byte for byte.
      *
      * @param  list<string>  $keys
      * @param  string  $connectionId
+     * @param  string  $linkId
      * @return list<string>
      */
-    private static function through(array $keys, string $connectionId): array
+    private static function through(array $keys, string $connectionId, string $linkId): array
     {
         if ($keys === []) {
             return [];
         }
 
-        $query = WriteConnection::query(SessionProvenance::query())->whereKey($keys)->where('connection_id', $connectionId);
+        $query = WriteConnection::query(SessionProvenance::query())->whereKey($keys)->where('connection_id', $connectionId)->where('link_id', $linkId);
 
-        return self::exactly(self::provenance($query), $connectionId);
+        /** @var list<\stdClass> $rows */
+        $rows = WriteConnection::during(new SessionProvenance, static fn (): array => $query->toBase()->get(['session_id', 'connection_id', 'link_id'])->all());
+        $kept = array_filter($rows, static fn (\stdClass $row): bool => $row->connection_id === $connectionId && $row->link_id === $linkId);
+
+        return self::strings(array_column($kept, 'session_id'));
     }
 
     /**

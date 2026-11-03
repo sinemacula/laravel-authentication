@@ -9,11 +9,12 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 
 /**
  * Whether each per-event revocation the application may turn off ends sessions:
- * a connection disabled or deleted, and an identity's link to a connection
+ * a connection disabled or deleted, and an identity's link through a connection
  * removed (`authentication.revocation.*`, each `true` or `false`, on unless
  * set). A value that is not a boolean fails closed with an
  * `InvalidArgumentException` when the trigger is first called, and
- * `authentication:check` reports it.
+ * `authentication:check` reports it. Every other revocation, a link's widened
+ * scope among them, is mandatory: no setting turns it off.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

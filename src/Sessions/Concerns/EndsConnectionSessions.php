@@ -12,8 +12,8 @@ use SineMacula\Laravel\Authentication\Sessions\ConnectionRevocations;
 /**
  * The session service's revocations by how a session began: the sessions an
  * external provider's connection established, when the connection is disabled
- * or deleted, and an identity's sessions through it, when its link to the
- * connection is removed, which `ConnectionRevocations` carries out.
+ * or deleted, and an identity's sessions through one link, when the link is
+ * removed or its scope is widened, which `ConnectionRevocations` carries out.
  *
  * They are delegations with no state of their own but that one; they sit in a
  * trait only so the service stays within the number of methods one class may
@@ -71,15 +71,19 @@ trait EndsConnectionSessions
     }
 
     /**
-     * The identity's link to the connection was removed: end every live session
-     * of the identity the connection established (`link_removed`), unless
-     * `authentication.revocation.link_removed` is `false`. The identity's other
-     * sessions, and the connection's other identities', are left alone. When
-     * this guard is bound to a session it ends, it forgets it once that
-     * commits.
+     * The identity's link through the connection was removed: end every live
+     * session of the identity established through that link, the connection and
+     * the link id both recorded on its provenance exactly as given
+     * (`link_removed`), unless `authentication.revocation.link_removed` is
+     * `false`. The identity's sessions through its other links, of this
+     * connection or another, its other sessions, and other identities' are left
+     * alone. Call it in the transaction that removes the link, on the storage
+     * connection; when this guard is bound to a session it ends, it forgets it
+     * once that commits.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
+     * @param  string  $linkId
      * @return int
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -87,8 +91,34 @@ trait EndsConnectionSessions
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
-    public function linkRemoved(Identity $identity, string $connectionId): int
+    public function linkRemoved(Identity $identity, string $connectionId, string $linkId): int
     {
-        return $this->connectionRevocations->link($identity, $connectionId, CarbonImmutable::now()->startOfSecond());
+        return $this->connectionRevocations->link($identity, $connectionId, $linkId, RevocationReason::LINK_REMOVED, CarbonImmutable::now()->startOfSecond());
+    }
+
+    /**
+     * The scope of the identity's link through the connection was widened, so
+     * the link may now act for more than its sessions were established for: end
+     * every live session of the identity established through that link, as
+     * `linkRemoved()` finds them (`link_scope_widened`). Mandatory: no setting
+     * turns it off. Call it synchronously in the transaction that widens the
+     * scope, on the storage connection, so both commit or roll back together;
+     * it runs as a savepoint there. Calling it twice for one widening is safe:
+     * the second call finds nothing live left to end, revokes nothing and
+     * reports nothing.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $connectionId
+     * @param  string  $linkId
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     * @throws \Throwable
+     */
+    public function linkScopeWidened(Identity $identity, string $connectionId, string $linkId): int
+    {
+        return $this->connectionRevocations->link($identity, $connectionId, $linkId, RevocationReason::LINK_SCOPE_WIDENED, CarbonImmutable::now()->startOfSecond());
     }
 }

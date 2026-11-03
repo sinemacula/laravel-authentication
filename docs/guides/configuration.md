@@ -521,10 +521,11 @@ short. They are pruned with their sessions (see [Pruning](operations.md#pruning)
 ],
 ```
 
-`Auth::sessions()->connectionDisabled()`, `connectionDeleted()` and `linkRemoved()` end the sessions an external
-provider's connection established (see [Connections and links](sessions.md#connections-and-links)). Each is on unless
-its setting is `false`, when it returns `0` and writes nothing. A value that is not `true` or `false` fails closed with
-an `InvalidArgumentException` when the method is first called, and `authentication:check` reports it.
+`Auth::sessions()->connectionDisabled()` and `connectionDeleted()` end the sessions an external provider's connection
+established, and `linkRemoved()` an identity's sessions established through one link (see
+[Connections and links](sessions.md#connections-and-links)). Each is on unless its setting is `false`, when it returns
+`0` and writes nothing. A value that is not `true` or `false` fails closed with an `InvalidArgumentException` when the
+method is first called, and `authentication:check` reports it. `linkScopeWidened()` has no setting: it is mandatory.
 
 ## Freshness
 

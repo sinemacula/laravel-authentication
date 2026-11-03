@@ -741,8 +741,8 @@ if that is what you want.
 
 ### Connections and links
 
-When an external provider's connection is disabled or deleted, or an identity's link to one is removed, end the sessions
-it established from the same transaction:
+When an external provider's connection is disabled or deleted, or one of an identity's links through it is removed or
+has its scope widened, end the sessions it established from the same transaction:
 
 ```php
 DB::transaction(function () use ($connection) {
@@ -752,21 +752,30 @@ DB::transaction(function () use ($connection) {
 });
 
 Auth::sessions()->connectionDeleted($connectionId);
-Auth::sessions()->linkRemoved($user, $connectionId);
+Auth::sessions()->linkRemoved($user, $connectionId, $linkId);
+Auth::sessions()->linkScopeWidened($user, $connectionId, $linkId);
 ```
 
 `connectionDisabled()` and `connectionDeleted()` revoke every live session whose provenance records the connection (of
 every guard and identity, pending ones included; one already past a deadline is left for pruning), as
-`connection_disabled` or `connection_deleted`; `linkRemoved()` revokes only the identity's, as `link_removed`. Each
-returns how many it revoked. They are found through the provenance's connection index (a link's through the identity's
-sessions) 500 at a time, each chunk locked in key order, in one transaction on the storage connection, a savepoint
-inside yours. Once that commits, a request's guard bound to one of them forgets it, so the rest of the request is not
-authenticated as it even when a listener throws, and then `SessionRevoked` reports each. No cutoff moves and no
-`SignedOutEverywhere` is reported: the scope is how the sessions began, not the identity, whose other sessions stay.
-Each is on by default and turned off by its `authentication.revocation.*` setting (see [Revocation by
-connection](configuration.md#revocation-by-connection)); a connection id may not be empty. The connection is matched
-byte for byte, so revoking one never ends the sessions of another whose id differs from it only in case, accents or a
-trailing space.
+`connection_disabled` or `connection_deleted`. `linkRemoved()` and `linkScopeWidened()` revoke only the identity's
+sessions established through that one link: the provenance must record both the connection and the link id the link
+contract answered when the session was established, so the identity's sessions through its other links, of the same
+connection or another, stay, and a session recorded with no link is never one of a link's. They revoke as `link_removed`
+and `link_scope_widened`. Each returns how many it revoked. They are found through the provenance's connection index (a
+link's through the identity's sessions, then their provenance by key) 500 at a time, each chunk locked in key order, in
+one transaction on the storage connection, a savepoint inside yours. Once that commits, a request's guard bound to one
+of them forgets it, so the rest of the request is not authenticated as it even when a listener throws, and then
+`SessionRevoked` reports each. No cutoff moves and no `SignedOutEverywhere` is reported: the scope is how the sessions
+began, not the identity, whose other sessions stay.
+
+`connectionDisabled()`, `connectionDeleted()` and `linkRemoved()` are on by default and each turned off by its
+`authentication.revocation.*` setting (see [Revocation by connection](configuration.md#revocation-by-connection)).
+`linkScopeWidened()` is mandatory, as `tenantPolicyChanged()` is: no setting turns it off, since a link that may now act
+for more than its sessions were established for must not keep them. Call it synchronously in the transaction that widens
+the scope; calling it twice for one widening is safe, as the second call finds nothing live left to end and revokes and
+reports nothing. A connection or link id may not be empty. Both are matched byte for byte, so revoking one never ends
+the sessions of another whose id differs from it only in case, accents or a trailing space.
 
 ### Access tokens without a session
 
@@ -879,7 +888,8 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | `factor_reset`          | The factor package's `factorReset()`: every session of the identity                                                                        |
 | `connection_disabled`   | `connectionDisabled()`: the sessions the connection established                                                                            |
 | `connection_deleted`    | `connectionDeleted()`: the sessions the connection established                                                                             |
-| `link_removed`          | `linkRemoved()`: the identity's sessions the connection established                                                                        |
+| `link_removed`          | `linkRemoved()`: the identity's sessions established through the link                                                                      |
+| `link_scope_widened`    | `linkScopeWidened()`: the identity's sessions established through the link, mandatory                                                      |
 
 `revokeSession()`, `revokeSessions()` and `revokePrincipalSessions()` take the reason as an argument (`REVOKED` in the
 examples above); the others set their own.
