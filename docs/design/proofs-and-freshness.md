@@ -243,6 +243,8 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   other nor deadlock while clearing their keys.
 - `tests/Integration/Proofs/ByteDistinctBindingTest.php`: session keys that differ only in case or by a trailing space,
   and `amr` values that differ only in case, stay apart.
+- `tests/Integration/Sessions/ReplicaExternalSessionsTest.php`: the provenance and the accepted evidence read on the
+  primary.
 - `tests/Integration/Proofs/ReplicaProofsTest.php`, `tests/Integration/Migration/ProofTablesSchemaTest.php`,
   `tests/Performance/ProofQueryBudgetTest.php`, `benchmarks/Proofs/ProofHistoryBench.php`.
 

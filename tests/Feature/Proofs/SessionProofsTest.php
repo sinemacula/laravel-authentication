@@ -734,6 +734,32 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
+     * The accepted evidence is read from the `EVIDENCE_LIMIT` newest proofs
+     * that carry any, and no further: evidence only an older proof holds is
+     * never read, however new it is, so the newest read is the newest among
+     * those proofs, the last of them included.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheAcceptedEvidenceIsReadFromTheNewestProofsOnly(): void
+    {
+        $record   = $this->signedIn()->record;
+        $beyond   = new ExternalEvidence(['hwk'], null, $this->now->subMinute());
+        $lastRead = new ExternalEvidence(['otp'], null, $this->now->subMinutes(5));
+
+        self::recordExternal($record, $this->now->subMinutes(51), $beyond);
+        self::recordExternal($record, $this->now->subMinutes(50), $lastRead);
+
+        foreach (range(49, 1) as $minutes) {
+            self::recordExternal($record, $this->now->subMinutes($minutes), new ExternalEvidence(['pwd'], null, $this->now->subHours(2)->subMinutes($minutes)));
+        }
+
+        self::assertEquals($lastRead, SessionProofs::acceptedEvidence($record));
+    }
+
+    /**
      * The provenance reads back with the evidence it recorded accepted, and
      * with none when it recorded none or holds it malformed.
      *

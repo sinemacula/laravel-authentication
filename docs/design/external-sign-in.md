@@ -127,7 +127,9 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   `IntegerKeyConnectionRevocationsTest.php`: a link's sessions only, the mandatory and idempotent widening, the
   settings, folded collations, the caller's transaction.
 - `tests/Integration/Sessions/ExternalSignInTest.php`, `ExternalReauthenticationTest.php`: the adapter's transaction,
-  an exception from the link contract, the byte-exact link id.
+  an exception from the link contract, the byte-exact link id, the largest evidence stored whole.
+- `tests/Integration/Sessions/ReplicaExternalSessionsTest.php`: the provenance, the accepted evidence and a link's
+  sessions read on the primary, so a session the replica has not seen reauthenticates, stands and is revoked.
 - `tests/Integration/Sessions/ConcurrentExternalReauthenticationsTest.php`,
   `ConcurrentExternalReauthenticationAndWideningTest.php`: the races on the session's row lock;
   `ConcurrentExternalSignInAndWideningTest.php`: a widening finds a sign-in committed after its transaction first read.
