@@ -237,6 +237,64 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
+     * Before it reads any session, a link's trigger writes the guard of its
+     * link and a connection's trigger every guard of the connection, which a
+     * sign-in through them writes too, even when it finds nothing to end; a
+     * trigger turned off writes none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATriggerWritesItsGuardsBeforeItReadsASession(): void
+    {
+        $ada        = $this->seedIdentity();
+        $statements = [];
+
+        $this->external($ada, 'conn-a');
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            if (!str_contains($query->sql, 'authentication_')) {
+                return;
+            }
+
+            $statements[] = $query->sql;
+        });
+
+        $guarded = static function () use (&$statements): array {
+            $first      = preg_match('/^insert into [`"]authentication_connection_guards[`"]/', $statements[0] ?? '') === 1;
+            $rows       = DB::table('authentication_connection_guards')->orderBy('connection_id')->orderBy('slot')->get();
+            $statements = [];
+
+            return [$first, $rows->map(static fn (object $row): string => $row->connection_id . ':' . $row->slot)->all()];
+        };
+
+        self::assertSame(1, $this->sessions()->linkRemoved($ada, 'conn-a', 'link-1'));
+        self::assertSame([true, ['conn-a:26']], $guarded());
+
+        self::assertSame(0, $this->sessions()->linkScopeWidened($ada, 'conn-b', 'link-2'));
+        self::assertSame([true, ['conn-a:26', 'conn-b:32']], $guarded());
+
+        self::assertSame(0, $this->sessions()->connectionDeleted('conn-c'));
+
+        [$first, $guards] = $guarded();
+
+        self::assertTrue($first);
+        self::assertCount(66, $guards);
+        self::assertSame(
+            array_map(static fn (int $slot): string => 'conn-c:' . $slot, range(0, 63)),
+            array_values(array_filter($guards, static fn (string $guard): bool => str_starts_with($guard, 'conn-c:'))),
+        );
+
+        config()->set('authentication.revocation.link_removed', false);
+        config()->set('authentication.revocation.connection_disabled', false);
+
+        self::assertSame(0, $this->sessions()->linkRemoved($ada, 'conn-d', 'link-1'));
+        self::assertSame(0, $this->sessions()->connectionDisabled('conn-d'));
+        self::assertSame([false, $guards], $guarded());
+    }
+
+    /**
      * A pending session the connection established is a session too, and ends
      * with the rest, so its credential cannot activate it afterwards.
      *

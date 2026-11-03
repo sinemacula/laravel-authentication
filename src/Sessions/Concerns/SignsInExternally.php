@@ -60,14 +60,16 @@ trait SignsInExternally
      * and the provider's authentication time (now, when it gave none or one
      * after now). Its provenance (the connection and tenant, the provider's
      * time and deadline, the policy version and the id of the link) is written
-     * with it once, pending or active, and never rewritten. Call it inside the
-     * transaction the adapter takes its own locks in, on the storage
-     * connection: the session's writes are a savepoint there, the link contract
-     * is asked before them, and the reports and the guard's bind wait for the
-     * commit. A database error, a serialization failure included, and an
-     * exception from the link contract propagate, so the whole transaction can
-     * be retried. Failures are results: Laravel's `Failed` and then
-     * `AuthenticationFailed` (flow `sign_in`) report them.
+     * with it once, pending or active, and never rewritten, after the link's
+     * connection guard, which a revocation of the link or the connection writes
+     * too, so the two never miss each other. Call it inside the transaction the
+     * adapter takes its own locks in, on the storage connection: the session's
+     * writes are a savepoint there, the link contract is asked before them, and
+     * the reports and the guard's bind wait for the commit. A database error, a
+     * serialization failure included, and an exception from the link contract
+     * propagate, so the whole transaction can be retried. Failures are results:
+     * Laravel's `Failed` and then `AuthenticationFailed` (flow `sign_in`)
+     * report them.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignInContext  $context

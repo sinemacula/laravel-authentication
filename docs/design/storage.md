@@ -32,6 +32,9 @@ and how the runtime models and the published migrations are kept choosing the sa
   key as a string, whatever the session model's key type, so they are found, and pruned, by bound string values on the
   string column rather than by comparing columns of two types; a session and its proofs commit together, and every read
   of them is on the write PDO.
+- The connection guards (`authentication.proofs.guards_table`, created by the provenance migration) are written by an
+  external sign-in and by a revocation of a connection's or link's sessions in the same transaction as the sessions, so
+  they live there too; they hold only the connection and a slot, so they are never pruned.
 - The session model must therefore live there: `SessionRecords\SessionLookup::model()`, which every session path and
   `AuthenticationServiceProvider::createJwtGuard()` go through, refuses a configured session model on another connection
   (`InvalidSessionModelConfigurationException::offStorage()`), and `Database\SharedConnection` refuses a reset or an

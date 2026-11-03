@@ -111,14 +111,18 @@ return [
     | live on the storage connection, are read from the write connection, and
     | are pruned with their sessions by the session model's `model:prune`. A
     | code proof's destination is personal data, kept no longer than its
-    | session. Each table name may be up to 47 characters, as the migrations
-    | name their indexes after it.
+    | session. A sign-in through a connection and each revocation of its
+    | sessions write the connection's guards in `guards_table` (at most 64
+    | rows per connection, naming no identity, link or session, never pruned),
+    | so neither misses the other at any isolation level. Each table name may
+    | be up to 47 characters, as the migrations name their indexes after it.
     |
     */
 
     'proofs' => [
         'table'            => env('AUTHENTICATION_PROOFS_TABLE', 'authentication_proofs'),
         'provenance_table' => env('AUTHENTICATION_PROOFS_PROVENANCE_TABLE', 'authentication_provenance'),
+        'guards_table'     => env('AUTHENTICATION_PROOFS_GUARDS_TABLE', 'authentication_connection_guards'),
     ],
 
     /*

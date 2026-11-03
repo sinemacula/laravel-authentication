@@ -36,19 +36,22 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * the client proved, which its first activation supersedes), and its first
  * proof and provenance.
  *
- * Each runs in one transaction on the session's connection. The session is
- * written first (after the revocation of the session it replaces), then the
- * sign-in's first-factor proof, then its provenance when an external provider
- * established it, each after deleting what an earlier session holding the same
- * key left, and the tokens are issued after them, inside the transaction, so a
- * cancelled insert or any failure while issuing (signing, randomness, an
- * identifier that cannot be read) rolls every write back: no session is left
- * without a client that holds its refresh token or pending credential, or
- * without the proof its tokens are derived from, and no session is revoked for
- * a replacement that was not written. Only the digest of the new rotation id,
- * or of the pending credential's secret, is stored. Every session time is the
- * one `$now` of the sign-in, formatted with the session model's own date
- * format; each proof keeps its own time.
+ * Each runs in one transaction on the session's connection. A session an
+ * external provider established writes the guard of the link it came through
+ * first (`ConnectionGuards`), before any session row, so a revocation of the
+ * link or the connection racing it never misses it. The session is written next
+ * (after the revocation of the session it replaces), then the sign-in's
+ * first-factor proof, then its provenance when an external provider established
+ * it, each after deleting what an earlier session holding the same key left,
+ * and the tokens are issued after them, inside the transaction, so a cancelled
+ * insert or any failure while issuing (signing, randomness, an identifier that
+ * cannot be read) rolls every write back: no session is left without a client
+ * that holds its refresh token or pending credential, or without the proof its
+ * tokens are derived from, and no session is revoked for a replacement that was
+ * not written. Only the digest of the new rotation id, or of the pending
+ * credential's secret, is stored. Every session time is the one `$now` of the
+ * sign-in, formatted with the session model's own date format; each proof keeps
+ * its own time.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -138,6 +141,8 @@ final readonly class SessionWriter
 
         return $session->getConnection()->transaction(function () use ($session, $admitted, $proof, $rotationId, $now): SignedInSession {
 
+            ConnectionGuards::signIn($session->getConnection(), $proof->provenance);
+
             self::insert($session);
 
             $this->record($session, $proof);
@@ -203,6 +208,8 @@ final readonly class SessionWriter
         $revoked = RefreshRotationStore::revocation($previous, RevocationReason::SUPERSEDED, $now);
 
         return $session->getConnection()->transaction(function () use ($previous, $revoked, $session, $admitted, $proof, $rotationId, $now): ?SignedInSession {
+
+            ConnectionGuards::signIn($session->getConnection(), $proof->provenance);
 
             if (!$this->swap($previous, $revoked)) {
                 return null;
@@ -276,6 +283,8 @@ final readonly class SessionWriter
         ]);
 
         return $session->getConnection()->transaction(function () use ($session, $proof, $held): array {
+
+            ConnectionGuards::signIn($session->getConnection(), $proof->provenance);
 
             self::insert($session);
 

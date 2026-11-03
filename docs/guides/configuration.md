@@ -19,6 +19,7 @@ JWT settings are read once and kept (see [Configuration lifetimes](operations.md
 | `session.pending_credential_field`                   | `pending_credential`                                                         | `AUTHENTICATION_SESSION_PENDING_CREDENTIAL_FIELD`          |           | [The caller of a request](sessions.md#the-caller-of-a-request)        |
 | `proofs.table`                                       | `authentication_proofs`                                                      | `AUTHENTICATION_PROOFS_TABLE`                              |           | [Proofs](#proofs)                                                     |
 | `proofs.provenance_table`                            | `authentication_provenance`                                                  | `AUTHENTICATION_PROOFS_PROVENANCE_TABLE`                   |           | [Proofs](#proofs)                                                     |
+| `proofs.guards_table`                                | `authentication_connection_guards`                                           | `AUTHENTICATION_PROOFS_GUARDS_TABLE`                       |           | [Proofs](#proofs)                                                     |
 | `revocation.connection_disabled`                     | `true`                                                                       |                                                            |           | [Revocation by connection](#revocation-by-connection)                 |
 | `revocation.connection_deleted`                      | `true`                                                                       |                                                            |           | [Revocation by connection](#revocation-by-connection)                 |
 | `revocation.link_removed`                            | `true`                                                                       |                                                            |           | [Revocation by connection](#revocation-by-connection)                 |
@@ -501,6 +502,7 @@ and `authentication:check` reports it under `[session]`.
 'proofs' => [
     'table'            => 'authentication_proofs',
     'provenance_table' => 'authentication_provenance',
+    'guards_table'     => 'authentication_connection_guards',
 ],
 ```
 
@@ -510,6 +512,12 @@ provenance](sessions.md#proofs-and-provenance)). Both live on the storage connec
 written in one transaction, and both are read from the write connection. Each name may be up to 47 characters: the
 migrations name their indexes after it (`<table>_session_index` and so on), and PostgreSQL cuts a longer index name
 short. They are pruned with their sessions (see [Pruning](operations.md#pruning)).
+
+A sign-in through an external provider's connection, and every revocation of the sessions the connection or one of
+its links established, first writes the connection's guards in `proofs.guards_table` on the same connection, so the two
+never miss each other whatever your transaction's isolation level (see [Connections and
+links](sessions.md#connections-and-links)). A connection has at most 64 guards, which name no identity, link or session,
+are created by the shipped migration of the provenance table, and are never pruned.
 
 ## Revocation by connection
 

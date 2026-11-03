@@ -209,21 +209,23 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * An external sign-in costs what `start()` does and writes the session's
-     * provenance too, and nothing more: the link contract is the adapter's, and
-     * the fake one here reads nothing.
+     * An external sign-in costs what `start()` does and writes its link's guard
+     * and the session's provenance too, and nothing more, the first sign-in
+     * through the link and every later one alike: the link contract is the
+     * adapter's, and the fake one here reads nothing.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnExternalSignInAlsoWritesTheProvenance(): void
+    public function testAnExternalSignInAlsoWritesItsGuardAndTheProvenance(): void
     {
         $identity = $this->seedIdentity();
         $sessions = $this->sessions();
         $result   = $this->linkedResult($identity, tenantId: 'tenant-3');
 
-        self::assertTrue($this->assertQueryBudget(4, 3, static fn (): SignInResult => $sessions->signInExternally($result))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(4, 4, static fn (): SignInResult => $sessions->signInExternally($result))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(4, 4, static fn (): SignInResult => $sessions->signInExternally($result))->isSignedIn());
     }
 
     /**

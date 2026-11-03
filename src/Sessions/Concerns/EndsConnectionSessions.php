@@ -39,17 +39,17 @@ trait EndsConnectionSessions
      * guard, if it is bound to one of the sessions, forgets it before each is
      * reported. It finds the sessions with locking reads, so it sees one a
      * sign-in through the connection committed while that transaction waited
-     * for its lock on the connection; on PostgreSQL, whose reads at REPEATABLE
-     * READ or SERIALIZABLE see only the transaction's first snapshot, that
-     * transaction must run at READ COMMITTED (a `LogicException` otherwise,
-     * before anything is read).
+     * for its lock on the connection. At PostgreSQL's REPEATABLE READ or
+     * SERIALIZABLE, where reads see only the transaction's first snapshot, a
+     * sign-in committed after it makes this fail to serialise (SQLSTATE 40001)
+     * rather than miss its session, for the caller to retry the whole
+     * transaction: both write the connection's guards first.
      *
      * @param  string  $connectionId
      * @return int
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
@@ -68,7 +68,6 @@ trait EndsConnectionSessions
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
@@ -85,9 +84,9 @@ trait EndsConnectionSessions
      * `false`. The identity's sessions through its other links, of this
      * connection or another, its other sessions, and other identities' are left
      * alone. Call it in the transaction that removes the link, on the storage
-     * connection, at READ COMMITTED on PostgreSQL, as `connectionDisabled()`
-     * says; when this guard is bound to a session it ends, it forgets it once
-     * that commits.
+     * connection, retried whole when it fails to serialise, as
+     * `connectionDisabled()` says; when this guard is bound to a session it
+     * ends, it forgets it once that commits.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
@@ -96,7 +95,6 @@ trait EndsConnectionSessions
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
@@ -111,10 +109,11 @@ trait EndsConnectionSessions
      * every live session of the identity established through that link, as
      * `linkRemoved()` finds them (`link_scope_widened`). Mandatory: no setting
      * turns it off. Call it synchronously in the transaction that widens the
-     * scope, on the storage connection (at READ COMMITTED on PostgreSQL), so
-     * both commit or roll back together; it runs as a savepoint there. Calling
-     * it twice for one widening is safe: the second call finds nothing live
-     * left to end, revokes nothing and reports nothing.
+     * scope, on the storage connection, so both commit or roll back together
+     * (retried whole when it fails to serialise, as `connectionDisabled()`
+     * says); it runs as a savepoint there. Calling it twice for one widening is
+     * safe: the second call finds nothing live left to end, revokes nothing and
+     * reports nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
@@ -123,7 +122,6 @@ trait EndsConnectionSessions
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */

@@ -166,9 +166,9 @@ final class BenchSchema
     }
 
     /**
-     * Create the proofs and provenance tables, as the shipped migrations do:
-     * every session the package writes records its proofs, and every access
-     * token for a session derives `auth_time` and `amr` from them.
+     * Create the proofs, provenance and connection guard tables, as the shipped
+     * migrations do: every session the package writes records its proofs, and
+     * every access token for a session derives `auth_time` and `amr` from them.
      *
      * @return void
      */
@@ -214,6 +214,12 @@ final class BenchSchema
             $blueprint->dateTime('created_at', 0)->nullable();
             $blueprint->index('connection_id', 'authentication_provenance_provider_index');
             $blueprint->index(['tenant_id', 'connection_id'], 'authentication_provenance_tenant_index');
+        });
+
+        self::ensureTable('authentication_connection_guards', static function (Blueprint $blueprint): void {
+            $blueprint->string('connection_id');
+            $blueprint->unsignedSmallInteger('slot');
+            $blueprint->primary(['connection_id', 'slot'], 'authentication_connection_guards_primary');
         });
     }
 

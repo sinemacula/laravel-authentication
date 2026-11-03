@@ -9,20 +9,29 @@ use Illuminate\Database\DatabaseManager;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Sessions\ConnectionGuards;
 use SineMacula\Laravel\Authentication\Sessions\ConnectionRevocations;
+use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
+use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithExternalSignIns;
+use Tests\Concerns\InteractsWithIsolationLevels;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
  * Races a sign-in through a connection against the disabling of that connection
- * on PostgreSQL and MySQL, on two connections to one database: the disabling
- * transaction reads before the sign-in commits and disables after it, as it
- * does when the adapter's lock on the connection made the sign-in wait for it.
- * On MySQL's REPEATABLE READ that first read fixes the snapshot a plain read
- * would see, so only a locking read finds the session the sign-in committed
- * meanwhile; on PostgreSQL's REPEATABLE READ not even that does, so the
- * disabling is refused there.
+ * on PostgreSQL and MySQL, on two connections to one database, with the
+ * disabling transaction at READ COMMITTED and at REPEATABLE READ: it reads
+ * before the sign-in commits and disables after it, as it does when the
+ * adapter's lock on the connection made the sign-in wait for it. On MySQL's
+ * REPEATABLE READ that first read fixes the snapshot a plain read would see, so
+ * only a locking read finds the session the sign-in committed meanwhile. On
+ * PostgreSQL's REPEATABLE READ not even that does, so the sign-in writes its
+ * link's guard and the disabling every guard of the connection: the disabling
+ * then fails to serialise, and once its caller retries the whole transaction it
+ * finds the session; a sign-in whose transaction read before a disabling
+ * committed fails the same way.
  *
  * Skipped on SQLite, whose in-memory database each connection would have to
  * itself.
@@ -33,9 +42,11 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(ConnectionRevocations::class)]
+#[CoversClass(ConnectionGuards::class)]
+#[CoversClass(SessionWriter::class)]
 final class ConcurrentExternalSignInAndConnectionDisablingTest extends TestCase
 {
-    use InteractsWithExternalSignIns, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithIsolationLevels, InteractsWithSessions;
 
     /** @var string The second connection to the test database, the sign-in's. */
     private const string SIGN_IN_CONNECTION = 'signing_in';
@@ -79,83 +90,72 @@ final class ConcurrentExternalSignInAndConnectionDisablingTest extends TestCase
 
     /**
      * A sign-in through the connection that commits after the disabling
-     * transaction first read is still found and revoked by the disabling.
+     * transaction first read is revoked by the disabling: found by its locking
+     * read, or, where that reads the transaction's snapshot (PostgreSQL's
+     * REPEATABLE READ), once the disabling has failed to serialise on the
+     * link's guard, revoked nothing, and been retried whole.
      *
+     * @param  string  $level
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASignInCommittedAfterTheDisablingFirstReadIsRevoked(): void
+    #[DataProvider('provideIsolationLevels')]
+    public function testASignInCommittedAfterTheDisablingFirstReadIsRevoked(string $level): void
     {
-        $identity  = $this->seedIdentity();
-        $result    = $this->linkedResult($identity);
-        $manager   = app(DatabaseManager::class);
-        $disabling = $manager->getDefaultConnection();
+        $identity = $this->seedIdentity();
+        $result   = $this->linkedResult($identity);
+        $disable  = fn (): int => $this->sessions()->connectionDisabled('connection-7');
 
-        DB::beginTransaction();
+        self::beginTransactionAt($level);
 
         self::assertSame(0, DB::table('authentication_provenance')->count());
 
-        $manager->setDefaultConnection(self::SIGN_IN_CONNECTION);
-
-        $signedIn = $this->sessions()->signInExternally($result);
-
-        $manager->setDefaultConnection($disabling);
+        $signedIn = $this->onSignInConnection(fn (): SignInResult => $this->sessions()->signInExternally($result));
+        $key      = $signedIn->session?->record->getKey();
 
         self::assertTrue($signedIn->isSignedIn());
-        self::assertSame(1, $this->sessions()->connectionDisabled('connection-7'));
+
+        if (self::readsASnapshot($level)) {
+            self::assertSame('40001', self::serializationFailure($disable));
+            self::assertNull(DB::table('authentication_sessions')->where('id', $key)->value('revoked_at'));
+
+            self::beginTransactionAt($level);
+        }
+
+        self::assertSame(1, $disable());
 
         DB::commit();
 
-        self::assertSame('connection_disabled', DB::table('authentication_sessions')->where('id', $signedIn->session?->record->getKey())->value('revoked_reason'));
+        self::assertSame('connection_disabled', DB::table('authentication_sessions')->where('id', $key)->value('revoked_reason'));
     }
 
     /**
-     * On PostgreSQL a disabling in a REPEATABLE READ transaction is refused
-     * before anything is read: every read there, a locking one included, sees
-     * the snapshot the transaction's first read took, so it would miss the
-     * session a sign-in through the connection committed since, and leave it
-     * live.
+     * On PostgreSQL's REPEATABLE READ a sign-in through the connection, in a
+     * transaction that read before a disabling of the connection committed,
+     * fails to serialise on its link's guard, which the disabling wrote with
+     * every other guard of the connection, rather than establish a session the
+     * disabling never saw.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testADisablingInARepeatableReadTransactionOnPostgresIsRefused(): void
+    public function testASignInWhoseTransactionReadBeforeADisablingCommittedFailsToSerialize(): void
     {
-        if (DB::connection()->getDriverName() !== 'pgsql') {
+        if (!self::readsASnapshot('repeatable read')) {
             self::markTestSkipped('Only PostgreSQL reads a snapshot with a locking read.');
         }
 
-        $identity  = $this->seedIdentity();
-        $result    = $this->linkedResult($identity);
-        $manager   = app(DatabaseManager::class);
-        $disabling = $manager->getDefaultConnection();
+        $identity = $this->seedIdentity();
+        $result   = $this->linkedResult($identity, linkId: 'link-2');
 
-        DB::beginTransaction();
-        DB::statement('set transaction isolation level repeatable read');
+        self::beginTransactionAt('repeatable read');
 
         self::assertSame(0, DB::table('authentication_provenance')->count());
-
-        $manager->setDefaultConnection(self::SIGN_IN_CONNECTION);
-
-        $signedIn = $this->sessions()->signInExternally($result);
-
-        $manager->setDefaultConnection($disabling);
-
-        $refusal = null;
-
-        try {
-            $this->sessions()->connectionDisabled('connection-7');
-        } catch (\LogicException $exception) {
-            $refusal = $exception->getMessage();
-        } finally {
-            DB::rollBack();
-        }
-
-        self::assertStringContainsString('READ COMMITTED', (string) $refusal);
-        self::assertTrue($signedIn->isSignedIn());
-        self::assertNull(DB::table('authentication_sessions')->where('id', $signedIn->session?->record->getKey())->value('revoked_at'));
+        self::assertSame(0, $this->onSignInConnection(fn (): int => $this->sessions()->connectionDisabled('connection-7')));
+        self::assertSame('40001', self::serializationFailure(fn (): mixed => $this->sessions()->signInExternally($result)));
+        self::assertSame(0, DB::table('authentication_sessions')->count());
     }
 
     /**
@@ -172,5 +172,27 @@ final class ConcurrentExternalSignInAndConnectionDisablingTest extends TestCase
         assert($app instanceof Application);
 
         self::configureSessionGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * Run the work on the second connection, the sign-in's, as its default.
+     *
+     * @template TResult
+     *
+     * @param  \Closure(): TResult  $work
+     * @return TResult
+     */
+    private function onSignInConnection(\Closure $work): mixed
+    {
+        $manager = app(DatabaseManager::class);
+        $default = $manager->getDefaultConnection();
+
+        $manager->setDefaultConnection(self::SIGN_IN_CONNECTION);
+
+        try {
+            return $work();
+        } finally {
+            $manager->setDefaultConnection($default);
+        }
     }
 }

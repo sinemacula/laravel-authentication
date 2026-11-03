@@ -787,13 +787,23 @@ one transaction on the storage connection, a savepoint inside yours. Both are fo
 sign-in through the connection or link committed while your transaction waited for your lock on it is found even on
 MySQL's REPEATABLE READ, where a plain read would see your transaction's first snapshot. A link's read takes only the
 identity's sessions under `external_provider`, each of which has a provenance, so on MySQL it locks those rows (until
-your transaction ends) and no gap another identity's sign-in would write into. On PostgreSQL even a locking read at
-REPEATABLE READ or SERIALIZABLE sees only your transaction's first snapshot, so run the transaction that disables,
-deletes or unlinks at READ COMMITTED (PostgreSQL's default): inside one at either of the others, each of these refuses
-with a `LogicException` before reading anything, rather than leave a session it cannot see live. Once that commits, a
-request's guard bound to one of them forgets it, so the rest of the request is not authenticated as it even when a
-listener throws, and then `SessionRevoked` reports each. No cutoff moves and no `SignedOutEverywhere` is reported: the
-scope is how the sessions began, not the identity, whose other sessions stay.
+your transaction ends) and no gap another identity's sign-in would write into. Once that commits, a request's guard
+bound to one of them forgets it, so the rest of the request is not authenticated as it even when a listener throws, and
+then `SessionRevoked` reports each. No cutoff moves and no `SignedOutEverywhere` is reported: the scope is how the
+sessions began, not the identity, whose other sessions stay.
+
+On PostgreSQL at REPEATABLE READ or SERIALIZABLE even a locking read sees only your transaction's first snapshot, so a
+session a sign-in committed after it would be invisible. A sign-in through a link therefore writes its link's guard
+(one of 64 rows per connection, in `proofs.guards_table`) before it writes the session, and before reading anything a
+link's revocation writes that guard and a connection's revocation every guard of the connection. When the sign-in
+committed after your transaction's snapshot was taken, the revocation fails to serialise (SQLSTATE 40001, raised by
+Laravel as an `Illuminate\Database\DeadlockException` inside your transaction) rather than miss the session: roll back
+and retry the whole transaction, as you do for any serialisation failure there, and the retry's snapshot sees the
+session and ends it. A sign-in whose transaction read before a revocation committed fails the same way. At READ
+COMMITTED, and on MySQL at any level, the guard only makes the later of the two wait for the earlier, and the locking
+reads find the session. Two sign-ins through different links of one connection share a guard once in 64 times, and a
+connection's revocation holds every guard of the connection until your transaction ends, so sign-ins through it wait
+for that.
 
 `connectionDisabled()`, `connectionDeleted()` and `linkRemoved()` are on by default and each turned off by its
 `authentication.revocation.*` setting (see [Revocation by connection](configuration.md#revocation-by-connection)).

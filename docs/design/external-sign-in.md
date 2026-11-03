@@ -25,8 +25,9 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   contract reads, inside the adapter's transaction, the very link it maps the identity through, so the id recorded is
   always that link's and can never name a link other than the one that chose the identity.
 - The link contract, and the evidence policy's acceptance of a result's evidence, are asked before the package takes any
-  lock, so the adapter's own locks, taken inside its transaction, always come first and the package's session rows (the
-  session reauthenticated, or the one a sign-in supersedes) last. In a reauthentication the tenant's authentication
+  lock, so the adapter's own locks, taken inside its transaction, always come first and the package's own rows last: a
+  sign-in's or a revocation's connection guards first, then the session rows (the session reauthenticated, the one a
+  sign-in supersedes, the ones a revocation ends). In a reauthentication the tenant's authentication
   policy and the evidence policy's `meets()` are then asked under the session's row lock, with the new proof recorded;
   both contracts' docblocks say they must only read, or take no lock the adapter does not already hold. No identity row
   is locked on these paths.
@@ -45,6 +46,12 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   sessions through any other link. `linkRemoved()` honours `authentication.revocation.link_removed`;
   `linkScopeWidened()` is mandatory and idempotent. An empty connection or link id is an `InvalidArgumentException`
   before any setting is read.
+- A sign-in through a link and every revocation of the sessions a link or connection established serialise on rows of
+  the package's own, whatever the isolation level: the connection guards (`Sessions\ConnectionGuards`,
+  `proofs.guards_table`), 64 per connection, each link's being the one its id's CRC-32 falls in. A sign-in writes its
+  link's guard before any session row, a link's revocation that guard and a connection's revocation every guard of the
+  connection, before either reads a session. Each write is one insert that writes the row when it exists, so it holds
+  the row exclusively until the caller's transaction ends.
 - Nothing catches or retries a database exception: a serialization failure or deadlock, and an exception from the
   link contract or the evidence policy, propagates and rolls back the caller's transaction, for the adapter to retry
   whole.
@@ -61,8 +68,9 @@ link contract answers, and the package starts, reauthenticates and ends sessions
    principals, the identity-level requirement, the tenant and its authentication policy (another connection required:
    `sso_required`), judged against the provider's proof and any accepted evidence in memory. No attempt limit,
    timebox or `Attempting`: nothing is guessed.
-4. The session, its first proof and its provenance are written in one transaction, a savepoint in the adapter's; the
-   reports and the guard's bind wait for its commit. The result is an active pair or a pending session.
+4. The link's connection guard, then the session, its first proof and its provenance are written in one transaction, a
+   savepoint in the adapter's; the reports and the guard's bind wait for its commit. The result is an active pair or a
+   pending session.
 5. To reauthenticate, the adapter hands a later result to `reauthenticateExternally($sessionId, $result)`, with the
    identifier of the session its handoff names (an adapter holds no session object, and the session the request is
    authenticated with is not necessarily that one): the method, the session as stored and its standing, the provider's
@@ -74,9 +82,10 @@ link contract answers, and the package starts, reauthenticates and ends sessions
    locking nothing; with the link id inside the redemption's transaction, before it renews, locking the row until it
    ends.
 6. When a link is removed or its scope widened, the adapter calls `linkRemoved()` or `linkScopeWidened()` in that
-   transaction (`Sessions\ConnectionRevocations::link()`): the identity's live session keys 500 at a time, then their
-   provenance by key filtered on the connection and link and compared byte for byte in PHP, then each chunk locked in
-   key order and revoked; the binding is forgotten and `SessionRevoked` reported once it commits.
+   transaction (`Sessions\ConnectionRevocations::link()`): the link's connection guard is written, then the identity's
+   live session keys are read 500 at a time, then their provenance by key filtered on the connection and link and
+   compared byte for byte in PHP, then each chunk locked in key order and revoked; the binding is forgotten and
+   `SessionRevoked` reported once it commits.
 
 ## Failure / Edge Cases
 
@@ -103,10 +112,18 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   the transaction ends; only those are looked up in the provenance, so every key asked for exists and MySQL takes
   record locks only, never the gap another identity's next provenance would be inserted into.
 - On PostgreSQL even a locking read at REPEATABLE READ or SERIALIZABLE sees only the snapshot the transaction's first
-  statement took, and no serialization failure follows (the sign-in changed nothing the revocation locks), so no lock
-  order on the adapter's side lets the revocation see that session. A connection's or link's revocation inside a
-  caller's transaction at either level is therefore refused with a `LogicException` before anything is read
-  (`Database\CommittedReads`): fail closed, for the adapter to run that transaction at READ COMMITTED.
+  statement took, and a sign-in that only inserted rows changes nothing the revocation would lock, so no lock order on
+  the adapter's side lets the revocation see that session, and no serialization failure would follow. Both therefore
+  write the same connection guard: when the sign-in committed after the revocation's snapshot was taken, the
+  revocation's write of the guard fails to serialise (SQLSTATE 40001; Laravel raises it as a `DeadlockException` inside
+  the adapter's transaction) before it reads anything, and the adapter retries its whole transaction, whose new
+  snapshot sees the session. The other way round, a sign-in whose transaction read before a revocation committed fails
+  the same way. At READ COMMITTED, and on MySQL, the guard only makes the later of the two wait, and the locking reads
+  find the session.
+- Links of one connection share a guard only when their ids' slots collide, so two sign-ins through different links wait
+  for each other once in 64 times, and at PostgreSQL's REPEATABLE READ the later of two such overlapping ones fails to
+  serialise and is retried. A connection's revocation holds every guard of the connection until its transaction ends,
+  so sign-ins through the connection wait for it. The guards name no identity, link or session and are never pruned.
 - `externalStanding()` locks the row only inside a transaction on the session model's connection; outside one it reads
   the row on the write connection, so its answer may change before the redemption, which judges it again under the
   lock. Without a link id, a session recorded with no link still never stands. On an application that does not allow
@@ -121,7 +138,7 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   `ExternalReauthentication.php`, `SessionService.php` (`startFor()`), `SessionPreconditions.php`,
   `SignInMethodManager.php` (`EXTERNAL_METHOD`).
 - `src/Sessions/Concerns/EndsConnectionSessions.php`, `src/Sessions/ConnectionRevocations.php` (`link()`),
-  `src/Sessions/RevocationSettings.php`, `src/Database/CommittedReads.php`.
+  `src/Sessions/RevocationSettings.php`, `src/Sessions/ConnectionGuards.php`, `SessionWriter.php`.
 - `src/Proofs/Provenance.php`, `ProofWriter.php` (`provenance()`), `SessionProofs.php` (`provenance()`),
   `src/Models/SessionProvenance.php`,
   `database/migrations/2026_04_06_000009_create_authentication_provenance_table.php`.
@@ -144,10 +161,12 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   sessions read on the primary, so a session the replica has not seen reauthenticates, stands and is revoked.
 - `tests/Integration/Sessions/ConcurrentExternalReauthenticationsTest.php`,
   `ConcurrentExternalReauthenticationAndWideningTest.php`: the races on the session's row lock;
-  `ConcurrentExternalSignInAndWideningTest.php`, `ConcurrentExternalSignInAndConnectionDisablingTest.php`: a widening
-  or disabling finds a sign-in committed after its transaction first read, is refused at PostgreSQL's REPEATABLE READ,
-  and a widening holds up no other identity's sign-in. `tests/Unit/Database/CommittedReadsTest.php`: the isolation
-  rule.
+  `ConcurrentExternalSignInAndWideningTest.php`, `ConcurrentExternalSignInAndConnectionDisablingTest.php`: at READ
+  COMMITTED and REPEATABLE READ, a widening or disabling finds a sign-in committed after its transaction first read, on
+  PostgreSQL's REPEATABLE READ once it has failed to serialise and been retried; a sign-in whose transaction read before
+  a widening or disabling committed fails to serialise there; and a widening holds up no other identity's sign-in.
+  `tests/Feature/Sessions/ConnectionGuardsTest.php`, `SessionWriterTest.php`, `ConnectionRevocationsTest.php`: which
+  guards each writes, and that it writes them first.
 - `tests/Unit/External/*`, `tests/Unit/Events/ExternalResultUnlinkedTest.php`,
   `tests/Feature/Sessions/SignInMethodManagerTest.php`, `tests/Unit/Sessions/SessionPreconditionsTest.php`.
 - `tests/Performance/SessionServiceQueryBudgetTest.php`, `ProofQueryBudgetTest.php`,
@@ -160,6 +179,6 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 - Taking any lock of the package's before the link contract is asked, or catching a database exception on these paths.
 - Letting a reauthentication through a link other than the one the provenance records, or issuing it a refresh token.
 - Letting a link's revocation end sessions through another link, or making the widening optional.
-- Finding a connection's or link's sessions with a plain read, or letting either revocation run where its reads see a
-  snapshot (PostgreSQL above READ COMMITTED).
+- Finding a connection's or link's sessions with a plain read, or letting a sign-in or either revocation read or
+  write a session before it writes its connection guards.
 - Storing links, issuing or redeeming handoffs, or verifying provider responses in this package.

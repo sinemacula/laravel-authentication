@@ -13,7 +13,6 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
-use SineMacula\Laravel\Authentication\Database\CommittedReads;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
@@ -53,14 +52,19 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * wait. Every provenance key a link's read asks for exists, since only a
  * session under `external_provider` is asked about and its sign-in writes its
  * provenance with it, so MySQL locks those rows and no gap another identity's
- * sign-in would insert into. On PostgreSQL a caller's transaction must be READ
- * COMMITTED (`CommittedReads`). Once the revocation commits, the guard first
- * forgets a binding to any session revoked, so the rest of the request is not
- * authenticated as a session it ended even when a listener throws, and then
- * `SessionRevoked` reports each one. No cutoff moves: the scope is how the
- * sessions began, not the identity. Each per-event trigger can be turned off
- * (`RevocationSettings`), and then writes nothing; a link's widened scope
- * cannot.
+ * sign-in would insert into. Before it reads anything, a revocation writes the
+ * guards a sign-in through the link or the connection writes first too
+ * (`ConnectionGuards`, the link's or every one of the connection's), so at
+ * PostgreSQL's REPEATABLE READ or SERIALIZABLE, where even a locking read sees
+ * the caller's snapshot, a sign-in committed after that snapshot makes the
+ * revocation fail to serialise rather than miss its session, and the caller
+ * retries its whole transaction. Once the revocation commits, the
+ * authentication guard first forgets a binding to any session revoked, so the
+ * rest of the request is not authenticated as a session it ended even when a
+ * listener throws, and then `SessionRevoked` reports each one. No cutoff moves:
+ * the scope is how the sessions began, not the identity. Each per-event trigger
+ * can be turned off (`RevocationSettings`), and then writes nothing; a link's
+ * widened scope cannot.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -111,7 +115,6 @@ final readonly class ConnectionRevocations
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
@@ -126,9 +129,9 @@ final readonly class ConnectionRevocations
         $model   = SessionLookup::model();
         $numeric = $model->getKeyType() === 'int';
 
-        CommittedReads::assert($model->getConnection(), 'A connection\'s revocation');
-
         return $model->getConnection()->transaction(function () use ($model, $numeric, $connectionId, $reason, $now): int {
+
+            ConnectionGuards::connection($model->getConnection(), $connectionId);
 
             $ended   = $this->forgetOnCommit($model);
             $revoked = 0;
@@ -161,7 +164,6 @@ final readonly class ConnectionRevocations
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
@@ -176,9 +178,9 @@ final readonly class ConnectionRevocations
 
         $model = SessionLookup::model();
 
-        CommittedReads::assert($model->getConnection(), 'A link\'s revocation');
-
         return $model->getConnection()->transaction(function () use ($model, $identity, $connectionId, $linkId, $reason, $now): int {
+
+            ConnectionGuards::link($model->getConnection(), $connectionId, $linkId);
 
             $ended   = $this->forgetOnCommit($model);
             $revoked = 0;

@@ -592,9 +592,9 @@ $passed = $result->isVerified();   // else $result->reason
   sign-in](signing-in.md#external-sign-in)). The application must list `external_provider` in its `methods`. The
   identity is reloaded through the guard's provider, and activity, the application policy, the additional-factor policy,
   the choice of principal and the tenant's authentication policy all apply; no attempt limit or timebox does, since
-  nothing is guessed. The package takes no lock before the link contract is asked, so any session row it locks (one the
-  sign-in replaces) is locked after the adapter's own. A database error, a PostgreSQL serialization failure included,
-  propagates for the adapter to retry the whole transaction.
+  nothing is guessed. The package takes no lock before the link contract is asked, so every row of its own it locks
+  (the link's connection guard, then any session the sign-in replaces) is locked after the adapter's own. A database
+  error, a PostgreSQL serialization failure included, propagates for the adapter to retry the whole transaction.
 - A result linked to no identity dispatches `ExternalResultUnlinked` and fails as `external_result_unlinked`. The event
   is informational: `laravel-iam` provisions on `laravel-sso`'s own unlinked-result event, before any handoff is issued,
   never on this one, since provisioning on both would provision twice.
@@ -623,10 +623,11 @@ $passed = $result->isVerified();   // else $result->reason
 - When a link is removed, or its scope widened so it may act for more than its sessions were established for, the
   adapter calls `linkRemoved($identity, $connectionId, $linkId)` or `linkScopeWidened(...)` in the same transaction (see
   [Connections and links](sessions.md#connections-and-links)): each ends only the identity's sessions established
-  through that link. `linkScopeWidened()` is mandatory and safe to repeat; `linkRemoved()` honours its setting. On
-  PostgreSQL run that transaction, and one that disables or deletes a connection, at READ COMMITTED: at REPEATABLE READ
-  or SERIALIZABLE no read can see a session a sign-in committed after the transaction began, so each refuses with a
-  `LogicException`.
+  through that link. `linkScopeWidened()` is mandatory and safe to repeat; `linkRemoved()` honours its setting. Any
+  isolation level will do: a sign-in through the link and the revocation both write the link's connection guard first
+  (a connection's disabling or deletion every guard of the connection), so at PostgreSQL's REPEATABLE READ or
+  SERIALIZABLE, where no read sees a session a sign-in committed after the transaction's snapshot, the later of the two
+  fails to serialise (40001) instead, and the adapter retries its whole transaction.
 
 ### Audit (`laravel-audit-log`)
 

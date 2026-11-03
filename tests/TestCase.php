@@ -148,9 +148,10 @@ abstract class TestCase extends OrchestraTestCase
      * Run the package's shipped migrations so the default
      * `authentication_sessions`, `rate_limits`, `one_time_codes`, `passkeys`,
      * `passkey_challenges`, `api_keys`, `identifier_changes`,
-     * `authentication_proofs` and `authentication_provenance` tables exist for
-     * tests that use the shipped models, on the connections the storage
-     * settings name when they run.
+     * `authentication_proofs`, `authentication_provenance` and
+     * `authentication_connection_guards` tables exist for tests that use the
+     * shipped models, on the connections the storage settings name when they
+     * run.
      *
      * A test may point the storage settings elsewhere once the tables exist;
      * `tearDown()` puts them back before the migrations are rolled back. On a
@@ -267,6 +268,7 @@ abstract class TestCase extends OrchestraTestCase
             [$storage, $config->string('authentication.identifier_changes.table', 'identifier_changes')],
             [$storage, $config->string('authentication.proofs.table', 'authentication_proofs')],
             [$storage, $config->string('authentication.proofs.provenance_table', 'authentication_provenance')],
+            [$storage, $config->string('authentication.proofs.guards_table', 'authentication_connection_guards')],
         ];
     }
 

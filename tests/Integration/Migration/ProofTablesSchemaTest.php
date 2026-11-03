@@ -9,11 +9,13 @@ use Illuminate\Database\Schema\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversNothing;
+use SineMacula\Laravel\Authentication\Database\TableAlreadyExistsException;
 use Tests\TestCase;
 
 /**
  * Integration tests for the shape of the tables the shipped proofs and
- * provenance migrations create, on whichever engine the suite runs against.
+ * provenance migrations create (the provenance migration creates the connection
+ * guards too), on whichever engine the suite runs against.
  *
  * Each migration runs for a configured table name other than the default, with
  * the schema builder's default time precision raised, so the index names and
@@ -42,6 +44,9 @@ final class ProofTablesSchemaTest extends TestCase
     /** @var string Configured provenance table name the migration runs for. */
     private const string PROVENANCE = 'session_provenance_records';
 
+    /** @var string Configured connection guard table name the provenance migration runs for. */
+    private const string GUARDS = 'session_connection_guard_records';
+
     /**
      * Run both shipped migrations for the configured names, with the schema
      * builder's default time precision raised to microseconds while they run.
@@ -55,6 +60,7 @@ final class ProofTablesSchemaTest extends TestCase
 
         config()->set('authentication.proofs.table', self::PROOFS);
         config()->set('authentication.proofs.provenance_table', self::PROVENANCE);
+        config()->set('authentication.proofs.guards_table', self::GUARDS);
 
         $precision = Builder::$defaultTimePrecision;
 
@@ -78,6 +84,7 @@ final class ProofTablesSchemaTest extends TestCase
     {
         Schema::dropIfExists(self::PROOFS);
         Schema::dropIfExists(self::PROVENANCE);
+        Schema::dropIfExists(self::GUARDS);
 
         parent::tearDown();
     }
@@ -155,6 +162,24 @@ final class ProofTablesSchemaTest extends TestCase
         ], $columns);
 
         self::assertSame([['session_id']], self::primaryColumns(self::PROVENANCE));
+    }
+
+    /**
+     * The connection guard table holds only a connection and a slot, both
+     * required, which together are its primary key, and nothing else is
+     * indexed.
+     *
+     * @return void
+     */
+    public function testTheConnectionGuardTableHasItsColumnsAndKey(): void
+    {
+        $columns = array_column(Schema::getColumns(self::GUARDS), 'nullable', 'name');
+
+        ksort($columns);
+
+        self::assertSame(['connection_id' => false, 'slot' => false], $columns);
+        self::assertSame([['connection_id', 'slot']], self::primaryColumns(self::GUARDS));
+        self::assertSame([], self::secondaryIndexes(self::GUARDS));
     }
 
     /**
@@ -241,7 +266,8 @@ final class ProofTablesSchemaTest extends TestCase
      * engine, MySQL's default case-insensitive collations and its padding
      * `utf8mb4_bin` included: a lookup of one finds no value that differs from
      * it only in case or by a trailing space, a group keeps such values apart,
-     * and provenances whose session keys differ only in those are all kept.
+     * and provenances whose session keys, or guards whose connections, differ
+     * only in those are all kept.
      *
      * @return void
      */
@@ -295,13 +321,19 @@ final class ProofTablesSchemaTest extends TestCase
         self::assertSame('abc', DB::table(self::PROVENANCE)->where('connection_id', 'conn')->sole()->session_id);
         self::assertSame('abc', DB::table(self::PROVENANCE)->where('link_id', 'link')->sole()->session_id);
         self::assertSame(3, DB::table(self::PROVENANCE)->count());
+
+        DB::table(self::GUARDS)->insert([['connection_id' => 'conn', 'slot' => 0], ['connection_id' => 'CONN', 'slot' => 0], ['connection_id' => 'conn ', 'slot' => 0]]);
+
+        self::assertSame(1, DB::table(self::GUARDS)->where('connection_id', 'conn')->count());
+        self::assertSame(3, DB::table(self::GUARDS)->count());
     }
 
     /**
      * A session key, owner and guard of 255 characters that each take four
      * bytes are stored and found again whole on every engine, and so is a
-     * provenance under that key with such a link: a binary column on MySQL and
-     * MariaDB holds what a string column of 255 characters holds elsewhere.
+     * provenance under that key with such a link, and a guard of such a
+     * connection: a binary column on MySQL and MariaDB holds what a string
+     * column of 255 characters holds elsewhere.
      *
      * @return void
      */
@@ -327,6 +359,7 @@ final class ProofTablesSchemaTest extends TestCase
         ]);
 
         DB::table(self::PROVENANCE)->insert(['session_id' => $session, 'connection_id' => 'c-1', 'link_id' => $owner]);
+        DB::table(self::GUARDS)->insert(['connection_id' => $owner, 'slot' => 63]);
 
         $stored = (array) DB::table(self::PROOFS)
             ->where(['session_id' => $session, 'authenticatable_type' => $type, 'authenticatable_id' => $owner, 'guard' => $guard])
@@ -335,6 +368,7 @@ final class ProofTablesSchemaTest extends TestCase
         self::assertSame(['session_id' => $session, 'authenticatable_type' => $type, 'authenticatable_id' => $owner, 'guard' => $guard], $stored);
         self::assertSame($session, DB::table(self::PROVENANCE)->where('session_id', $session)->value('session_id'));
         self::assertSame($owner, DB::table(self::PROVENANCE)->where('link_id', $owner)->value('link_id'));
+        self::assertTrue(DB::table(self::GUARDS)->where('connection_id', $owner)->where('slot', 63)->exists());
     }
 
     /**
@@ -347,9 +381,11 @@ final class ProofTablesSchemaTest extends TestCase
     {
         $proofs     = str_repeat('p', 47);
         $provenance = str_repeat('q', 47);
+        $guards     = str_repeat('g', 47);
 
         config()->set('authentication.proofs.table', $proofs);
         config()->set('authentication.proofs.provenance_table', $provenance);
+        config()->set('authentication.proofs.guards_table', $guards);
 
         try {
             \call_user_func([self::load(self::PROOFS_MIGRATION), 'up']);
@@ -357,14 +393,43 @@ final class ProofTablesSchemaTest extends TestCase
 
             self::assertSame([$proofs . '_session_index'], array_column(self::secondaryIndexes($proofs), 0));
             self::assertEqualsCanonicalizing([$provenance . '_provider_index', $provenance . '_tenant_index'], array_column(self::secondaryIndexes($provenance), 0));
+            self::assertSame([['connection_id', 'slot']], self::primaryColumns($guards));
         } finally {
             Schema::dropIfExists($proofs);
             Schema::dropIfExists($provenance);
+            Schema::dropIfExists($guards);
         }
     }
 
     /**
-     * Rolling each migration back drops its configured table.
+     * Over an existing guard table the provenance migration refuses, naming the
+     * key that renames it, before it creates the provenance table.
+     *
+     * @return void
+     */
+    public function testRefusesAnExistingGuardTableBeforeCreatingTheProvenance(): void
+    {
+        config()->set('authentication.proofs.provenance_table', 'fresh_provenance_records');
+
+        $refusal = null;
+
+        try {
+            \call_user_func([self::load(self::PROVENANCE_MIGRATION), 'up']);
+        } catch (TableAlreadyExistsException $exception) { // @phpstan-ignore catch.neverThrown
+            $refusal = $exception->getMessage();
+        }
+
+        $created = Schema::hasTable('fresh_provenance_records');
+
+        Schema::dropIfExists('fresh_provenance_records');
+
+        self::assertStringContainsString('for the \'' . self::GUARDS . '\' table', (string) $refusal);
+        self::assertStringContainsString('Set `proofs.guards_table`', (string) $refusal);
+        self::assertFalse($created);
+    }
+
+    /**
+     * Rolling each migration back drops its configured tables.
      *
      * @return void
      */
@@ -375,6 +440,7 @@ final class ProofTablesSchemaTest extends TestCase
 
         self::assertFalse(Schema::hasTable(self::PROOFS));
         self::assertFalse(Schema::hasTable(self::PROVENANCE));
+        self::assertFalse(Schema::hasTable(self::GUARDS));
     }
 
     /**
