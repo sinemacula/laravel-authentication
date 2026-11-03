@@ -7,6 +7,8 @@ namespace SineMacula\Laravel\Authentication\Http\Middleware;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
+use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Http\BearerForms;
 use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 
@@ -20,6 +22,10 @@ use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
  * package guard, this subclass raises the `AuthenticationException` without a
  * redirect, and `UnauthenticatedResponse` renders it as `401`. Routes guarded
  * by any other guard keep Laravel's behaviour unchanged.
+ *
+ * It also records the guards the route lists on the request, so that on a route
+ * listing both a `jwt` and an `api_key` guard a bearer credential is read and
+ * reported only by the guard kind its form belongs to (see `BearerForms`).
  *
  * The package binds it in place of `Illuminate\Auth\Middleware\Authenticate`,
  * so the default `auth` alias resolves to it. An application that aliases its
@@ -47,6 +53,28 @@ class Authenticate extends IlluminateAuthenticate
         protected readonly UnauthenticatedResponse $response,
     ) {
         parent::__construct($auth);
+    }
+
+    /**
+     * Record the guards the route lists on the request, `null` for the default
+     * guard when it lists none, then authenticate against them as Laravel does.
+     * A package guard reads the record to leave a bearer credential of the
+     * other guard kind's form to the guard it belongs to (see `BearerForms`).
+     *
+     * @param  mixed  $request
+     * @param  array<array-key, mixed>  $guards
+     * @return void
+     *
+     * @throws \Illuminate\Auth\AuthenticationException
+     */
+    #[\Override]
+    protected function authenticate(mixed $request, array $guards): void
+    {
+        if ($request instanceof Request) {
+            $request->attributes->set(BearerForms::ROUTE_GUARDS, $guards === [] ? [null] : array_values($guards));
+        }
+
+        parent::authenticate($request, $guards);
     }
 
     /**

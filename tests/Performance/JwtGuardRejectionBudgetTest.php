@@ -5,16 +5,22 @@ declare(strict_types = 1);
 namespace Tests\Performance;
 
 use Firebase\JWT\JWT;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\BearerForms;
+use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -30,7 +36,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
  * request whose token fails after a lookup is resolved once however often the
  * guard is asked, a bearer token for another guard or missing a required claim
  * is rejected before any query, and such a refresh token before any session or
- * identity query, touching only the IP address's refresh limit.
+ * identity query, touching only the IP address's refresh limit; an API key on a
+ * route that lists an `api_key` guard too costs the `jwt` guard nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,6 +57,9 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     /** @var string Second guard over the same identities and signing key. */
     private const string OTHER_GUARD = 'other_api';
 
+    /** @var string An `api_key` guard over the same identities. */
+    private const string KEY_GUARD = 'keys';
+
     /** @var string Plaintext rotation id stored on the seeded session. */
     private const string ROTATION_ID = 'stored-rotation-id';
 
@@ -58,6 +68,9 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
 
     /** @var int Generous ceiling for those resolutions, in nanoseconds (100 ms each). */
     private const int TIMED_CEILING_NANOSECONDS = self::TIMED_REQUESTS * 100000000;
+
+    /** @var list<?string> The guard of each `AuthenticationFailed` dispatched since recording began. */
+    private array $failedGuards = [];
 
     /**
      * Provision the identity table.
@@ -213,6 +226,49 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * A bearer credential in API key form, on a route whose `auth` middleware
+     * lists an `api_key` guard beside the `jwt` guard, is that guard's: the
+     * `jwt` guard parses nothing, queries nothing and reports nothing, and the
+     * route costs only the key guard's one lookup.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testAnApiKeyOnARouteListingAKeyGuardCostsTheJwtGuardNothing(): void
+    {
+        $key = 'ak_zzzzzzzzzzzzzzzz_' . str_repeat('a', 40);
+
+        $this->bindRequestWithBearer('/perf/key', $key);
+
+        $request = request();
+        $request->attributes->set(BearerForms::ROUTE_GUARDS, [self::GUARD, self::KEY_GUARD]);
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        Event::listen(AuthenticationFailed::class, function (AuthenticationFailed $event): void {
+            $this->failedGuards[] = $event->context->guard;
+        });
+
+        self::assertFalse($this->assertQueryBudget(0, 0, static fn (): bool => $guard->check()));
+        self::assertSame([], $this->failedGuards);
+
+        PackageAuth::manager()->forgetGuards();
+
+        $this->assertQueryBudget(1, 0, function () use ($request): void {
+            try {
+                $this->app?->make(Authenticate::class)->handle($request, static fn (): Response => new Response, self::GUARD, self::KEY_GUARD);
+            } catch (AuthenticationException) {
+                return;
+            }
+
+            self::fail('Expected the key to be refused.');
+        });
+
+        self::assertSame([self::KEY_GUARD], $this->failedGuards);
+    }
+
+    /**
      * A refresh token issued by another guard is rejected while parsing, before
      * any session or identity query. It names no session the guard can trust,
      * so only the IP address's limit is read and, as a failure, counted: on a
@@ -305,6 +361,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
                 'provider' => 'integration_identities',
             ]);
         }
+
+        $config->set('auth.guards.' . self::KEY_GUARD, ['driver' => 'api_key', 'provider' => 'integration_identities']);
 
         $config->set('auth.providers.integration_identities', [
             'driver' => 'model',

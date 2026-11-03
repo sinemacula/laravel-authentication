@@ -153,6 +153,28 @@ protects, so throttle the routes for that. A machine has no interactive sign-in:
 (`method_not_allowed`) and checks nothing. `Auth::guard('machine')->validate(['api_key' => $key])` says whether a key
 would authenticate, binding and dispatching nothing.
 
+### Tokens and keys on one route
+
+A route may accept both a `jwt` guard's tokens and an `api_key` guard's keys, in either order (`auth:api,machine` or
+`auth:machine,api`). Both arrive as `Authorization: Bearer`, so the package tells them apart by form: a credential
+containing a `.` is a JWT (a compact JWS always has two), one without is an API key (a key never has one). On a route
+whose `auth` middleware lists a guard of each kind, each guard reads only credentials of its own form and treats the
+other's as no credential at all: it parses nothing, queries nothing and reports nothing. So a token that fails JWT
+validation (a bad signature, the wrong `typ`, expired, the wrong `iss` or `aud`, another guard's, a segment missing or
+extra, bad base64url) is reported once, as `AuthenticationFailed` with flow `bearer`, and never looked up as a key; a
+refused key, or any other string without a dot, is reported once with flow `api_key` and never parsed as a token; and a
+valid credential of either kind authenticates with no failure reported. A client credentials token is a JWT: it is its
+`jwt` guard's alone, which holds it to its key by id on every request, never by a lookup of the key's public part.
+
+Revocation is checked on every request either way: a key revoked between two requests is `credential_revoked` on the
+second, and so is the next request with a client credentials token whose key was revoked.
+
+The `auth` middleware (the package's, which the `auth` alias resolves to, or one of yours that extends it) records the
+guards the route lists on the request before trying them. A route listing one kind of guard, a guard asked directly
+(`Auth::guard('machine')->check()`) or asked before the middleware runs, reads every credential itself. A route
+listing two guards of one kind (`auth:api,m2m`) gets one report from each guard that refuses the credential, each naming
+its guard: they are two applications' refusals, not one.
+
 Every other operation names the principal the key must belong to, and treats a key of another principal or guard as
 absent, even one whose guard, type or identifier the column's collation counts as equal (`alice` and `Alice` under
 MySQL's default `_ci` collations). These are privileged operations: authorise your caller to manage that principal's

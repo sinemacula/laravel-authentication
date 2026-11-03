@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Http\BearerForms;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
@@ -97,7 +98,9 @@ final class ApiKeyGuard extends AbstractGuard
     /**
      * Resolve the identity from the request's API key. `user()` calls this at
      * most once per request, so a rejected key is reported once. A request
-     * without a bearer credential attempts nothing and dispatches nothing.
+     * without a bearer credential attempts nothing and dispatches nothing, nor
+     * does one whose credential is in JWT form on a route that also lists a
+     * `jwt` guard: that guard reads it (see `BearerForms`).
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *
@@ -108,9 +111,10 @@ final class ApiKeyGuard extends AbstractGuard
     #[\Override]
     protected function resolveUserFromRequest(): ?Identity
     {
-        $presented = $this->context->request()->bearerToken();
+        $request   = $this->context->request();
+        $presented = $request->bearerToken();
 
-        if ($presented === null || $presented === '') {
+        if ($presented === null || $presented === '' || BearerForms::defersTo(BearerForms::API_KEY, $request, $presented)) {
             return null;
         }
 

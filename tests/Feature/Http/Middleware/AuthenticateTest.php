@@ -10,6 +10,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Http\BearerForms;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -104,6 +105,48 @@ final class AuthenticateTest extends TestCase
     }
 
     /**
+     * The middleware records the guards the route lists on the request, in
+     * order, before trying them, and `null` for the default guard when the
+     * route lists none.
+     *
+     * @return void
+     */
+    public function testRecordsTheRouteGuardsOnTheRequest(): void
+    {
+        $listed = Request::create('/guarded');
+        $none   = Request::create('/guarded');
+
+        $this->rejectionOf($listed, ['api', 'web']);
+        $this->rejectionOf($none, []);
+
+        self::assertSame(['api', 'web'], $listed->attributes->get(BearerForms::ROUTE_GUARDS));
+        self::assertSame([null], $none->attributes->get(BearerForms::ROUTE_GUARDS));
+    }
+
+    /**
+     * Something other than a request is passed to Laravel untouched: nothing is
+     * recorded, and the guards are still tried.
+     *
+     * @return void
+     */
+    public function testLeavesSomethingOtherThanARequestUntouched(): void
+    {
+        $middleware = app(IlluminateAuthenticate::class);
+        $passed     = new \stdClass;
+
+        try {
+            $middleware->handle($passed, static fn (): Response => new Response('The guest passed.'), 'api');
+        } catch (AuthenticationException $exception) {
+            self::assertSame(['api'], $exception->guards());
+            self::assertSame([], get_object_vars($passed));
+
+            return;
+        }
+
+        self::fail('Expected the guest to be rejected.');
+    }
+
+    /**
      * Configure a package `api` guard beside Laravel's `web` session guard.
      *
      * @param  mixed  $app
@@ -137,9 +180,20 @@ final class AuthenticateTest extends TestCase
      */
     private function rejection(array $guards): AuthenticationException
     {
-        $middleware = app(IlluminateAuthenticate::class);
+        return $this->rejectionOf(Request::create('/guarded', 'GET', server: ['HTTP_ACCEPT' => 'text/html']), $guards);
+    }
 
-        $request = Request::create('/guarded', 'GET', server: ['HTTP_ACCEPT' => 'text/html']);
+    /**
+     * Run the guest request through the middleware for the guards and return
+     * the exception it raises.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  array<int, string>  $guards
+     * @return \Illuminate\Auth\AuthenticationException
+     */
+    private function rejectionOf(Request $request, array $guards): AuthenticationException
+    {
+        $middleware = app(IlluminateAuthenticate::class);
 
         try {
             $middleware->handle($request, static fn (): Response => new Response('The guest passed.'), ...$guards);

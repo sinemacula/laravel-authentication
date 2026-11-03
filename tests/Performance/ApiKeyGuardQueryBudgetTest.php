@@ -4,20 +4,26 @@ declare(strict_types = 1);
 
 namespace Tests\Performance;
 
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
+use SineMacula\Laravel\Authentication\Http\BearerForms;
+use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use Tests\Concerns\InteractsWithMachineCredentials;
 
 /**
  * Query-budget contracts for the `api_key` guard: one indexed lookup of the
  * key, then the owner and its principal, a write only when the last use is
- * stale, no password hashing, and the same single lookup for an unknown key as
- * for a wrong secret.
+ * stale, no password hashing, the same single lookup for an unknown key as for
+ * a wrong secret, and nothing for a JWT on a route that lists a `jwt` guard
+ * too.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -138,6 +144,52 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
         self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => PackageAuth::guard('machine')->check()));
 
         self::assertSame(2, DB::table('api_keys')->count());
+    }
+
+    /**
+     * A bearer credential in JWT form, on a route whose `auth` middleware lists
+     * a `jwt` guard beside the `api_key` guard, is that guard's: the key guard
+     * splits nothing, queries nothing and reports nothing, and a token whose
+     * signature fails costs the route no query at all.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAJwtOnARouteListingAJwtGuardCostsTheKeyGuardNothing(): void
+    {
+        $machine = $this->seedMachine();
+        $issued  = $this->apiKeys('m2m')->issue($machine, $machine);
+
+        $this->startMachineRequest();
+
+        $token = PackageAuth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key()->reveal(), 20), null)->accessToken?->reveal();
+
+        self::assertIsString($token);
+
+        $this->startMachineRequest(substr($token, 0, -2) . strrev(substr($token, -2)));
+
+        $request = request();
+        $request->attributes->set(BearerForms::ROUTE_GUARDS, ['machine', 'm2m']);
+
+        $this->recordMachineEvents([AuthenticationFailed::class]);
+
+        self::assertFalse($this->assertQueryBudget(0, 0, static fn (): bool => PackageAuth::guard('machine')->check()));
+        self::assertSame([], $this->machineEvents);
+
+        PackageAuth::forgetGuards();
+
+        $this->assertQueryBudget(0, 0, function () use ($request): void {
+            try {
+                $this->app?->make(Authenticate::class)->handle($request, static fn (): Response => new Response, 'machine', 'm2m');
+            } catch (AuthenticationException) {
+                return;
+            }
+
+            self::fail('Expected the token to be refused.');
+        });
+
+        self::assertSame(['m2m'], array_map(static fn (AuthenticationFailed $event): ?string => $event->context->guard, $this->machineEventsOf(AuthenticationFailed::class)));
     }
 
     /**
