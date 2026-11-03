@@ -128,9 +128,10 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   the same way. At READ COMMITTED, and on MySQL, the guard only makes the later of the two wait, and the locking reads
   find the session.
 - Links of one connection share a guard only when their ids' slots collide, so two sign-ins through different links wait
-  for each other once in 64 times, and at PostgreSQL's REPEATABLE READ the later of two such overlapping ones fails to
-  serialise and is retried. A connection's revocation holds every guard of the connection until its transaction ends,
-  so sign-ins through the connection wait for it. The guards name no identity, link or session and are never pruned.
+  for each other about once in 64 times (for ids that hash evenly), and at PostgreSQL's REPEATABLE READ the later of two
+  such overlapping ones fails to serialise and is retried. A connection's revocation holds every guard of the connection
+  until its transaction ends, so sign-ins through the connection wait for it. The guards name no identity, link or
+  session and are never pruned.
 - `externalStanding()` locks the row only inside a transaction on the session model's connection; outside one it reads
   the row on the write connection, so its answer may change before the redemption, which judges it again under the
   lock. Without a link id, a session recorded with no link still never stands. On an application that does not allow

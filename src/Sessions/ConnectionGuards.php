@@ -39,10 +39,10 @@ use SineMacula\Laravel\Authentication\Proofs\Provenance;
  * before any session row, in slot order, so the guards never invert the
  * caller's lock order or the sessions'. Links of one connection share a row
  * only when their hashes fall in the same slot, so two sign-ins through
- * different links of a connection wait for each other once in `SLOTS`, and at
- * REPEATABLE READ the later of two such overlapping ones is retried. A row
- * names no identity, link or session, so the rows are never pruned: there are
- * at most `SLOTS` per connection.
+ * different links of a connection wait for each other about once in `SLOTS`,
+ * and at REPEATABLE READ the later of two such overlapping ones is retried. A
+ * row names no identity, link or session, so the rows are never pruned: there
+ * are at most `SLOTS` per connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
