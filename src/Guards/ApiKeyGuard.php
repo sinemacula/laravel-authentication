@@ -133,7 +133,7 @@ final class ApiKeyGuard extends AbstractGuard
 
         $this->bindVerifiedContext($admission->identity, $admission->principal, null, $admission->tenant, self::METHOD, false, $key->id, $key->scopes, CredentialKind::API_KEY);
 
-        ApiKeyLookup::recordUse($outcome->key, $now);
+        ApiKeyLookup::recordUse($key, $now);
 
         return $admission->identity;
     }
