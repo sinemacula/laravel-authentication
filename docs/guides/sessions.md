@@ -80,18 +80,18 @@ where a factor's removal voided the proofs that gave them, on purpose. Every iss
 (a refresh and its grace retry, a switch and its retry, a step-up, a reauthentication at either factor, an activation, a
 direct `issueAccessToken()` with a session) first writes the session's issuance guard, an increment of its
 `issuance_sequence`, or writes the session's row itself (an activation, a sign-in's insert); every change of a session's
-proofs (`satisfy()`, a step-up, a reauthentication, `factorRemoved()`) writes it before the proof. The issuance then
-takes its time and reads the proofs current, in the same transaction on the session's connection, which holds the row
-until it commits. So two of them on one session never read the proofs past each other:
+proofs (`satisfy()`, a step-up, a reauthentication, `factorRemoved()`) writes it before the proof. The issuance takes
+its time once it holds the row (an activation issues at its operation's time: no other token of a pending session can
+have committed meanwhile), and then reads the proofs current, in the same transaction on the session's connection, which
+holds the row until it commits. So two of them on one session never read the proofs past each other:
 
 - At READ COMMITTED, on PostgreSQL and MySQL, and at MySQL's REPEATABLE READ, the later waits on the row the earlier
   wrote, and then reads what it committed (on MySQL with a shared lock, since its plain reads inside a REPEATABLE READ
   transaction return the transaction's first snapshot).
 - At PostgreSQL's REPEATABLE READ or SERIALIZABLE, a transaction whose snapshot was taken before the other committed
-  fails to serialise on the guard (SQLSTATE 40001; inside your transaction Laravel raises it as a
-  `DeadlockException`). The package does not retry: retry your whole transaction, whose new snapshot sees the other.
-  Two parallel refreshes of one session at that level now fail one of them this way, where autocommit used to answer the
-  second as a grace retry; at READ COMMITTED they still resolve to the grace retry.
+  fails to serialise on the guard (SQLSTATE 40001; inside your transaction Laravel raises it as a `DeadlockException`).
+  The package does not retry: retry your whole transaction, whose new snapshot sees the other. Two parallel refreshes of
+  one session at that level fail one of them this way; at READ COMMITTED the second is answered as a grace retry.
 
 A sign-in reads its new session's proofs as its own transaction sees them: nothing else can record a proof under a
 session that is not committed yet. Reading the authentication context of a request is not an issuance and writes
@@ -226,13 +226,13 @@ is after now), so the new access token's `auth_time` is the later of the session
 lock, after the session's issuance guard, so a racing reauthentication or step-up either committed first and is counted
 in this token, or waits for this one (see [Issuance order](#issuance-order)); inside a transaction of yours at
 PostgreSQL's REPEATABLE READ that read before such a one committed, this one fails to serialise instead, for you to
-retry. Nothing else is renewed: no refresh token is issued, and the session row (but its issuance guard), its deadlines
-and its provenance are kept. Its `amr` gains the
-provider's private value, and `mfa`, only when the application's `ExternalEvidencePolicy` accepts the result's evidence
-(see [Proofs and provenance](#proofs-and-provenance)); otherwise only `auth_time` moves. `Reauthenticated` (method
-`external_provider`) reports it once committed, and then `ExternalResultRedeemed` (flow `reauthentication`), whose
-context carries the result's connection and request reference, as a refusal's `AuthenticationFailed` does. A step-up
-refuses an external proof.
+retry. Nothing else is renewed: no refresh token is issued, and the session row (apart from its issuance guard), its
+deadlines and its provenance are kept. Its `amr` gains the provider's private value, and `mfa`, only when the
+application's `ExternalEvidencePolicy` accepts the result's evidence (see [Proofs and
+provenance](#proofs-and-provenance)); otherwise only `auth_time` moves. `Reauthenticated` (method `external_provider`)
+reports it once committed, and then `ExternalResultRedeemed` (flow `reauthentication`), whose context carries the
+result's connection and request reference, as a refusal's `AuthenticationFailed` does. A step-up refuses an external
+proof.
 
 An adapter asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` whether a session, by its identifier,
 stands for such a reauthentication: `null` for one of the guard's live, active sessions of a person owned by the
@@ -422,16 +422,16 @@ result's `retryAfter`: a switch returns its refusal, as a refresh does, so answe
 token parsed for this guard, the session found, of this guard, live, and the rotation id current, or the previous one
 inside the grace window; any other id is a replay and revokes the session (`rotation_reuse`). Once a session of this
 guard is found, the switch runs in one transaction on its connection whose first statement writes its issuance guard,
-and takes its time after it (see [Issuance order](#issuance-order)), so the contracts below are asked with the
-session's row held and must only read. On every path the
-session's owner must still be returned by the guard's provider and be active; the destination principal (the target, or
-the one the session records for a tenant-only switch) must resolve through the resolver's hinted path as the very
-principal named, of its class, owned by that identity (read from the principal's own key, not trusted to the resolver),
-active, in an active tenant of its own, allowed the application by `ApplicationAccess` (`principal_ineligible`) and
-admitted by the application policy, also with the type of identifier the session's sign-in used (which the session
-records), so a principal your policy refuses to that identifier cannot be reached by switching to it; the session's
-sign-in method must still be allowed; and the destination tenant must be one `TenantAccess` lets the principal act in
-(`tenant_ineligible`, also for a tenant `TenantResolver` cannot find) and active (`tenant_inactive`).
+and takes its time after it (see [Issuance order](#issuance-order)), so the contracts below are asked with the session's
+row held and must only read. On every path the session's owner must still be returned by the guard's provider and be
+active; the destination principal (the target, or the one the session records for a tenant-only switch) must resolve
+through the resolver's hinted path as the very principal named, of its class, owned by that identity (read from the
+principal's own key, not trusted to the resolver), active, in an active tenant of its own, allowed the application by
+`ApplicationAccess` (`principal_ineligible`) and admitted by the application policy, also with the type of identifier
+the session's sign-in used (which the session records), so a principal your policy refuses to that identifier cannot be
+reached by switching to it; the session's sign-in method must still be allowed; and the destination tenant must be one
+`TenantAccess` lets the principal act in (`tenant_ineligible`, also for a tenant `TenantResolver` cannot find) and
+active (`tenant_inactive`).
 
 Then the destination tenant's authentication policy judges the session, with the proofs and provenance it already holds:
 a policy that requires connections the session was not established through refuses the switch (`sso_required`) and

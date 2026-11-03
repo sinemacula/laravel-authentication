@@ -30,10 +30,13 @@ are told apart, which claims are checked on every parse, and which the bearer pa
 - A session's access token carries `sid`, `auth_time` and `amr`; a token without a session carries none of them. Both
   are derived from the session's proofs when the token is issued (`Proofs\AuthenticationClaims::forSession()`, see
   `proofs-and-freshness.md`), read on the write connection, and `auth_time` is never later than `iat`. Every issuer
-  takes `iat` after it has written the session's issuance guard (or its own write of the session's row), and reads the
-  proofs current after that, so a proof committed before the issuer took the guard is never later than its `iat`, and
-  the clamp to `iat` never moves a session's `auth_time` back on a token committed before (with synchronised clocks).
-  A parse holds `auth_time` to an integer not after `iat` plus the leeway and `amr` to a list of non-empty strings.
+  takes `iat` once it holds the session's row (after its issuance guard for a refresh, a switch and a direct issue,
+  after its lock for a step-up or reauthentication, which writes the guard before its proof), and reads the proofs
+  current after its write of the row, so a proof committed before the issuer held the row is never later than its
+  `iat`, and the clamp to `iat` never moves a session's `auth_time` back on a token committed before (with synchronised
+  clocks). A sign-in's row is new and its proofs only its own; an activation issues at its operation's time, taken
+  before its lock: no token of a pending session can have committed meanwhile (`Sessions\SessionActivation`). A parse
+  holds `auth_time` to an integer not after `iat` plus the leeway and `amr` to a list of non-empty strings.
 - `tenant_id` is always the session's active tenant, never the principal's own when they differ: the tenant the session
   records (`tenant_id` on the row, an opaque identifier), absent for a session that acts in none, a non-empty string
   when present. Issuing a session's token refuses any other tenant, and none for a session in a tenant
