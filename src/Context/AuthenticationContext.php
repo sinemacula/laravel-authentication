@@ -16,19 +16,13 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
  * trusted proxies resolved), never from input, and held by the guard, so it
  * lives as long as the request does, under Octane too.
  *
- * The package's own keys are under the reserved `authentication` namespace: the
- * subject's type (a person or a machine), the identity, the principal and the
- * active tenant by morph class and identifier, the application (the guard), the
- * session's identifier, the session's `amr` values and `auth_time` worked out
- * from its proofs, whether an additional verification is on it (`mfa`: an
- * accepted further factor, or an external provider's evidence accepted for an
- * additional verification or multifactor authentication, never counted from
- * `amr`), whether a recovery code is, whether multifactor authentication was
- * reported, the seconds since the newest of those, the kind of credential the
- * request presented, the scopes it grants and the client's IP address. A
- * contributor the application or a sibling package registers adds keys under a
- * namespace of its own (`mfa` and `sso` are kept for those siblings), so no key
- * can collide with another's: `get('sso.connection_id')`.
+ * The package's own keys are under the reserved `authentication` namespace, one
+ * per property (see `toArray()`); `mfa` is an accepted further factor, or an
+ * external provider's evidence accepted for an additional verification or
+ * multifactor authentication, never counted from `amr`. A contributor the
+ * application or a sibling package registers adds keys under a namespace of its
+ * own (`mfa` and `sso` are kept for those siblings), so no key can collide with
+ * another's: `get('sso.connection_id')`.
  *
  * Holds no model and no secret, so it can be logged, compared or queued as it
  * is. Its constructor is public, so a test builds one; it refuses contributed
@@ -130,7 +124,7 @@ final readonly class AuthenticationContext implements Arrayable
         /** The client's IP address, as the request resolves it through the trusted proxies; `null` when it is not one. */
         public ?string $ip,
 
-        // The keys contributors added, by namespace.
+        // The keys contributors added, by namespace, kept only once checked.
         array $contributed = [],
     ) {
         $this->contributed = self::checked($contributed);

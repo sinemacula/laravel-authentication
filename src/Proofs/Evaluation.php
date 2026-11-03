@@ -6,13 +6,13 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 
 /**
  * What the adapter that verified a further factor reported about it: whether it
- * accepted the proof, whether, with what the session already proved, it amounts
- * to multifactor authentication, and whether it is an additional verification.
- * For an external proof, it is what the package's acceptance of the provider's
- * evidence found: accepted, multifactor when the evidence contract says the
- * evidence meets multifactor authentication, and an additional verification
- * when it says the evidence meets that or multifactor authentication, not when
- * it was accepted only for phishing resistance or a minimum assurance level.
+ * accepted the proof, and whether, with what the session already proved, it
+ * amounts to multifactor authentication. For an external proof, it is what the
+ * package's acceptance of the provider's evidence found: accepted, multifactor
+ * when the evidence contract says the evidence meets multifactor
+ * authentication, and an additional verification when it says the evidence
+ * meets that or multifactor authentication, not when it was accepted only for
+ * phishing resistance or a minimum assurance level.
  *
  * Only an accepted evaluation is stored, and multifactor authentication is
  * taken from here, never worked out from the authentication methods: `amr`
