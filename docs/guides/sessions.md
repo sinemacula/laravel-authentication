@@ -182,13 +182,15 @@ kept. Its `amr` gains the provider's private value, and `mfa`, only when the app
 accepts the result's evidence (see [Proofs and provenance](#proofs-and-provenance)); otherwise only `auth_time` moves.
 `Reauthenticated` (method `external_provider`) reports it once committed. A step-up refuses an external proof.
 
-An adapter that must answer a locked standing before it renews asks
-`externalStanding($session, $identity, $connectionId, $linkId)` inside its transaction (a `LogicException` outside one):
-it locks the session's row until the transaction ends and answers `null` for one of the guard's live, active sessions of
-a person owned by the identity and established through exactly that connection and link, on an application that allows
-`external_provider`, and otherwise the reason (`method_not_allowed`, `session_unknown`, `session_guard_mismatch`,
-`session_revoked`, `session_pending`, `session_expired`, `machine_identity`, `link_mismatch`). It writes and reports
-nothing.
+An adapter asks `externalStanding($session, $identity, $connectionId, $linkId)` whether a session stands for such a
+reauthentication: `null` for one of the guard's live, active sessions of a person owned by the identity and established
+through exactly that connection and link, on an application that allows `external_provider`, and otherwise the reason
+(`method_not_allowed`, `session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_pending`,
+`session_expired`, `machine_identity`, `link_mismatch`). Without a link id, a session established through the connection
+and any link stands (one recorded with no link never does), for an adapter asked when a reauthentication flow starts,
+before the exact link is known. Asked outside a transaction, it reads the session on the write connection and locks
+nothing; asked inside the adapter's transaction, before it renews, it locks the session's row until the transaction
+ends. It writes and reports nothing.
 
 ## Freshness
 

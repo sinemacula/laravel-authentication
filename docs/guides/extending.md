@@ -596,8 +596,10 @@ $passed = $result->isVerified();   // else $result->reason
   provider](sessions.md#at-the-external-provider)): only the very link that established the session reauthenticates it
   (`link_mismatch` otherwise, and for a session no link established), the session's row is locked after the adapter's
   own locks, and `auth_time` becomes the later of the session's and the provider's, under that lock. An adapter that
-  must answer a locked standing first (`laravel-sso`'s re-authentication sessions) asks `externalStanding($session,
-  $identity, $connectionId, $linkId)` in the same transaction; it locks the row and answers `null` or the reason.
+  must answer a session's standing (`laravel-sso`'s re-authentication sessions) asks `externalStanding($session,
+  $identity, $connectionId, $linkId)`: with no link id and outside a transaction when a flow starts, which locks
+  nothing, and with the link id inside the redemption's transaction, which locks the row; it answers `null` or the
+  reason.
 - When a link is removed, or its scope widened so it may act for more than its sessions were established for, the
   adapter calls `linkRemoved($identity, $connectionId, $linkId)` or `linkScopeWidened(...)` in the same transaction (see
   [Connections and links](sessions.md#connections-and-links)): each ends only the identity's sessions established

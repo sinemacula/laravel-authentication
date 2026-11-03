@@ -213,8 +213,8 @@ final class ExternalReauthenticationTest extends TestCase
      * another link of the same identity through the same connection, the same
      * subject through another connection, and a link that maps to another
      * identity are each `link_mismatch`, reported with the session, and record
-     * nothing. A link to another identity is refused before anything is
-     * locked, so the evidence that identity's result brings is never judged.
+     * nothing. A link to another identity is refused before anything is locked,
+     * so the evidence that identity's result brings is never judged.
      *
      * @return void
      *
@@ -422,9 +422,9 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A session deleted while the adapter holds the result is gone when its
-     * row is locked: `session_unknown`, reported for the session given, and
-     * nothing recorded.
+     * A session deleted while the adapter holds the result is gone when its row
+     * is locked: `session_unknown`, reported for the session given, and nothing
+     * recorded.
      *
      * @return void
      *
@@ -447,14 +447,14 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * The session is judged against its tenant's authentication policy with
-     * the proof just recorded among its own: a tenant that no longer admits
-     * the connection is `sso_required`, one that now requires a further factor
-     * the session does not meet `additional_factor_required`, each reported
-     * with the session and its principal and recording nothing, inside the
-     * adapter's transaction too, which goes on, and the row is left as it was;
-     * evidence this very reauthentication brings, once
-     * accepted, meets that factor, and the token is issued.
+     * The session is judged against its tenant's authentication policy with the
+     * proof just recorded among its own: a tenant that no longer admits the
+     * connection is `sso_required`, one that now requires a further factor the
+     * session does not meet `additional_factor_required`, each reported with
+     * the session and its principal and recording nothing, inside the adapter's
+     * transaction too, which goes on, and the row is left as it was; evidence
+     * this very reauthentication brings, once accepted, meets that factor, and
+     * the token is issued.
      *
      * @return void
      *
@@ -484,14 +484,18 @@ final class ExternalReauthenticationTest extends TestCase
             self::assertSame($reason, $this->sessions('members')->reauthenticateExternally($session->record, $this->throughTheLink(authenticatedAt: $this->now))->reason);
         }
 
+        $principal = IdentifierCoercion::stringify($membership->getKey());
+
         self::assertSame(
-            [[FailureReason::SSO_REQUIRED, IdentifierCoercion::stringify($membership->getKey())], [FailureReason::ADDITIONAL_FACTOR_REQUIRED, IdentifierCoercion::stringify($membership->getKey())]],
+            [[FailureReason::SSO_REQUIRED, $principal], [FailureReason::ADDITIONAL_FACTOR_REQUIRED, $principal]],
             array_map(static fn (AuthenticationFailed $event): array => [$event->reason, $event->context->principalId], $this->recorded),
         );
 
         DB::beginTransaction();
 
-        self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $this->sessions('members')->reauthenticateExternally($session->record, $this->throughTheLink(authenticatedAt: $this->now))->reason);
+        $refused = $this->sessions('members')->reauthenticateExternally($session->record, $this->throughTheLink(authenticatedAt: $this->now));
+
+        self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $refused->reason);
         self::assertSame(1, DB::transactionLevel());
 
         DB::commit();
@@ -501,7 +505,8 @@ final class ExternalReauthenticationTest extends TestCase
 
         $this->app?->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]));
 
-        $met = $this->sessions('members')->reauthenticateExternally($session->record, $this->throughTheLink(authenticatedAt: $this->now, evidence: new ExternalEvidence(['mfa'], null, $this->now)));
+        $evidence = new ExternalEvidence(['mfa'], null, $this->now);
+        $met      = $this->sessions('members')->reauthenticateExternally($session->record, $this->throughTheLink(authenticatedAt: $this->now, evidence: $evidence));
 
         self::assertTrue($met->isIssued());
         self::assertSame(1, SessionProof::query()->where('kind', 'external_reauthentication')->count());
@@ -541,7 +546,9 @@ final class ExternalReauthenticationTest extends TestCase
      * adapter's transaction: `null` for this guard's live session through
      * exactly the identity, connection and link that established it, and
      * `link_mismatch` for another link, connection or identity, or for a
-     * session no link established. Nothing is written or reported.
+     * session no link established. With no link given, any link of that
+     * connection stands, but a session recorded with no link still does not.
+     * Nothing is written or reported.
      *
      * @return void
      *
@@ -565,9 +572,17 @@ final class ExternalReauthenticationTest extends TestCase
             $this->sessions()->externalStanding($signedIn->record, $identity, 'connection-8', 'link-1'),
             $this->sessions()->externalStanding($signedIn->record, $grace, 'connection-7', 'link-1'),
             $this->sessions()->externalStanding($password->record, $identity, 'connection-7', 'link-1'),
+            $this->sessions()->externalStanding($signedIn->record, $identity, 'connection-7'),
+            $this->sessions()->externalStanding($signedIn->record, $identity, 'connection-8'),
+            $this->sessions()->externalStanding($signedIn->record, $grace, 'connection-7'),
+            $this->sessions()->externalStanding($password->record, $identity, 'connection-7'),
         ]);
 
-        self::assertSame([null, ...array_fill(0, 5, FailureReason::LINK_MISMATCH)], $standings);
+        self::assertSame([null, ...array_fill(0, 5, FailureReason::LINK_MISMATCH), null, ...array_fill(0, 3, FailureReason::LINK_MISMATCH)], $standings);
+
+        DB::table('authentication_provenance')->update(['link_id' => null]);
+
+        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->externalStanding($signedIn->record, $identity, 'connection-7'));
         self::assertSame([], $this->recorded);
         self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
     }
@@ -614,31 +629,28 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
-     * A standing locks the session's row until the transaction ends, so it is
-     * asked only inside one: outside, it throws and reads nothing.
+     * A standing asked inside a transaction locks the session's row until the
+     * transaction ends; asked outside one, as when a reauthentication flow
+     * starts, it answers alike and locks nothing.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAStandingIsAskedOnlyInsideATransaction(): void
+    public function testAStandingLocksTheSessionOnlyInsideATransaction(): void
     {
         $signedIn = $this->signedInExternally();
-        $queries  = 0;
+        $locks    = 0;
 
-        DB::listen(static function () use (&$queries): void {
-            $queries++;
+        DB::listen(static function (QueryExecuted $query) use (&$locks): void {
+            $locks += (int) (stripos($query->sql, 'for update') !== false);
         });
 
-        try {
-            $this->sessions()->externalStanding($signedIn->record, $signedIn->identity, 'connection-7', 'link-1');
-
-            self::fail('A standing was answered outside a transaction.');
-        } catch (\LogicException $exception) {
-            self::assertStringStartsWith('An external session\'s standing is locked until the transaction ends', $exception->getMessage());
-        }
-
-        self::assertSame(0, $queries);
+        self::assertNull($this->sessions()->externalStanding($signedIn->record, $signedIn->identity, 'connection-7'));
+        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->externalStanding($signedIn->record, $signedIn->identity, 'connection-7', 'link-2'));
+        self::assertSame(0, $locks);
+        self::assertNull(DB::transaction(fn (): ?FailureReason => $this->sessions()->externalStanding($signedIn->record, $signedIn->identity, 'connection-7', 'link-1')));
+        self::assertSame(DB::connection()->getDriverName() === 'sqlite' ? 0 : 1, $locks);
     }
 
     /**

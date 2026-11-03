@@ -88,7 +88,8 @@ session holds; the token's claims and every freshness answer are worked out from
   must still meet its tenant's authentication policy, as at every redemption (`sso_required`,
   `additional_factor_required`; the proof rolls back). The proof is timed at the provider's time, never after now, so
   the new token's `auth_time` is the later of the session's and the provider's, decided under that lock.
-  `externalStanding()` takes the same lock and answers the same checks without writing.
+  `externalStanding()` answers the same checks without writing, under the same lock inside a transaction and with none
+  outside one (when no link id is given, through any link of the connection).
 - A step-up (`SessionService::stepUp()`) and a reauthentication (`reauthenticate()`) share `Sessions\ProofIssuance`:
   in one transaction on the session's connection, the session's row is locked; the session must exist, be this guard's,
   live and a person's; the operation's own check runs on the locked row; the session is admitted again as a refresh

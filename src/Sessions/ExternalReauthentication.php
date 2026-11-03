@@ -63,11 +63,11 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * and not begun after the provider authenticated the identity
  * (`proof_invalid`). Once the proof is recorded, the session is judged against
  * its tenant's authentication policy, with that proof among its own, as every
- * redemption is: a connection the tenant no longer admits is `sso_required`,
- * a further factor it now requires and the session does not meet
- * `additional_factor_required`, and either rolls the proof back. Neither
- * writes the session: the next refresh revokes it or returns it to pending,
- * and no version is recorded, since the row is never written here.
+ * redemption is: a connection the tenant no longer admits is `sso_required`, a
+ * further factor it now requires and the session does not meet
+ * `additional_factor_required`, and either rolls the proof back. Neither writes
+ * the session: the next refresh revokes it or returns it to pending, and no
+ * version is recorded, since the row is never written here.
  *
  * The proof is timed when the provider authenticated the identity (now, when
  * that is after now), so the access token's `auth_time`, the newest of the
@@ -176,38 +176,41 @@ final readonly class ExternalReauthentication
     }
 
     /**
-     * Why the locked session is not the given session's standing for the
+     * Why the session as stored is not the given session's standing for the
      * identity through the connection and the link, or `null` when it is: of
      * this guard, live, active and a person's, owned by the identity and
-     * established through exactly that connection and link.
+     * established through exactly that connection and that link, or any link
+     * when none is given. Inside a transaction on the session model's
+     * connection its row is locked until the transaction ends; outside one it
+     * is read on the write connection and nothing is locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
-     * @param  string  $linkId
+     * @param  ?string  $linkId
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    public function standing(Session $session, Identity $identity, string $connectionId, string $linkId): ?FailureReason
+    public function standing(Session $session, Identity $identity, string $connectionId, ?string $linkId = null): ?FailureReason
     {
-        if (SessionLookup::model()->getConnection()->transactionLevel() === 0) {
-            throw new \LogicException('An external session\'s standing is locked until the transaction ends, so it must be asked inside one on the session model\'s connection.');
-        }
-
         if (!$this->evaluation->allowsMethod(SignInMethodManager::EXTERNAL_METHOD)) {
             return FailureReason::METHOD_NOT_ALLOWED;
         }
 
-        $locked = SessionLookup::lock($session->getSessionIdentifier());
+        $key    = $session->getSessionIdentifier();
+        $stored = SessionLookup::model()->getConnection()->transactionLevel() > 0 ? SessionLookup::lock($key) : SessionLookup::find($key);
 
-        if (!SessionGeneration::isHeld($session, $locked)) {
+        if (!SessionGeneration::isHeld($session, $stored)) {
             return FailureReason::SESSION_UNKNOWN;
         }
 
-        return OwnedSession::refusal($locked, $this->context->name(), CarbonImmutable::now()->startOfSecond())
-            ?? (SessionOwnership::isMachineOwned($locked) ? FailureReason::MACHINE_IDENTITY : null)
-            ?? (self::isEstablishedThrough($locked, $identity, $connectionId, $linkId) ? null : FailureReason::LINK_MISMATCH);
+        return OwnedSession::refusal($stored, $this->context->name(), CarbonImmutable::now()->startOfSecond())
+            ?? (SessionOwnership::isMachineOwned($stored) ? FailureReason::MACHINE_IDENTITY : null)
+            ?? (self::isEstablishedThrough($stored, $identity, $connectionId, $linkId) ? null : FailureReason::LINK_MISMATCH);
     }
 
     /**
@@ -348,18 +351,19 @@ final readonly class ExternalReauthentication
 
     /**
      * Whether the session is the identity's and its provenance records exactly
-     * the connection and the link, each compared byte for byte; a session with
-     * no provenance, or one that records no link, never is.
+     * the connection and the link, or any link when none is given, each
+     * compared byte for byte; a session with no provenance, or one that records
+     * no link, never is.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
-     * @param  string  $linkId
+     * @param  ?string  $linkId
      * @return bool
      *
      * @throws \InvalidArgumentException
      */
-    private static function isEstablishedThrough(EloquentSession&Model $session, Identity $identity, string $connectionId, string $linkId): bool
+    private static function isEstablishedThrough(EloquentSession&Model $session, Identity $identity, string $connectionId, ?string $linkId): bool
     {
         if (!SessionOwnership::isOwner($session, $identity)) {
             return false;
@@ -367,7 +371,7 @@ final readonly class ExternalReauthentication
 
         $provenance = SessionProofs::provenance($session);
 
-        return $provenance !== null && $provenance->connectionId === $connectionId && $provenance->linkId === $linkId;
+        return $provenance !== null && $provenance->connectionId === $connectionId && $provenance->linkId !== null && ($linkId === null || $provenance->linkId === $linkId);
     }
 
     /**

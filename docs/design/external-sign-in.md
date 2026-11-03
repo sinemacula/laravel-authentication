@@ -57,13 +57,14 @@ link contract answers, and the package starts, reauthenticates and ends sessions
    timebox or `Attempting`: nothing is guessed.
 4. The session, its first proof and its provenance are written in one transaction, a savepoint in the adapter's; the
    reports and the guard's bind wait for its commit. The result is an active pair or a pending session.
-5. To reauthenticate, the adapter hands a later result to `reauthenticateExternally($session, $result)`: the method,
-   the session as stored (its generation) and its standing, the provider's time and the link are checked before any
-   lock; then `ProofIssuance` locks the session's row and checks it again, records an `external_reauthentication`, asks
-   the tenant's authentication policy with that proof recorded (as at every redemption), and issues one access token
-   whose `auth_time` is the later of the session's and the provider's. An adapter that must
-   answer a locked standing before it renews asks `externalStanding($session, $identity, $connectionId, $linkId)` in the
-   same transaction, which locks the row and answers `null` or the reason, writing nothing.
+5. To reauthenticate, the adapter hands a later result to `reauthenticateExternally($session, $result)`: the method, the
+   session as stored (its generation) and its standing, the provider's time and the link are checked before any lock;
+   then `ProofIssuance` locks the session's row and checks it again, records an `external_reauthentication`, asks the
+   tenant's authentication policy with that proof recorded (as at every redemption), and issues one access token whose
+   `auth_time` is the later of the session's and the provider's. An adapter asks `externalStanding($session, $identity,
+   $connectionId, $linkId)` for a session's standing, writing nothing: with no link id (any link of the connection) and
+   outside a transaction when a reauthentication flow starts, locking nothing; with the link id inside the redemption's
+   transaction, before it renews, locking the row until it ends.
 6. When a link is removed or its scope widened, the adapter calls `linkRemoved()` or `linkScopeWidened()` in that
    transaction (`Sessions\ConnectionRevocations::link()`): the identity's live session keys 500 at a time, then their
    provenance by key filtered on the connection and link and compared byte for byte in PHP, then each chunk locked in
@@ -91,8 +92,10 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   REPEATABLE READ would use the snapshot the adapter's transaction opened at its first read, before it took the link's
   lock, and miss a session the sign-in committed meanwhile. The identity's live sessions are locked in key order, as the
   revocation then locks them, until the transaction ends.
-- `externalStanding()` outside a transaction on the session model's connection is a `LogicException`, checked before
-  anything is read; on an application that does not allow `external_provider` it answers `method_not_allowed`.
+- `externalStanding()` locks the row only inside a transaction on the session model's connection; outside one it reads
+  the row on the write connection, so its answer may change before the redemption, which judges it again under the
+  lock. Without a link id, a session recorded with no link still never stands. On an application that does not allow
+  `external_provider` it answers `method_not_allowed` before anything is read.
 - A second `linkScopeWidened()` for the same widening finds nothing live and revokes and reports nothing.
 
 ## Implementation Anchors

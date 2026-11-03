@@ -113,9 +113,9 @@ trait SignsInExternally
      * (`link_mismatch`, as for a session established through another link or
      * through none). With the proof recorded, the session must still meet its
      * tenant's authentication policy, as every redemption must: a connection
-     * the tenant no longer admits is `sso_required` and a further factor it
-     * now requires and the session does not meet `additional_factor_required`,
-     * the proof rolled back and the session left for its next refresh.
+     * the tenant no longer admits is `sso_required` and a further factor it now
+     * requires and the session does not meet `additional_factor_required`, the
+     * proof rolled back and the session left for its next refresh.
      *
      * The proof (`external_reauthentication`) is timed when the provider
      * authenticated the identity (now, when that is after now), so the new
@@ -142,25 +142,29 @@ trait SignsInExternally
     }
 
     /**
-     * Lock the session's row and say whether it stands for an external
-     * reauthentication by the identity through the connection and the link:
-     * `null` when it is this guard's live, active session of a person, owned by
-     * the identity and established through exactly that connection and link, on
-     * an application that allows `external_provider`; otherwise why not
+     * Say whether the session stands for an external reauthentication by the
+     * identity through the connection and the link: `null` when it is this
+     * guard's live, active session of a person, owned by the identity and
+     * established through exactly that connection and that link, on an
+     * application that allows `external_provider`; otherwise why not
      * (`method_not_allowed`, `session_unknown`, `session_guard_mismatch`,
      * `session_revoked`, `session_pending`, `session_expired`,
      * `machine_identity`, `link_mismatch`).
      *
-     * For an adapter that must answer a locked standing before it renews: the
-     * row stays locked until the transaction ends, so nothing revokes the
-     * session in between. Ask it inside a transaction on the session model's
-     * connection, after the adapter's own locks (a `LogicException` otherwise).
-     * It writes and reports nothing.
+     * With no link given, a session established through that connection and any
+     * link stands (one recorded with no link never does): for an adapter asked,
+     * when a reauthentication flow starts, whether the identity is signed in
+     * through the connection at all, before the exact link is known. Asked
+     * outside a transaction, the session is read on the write connection and
+     * nothing is locked. Asked inside one on the session model's connection,
+     * after the adapter's own locks, the row stays locked until the transaction
+     * ends, so nothing revokes the session before the adapter renews it. It
+     * writes and reports nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
-     * @param  string  $linkId
+     * @param  ?string  $linkId
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -168,7 +172,7 @@ trait SignsInExternally
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    public function externalStanding(Session $session, Identity $identity, string $connectionId, string $linkId): ?FailureReason
+    public function externalStanding(Session $session, Identity $identity, string $connectionId, ?string $linkId = null): ?FailureReason
     {
         return $this->externalReauthentications->standing($session, $identity, $connectionId, $linkId);
     }
