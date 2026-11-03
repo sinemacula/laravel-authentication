@@ -12,6 +12,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
@@ -44,10 +45,12 @@ use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\SessionReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\SessionStepUp;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 
 /**
  * Query-budget and timing contracts for a session's proofs: what a step-up and
@@ -165,13 +168,53 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
         $result   = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: CarbonImmutable::now());
 
         self::assertNotNull($session);
-        self::assertTrue($this->assertQueryBudget(5, 1, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($session->record, $result))->isIssued());
+        self::assertTrue($this->assertQueryBudget(5, 1, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($session->record->getKey(), $result))->isIssued());
 
         $standing = $this->assertQueryBudget(2, 0, static fn (): ?FailureReason => DB::transaction(
-            static fn (): ?FailureReason => $sessions->externalStanding($session->record, $session->identity, 'connection-7', 'link-1'),
+            static fn (): ?FailureReason => $sessions->externalStanding($session->record->getKey(), $session->identity, 'connection-7', 'link-1'),
         ));
 
         self::assertNull($standing);
+    }
+
+    /**
+     * A principal's external reauthentication asks its tenant's policy with the
+     * proof recorded: with a requirement that asks for nothing, beyond the
+     * tenant-less budget it reads only what admits the principal and its
+     * tenant; with connections and a factor the session's accepted evidence
+     * meets, it reads the provenance's connection, the first factor and the
+     * accepted evidence too, and nothing more. An unlocked standing through any
+     * link reads the session and its provenance, and writes nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalsExternalReauthenticationAndAnUnlockedStandingHaveFixedBudgets(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        $policy   = new ScriptedTenantAuthenticationPolicy;
+        $sessions = $this->sessions('members');
+        $now      = CarbonImmutable::now();
+        $evidence = new ExternalEvidence(['mfa'], null, $now);
+
+        app()->instance(TenantAuthenticationPolicy::class, $policy);
+        app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]));
+
+        $session = $sessions->signInExternally($this->linkedResult($member, subject: 'subject-1', evidence: $evidence), self::asPrincipal($membership))->session;
+        $result  = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $now);
+
+        self::assertNotNull($session);
+
+        $key = $session->record->getKey();
+
+        self::assertTrue($this->assertQueryBudget(7, 1, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($key, $result))->isIssued());
+
+        $policy->requirement = new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart), ['connection-7']);
+
+        self::assertTrue($this->assertQueryBudget(10, 1, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($key, $result))->isIssued());
+        self::assertNull($this->assertQueryBudget(2, 0, static fn (): ?FailureReason => $sessions->externalStanding($key, $member, 'connection-7')));
     }
 
     /**

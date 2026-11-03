@@ -99,12 +99,12 @@ final class ExternalReauthenticationTest extends TestCase
         ];
 
         foreach ($others as $result) {
-            self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($session->record, $result)->reason);
+            self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($session->record->getKey(), $result)->reason);
         }
 
         $own = $this->linkedResult($identity, 'conn-a', 'link-a', 'subject-a', authenticatedAt: $this->now);
 
-        self::assertTrue($this->sessions()->reauthenticateExternally($session->record, $own)->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($session->record->getKey(), $own)->isIssued());
     }
 
     /**
@@ -127,7 +127,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->sessions()->reauthenticateExternally($session->record, $result)->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($session->record->getKey(), $result)->isIssued());
 
         DB::rollBack();
 
@@ -136,7 +136,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->sessions()->reauthenticateExternally($session->record, $result)->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($session->record->getKey(), $result)->isIssued());
         self::assertSame([], $this->recordedClasses());
 
         DB::commit();

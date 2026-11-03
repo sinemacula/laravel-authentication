@@ -610,15 +610,16 @@ $passed = $result->isVerified();   // else $result->reason
 - A tenant that requires sign-in through its connections says so through its `TenantAuthenticationPolicy` (see
   [Tenant authentication policies](#tenant-authentication-policies)): a session established through none of them is
   refused as `sso_required`, at sign-in and at refresh (which also revokes it).
-- Inside the transaction in which it redeems a reauthentication handoff, the adapter hands the result to
-  `Auth::sessions($guard)->reauthenticateExternally($session, $result)` (see [At the external
-  provider](sessions.md#at-the-external-provider)): only the very link that established the session reauthenticates it
-  (`link_mismatch` otherwise, and for a session no link established), the session's row is locked after the adapter's
-  own locks, and `auth_time` becomes the later of the session's and the provider's, under that lock. An adapter that
-  must answer a session's standing (`laravel-sso`'s re-authentication sessions) asks `externalStanding($session,
-  $identity, $connectionId, $linkId)`: with no link id and outside a transaction when a flow starts, which locks
-  nothing, and with the link id inside the redemption's transaction, which locks the row; it answers `null` or the
-  reason.
+- Inside the transaction in which it redeems a reauthentication handoff, the adapter hands the identifier of the
+  session the handoff names, and the result, to `Auth::sessions($guard)->reauthenticateExternally($sessionId, $result)`
+  (see [At the external provider](sessions.md#at-the-external-provider)): only the very link that established the
+  session reauthenticates it (`link_mismatch` otherwise, and for a session no link established), the session's row is
+  locked after the adapter's own locks, and `auth_time` becomes the later of the session's and the provider's, under
+  that lock. The tenant's authentication policy and the evidence policy are then asked under that lock, so neither may
+  take a lock the adapter takes after the session's row. An adapter that must answer a session's standing
+  (`laravel-sso`'s re-authentication sessions) asks `externalStanding($sessionId, $identity, $connectionId, $linkId)`:
+  with no link id and outside a transaction when a flow starts, which locks nothing, and with the link id inside the
+  redemption's transaction, which locks the row; it answers `null` or the reason.
 - When a link is removed, or its scope widened so it may act for more than its sessions were established for, the
   adapter calls `linkRemoved($identity, $connectionId, $linkId)` or `linkScopeWidened(...)` in the same transaction (see
   [Connections and links](sessions.md#connections-and-links)): each ends only the identity's sessions established

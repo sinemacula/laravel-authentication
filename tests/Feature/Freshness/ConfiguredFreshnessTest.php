@@ -273,7 +273,7 @@ final class ConfiguredFreshnessTest extends TestCase
 
         $result = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->now->addMinute(), evidence: $evidence);
 
-        self::assertTrue($this->sessions()->reauthenticateExternally($record, $result)->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($record->getKey(), $result)->isIssued());
         self::assertSame(2, DB::table('authentication_proofs')->where('multifactor', true)->whereNotNull('evidence')->count());
         self::assertNull($policy->freshProof($record, $operation, $mfa));
         self::assertSame(ProofKind::EXTERNAL_REAUTHENTICATION, $policy->freshProof($record, $operation, new FreshnessRequirement(300, $proofs))?->kind);

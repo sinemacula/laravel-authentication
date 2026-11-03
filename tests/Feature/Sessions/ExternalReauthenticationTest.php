@@ -11,6 +11,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
@@ -125,7 +126,7 @@ final class ExternalReauthenticationTest extends TestCase
         $this->clockAt($this->now->addHour());
         $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class, ExternalResultUnlinked::class]);
 
-        $result = $this->sessions()->reauthenticateExternally($signedIn->record, $this->throughTheLink(authenticatedAt: $this->now->addMinutes(59)));
+        $result = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now->addMinutes(59)));
 
         self::assertTrue($result->isIssued());
         self::assertSame($signedIn->record->getKey(), $result->session?->getKey());
@@ -161,13 +162,13 @@ final class ExternalReauthenticationTest extends TestCase
 
         $this->clockAt($this->now->addHour());
 
-        $later = $this->sessions()->reauthenticateExternally($signedIn->record, $this->throughTheLink(authenticatedAt: $this->now->addMinutes(50)));
-        $older = $this->sessions()->reauthenticateExternally($signedIn->record, $this->throughTheLink(authenticatedAt: $this->now->addMinutes(10)));
+        $later = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now->addMinutes(50)));
+        $older = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now->addMinutes(10)));
 
         self::assertSame($this->now->addMinutes(50)->getTimestamp(), self::authenticationOf($later)[0]);
         self::assertSame($this->now->addMinutes(50)->getTimestamp(), self::authenticationOf($older)[0]);
 
-        $future = $this->sessions()->reauthenticateExternally($signedIn->record, $this->throughTheLink(authenticatedAt: $this->now->addHours(2)));
+        $future = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now->addHours(2)));
 
         self::assertSame($this->now->addHour()->getTimestamp(), self::authenticationOf($future)[0]);
         self::assertSame(3, SessionProof::query()->where('kind', 'external_reauthentication')->count());
@@ -186,11 +187,12 @@ final class ExternalReauthenticationTest extends TestCase
     public function testOnlyAcceptedEvidenceAddsToTheAmr(): void
     {
         $signedIn = $this->signedInExternally();
+        $key      = $signedIn->record->getKey();
         $evidence = new ExternalEvidence(['pwd', 'otp'], 'urn:example:acr:mfa', $this->now->addMinutes(30));
 
         $this->clockAt($this->now->addHour());
 
-        $unaccepted = $this->sessions()->reauthenticateExternally($signedIn->record, $this->throughTheLink(authenticatedAt: $this->now->addMinutes(30), evidence: $evidence));
+        $unaccepted = $this->sessions()->reauthenticateExternally($key, $this->throughTheLink(authenticatedAt: $this->now->addMinutes(30), evidence: $evidence));
 
         self::assertSame([FirstFactor::EXTERNAL_PROVIDER_METHOD], self::authenticationOf($unaccepted)[1]);
         self::assertNull(SessionProof::query()->where('kind', 'external_reauthentication')->sole()->getAttributes()['evidence']);
@@ -199,7 +201,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         $this->app?->instance(ExternalEvidencePolicy::class, $policy);
 
-        $accepted = $this->sessions()->reauthenticateExternally($signedIn->record, $this->throughTheLink(authenticatedAt: $this->now->addMinutes(40), evidence: $evidence));
+        $accepted = $this->sessions()->reauthenticateExternally($key, $this->throughTheLink(authenticatedAt: $this->now->addMinutes(40), evidence: $evidence));
         $proof    = SessionProof::query()->where('kind', 'external_reauthentication')->orderByDesc('authenticated_at')->firstOrFail();
 
         self::assertSame([FirstFactor::EXTERNAL_PROVIDER_METHOD, 'mfa'], self::authenticationOf($accepted)[1]);
@@ -236,7 +238,7 @@ final class ExternalReauthenticationTest extends TestCase
         ];
 
         foreach ($results as $result) {
-            self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record, $result)->reason);
+            self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $result)->reason);
         }
 
         $this->app?->instance(ExternalEvidencePolicy::class, $policy);
@@ -249,7 +251,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         $graces = $this->linkedResult($grace, 'connection-7', 'link-1', 'grace-subject', authenticatedAt: $this->now, evidence: new ExternalEvidence(['mfa'], null, $this->now));
 
-        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record, $graces)->reason);
+        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $graces)->reason);
         self::assertSame([], $policy->asked);
         self::assertSame(0, $locks);
 
@@ -282,7 +284,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         $result = $this->linkedResult($identity, authenticatedAt: $this->now);
 
-        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($session->record, $result)->reason);
+        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($session->record->getKey(), $result)->reason);
     }
 
     /**
@@ -299,7 +301,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         $this->recordEvents([ExternalResultUnlinked::class, AuthenticationFailed::class]);
 
-        $result = $this->sessions()->reauthenticateExternally($signedIn->record, new ExternalResult('connection-7', self::ISSUER, 'nobody', authenticatedAt: $this->now));
+        $result = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), new ExternalResult('connection-7', self::ISSUER, 'nobody', authenticatedAt: $this->now));
 
         self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $result->reason);
         self::assertSame([ExternalResultUnlinked::class, AuthenticationFailed::class], $this->recordedClasses());
@@ -325,7 +327,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions()->reauthenticateExternally($signedIn->record, $this->throughTheLink())->reason);
+        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink())->reason);
 
         config()->set('auth.guards.api.application', ['methods' => ['password']]);
 
@@ -338,14 +340,15 @@ final class ExternalReauthenticationTest extends TestCase
 
         $early = $this->throughTheLink(authenticatedAt: $this->now->subSecond());
 
-        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions()->reauthenticateExternally($signedIn->record, $early)->reason);
+        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $early)->reason);
         self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
     }
 
     /**
-     * A session that is another guard's, revoked, pending, ended, a machine's
-     * or gone takes no external reauthentication, and the link contract is
-     * never asked for it.
+     * A session that is another guard's, revoked, pending, ended or a machine's
+     * takes no external reauthentication, nor does an identifier that names no
+     * session or cannot be a key, and the link contract is never asked for
+     * them.
      *
      * @return void
      *
@@ -374,7 +377,10 @@ final class ExternalReauthenticationTest extends TestCase
             self::assertSame($reason, $this->reauthenticate($signedIn->record)->reason);
         }
 
-        self::assertSame(FailureReason::SESSION_UNKNOWN, $this->reauthenticate(new Session)->reason);
+        foreach ([(string) Str::uuid7(), 'not-a-key', null] as $unknown) {
+            self::assertSame(FailureReason::SESSION_UNKNOWN, $this->sessions()->reauthenticateExternally($unknown, $this->throughTheLink(authenticatedAt: $this->now))->reason);
+        }
+
         self::assertCount($asked, $this->externalLinks()->asked);
     }
 
@@ -482,19 +488,20 @@ final class ExternalReauthenticationTest extends TestCase
         foreach ($refusals as [$requirement, $reason]) {
             $policy->requirement = $requirement;
 
-            self::assertSame($reason, $this->sessions('members')->reauthenticateExternally($session->record, $this->throughTheLink(authenticatedAt: $this->now))->reason);
+            self::assertSame($reason, $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now))->reason);
         }
 
         $principal = IdentifierCoercion::stringify($membership->getKey());
+        $key       = IdentifierCoercion::stringify($session->record->getKey());
 
         self::assertSame(
-            [[FailureReason::SSO_REQUIRED, $principal], [FailureReason::ADDITIONAL_FACTOR_REQUIRED, $principal]],
-            array_map(static fn (AuthenticationFailed $event): array => [$event->reason, $event->context->principalId], $this->recorded),
+            [[FailureReason::SSO_REQUIRED, $principal, $key], [FailureReason::ADDITIONAL_FACTOR_REQUIRED, $principal, $key]],
+            array_map(static fn (AuthenticationFailed $event): array => [$event->reason, $event->context->principalId, $event->context->sessionId], $this->recorded),
         );
 
         DB::beginTransaction();
 
-        $refused = $this->sessions('members')->reauthenticateExternally($session->record, $this->throughTheLink(authenticatedAt: $this->now));
+        $refused = $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now));
 
         self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $refused->reason);
         self::assertSame(1, DB::transactionLevel());
@@ -507,7 +514,7 @@ final class ExternalReauthenticationTest extends TestCase
         $this->app?->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]));
 
         $evidence = new ExternalEvidence(['mfa'], null, $this->now);
-        $met      = $this->sessions('members')->reauthenticateExternally($session->record, $this->throughTheLink(authenticatedAt: $this->now, evidence: $evidence));
+        $met      = $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now, evidence: $evidence));
 
         self::assertTrue($met->isIssued());
         self::assertSame(1, SessionProof::query()->where('kind', 'external_reauthentication')->count());
@@ -547,7 +554,7 @@ final class ExternalReauthenticationTest extends TestCase
         self::assertNotNull($session);
 
         $reauthenticated = $this->sessions('members')->reauthenticateExternally(
-            $session,
+            $session->getKey(),
             $this->throughTheLink(authenticatedAt: $this->now, evidence: new ExternalEvidence(['hwk'], null, $this->now)),
         );
 
@@ -611,23 +618,23 @@ final class ExternalReauthenticationTest extends TestCase
         $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class, ExternalResultUnlinked::class]);
 
         $standings = DB::transaction(fn (): array => [
-            $this->sessions()->externalStanding($signedIn->record, $identity, 'connection-7', 'link-1'),
-            $this->sessions()->externalStanding($signedIn->record, $identity, 'connection-7', 'link-2'),
-            $this->sessions()->externalStanding($signedIn->record, $identity, 'connection-7', 'LINK-1'),
-            $this->sessions()->externalStanding($signedIn->record, $identity, 'connection-8', 'link-1'),
-            $this->sessions()->externalStanding($signedIn->record, $grace, 'connection-7', 'link-1'),
-            $this->sessions()->externalStanding($password->record, $identity, 'connection-7', 'link-1'),
-            $this->sessions()->externalStanding($signedIn->record, $identity, 'connection-7'),
-            $this->sessions()->externalStanding($signedIn->record, $identity, 'connection-8'),
-            $this->sessions()->externalStanding($signedIn->record, $grace, 'connection-7'),
-            $this->sessions()->externalStanding($password->record, $identity, 'connection-7'),
+            $this->sessions()->externalStanding($signedIn->record->getKey(), $identity, 'connection-7', 'link-1'),
+            $this->sessions()->externalStanding($signedIn->record->getKey(), $identity, 'connection-7', 'link-2'),
+            $this->sessions()->externalStanding($signedIn->record->getKey(), $identity, 'connection-7', 'LINK-1'),
+            $this->sessions()->externalStanding($signedIn->record->getKey(), $identity, 'connection-8', 'link-1'),
+            $this->sessions()->externalStanding($signedIn->record->getKey(), $grace, 'connection-7', 'link-1'),
+            $this->sessions()->externalStanding($password->record->getKey(), $identity, 'connection-7', 'link-1'),
+            $this->sessions()->externalStanding($signedIn->record->getKey(), $identity, 'connection-7'),
+            $this->sessions()->externalStanding($signedIn->record->getKey(), $identity, 'connection-8'),
+            $this->sessions()->externalStanding($signedIn->record->getKey(), $grace, 'connection-7'),
+            $this->sessions()->externalStanding($password->record->getKey(), $identity, 'connection-7'),
         ]);
 
         self::assertSame([null, ...array_fill(0, 5, FailureReason::LINK_MISMATCH), null, ...array_fill(0, 3, FailureReason::LINK_MISMATCH)], $standings);
 
         DB::table('authentication_provenance')->update(['link_id' => null]);
 
-        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->externalStanding($signedIn->record, $identity, 'connection-7'));
+        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->externalStanding($signedIn->record->getKey(), $identity, 'connection-7'));
         self::assertSame([], $this->recorded);
         self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
     }
@@ -646,13 +653,13 @@ final class ExternalReauthenticationTest extends TestCase
         $signedIn = $this->signedInExternally();
         $admin    = $this->sessions('admin')->signInExternally($this->throughTheLink())->session;
         $key      = $signedIn->record->getKey();
-        $standing = fn (Session $session): ?FailureReason => DB::transaction(
-            fn (): ?FailureReason => $this->sessions()->externalStanding($session, $signedIn->identity, 'connection-7', 'link-1'),
+        $standing = fn (mixed $sessionId): ?FailureReason => DB::transaction(
+            fn (): ?FailureReason => $this->sessions()->externalStanding($sessionId, $signedIn->identity, 'connection-7', 'link-1'),
         );
 
         self::assertNotNull($admin);
-        self::assertSame(FailureReason::SESSION_UNKNOWN, $standing(new Session));
-        self::assertSame(FailureReason::SESSION_GUARD_MISMATCH, $standing($admin->record));
+        self::assertSame([FailureReason::SESSION_UNKNOWN, FailureReason::SESSION_UNKNOWN], [$standing((string) Str::uuid7()), $standing('not-a-key')]);
+        self::assertSame(FailureReason::SESSION_GUARD_MISMATCH, $standing($admin->record->getKey()));
 
         $states = [
             [['revoked_at' => $this->now], FailureReason::SESSION_REVOKED],
@@ -665,12 +672,12 @@ final class ExternalReauthenticationTest extends TestCase
         foreach ($states as [$state, $reason]) {
             DB::table('authentication_sessions')->where('id', $key)->update($state);
 
-            self::assertSame($reason, $standing($signedIn->record));
+            self::assertSame($reason, $standing($key));
         }
 
         config()->set('auth.guards.api.application', ['methods' => ['password']]);
 
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $standing($signedIn->record));
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $standing($key));
     }
 
     /**
@@ -691,10 +698,10 @@ final class ExternalReauthenticationTest extends TestCase
             $locks += (int) (stripos($query->sql, 'for update') !== false);
         });
 
-        self::assertNull($this->sessions()->externalStanding($signedIn->record, $signedIn->identity, 'connection-7'));
-        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->externalStanding($signedIn->record, $signedIn->identity, 'connection-7', 'link-2'));
+        self::assertNull($this->sessions()->externalStanding($signedIn->record->getKey(), $signedIn->identity, 'connection-7'));
+        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->externalStanding($signedIn->record->getKey(), $signedIn->identity, 'connection-7', 'link-2'));
         self::assertSame(0, $locks);
-        self::assertNull(DB::transaction(fn (): ?FailureReason => $this->sessions()->externalStanding($signedIn->record, $signedIn->identity, 'connection-7', 'link-1')));
+        self::assertNull(DB::transaction(fn (): ?FailureReason => $this->sessions()->externalStanding($signedIn->record->getKey(), $signedIn->identity, 'connection-7', 'link-1')));
         self::assertSame(DB::connection()->getDriverName() === 'sqlite' ? 0 : 1, $locks);
     }
 
@@ -786,7 +793,7 @@ final class ExternalReauthenticationTest extends TestCase
      */
     private function reauthenticate(Session $session): AccessTokenResult
     {
-        return $this->sessions()->reauthenticateExternally($session, $this->throughTheLink(authenticatedAt: CarbonImmutable::now()));
+        return $this->sessions()->reauthenticateExternally($session->getKey(), $this->throughTheLink(authenticatedAt: CarbonImmutable::now()));
     }
 
     /**

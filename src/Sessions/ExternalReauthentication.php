@@ -11,7 +11,6 @@ use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -46,28 +45,28 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * and nothing is bound.
  *
  * In order: the application policy must allow `external_provider`
- * (`method_not_allowed`); the session, read on the write connection, must still
- * be the one given, recording its generation (`session_unknown`), and one of
- * this guard's live, active sessions of a person (the reasons `ProofIssuance`
- * gives); the result must say when the provider authenticated the identity
- * (`proof_invalid`); the link contract must link it to an identity
- * (`ExternalResultUnlinked`, then `external_result_unlinked`), and that
- * identity must own the session (`link_mismatch`); then the result's evidence
- * is judged for it. The proof is then recorded and the token issued as
- * `ProofIssuance` describes, the session's row locked (after every lock the
- * adapter took, the link contract's included) and checked again: still of the
- * same generation (`session_unknown`), owned by the link's identity and
- * established through exactly the result's connection and the link's id, which
- * its provenance records (`link_mismatch`: a session established through
- * another link of the same identity, or through no link at all, never matches),
- * and not begun after the provider authenticated the identity
- * (`proof_invalid`). Once the proof is recorded, the session is judged against
- * its tenant's authentication policy, with that proof among its own, as every
- * redemption is: a connection the tenant no longer admits is `sso_required`, a
- * further factor it now requires and the session does not meet
- * `additional_factor_required`, and either rolls the proof back. Neither writes
- * the session: the next refresh revokes it or returns it to pending, and no
- * version is recorded, since the row is never written here.
+ * (`method_not_allowed`); the session the identifier names, read on the write
+ * connection, must exist (`session_unknown`) and be one of this guard's live,
+ * active sessions of a person (the reasons `ProofIssuance` gives); the result
+ * must say when the provider authenticated the identity (`proof_invalid`); the
+ * link contract must link it to an identity (`ExternalResultUnlinked`, then
+ * `external_result_unlinked`), and that identity must own the session
+ * (`link_mismatch`); then the result's evidence is judged for it. The proof is
+ * then recorded and the token issued as `ProofIssuance` describes, the
+ * session's row locked (after every lock the adapter took, the link contract's
+ * included) and checked again: still of the same generation
+ * (`session_unknown`), owned by the link's identity and established through
+ * exactly the result's connection and the link's id, which its provenance
+ * records (`link_mismatch`: a session established through another link of the
+ * same identity, or through no link at all, never matches), and not begun after
+ * the provider authenticated the identity (`proof_invalid`). Once the proof is
+ * recorded, the session is judged against its tenant's authentication policy,
+ * with that proof among its own, as every redemption is: a connection the
+ * tenant no longer admits is `sso_required`, a further factor it now requires
+ * and the session does not meet `additional_factor_required`, and either rolls
+ * the proof back. Neither writes the session: the next refresh revokes it or
+ * returns it to pending, and no version is recorded, since the row is never
+ * written here.
  *
  * The proof is timed when the provider authenticated the identity (now, when
  * that is after now), so the access token's `auth_time`, the newest of the
@@ -112,18 +111,18 @@ final readonly class ExternalReauthentication
     ) {}
 
     /**
-     * Reauthenticate the session with the result.
+     * Reauthenticate the session the identifier names with the result.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      *
      * @throws \Throwable
      */
-    public function reauthenticate(Session $session, ExternalResult $result): AccessTokenResult
+    public function reauthenticate(mixed $sessionId, ExternalResult $result): AccessTokenResult
     {
         $now     = CarbonImmutable::now()->startOfSecond();
-        $checked = $this->checked($session, $result, $now);
+        $checked = $this->checked($sessionId, $result, $now);
 
         if ($checked instanceof Refused) {
             return $this->fail($checked);
@@ -176,15 +175,15 @@ final readonly class ExternalReauthentication
     }
 
     /**
-     * Why the session as stored is not the given session's standing for the
-     * identity through the connection and the link, or `null` when it is: of
-     * this guard, live, active and a person's, owned by the identity and
-     * established through exactly that connection and that link, or any link
-     * when none is given. Inside a transaction on the session model's
-     * connection its row is locked until the transaction ends; outside one it
-     * is read on the write connection and nothing is locked.
+     * Why the session the identifier names has no standing for the identity
+     * through the connection and the link, or `null` when it has: of this
+     * guard, live, active and a person's, owned by the identity and established
+     * through exactly that connection and that link, or any link when none is
+     * given. Inside a transaction on the session model's connection its row is
+     * locked until the transaction ends; outside one it is read on the write
+     * connection and nothing is locked.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
      * @param  ?string  $linkId
@@ -195,16 +194,15 @@ final readonly class ExternalReauthentication
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    public function standing(Session $session, Identity $identity, string $connectionId, ?string $linkId = null): ?FailureReason
+    public function standing(mixed $sessionId, Identity $identity, string $connectionId, ?string $linkId = null): ?FailureReason
     {
         if (!$this->evaluation->allowsMethod(SignInMethodManager::EXTERNAL_METHOD)) {
             return FailureReason::METHOD_NOT_ALLOWED;
         }
 
-        $key    = $session->getSessionIdentifier();
-        $stored = SessionLookup::model()->getConnection()->transactionLevel() > 0 ? SessionLookup::lock($key) : SessionLookup::find($key);
+        $stored = SessionLookup::model()->getConnection()->transactionLevel() > 0 ? SessionLookup::lock($sessionId) : SessionLookup::find($sessionId);
 
-        if (!SessionGeneration::isHeld($session, $stored)) {
+        if ($stored === null) {
             return FailureReason::SESSION_UNKNOWN;
         }
 
@@ -222,7 +220,7 @@ final readonly class ExternalReauthentication
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
      * @param  \Carbon\CarbonImmutable  $now
      * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 1: \SineMacula\Laravel\Authentication\External\ExternalLink, 2: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
@@ -235,9 +233,9 @@ final readonly class ExternalReauthentication
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function checked(Session $session, ExternalResult $result, CarbonImmutable $now): array|Refused
+    private function checked(mixed $sessionId, ExternalResult $result, CarbonImmutable $now): array|Refused
     {
-        $stored = $this->stored($session, $result, $now);
+        $stored = $this->stored($sessionId, $result, $now);
 
         if ($stored instanceof Refused) {
             return $stored;
@@ -255,14 +253,15 @@ final readonly class ExternalReauthentication
     }
 
     /**
-     * Check the method, the session as stored and the provider's time: the
-     * stored session and the provider's time, or the refusal.
+     * Check the method, the session the identifier names as stored and the
+     * provider's time: the stored session and the provider's time, or the
+     * refusal.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
      * @param  \Carbon\CarbonImmutable  $now
      * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 1: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
@@ -275,15 +274,15 @@ final readonly class ExternalReauthentication
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function stored(Session $session, ExternalResult $result, CarbonImmutable $now): array|Refused
+    private function stored(mixed $sessionId, ExternalResult $result, CarbonImmutable $now): array|Refused
     {
         if (!$this->evaluation->allowsMethod(SignInMethodManager::EXTERNAL_METHOD)) {
             return new Refused(FailureReason::METHOD_NOT_ALLOWED);
         }
 
-        $stored = SessionLookup::find($session->getSessionIdentifier());
+        $stored = SessionLookup::find($sessionId);
 
-        if (!SessionGeneration::isHeld($session, $stored)) {
+        if ($stored === null) {
             return new Refused(FailureReason::SESSION_UNKNOWN);
         }
 

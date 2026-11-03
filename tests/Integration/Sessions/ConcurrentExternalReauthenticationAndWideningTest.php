@@ -125,7 +125,7 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
         [$identity, $session] = $this->signedInExternally();
 
         $outcome = $this->race(
-            fn (): mixed => $this->sessions()->reauthenticateExternally($session, $this->throughTheLink())->isIssued(),
+            fn (): mixed => $this->sessions()->reauthenticateExternally($session->getKey(), $this->throughTheLink())->isIssued(),
             fn (): mixed => DB::transaction(fn (): int => $this->sessions()->linkScopeWidened($identity, 'connection-7', 'link-1')),
         );
 
@@ -149,7 +149,7 @@ final class ConcurrentExternalReauthenticationAndWideningTest extends TestCase
 
         $outcome = $this->race(
             fn (): mixed => $this->sessions()->linkScopeWidened($identity, 'connection-7', 'link-1'),
-            fn (): mixed => $this->sessions()->reauthenticateExternally($session, $this->throughTheLink())->reason?->value,
+            fn (): mixed => $this->sessions()->reauthenticateExternally($session->getKey(), $this->throughTheLink())->reason?->value,
         );
 
         self::assertSame([1, FailureReason::SESSION_REVOKED->value], $outcome);

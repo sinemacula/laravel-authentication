@@ -53,8 +53,9 @@ final class ExternalResultTest extends TestCase
 
     /**
      * Evidence may be dated at the provider's time, before it, or with a result
-     * that gives no time; dated after it, even within the same second once both
-     * are cut to it, it is refused.
+     * that gives no time; evidence dated in a later second than the provider's
+     * time is refused, while a later instant within the same second is the same
+     * time once both are cut to the second.
      *
      * @return void
      */

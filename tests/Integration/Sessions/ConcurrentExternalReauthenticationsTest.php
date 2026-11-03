@@ -214,7 +214,7 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
      */
     private function reauthenticate(Session $session, CarbonImmutable $at): AccessTokenResult
     {
-        return $this->sessions()->reauthenticateExternally($session, new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $at));
+        return $this->sessions()->reauthenticateExternally($session->getKey(), new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $at));
     }
 
     /**

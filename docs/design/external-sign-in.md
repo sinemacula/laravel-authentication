@@ -24,9 +24,12 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   is taken from that answer, not from the result, though the verified result an adapter redeems carries one: the
   contract reads, inside the adapter's transaction, the very link it maps the identity through, so the id recorded is
   always that link's and can never name a link other than the one that chose the identity.
-- The link contract and the evidence policy are asked before the package takes any lock, so the adapter's own locks,
-  taken inside its transaction, always come first and the package's session rows (the session reauthenticated, or the
-  one a sign-in supersedes) last. No identity row is locked on these paths.
+- The link contract, and the evidence policy's acceptance of a result's evidence, are asked before the package takes any
+  lock, so the adapter's own locks, taken inside its transaction, always come first and the package's session rows (the
+  session reauthenticated, or the one a sign-in supersedes) last. In a reauthentication the tenant's authentication
+  policy and the evidence policy's `meets()` are then asked under the session's row lock, with the new proof recorded;
+  both contracts' docblocks say they must only read, or take no lock the adapter does not already hold. No identity row
+  is locked on these paths.
 - Every session an external provider established records its provenance once, with the session, pending or active,
   and never rewrites it: the connection and its tenant, the provider's authentication time and deadline, the policy
   version, the id of the link (`link_id`, compared byte for byte: a binary column on MySQL and MariaDB) and the
@@ -60,14 +63,16 @@ link contract answers, and the package starts, reauthenticates and ends sessions
    timebox or `Attempting`: nothing is guessed.
 4. The session, its first proof and its provenance are written in one transaction, a savepoint in the adapter's; the
    reports and the guard's bind wait for its commit. The result is an active pair or a pending session.
-5. To reauthenticate, the adapter hands a later result to `reauthenticateExternally($session, $result)`: the method, the
-   session as stored (its generation) and its standing, the provider's time and the link are checked before any lock;
-   then `ProofIssuance` locks the session's row and checks it again, records an `external_reauthentication`, asks the
-   tenant's authentication policy with that proof recorded (as at every redemption), and issues one access token whose
-   `auth_time` is the later of the session's and the provider's. An adapter asks `externalStanding($session, $identity,
-   $connectionId, $linkId)` for a session's standing, writing nothing: with no link id (any link of the connection) and
-   outside a transaction when a reauthentication flow starts, locking nothing; with the link id inside the redemption's
-   transaction, before it renews, locking the row until it ends.
+5. To reauthenticate, the adapter hands a later result to `reauthenticateExternally($sessionId, $result)`, with the
+   identifier of the session its handoff names (an adapter holds no session object, and the session the request is
+   authenticated with is not necessarily that one): the method, the session as stored and its standing, the provider's
+   time and the link are checked before any lock; then `ProofIssuance` locks the session's row and checks it again,
+   records an `external_reauthentication`, asks the tenant's authentication policy with that proof recorded (as at every
+   redemption), and issues one access token whose `auth_time` is the later of the session's and the provider's. An
+   adapter asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` for a session's standing, writing
+   nothing: with no link id (any link of the connection) and outside a transaction when a reauthentication flow starts,
+   locking nothing; with the link id inside the redemption's transaction, before it renews, locking the row until it
+   ends.
 6. When a link is removed or its scope widened, the adapter calls `linkRemoved()` or `linkScopeWidened()` in that
    transaction (`Sessions\ConnectionRevocations::link()`): the identity's live session keys 500 at a time, then their
    provenance by key filtered on the connection and link and compared byte for byte in PHP, then each chunk locked in

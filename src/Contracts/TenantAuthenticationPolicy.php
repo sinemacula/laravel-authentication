@@ -14,16 +14,21 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
  * tenant requires of its authentication: a further factor, the connections it
  * must have been established through, and the version of that answer. The
  * package asks it at sign-in, at a choice of principal, at activation, at every
- * refresh and when `Auth::caller()` reads a refresh credential, never on a
- * bearer request; a switch asks it for the destination. The default,
- * `RequireNothingOfTenants`, requires nothing.
+ * refresh, when `Auth::caller()` reads a refresh credential and at an external
+ * reauthentication (`reauthenticateExternally()`, which it refuses as
+ * `sso_required` or `additional_factor_required`), never on a bearer request; a
+ * switch asks it for the destination. The default, `RequireNothingOfTenants`,
+ * requires nothing.
  *
  * It is asked inside `WriteConnection::during()` for the tenant: read the
  * policy's own state from the write connection every time, so a lagging replica
  * never answers with a policy that has just changed. Change the version
  * whenever anything the answer depends on changes, the exemptions included, and
  * call `Auth::sessions()->tenantPolicyChanged($tenant)` when the policy
- * changes, so sessions that no longer meet it end.
+ * changes, so sessions that no longer meet it end. An external reauthentication
+ * asks it while the package holds the session's row lock, after every lock the
+ * adapter took, so an implementation only reads, or takes no lock the adapter
+ * does not already hold.
  *
  * @api
  *

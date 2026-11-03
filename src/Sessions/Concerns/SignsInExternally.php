@@ -6,7 +6,6 @@ namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
@@ -94,11 +93,14 @@ trait SignsInExternally
     }
 
     /**
-     * Reauthenticate the session with a result an external identity provider
-     * verified, which a trusted server-side adapter hands over (from a
-     * reauthentication handoff it redeemed, say), and issue the session a new
-     * access token only: the session, its refresh token, its deadlines and its
-     * provenance are kept.
+     * Reauthenticate a session, by its identifier, with a result an external
+     * identity provider verified, which a trusted server-side adapter hands
+     * over (from a reauthentication handoff it redeemed, say), and issue the
+     * session a new access token only: the session, its refresh token, its
+     * deadlines and its provenance are kept. The identifier is the session the
+     * handoff names, never the one the request happens to be authenticated
+     * with; one that cannot be a key of the session model, or names no session,
+     * is `session_unknown`.
      *
      * Only on an application that allows `external_provider`
      * (`method_not_allowed`), only for this guard's live, active session of a
@@ -114,8 +116,12 @@ trait SignsInExternally
      * through none). With the proof recorded, the session must still meet its
      * tenant's authentication policy, as every redemption must: a connection
      * the tenant no longer admits is `sso_required` and a further factor it now
-     * requires and the session does not meet `additional_factor_required`, the
-     * proof rolled back and the session left for its next refresh.
+     * requires and the session does not meet (its accepted evidence, this
+     * proof's included, judged by the evidence contract)
+     * `additional_factor_required`, the proof rolled back and the session left
+     * for its next refresh. Both policies are asked then, under the session's
+     * row lock, so neither may take a lock the adapter takes after the
+     * session's.
      *
      * The proof (`external_reauthentication`) is timed when the provider
      * authenticated the identity (now, when that is after now), so the new
@@ -130,26 +136,27 @@ trait SignsInExternally
      * reports `AuthenticationFailed` (flow `reauthentication`) and is answered,
      * never thrown.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      *
      * @throws \Throwable
      */
-    public function reauthenticateExternally(Session $session, ExternalResult $result): AccessTokenResult
+    public function reauthenticateExternally(mixed $sessionId, ExternalResult $result): AccessTokenResult
     {
-        return $this->externalReauthentications->reauthenticate($session, $result);
+        return $this->externalReauthentications->reauthenticate($sessionId, $result);
     }
 
     /**
-     * Say whether the session stands for an external reauthentication by the
-     * identity through the connection and the link: `null` when it is this
-     * guard's live, active session of a person, owned by the identity and
-     * established through exactly that connection and that link, on an
-     * application that allows `external_provider`; otherwise why not
-     * (`method_not_allowed`, `session_unknown`, `session_guard_mismatch`,
-     * `session_revoked`, `session_pending`, `session_expired`,
-     * `machine_identity`, `link_mismatch`).
+     * Say whether a session, by its identifier (the one the adapter's flow
+     * names), stands for an external reauthentication by the identity through
+     * the connection and the link: `null` when it is this guard's live, active
+     * session of a person, owned by the identity and established through
+     * exactly that connection and that link, on an application that allows
+     * `external_provider`; otherwise why not (`method_not_allowed`,
+     * `session_unknown`, `session_guard_mismatch`, `session_revoked`,
+     * `session_pending`, `session_expired`, `machine_identity`,
+     * `link_mismatch`).
      *
      * With no link given, a session established through that connection and any
      * link stands (one recorded with no link never does): for an adapter asked,
@@ -161,7 +168,7 @@ trait SignsInExternally
      * ends, so nothing revokes the session before the adapter renews it. It
      * writes and reports nothing.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
      * @param  ?string  $linkId
@@ -172,8 +179,8 @@ trait SignsInExternally
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    public function externalStanding(Session $session, Identity $identity, string $connectionId, ?string $linkId = null): ?FailureReason
+    public function externalStanding(mixed $sessionId, Identity $identity, string $connectionId, ?string $linkId = null): ?FailureReason
     {
-        return $this->externalReauthentications->standing($session, $identity, $connectionId, $linkId);
+        return $this->externalReauthentications->standing($sessionId, $identity, $connectionId, $linkId);
     }
 }

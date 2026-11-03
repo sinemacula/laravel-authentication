@@ -79,8 +79,9 @@ enum FailureReason: string
     // The pinned session is not one of the identity's live sessions
     case SESSION_MISMATCH = 'session_mismatch';
 
-    // A further factor is required, which an access-only sign-in (attempt()) or
-    // the caller read from a refresh credential cannot wait for
+    // A further factor is required, which an access-only sign-in (attempt()),
+    // the caller read from a refresh credential or an external reauthentication
+    // (reauthenticateExternally()) cannot wait for
     case ADDITIONAL_FACTOR_REQUIRED = 'additional_factor_required';
 
     // The pending credential names no live pending session of this guard: it is

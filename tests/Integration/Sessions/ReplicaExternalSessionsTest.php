@@ -106,9 +106,9 @@ final class ReplicaExternalSessionsTest extends TestCase
 
         $result = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $now);
 
-        self::assertNull($this->sessions()->externalStanding($record, $this->identity, 'connection-7'));
-        self::assertNull(DB::transaction(fn (): mixed => $this->sessions()->externalStanding($record, $this->identity, 'connection-7', 'link-1')));
-        self::assertTrue($this->sessions()->reauthenticateExternally($record, $result)->isIssued());
+        self::assertNull($this->sessions()->externalStanding($record->getKey(), $this->identity, 'connection-7'));
+        self::assertNull(DB::transaction(fn (): mixed => $this->sessions()->externalStanding($record->getKey(), $this->identity, 'connection-7', 'link-1')));
+        self::assertTrue($this->sessions()->reauthenticateExternally($record->getKey(), $result)->isIssued());
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('authentication_proofs')->count());
     }
 

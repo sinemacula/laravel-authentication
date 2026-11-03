@@ -150,11 +150,12 @@ refusal is reported by `AuthenticationFailed` with the flow `reauthentication`.
 ### At the external provider
 
 A session an external identity provider established reauthenticates at that provider through
-`reauthenticateExternally($session, $result)`, which a trusted server-side adapter calls with the result the provider
+`reauthenticateExternally($sessionId, $result)`, which a trusted server-side adapter calls with the identifier of the
+session its handoff names (never the session the request happens to be authenticated with) and the result the provider
 verified (from a reauthentication handoff it redeemed, say), never a client:
 
 ```php
-$result = Auth::sessions('api')->reauthenticateExternally($session, new ExternalResult(
+$result = Auth::sessions('api')->reauthenticateExternally($redeemed->sessionId, new ExternalResult(
     connectionId: $redeemed->connectionId,
     issuer: $redeemed->issuer,
     subject: $redeemed->subject,
@@ -164,18 +165,20 @@ $result = Auth::sessions('api')->reauthenticateExternally($session, new External
 ```
 
 Only on an application that allows `external_provider` (`method_not_allowed`), only for one of the guard's live, active
-sessions of a person, as for a step-up, and only with the time the provider authenticated the identity (`proof_invalid`
-without one, or with one before the session began). The result must come through the very link that established the
-session: the link contract must link it to an identity (`ExternalResultUnlinked`, then `external_result_unlinked`), that
-identity must own the session, and the session's provenance must record exactly the result's connection and the link's
-id, compared byte for byte (`link_mismatch`, as for another link of the same identity through the same connection, or a
-session no link established). The link contract is asked before anything is locked; the session's row is then locked,
-after every lock the adapter took, and judged again (its generation, its provenance and the provider's time), so call it
-inside the adapter's transaction on the storage connection. With the proof recorded, the session must still meet its
-tenant's authentication policy, as at any redemption: a connection the tenant no longer admits is `sso_required`, and a
-further factor it now requires that the session, this proof's accepted evidence included, does not meet is
-`additional_factor_required`; either rolls the proof back and writes nothing, so the next refresh revokes the session
-or returns it to pending. A database error, a serialization failure included,
+sessions of a person, as for a step-up (an identifier that names no session, or cannot be a key, is `session_unknown`),
+and only with the time the provider authenticated the identity (`proof_invalid` without one, or with one before the
+session began). The result must come through the very link that established the session: the link contract must link it
+to an identity (`ExternalResultUnlinked`, then `external_result_unlinked`), that identity must own the session, and the
+session's provenance must record exactly the result's connection and the link's id, compared byte for byte
+(`link_mismatch`, as for another link of the same identity through the same connection, or a session no link
+established). The link contract is asked before anything is locked; the session's row is then locked, after every lock
+the adapter took, and judged again (still the session read before the lock, its provenance and the provider's time), so
+call it inside the adapter's transaction on the storage connection. With the proof recorded, the session must still meet
+its tenant's authentication policy, as at any redemption: a connection the tenant no longer admits is `sso_required`,
+and a further factor it now requires that none of the session's accepted evidence, this proof's included, meets is
+`additional_factor_required`; either rolls the proof back and writes nothing, so the next refresh revokes the session or
+returns it to pending. The tenant's policy and the evidence policy are asked then, under the session's row lock, so they
+must only read, or take no lock the adapter does not already hold. A database error, a serialization failure included,
 propagates for the adapter to retry the whole transaction.
 
 The proof is recorded as `external_reauthentication`, timed when the provider authenticated the identity (now, when that
@@ -185,15 +188,15 @@ kept. Its `amr` gains the provider's private value, and `mfa`, only when the app
 accepts the result's evidence (see [Proofs and provenance](#proofs-and-provenance)); otherwise only `auth_time` moves.
 `Reauthenticated` (method `external_provider`) reports it once committed. A step-up refuses an external proof.
 
-An adapter asks `externalStanding($session, $identity, $connectionId, $linkId)` whether a session stands for such a
-reauthentication: `null` for one of the guard's live, active sessions of a person owned by the identity and established
-through exactly that connection and link, on an application that allows `external_provider`, and otherwise the reason
-(`method_not_allowed`, `session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_pending`,
-`session_expired`, `machine_identity`, `link_mismatch`). Without a link id, a session established through the connection
-and any link stands (one recorded with no link never does), for an adapter asked when a reauthentication flow starts,
-before the exact link is known. Asked outside a transaction, it reads the session on the write connection and locks
-nothing; asked inside the adapter's transaction, before it renews, it locks the session's row until the transaction
-ends. It writes and reports nothing.
+An adapter asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` whether a session, by its identifier,
+stands for such a reauthentication: `null` for one of the guard's live, active sessions of a person owned by the
+identity and established through exactly that connection and link, on an application that allows `external_provider`,
+and otherwise the reason (`method_not_allowed`, `session_unknown`, `session_guard_mismatch`, `session_revoked`,
+`session_pending`, `session_expired`, `machine_identity`, `link_mismatch`). Without a link id, a session established
+through the connection and any link stands (one recorded with no link never does), for an adapter asked when a
+reauthentication flow starts, before the exact link is known. Asked outside a transaction, it reads the session on the
+write connection and locks nothing; asked inside the adapter's transaction, before it renews, it locks the session's row
+until the transaction ends. It writes and reports nothing.
 
 ## Freshness
 
@@ -835,11 +838,12 @@ must be loaded, or reading it throws a `LogicException`, and the column name com
 
 A tenant may ask more of the sessions active in it than the identity's own sign-in did: a further factor, or a sign-in
 through one of its connections (single sign-on). The package asks the bound `Contracts\TenantAuthenticationPolicy` (the
-default, `RequireNothingOfTenants`, asks nothing; see [Tenant authentication
-policies](extending.md#tenant-authentication-policies)) whenever a session comes to act in a tenant or keeps acting in
-it: at sign-in once a principal is selected, at a choice of principal, when a pending session activates, at every
-refresh, for the destination of a switch, and when `Auth::caller()` reads a refresh credential, never on a bearer
-request. A session that falls short:
+default, `RequireNothingOfTenants`, asks nothing; see
+[Tenant authentication policies](extending.md#tenant-authentication-policies)) whenever a session comes to act in a
+tenant or keeps acting in it: at sign-in once a principal is selected, at a choice of principal, when a pending session
+activates, at every refresh, for the destination of a switch, when `Auth::caller()` reads a refresh credential, and at a
+reauthentication at the external provider (`reauthenticateExternally()`), never on a bearer request. A session that
+falls short:
 
 | Where                                 | Needs a connection                                                       | Lacks a further factor                                                   |
 |---------------------------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------|
@@ -850,6 +854,7 @@ request. A session that falls short:
 | Switch                                | refused as `sso_required`, the session unchanged                         | returned to pending with the destination recorded, as for a refresh      |
 | `attempt()`                           | refused as `sso_required`                                                | refused as `additional_factor_required`                                  |
 | The caller of a refresh credential    | no caller (`sso_required`), nothing written                              | no caller (`additional_factor_required`), nothing written                |
+| External reauthentication             | refused as `sso_required`, the proof rolled back, nothing written        | refused as `additional_factor_required`, the proof rolled back           |
 
 A further factor is met only as the bound `Contracts\ExternalEvidencePolicy` judges an external provider's accepted
 evidence (see [Proofs and provenance](#proofs-and-provenance)) or the bound `Contracts\RequirementCheck` judges the

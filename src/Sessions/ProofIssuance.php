@@ -104,7 +104,8 @@ final readonly class ProofIssuance
     }
 
     /**
-     * Lock, check, admit, record and issue, in the caller's transaction.
+     * Lock, check, admit, record, judge again with the proof recorded when the
+     * operation asks, and issue, in the caller's transaction.
      *
      * @formatter:off
      *
@@ -126,6 +127,7 @@ final readonly class ProofIssuance
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \SineMacula\Laravel\Authentication\Sessions\IssuanceRefused
      */
     private function issueOn(mixed $sessionId, NewProof $proof, \Closure $accepts, ?\Closure $admits): array|Refused
     {
