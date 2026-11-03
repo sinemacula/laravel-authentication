@@ -64,14 +64,10 @@ use Tests\Unit\Stubs\StubPrincipal;
  * that creates it, so four writes. A successful refresh writes nothing to the
  * limits.
  *
- * Every refresh that finds its session then writes the session's issuance
- * guard, one `UPDATE` by key, first in the transaction the exchange runs in, so
- * the access token it issues reads the session's proofs after any issuance or
- * proof change of the session that overlaps it, and takes its time after it;
- * then it reads the session again with a lock, one `SELECT` by key, so it
- * judges the row as it stands once the guard holds it, never one a revocation,
- * return to pending or switch it waited for has changed: one write and one read
- * more on every path past the session lookup, whatever it decides.
+ * Every refresh that finds its session then writes the session's issuance guard
+ * (one `UPDATE` by key, first in the exchange's transaction) and reads the
+ * session again with a lock (one `SELECT` by key): one write and one read more
+ * on every path past the session lookup, whatever it decides.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

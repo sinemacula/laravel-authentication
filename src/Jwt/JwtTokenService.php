@@ -162,8 +162,7 @@ final class JwtTokenService
      * whole. A caller that passes `$issuedAt` should take it after it locks the
      * session in its own transaction around the call, or it may be earlier than
      * a proof that committed in between, and `auth_time` is never after the
-     * issue time. The session model must live on the storage connection, and
-     * the session's row must exist.
+     * issue time.
      *
      * Refuses to issue a token that `parse()` would reject or that would lose
      * part of its context: the identity and principal, the tenant when one is

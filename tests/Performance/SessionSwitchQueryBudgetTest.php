@@ -46,17 +46,14 @@ use Tests\Integration\Fixtures\ChoosingMembership;
  * one's tenant) and writes the attempt counters and the pending choice; making
  * the choice uses it up, writes the session and gives the slots back; a switch
  * reads the refresh counters and the session, writes the session's issuance
- * guard (one `UPDATE` by key, first in the switch's transaction, so the switch
- * reads the session's proofs after any issuance or proof change of the session
- * that overlaps it, and takes its time after it), reads the session again with
- * a lock (so it judges the row as it stands once the guard holds it, never one
- * a revocation, return to pending or switch it waited for changed), its owner,
- * the target, its tenant and its owner, writes the one compare-and-swap, and
- * then reads the session's proofs for the new access token, while a switch its
- * destination's policy returns to pending reads the first factor once instead,
- * a grace retry writes only the guard and a refusal only the guard and the
- * counters. The event names the principal switched from by the type and
- * identifier the session recorded, so it is never read again.
+ * guard (one `UPDATE` by key, first in the switch's transaction), reads the
+ * session again with a lock, its owner, the target, its tenant and its owner,
+ * writes the one compare-and-swap, and then reads the session's proofs for the
+ * new access token, while a switch its destination's policy returns to pending
+ * reads the first factor once instead, a grace retry writes only the guard and
+ * a refusal only the guard and the counters. The event names the principal
+ * switched from by the type and identifier the session recorded, so it is never
+ * read again.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

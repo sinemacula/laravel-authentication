@@ -66,8 +66,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * tenant no longer admits is `sso_required`, a further factor it now requires
  * and the session does not meet `additional_factor_required`, and either rolls
  * the proof back. Neither writes the session: the next refresh revokes it or
- * returns it to pending, and no version is recorded, since the policy version
- * is never written here.
+ * returns it to pending, and no policy version is recorded.
  *
  * The proof is timed when the provider authenticated the identity (now, when
  * that is after now), so the access token's `auth_time`, the newest of the

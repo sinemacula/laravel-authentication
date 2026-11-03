@@ -95,9 +95,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
  * there is judged: a revocation, a return to pending or a switch the guard
  * waited for is seen, so a grace retry, which writes no compare-and-swap, never
  * hands out a pair for a session that changed before the exchange held it. A
- * session whose row is gone by then fails as `session_unknown`. The rotation
- * id, the admission, the tenant policy and the rotation are all judged in that
- * transaction, with the session's row held.
+ * session whose row is gone by then fails as `session_unknown`.
  *
  * Every check uses one time per exchange, taken once the guard is written and
  * cut to the whole second. A failure is returned as the `AuthenticationFailed`
