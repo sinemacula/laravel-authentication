@@ -71,7 +71,7 @@ trait SignsInExternally
      * both, so a contract that locks the link it reads holds it until the
      * session commits; the connection guards order a sign-in against a
      * revocation but never ask the contract again, so they add to the adapter's
-     * locks and never replace them. A database error, a serialization failure
+     * locks and never replace them. A database error, a serialisation failure
      * included, and an exception from the link contract propagate, so the whole
      * transaction can be retried. Once the session commits,
      * `ExternalResultRedeemed` (flow `sign_in`) follows the session's own
