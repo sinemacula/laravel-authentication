@@ -183,10 +183,12 @@ propagates for the adapter to retry the whole transaction.
 
 The proof is recorded as `external_reauthentication`, timed when the provider authenticated the identity (now, when that
 is after now), so the new access token's `auth_time` is the later of the session's and the provider's, decided under the
-lock. Nothing else is renewed: no refresh token is issued, and the session row, its deadlines and its provenance are
-kept. Its `amr` gains the provider's private value, and `mfa`, only when the application's `ExternalEvidencePolicy`
-accepts the result's evidence (see [Proofs and provenance](#proofs-and-provenance)); otherwise only `auth_time` moves.
-`Reauthenticated` (method `external_provider`) reports it once committed. A step-up refuses an external proof.
+lock (inside a transaction of yours at REPEATABLE READ, from the proofs its snapshot holds, so a racing reauthentication
+committed after your first read is left out of that one token, which is then older, never fresher). Nothing else is
+renewed: no refresh token is issued, and the session row, its deadlines and its provenance are kept. Its `amr` gains the
+provider's private value, and `mfa`, only when the application's `ExternalEvidencePolicy` accepts the result's evidence
+(see [Proofs and provenance](#proofs-and-provenance)); otherwise only `auth_time` moves. `Reauthenticated` (method
+`external_provider`) reports it once committed. A step-up refuses an external proof.
 
 An adapter asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` whether a session, by its identifier,
 stands for such a reauthentication: `null` for one of the guard's live, active sessions of a person owned by the

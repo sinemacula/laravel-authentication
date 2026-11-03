@@ -175,7 +175,11 @@ session holds; the token's claims and every freshness answer are worked out from
   removal or widened scope, say) that commits before the reauthentication's lock refuses it as `session_revoked`; one
   that commits after ends the new token at its next request.
 - Two reauthentications at the provider racing on one session both record their proofs; `auth_time` is the later
-  provider time whichever commits last, since it is derived from the proofs, never written.
+  provider time whichever commits last, since it is derived from the proofs, never written. The proofs are read with a
+  plain read, so inside a caller's transaction at REPEATABLE READ (MySQL's default) or above whose first read came
+  before the other committed, the token issued second leaves the other's proof out of its `auth_time` and `amr`. That
+  token is only ever older than the proofs say, never fresher, and the next token issued counts both. The same holds
+  for a step-up and a reauthentication with a factor, which share the issuance.
 - An exception from the evidence policy or the link contract, and a database error (a serialization failure included),
   propagates and rolls back the caller's transaction, for the adapter to retry whole.
 - All the accepted evidence the session holds (within `EVIDENCE_LIMIT` proofs) is judged against a requirement, newest
