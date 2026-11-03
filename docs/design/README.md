@@ -75,6 +75,10 @@ The current note set is:
 - `proofs-and-freshness.md`: the proofs a session records and its provenance, how `auth_time` and `amr` are derived
   from them, how a session steps up and reauthenticates in place, and how freshness is judged for a sensitive operation
   on the proof that meets it.
+- `external-sign-in.md`: how a result an external identity provider verified signs in, only through the link contract
+  the application binds, what the session records of how it began, how it reauthenticates through the very link that
+  established it with the session's row locked last, and how a link's sessions end when it is removed or its scope
+  widened.
 - `identifier-changes.md`: how an identity's email address or phone number is replaced once the new one is proven,
   after a recent authentication, unique on its normalised value under a race, invalidating the proofs it outdates.
 - `provider-composition.md`: why every binding the provider makes is a default another provider's binding is never
