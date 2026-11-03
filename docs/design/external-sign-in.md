@@ -59,8 +59,9 @@ link contract answers, and the package starts, reauthenticates and ends sessions
    reports and the guard's bind wait for its commit. The result is an active pair or a pending session.
 5. To reauthenticate, the adapter hands a later result to `reauthenticateExternally($session, $result)`: the method,
    the session as stored (its generation) and its standing, the provider's time and the link are checked before any
-   lock; then `ProofIssuance` locks the session's row and checks it again, records an `external_reauthentication` and
-   issues one access token whose `auth_time` is the later of the session's and the provider's. An adapter that must
+   lock; then `ProofIssuance` locks the session's row and checks it again, records an `external_reauthentication`, asks
+   the tenant's authentication policy with that proof recorded (as at every redemption), and issues one access token
+   whose `auth_time` is the later of the session's and the provider's. An adapter that must
    answer a locked standing before it renews asks `externalStanding($session, $identity, $connectionId, $linkId)` in the
    same transaction, which locks the row and answers `null` or the reason, writing nothing.
 6. When a link is removed or its scope widened, the adapter calls `linkRemoved()` or `linkScopeWidened()` in that
@@ -79,6 +80,11 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   another link, another connection, another identity, or on a session no link established, `link_mismatch`.
 - A change committed while the reauthentication waits for the session's lock (a revocation, a reissued key, a
   rewritten owner) is judged under the lock: `session_revoked`, `session_unknown` or `link_mismatch`.
+- A reauthentication whose session, with its proof recorded, no longer meets its tenant's authentication policy is
+  `sso_required` (a connection the tenant no longer admits) or `additional_factor_required` (a further factor the
+  session, this proof's accepted evidence included, does not meet): the proof rolls back in a savepoint
+  (`Sessions\IssuanceRefused`, caught by `ProofIssuance`) and the row is not written, so no version is recorded and the
+  next refresh revokes the session or returns it to pending. A first-factor reauthentication asks no tenant policy.
 - A sign-in through a link racing that link's revocation is serialised by the adapter's own lock on the link, taken
   before the session's row; the package documents the order and does not enforce it. The revocation finds the link's
   sessions and their provenance with locking reads, which see what is committed now: a plain read on MySQL's

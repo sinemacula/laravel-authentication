@@ -168,7 +168,11 @@ identity must own the session, and the session's provenance must record exactly 
 id, compared byte for byte (`link_mismatch`, as for another link of the same identity through the same connection, or a
 session no link established). The link contract is asked before anything is locked; the session's row is then locked,
 after every lock the adapter took, and judged again (its generation, its provenance and the provider's time), so call it
-inside the adapter's transaction on the storage connection. A database error, a serialization failure included,
+inside the adapter's transaction on the storage connection. With the proof recorded, the session must still meet its
+tenant's authentication policy, as at any redemption: a connection the tenant no longer admits is `sso_required`, and a
+further factor it now requires that the session, this proof's accepted evidence included, does not meet is
+`additional_factor_required`; either rolls the proof back and writes nothing, so the next refresh revokes the session
+or returns it to pending. A database error, a serialization failure included,
 propagates for the adapter to retry the whole transaction.
 
 The proof is recorded as `external_reauthentication`, timed when the provider authenticated the identity (now, when that

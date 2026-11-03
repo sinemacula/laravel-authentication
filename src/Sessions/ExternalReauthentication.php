@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -32,6 +33,8 @@ use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionGeneration;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
+use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 
 /**
  * Reauthenticates a session of one guard with a result an external identity
@@ -58,7 +61,13 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
  * its provenance records (`link_mismatch`: a session established through
  * another link of the same identity, or through no link at all, never matches),
  * and not begun after the provider authenticated the identity
- * (`proof_invalid`).
+ * (`proof_invalid`). Once the proof is recorded, the session is judged against
+ * its tenant's authentication policy, with that proof among its own, as every
+ * redemption is: a connection the tenant no longer admits is `sso_required`,
+ * a further factor it now requires and the session does not meet
+ * `additional_factor_required`, and either rolls the proof back. Neither
+ * writes the session: the next refresh revokes it or returns it to pending,
+ * and no version is recorded, since the row is never written here.
  *
  * The proof is timed when the provider authenticated the identity (now, when
  * that is after now), so the access token's `auth_time`, the newest of the
@@ -137,10 +146,12 @@ final readonly class ExternalReauthentication
             $evidence,
         );
 
+        $guard  = $this->context->name();
         $issued = $this->issuance->issue(
             $stored->getSessionIdentifier(),
             $proof,
             static fn (EloquentSession&Model $locked, CarbonInterface $startedAt): ?FailureReason => self::refusal($locked, $stored, $link, $result->connectionId, $at, $startedAt),
+            static fn (Admitted $admitted, EloquentSession&Model $locked, CarbonImmutable $now): ?FailureReason => self::shortfall($guard, $admitted, $locked, $now),
         );
 
         if ($issued instanceof Refused) {
@@ -307,6 +318,31 @@ final readonly class ExternalReauthentication
             !self::isEstablishedThrough($locked, $link->identity, $connectionId, $link->id) => FailureReason::LINK_MISMATCH,
             $at->getTimestamp() < $startedAt->getTimestamp()                                => FailureReason::PROOF_INVALID,
             default                                                                         => null,
+        };
+    }
+
+    /**
+     * Why the session, with the proof just recorded, no longer meets its
+     * tenant's authentication policy, as a refresh judges it but writing
+     * nothing: `sso_required` for a session the next refresh would revoke,
+     * `additional_factor_required` for one it would return to pending; `null`
+     * when it meets it.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    private static function shortfall(string $guard, Admitted $admitted, EloquentSession&Model $session, CarbonImmutable $now): ?FailureReason
+    {
+        return match (TenantPolicyCheck::check($guard, $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now)->standing) {
+            TenantPolicyStanding::SSO_REQUIRED    => FailureReason::SSO_REQUIRED,
+            TenantPolicyStanding::FACTOR_REQUIRED => FailureReason::ADDITIONAL_FACTOR_REQUIRED,
+            TenantPolicyStanding::MET             => null,
         };
     }
 

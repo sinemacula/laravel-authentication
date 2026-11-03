@@ -7,12 +7,14 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -26,16 +28,20 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SignsInExternally;
 use SineMacula\Laravel\Authentication\Sessions\ExternalReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\ExternalResults;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
@@ -207,7 +213,8 @@ final class ExternalReauthenticationTest extends TestCase
      * another link of the same identity through the same connection, the same
      * subject through another connection, and a link that maps to another
      * identity are each `link_mismatch`, reported with the session, and record
-     * nothing.
+     * nothing. A link to another identity is refused before anything is
+     * locked, so the evidence that identity's result brings is never judged.
      *
      * @return void
      *
@@ -218,18 +225,32 @@ final class ExternalReauthenticationTest extends TestCase
         $signedIn = $this->signedInExternally();
         $identity = $signedIn->identity;
         $grace    = $this->seedIdentity('grace@example.test');
+        $policy   = new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
         $results = [
             $this->linkedResult($identity, 'connection-7', 'link-2', 'second-subject', authenticatedAt: $this->now),
             $this->linkedResult($identity, 'connection-8', 'link-1', 'subject-1', authenticatedAt: $this->now),
-            $this->linkedResult($grace, 'connection-7', 'link-1', 'grace-subject', authenticatedAt: $this->now),
         ];
 
         foreach ($results as $result) {
             self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record, $result)->reason);
         }
+
+        $this->app?->instance(ExternalEvidencePolicy::class, $policy);
+
+        $locks = 0;
+
+        DB::listen(static function (QueryExecuted $query) use (&$locks): void {
+            $locks += (int) (stripos($query->sql, 'for update') !== false);
+        });
+
+        $graces = $this->linkedResult($grace, 'connection-7', 'link-1', 'grace-subject', authenticatedAt: $this->now, evidence: new ExternalEvidence(['mfa'], null, $this->now));
+
+        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record, $graces)->reason);
+        self::assertSame([], $policy->asked);
+        self::assertSame(0, $locks);
 
         $reported = array_map(
             static fn (AuthenticationFailed $event): array => [$event->flow, $event->reason, $event->context->method, $event->context->sessionId],
@@ -398,6 +419,92 @@ final class ExternalReauthenticationTest extends TestCase
         self::assertInstanceOf(AuthenticationFailed::class, $this->recorded[3]);
         self::assertSame($key, $this->recorded[3]->context->sessionId);
         self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
+    }
+
+    /**
+     * A session deleted while the adapter holds the result is gone when its
+     * row is locked: `session_unknown`, reported for the session given, and
+     * nothing recorded.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionDeletedMeanwhileIsReportedForTheSessionGiven(): void
+    {
+        $signedIn = $this->signedInExternally();
+        $key      = $signedIn->record->getKey();
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $this->externalLinks()->whileAsked(static function () use ($key): void {
+            DB::table('authentication_sessions')->where('id', $key)->delete();
+        });
+
+        self::assertSame(FailureReason::SESSION_UNKNOWN, $this->reauthenticate($signedIn->record)->reason);
+        self::assertSame($key, $this->recordedEvent(AuthenticationFailed::class)->context->sessionId);
+        self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
+    }
+
+    /**
+     * The session is judged against its tenant's authentication policy with
+     * the proof just recorded among its own: a tenant that no longer admits
+     * the connection is `sso_required`, one that now requires a further factor
+     * the session does not meet `additional_factor_required`, each reported
+     * with the session and its principal and recording nothing, inside the
+     * adapter's transaction too, which goes on, and the row is left as it was;
+     * evidence this very reauthentication brings, once
+     * accepted, meets that factor, and the token is issued.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheTenantsPolicyIsAskedWithTheProofRecorded(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        $policy  = new ScriptedTenantAuthenticationPolicy;
+        $session = $this->sessions('members')->signInExternally($this->linkedResult($member, subject: 'subject-1'), self::asPrincipal($membership))->session;
+        $row     = (array) DB::table('authentication_sessions')->sole();
+
+        self::assertNotNull($session);
+
+        $this->app?->instance(TenantAuthenticationPolicy::class, $policy);
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $refusals = [
+            [new TenantRequirement('v2', connections: ['connection-8']), FailureReason::SSO_REQUIRED],
+            [new TenantRequirement('v3', new Requirement(multifactor: new RequirementPart)), FailureReason::ADDITIONAL_FACTOR_REQUIRED],
+        ];
+
+        foreach ($refusals as [$requirement, $reason]) {
+            $policy->requirement = $requirement;
+
+            self::assertSame($reason, $this->sessions('members')->reauthenticateExternally($session->record, $this->throughTheLink(authenticatedAt: $this->now))->reason);
+        }
+
+        self::assertSame(
+            [[FailureReason::SSO_REQUIRED, IdentifierCoercion::stringify($membership->getKey())], [FailureReason::ADDITIONAL_FACTOR_REQUIRED, IdentifierCoercion::stringify($membership->getKey())]],
+            array_map(static fn (AuthenticationFailed $event): array => [$event->reason, $event->context->principalId], $this->recorded),
+        );
+
+        DB::beginTransaction();
+
+        self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $this->sessions('members')->reauthenticateExternally($session->record, $this->throughTheLink(authenticatedAt: $this->now))->reason);
+        self::assertSame(1, DB::transactionLevel());
+
+        DB::commit();
+
+        self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
+        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+
+        $this->app?->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]));
+
+        $met = $this->sessions('members')->reauthenticateExternally($session->record, $this->throughTheLink(authenticatedAt: $this->now, evidence: new ExternalEvidence(['mfa'], null, $this->now)));
+
+        self::assertTrue($met->isIssued());
+        self::assertSame(1, SessionProof::query()->where('kind', 'external_reauthentication')->count());
     }
 
     /**

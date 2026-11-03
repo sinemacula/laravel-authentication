@@ -83,10 +83,12 @@ session holds; the token's claims and every freshness answer are worked out from
   through `ProofIssuance` like the others, and only through the very link that established the session: the link
   contract is asked first (before any lock of the package's, so after the adapter's own), then under the session's
   locked row the session must still be of the same generation, owned by the link's identity, with a provenance that
-  records exactly the result's connection and the link's id, byte for byte (`link_mismatch`; a session recorded with
-  no link never matches), and not begun after the provider's time (`proof_invalid`). The proof is timed at the
-  provider's time, never after now, so the new token's `auth_time` is the later of the session's and the provider's,
-  decided under that lock. `externalStanding()` takes the same lock and answers the same checks without writing.
+  records exactly the result's connection and the link's id, byte for byte (`link_mismatch`; a session recorded with no
+  link never matches), and not begun after the provider's time (`proof_invalid`). With the proof recorded, the session
+  must still meet its tenant's authentication policy, as at every redemption (`sso_required`,
+  `additional_factor_required`; the proof rolls back). The proof is timed at the provider's time, never after now, so
+  the new token's `auth_time` is the later of the session's and the provider's, decided under that lock.
+  `externalStanding()` takes the same lock and answers the same checks without writing.
 - A step-up (`SessionService::stepUp()`) and a reauthentication (`reauthenticate()`) share `Sessions\ProofIssuance`:
   in one transaction on the session's connection, the session's row is locked; the session must exist, be this guard's,
   live and a person's; the operation's own check runs on the locked row; the session is admitted again as a refresh

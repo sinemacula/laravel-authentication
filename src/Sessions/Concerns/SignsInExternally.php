@@ -111,7 +111,11 @@ trait SignsInExternally
      * that identity must own the session, and the session's provenance must
      * record exactly the result's connection and the link's id
      * (`link_mismatch`, as for a session established through another link or
-     * through none).
+     * through none). With the proof recorded, the session must still meet its
+     * tenant's authentication policy, as every redemption must: a connection
+     * the tenant no longer admits is `sso_required` and a further factor it
+     * now requires and the session does not meet `additional_factor_required`,
+     * the proof rolled back and the session left for its next refresh.
      *
      * The proof (`external_reauthentication`) is timed when the provider
      * authenticated the identity (now, when that is after now), so the new
