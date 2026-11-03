@@ -8,6 +8,7 @@ use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
@@ -82,6 +83,39 @@ final class AbstractGuardExtensionTest extends AbstractGuardTestCase
         $guard->bindIdentity($identity);
 
         self::assertSame($identity, $guard->user());
+    }
+
+    /**
+     * A subclass binding another identity directly has the context held for the
+     * binding before forgotten, the credential kind with it: the next ask is
+     * built for the identity bound now.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSubclassBindingAnIdentityForgetsTheHeldContext(): void
+    {
+        $guard     = $this->makeCredentialGuard();
+        $principal = $this->mockActivePrincipal();
+        $other     = $this->mockIdentity();
+
+        $other->shouldReceive('getAuthIdentifier')->andReturn(2);
+
+        $this->events->shouldReceive('dispatch');
+
+        $guard->bindCredential($this->mockIdentity(), $principal, 'key-1', ['read']);
+
+        $before = $guard->authenticationContext();
+
+        self::assertSame(['1', CredentialKind::API_KEY], [$before?->identityId, $before?->credential]);
+        self::assertSame($before, $guard->authenticationContext());
+
+        $guard->bindIdentity($other);
+
+        $after = $guard->authenticationContext();
+
+        self::assertSame(['2', null], [$after?->identityId, $after?->credential]);
     }
 
     /**

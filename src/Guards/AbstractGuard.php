@@ -491,15 +491,19 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
     /**
      * Bind an identity to the guard and fire the standard Laravel
      * `Authenticated` event: the hook for a subclass that binds an identity on
-     * its own. The package's binds set the whole context before any event
-     * instead, so a listener reads all of it.
+     * its own. The authentication context held for the previous binding and the
+     * kind of credential it was made with are forgotten, so the next ask is
+     * built for this identity. The package's binds set the whole context before
+     * any event instead, so a listener reads all of it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return void
      */
     protected function setIdentity(Identity $identity): void
     {
-        $this->identity = $identity;
+        $this->identity              = $identity;
+        $this->authenticationContext = null;
+        $this->credentialKind        = null;
 
         $this->context->dispatch(new Authenticated($this->context->name(), $identity));
     }
