@@ -14,8 +14,9 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   `methods` (`method_not_allowed` otherwise, checked before the link contract is asked), and the default link contract,
   `External\NoExternalLinks`, links nothing, so no result signs anyone in until an application binds its own.
 - A result (`External\ExternalResult`: the connection, issuer and subject, and optionally the connection's tenant, the
-  provider's authentication time and session deadline, the policy version checked, the provider's evidence and the id of
-  the link the adapter redeemed it through) comes only from a trusted adapter, never from a client: `external_provider`
+  provider's authentication time and session deadline, the policy version checked, the provider's evidence, the id of
+  the link the adapter redeemed it through and the public reference of the authorisation request it answered) comes
+  only from a trusted adapter, never from a client: `external_provider`
   is reserved, so `SignInMethodManager::extend()` refuses it, `method()` never resolves it, `signIn()` cannot reach it,
   and `start()` and `reauthenticate()` refuse it as their method (`SessionPreconditions::assertSessionMethod()`). Only
   `signInExternally()` records a session under it.
@@ -76,14 +77,16 @@ link contract answers, and the package starts, reauthenticates and ends sessions
    `sso_required`), judged against the provider's proof and any accepted evidence in memory. No attempt limit,
    timebox or `Attempting`: nothing is guessed.
 4. The link's connection guard, then the session, its first proof and its provenance are written in one transaction, a
-   savepoint in the adapter's; the reports and the guard's bind wait for its commit. The result is an active pair or a
-   pending session.
+   savepoint in the adapter's; the reports and the guard's bind wait for its commit, and `ExternalResultRedeemed` (flow
+   `sign_in`) follows the session's own events there, with the connection and the request reference in its context
+   (see `event-model.md`). The result is an active pair or a pending session.
 5. To reauthenticate, the adapter hands a later result to `reauthenticateExternally($sessionId, $result)`, with the
    identifier of the session its handoff names (an adapter holds no session object, and the session the request is
    authenticated with is not necessarily that one): the method, the session as stored and its standing, the provider's
    time and the link are checked before any lock; then `ProofIssuance` locks the session's row and checks it again,
    records an `external_reauthentication`, asks the tenant's authentication policy with that proof recorded (as at every
-   redemption), and issues one access token whose `auth_time` is the later of the session's and the provider's. An
+   redemption), and issues one access token whose `auth_time` is the later of the session's and the provider's;
+   `Reauthenticated` and then `ExternalResultRedeemed` (flow `reauthentication`) report it once committed. An
    adapter asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` for a session's standing, writing
    nothing: with no link id (any link of the connection) and outside a transaction when a reauthentication flow starts,
    locking nothing; with the link id inside the redemption's transaction, before it renews, locking the row until it
@@ -100,7 +103,9 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   issuer; never the subject) and fails as `external_result_unlinked`, writing nothing. The event is informational: the
   package that links results provisions on its own event, before any handoff, never on this one.
 - A refused sign-in reports Laravel's `Failed` and `AuthenticationFailed` (flow `sign_in`); a refused reauthentication
-  reports `AuthenticationFailed` (flow `reauthentication`) and is answered, never thrown.
+  reports `AuthenticationFailed` (flow `reauthentication`) and is answered, never thrown. Both failures, and
+  `ExternalResultUnlinked`, carry the result's connection and request reference, so a refusal correlates with the
+  provider-side completion too; a rolled-back redemption reports no `ExternalResultRedeemed`.
 - A reauthentication without the provider's time, or with one before the session began, is `proof_invalid`; through
   another link, another connection, another identity, or on a session no link established, `link_mismatch`.
 - A change committed while the reauthentication waits for the session's lock (a revocation, a reissued key, a
@@ -141,7 +146,7 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 ## Implementation Anchors
 
 - `src/Contracts/ExternalIdentityLinks.php`, `src/External/*` (`ExternalResult`, `ExternalLink`, `NoExternalLinks`,
-  and the evidence values), `src/Events/ExternalResultUnlinked.php`.
+  and the evidence values), `src/Events/ExternalResultUnlinked.php`, `src/Events/ExternalResultRedeemed.php`.
 - `src/Sessions/Concerns/SignsInExternally.php`, `src/Sessions/ExternalSignIn.php`, `ExternalResults.php`,
   `ExternalReauthentication.php`, `SessionService.php` (`startFor()`), `SessionPreconditions.php`,
   `SignInMethodManager.php` (`EXTERNAL_METHOD`).
@@ -157,9 +162,9 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 
 - `tests/Feature/Sessions/ExternalSignInTest.php`: the method and link checks, the unlinked event, admission as
   `start()` admits, the principal, accepted evidence meeting the identity's and a tenant's requirement, a result never
-  arriving as input.
+  arriving as input, the redemption reported after the session's own events (active, pending, rolled back, refused).
 - `tests/Feature/Sessions/ExternalReauthenticationTest.php`: the renewal and the later-time rule, every link mismatch,
-  the refusals, changes under the lock, the standing.
+  the refusals, changes under the lock, the standing, the redemption reported after `Reauthenticated`.
 - `tests/Feature/Sessions/ConnectionRevocationsTest.php`, `tests/Integration/Sessions/ConnectionRevocationsTest.php`,
   `IntegerKeyConnectionRevocationsTest.php`: a link's sessions only, the mandatory and idempotent widening, the
   settings, folded collations, the caller's transaction.
@@ -176,7 +181,8 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   `tests/Feature/Sessions/ConnectionGuardsTest.php`, `SessionWriterTest.php`, `ConnectionRevocationsTest.php`: which
   guards each writes, and that it writes them first.
 - `tests/Unit/External/*`, `tests/Unit/Events/ExternalResultUnlinkedTest.php`,
-  `tests/Feature/Sessions/SignInMethodManagerTest.php`, `tests/Unit/Sessions/SessionPreconditionsTest.php`.
+  `tests/Unit/Events/ExternalResultRedeemedTest.php`, `tests/Feature/Sessions/SignInMethodManagerTest.php`,
+  `tests/Unit/Sessions/SessionPreconditionsTest.php`.
 - `tests/Performance/SessionServiceQueryBudgetTest.php`, `ProofQueryBudgetTest.php`,
   `ConnectionRevocationsQueryBudgetTest.php`.
 

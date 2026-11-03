@@ -425,17 +425,17 @@ the switch's read and its write, the row is read again with a lock and judged on
 is never tried twice.
 
 A switch schedules `PrincipalSwitched` for its commit on the session's connection, with the new principal and tenant in
-its context, the previous principal as the session recorded it (`previousPrincipalType`, `previousPrincipalId`)
-and, when it still resolves for the identity, the principal itself (`previousPrincipal`), the previous tenant's
-identifier (`previousTenantId`) and which of the two changed (`principalChanged`, `tenantChanged`), before it binds the
-guard to the destination in the destination tenant (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no
-`Login`; `Auth::tenant()` is the new tenant) once the switch commits too, so a listener that throws on those cannot
-withhold the report. Outside a transaction `PrincipalSwitched` is therefore dispatched before the bind events, and a
-listener on it reads the event's context, not the guard, which still holds the previous principal; inside your
-transaction both follow the commit, in that order, and a rollback drops both, leaving the guard unbound. The result
-carries the new pair at once (a cookie application's refresh cookie in it, which the package never queues: attach it
-only once your transaction has committed). A bind that waited for your commit binds only while the guard still serves
-the request and the session, read again, still acts as the destination principal in the destination tenant.
+its context, the previous principal as the session recorded it (`previousPrincipalType`, `previousPrincipalId`), the
+previous tenant's identifier (`previousTenantId`) and which of the two changed (`principalChanged`, `tenantChanged`),
+all plain values (a listener that needs the previous principal loads it), before it binds the guard to the destination
+in the destination tenant (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no `Login`; `Auth::tenant()` is
+the new tenant) once the switch commits too, so a listener that throws on those cannot withhold the report. Outside a
+transaction `PrincipalSwitched` is therefore dispatched before the bind events, and a listener on it reads the event's
+context, not the guard, which still holds the previous principal; inside your transaction both follow the commit, in
+that order, and a rollback drops both, leaving the guard unbound. The result carries the new pair at once (a cookie
+application's refresh cookie in it, which the package never queues: attach it only once your transaction has committed).
+A bind that waited for your commit binds only while the guard still serves the request and the session, read again,
+still acts as the destination principal in the destination tenant.
 
 ## Signing out and revoking sessions
 

@@ -32,7 +32,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - A bind sets the identity, principal and session before it dispatches anything after `Login`: `Authenticated`,
   `PrincipalAssigned` and `SessionAuthenticated` all describe the whole bound context (see `event-model.md`).
 - `SessionAuthenticated` is emitted only when a non-null session is bound.
-- Rebinding clears any previously cached identity, principal, and session state before the new lifecycle begins.
+- Rebinding clears any previously cached identity, principal, and session state, with the credential kind and the
+  authentication context built from them, before the new lifecycle begins (see `authentication-context.md`).
 - A guard follows later container rebinds of the `events` dispatcher (and, without a guard-local override, of the
   `PrincipalResolver`) through its context, which the refresh exchange of a session service built for it reads too, so
   an `Event::fake()` made after the guard resolved receives the exchange's `SessionRevoked` as well as the guard's own
@@ -43,7 +44,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   manager was resolved at boot) and the revoking listeners (which the event dispatcher builds with the booted
   application) all act on the application now serving, never the booted one. A package service the booted
   application resolved itself (one added to `octane.warm`, say) is shared by every sandbox and keeps the booted
-  configuration.
+  configuration. A request's authentication context lives on its guard and goes with it, and a context contributor is
+  resolved from the sandbox, so a request-scoped dependency is that request's own. One worker serving, in turn and in
+  either order, people of different tenants on two applications, a platform principal, a switch, an API key, a client
+  credentials token, a request that throws, a sign-in left pending, queued jobs and guests gives each request only its
+  own guard state, caller, context and failures.
 - Request-local memoisation is always on: `user()` resolves a request at most once, whether it succeeds or fails, so a
   rejected token fires its `AuthenticationFailed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
   or `setUser()` still binds after a failed resolution, and after `logout()` the guard stays signed out for the rest of
@@ -78,7 +83,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `AuthenticationFailed` (flow `switch`), with `SessionRevoked` first for a replayed token.
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.
-- `setUser()` (behind Laravel's `actingAs()`) clears the previous context and emits `Authenticated -> PrincipalAssigned`
+- `setUser()` (behind Laravel's `actingAs()`) clears the previous context (its authentication context and credential
+  kind too) and emits `Authenticated -> PrincipalAssigned`
   for the identity and its default principal, without `Validated` or `Login`. An identity with no default principal is
   rejected with an `InvalidArgumentException` and the previous context is kept.
 - `authenticateAs()` is the trusted bind of an authentication that is not a sign-in: it clears the previous context,
@@ -110,6 +116,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 ## Failure / Edge Cases
 
 - No bearer token means there is nothing to attempt, so `JwtGuard::user()` returns `null` without firing auth events.
+- On a route whose `auth` middleware lists a `jwt` and an `api_key` guard, a bearer credential belongs to the kind its
+  form says (a `.` makes it a JWT's), and a guard treats one of the other kind's form as no token at all: no parse, no
+  query, no event (`Http\BearerForms`, see `machine-credentials.md`). So a failed JWT is reported once, flow `bearer`,
+  and a refused key once, flow `api_key`. A route listing one kind, and a guard asked directly, read every credential.
 - A rejected bearer token fires only `AuthenticationFailed` (flow `bearer`), once per request, with the first reason in
   this order: `token_invalid`; `identity_unknown`, `identity_inactive`; `principal_mismatch` (the `principal` does not
   resolve to exactly that principal); `principal_inactive`, `tenant_inactive`; and for a token that names a session,
@@ -189,7 +199,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   and user agent of the use, at most once per `authentication.session.last_used_throttle_seconds`. Only persisted
   `EloquentSession` instances participate in that write path. It records the client the event carries, the request being
   served when the session was bound, so a long-running worker records the request it is serving, and the client values
-  are cleaned by `ClientContext` before they are stored.
+  are cleaned by `ClientContext` before they are stored. The event carries no model, so the listener takes the session
+  the event's guard already bound when its identifier is the event's, reading nothing more, and otherwise reads it by
+  identifier on the write connection (see `event-model.md`).
 
 ## Implementation Anchors
 
@@ -218,7 +230,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `auth` middleware binding, and the guest response render callback.
 - `src/Runtime/GuardContext.php`: the one copy of the guard's dispatcher, resolver and request, which the guard and the
   refresh exchange of its session service both read (see `guard-context.md`).
-- `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`;
+- `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`, and the
+  route's guards recorded for `src/Http/BearerForms.php`, which decides whose a bearer credential is;
   `src/Http/ConsumerMessages.php`: its translation.
 - `src/Listeners/RecordSessionUsage.php` and `src/Http/ClientContext.php`: the last-use write for bound sessions.
 - `src/Jwt/RefreshTokenExchange.php`: `revokeSession()` and the `SessionRevoked` dispatch, deferred to the session
@@ -263,7 +276,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Integration/Process/RequestSequenceTest.php`
 - `tests/Integration/Octane/JwtGuardRequestsTest.php`, `tests/Integration/Octane/MachineCredentialRequestsTest.php`,
   `tests/Integration/Octane/ManagerServicesRequestsTest.php`, `tests/Integration/Octane/ScopedStateRequestsTest.php`,
-  `tests/Integration/Octane/WriteConnectionRequestsTest.php`
+  `tests/Integration/Octane/WriteConnectionRequestsTest.php`, `tests/Integration/Octane/CrossTenantRequestsTest.php`
+  `testNothingOneRequestBindsReachesTheNext`
+- `tests/Feature/Http/BearerFormsTest.php`, `tests/Unit/Http/BearerFormsTest.php`: whose a bearer credential is on a
+  route listing both kinds, in either order
 - `tests/Integration/Process/QueueWorkerGuardStateTest.php`
   `testWithoutTheResetOneJobsIdentityLeaksIntoTheNext`, `testEachJobStartsSignedOut`
 - `tests/Integration/Process/ForgetGuardStateBeforeJobTest.php`
@@ -354,4 +370,5 @@ Update this note when any of the following change:
 - which application (the one serving, or the one a collaborator was built with) the guards, the manager's services,
   the sign-in methods and the revoking listeners resolve from
 - the rule that prior contextual state is cleared before rebinding
+- which guard reads a bearer credential on a route listing a `jwt` and an `api_key` guard
 - the rule that bearer and refresh resolution read live state from the write connection with no cross-request cache

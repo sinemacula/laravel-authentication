@@ -13,9 +13,11 @@ session holds; the token's claims and every freshness answer are worked out from
 - A proof is a row in `proofs.table`, on the storage connection, belonging to a session's key: its kind
   (`first_factor`, `first_factor_reauthentication`, `external_reauthentication`, `additional_factor`,
   `recovery_code`), method, channel, factor reference, observed properties (each `null` when not observed, which never
-  counts as true), evaluation, `amr` values, time, binding (identity, application, session, purpose) and, for an
-  external provider's proof, the evidence the provider asserted once it was accepted. A proof is never changed once
-  recorded; a voided one never counts, and a further factor or recovery code counts only when its adapter accepted it.
+  counts as true), evaluation (accepted, multifactor, and whether it is an additional verification:
+  `Evaluation::$additionalVerification`, `true` unless set, in the `additional_verification` column), `amr` values,
+  time, binding (identity, application, session, purpose) and, for an external provider's proof, the evidence the
+  provider asserted once it was accepted. A proof is never changed once recorded; a voided one never counts, and a
+  further factor or recovery code counts only when its adapter accepted it.
 - Every session the package writes records a generation, a random UUID written when the row is inserted and never
   changed (`EloquentSession::getGenerationName()`, `SessionRecords\SessionGeneration`): it tells a session apart from
   any other a model that reissues keys puts under its key, of the same owner and in the same second included, which
@@ -40,10 +42,10 @@ session holds; the token's claims and every freshness answer are worked out from
   transaction's snapshot, so on MySQL at REPEATABLE READ a sign-in inside an application's transaction whose first
   plain read predates the orphans' commit misses them; deleting a session's rows with it is the guarantee, this the
   second line.
-- Every read of proofs is on the write connection and bounded: the claims read one aggregate query grouped by kind,
-  `amr` set and multifactor report (`SessionProofs::history()`), and freshness reads the newest proof a requirement
-  takes with `LIMIT 1` on the session, kind and time index (`SessionProofs::newestMeeting()`), so a session with many
-  step-ups costs what one with few does.
+- Every read of proofs is on the write connection and bounded: the claims and the authentication context read one
+  aggregate query grouped by kind, `amr` set, multifactor report and additional verification
+  (`SessionProofs::history()`), and freshness reads the newest proof a requirement takes with `LIMIT 1` on the session,
+  kind and time index (`SessionProofs::newestMeeting()`), so a session with many step-ups costs what one with few does.
 - `auth_time` is the newest time of any counting proof. `amr` is the values of the first factor, the further factors,
   the recovery codes and the reauthentications with an accepted evaluation, once each, in the order of their newest
   times and then of their values; `mfa` is added only when an accepted evaluation reported multifactor authentication
@@ -67,7 +69,9 @@ session holds; the token's claims and every freshness answer are worked out from
   nothing, so by default no evidence is accepted. Accepted evidence is recorded with its proof (`proofs.evidence`, the
   first factor's at sign-in and an `external_reauthentication`'s) and, at sign-in, the provenance's `accepted_evidence`,
   dated no later than the time it was judged at (`EvidenceAcceptance::asOf()`), and the proof carries the acceptance as
-  its evaluation (multifactor when it was accepted for multifactor authentication), which `amr` reads. The proof reads
+  its evaluation (multifactor when it was accepted for multifactor authentication, an additional verification when it
+  was accepted for one or for multifactor authentication, neither for phishing resistance or a level alone), which
+  `amr` and the authentication context's `mfa` read (see `authentication-context.md`). The proof reads
   back with no evaluation (`SessionProofs`, `SignInProof::recorded()`), so a `RequirementCheck` never takes the
   application's acceptance of evidence of any age for a tenant's multifactor proof; only the evidence beside it, which
   the evidence policy judges, says what it is worth. Evidence that is not accepted is recorded nowhere and counts for
@@ -241,7 +245,8 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   path, kept across a pending session and a choice of principal, a superseding sign-in's own, a refused or cancelled
   write rolled back.
 - `tests/Feature/Proofs/SessionProofsTest.php`, `tests/Unit/Proofs/ProofHistoryTest.php`: what counts, the aggregate
-  read, `auth_time` and `amr` (order, `mfa`, reauthentications).
+  read, `auth_time` and `amr` (order, `mfa`, reauthentications), and the additional verification, recovery code,
+  multifactor report and step-up time the authentication context reads.
 - `tests/Feature/Sessions/SessionStepUpTest.php`, `SessionReauthenticationTest.php`, `ExternalReauthenticationTest.php`:
   every refusal, the token, what is kept, the events; the external one's link checks, the later-time rule, accepted and
   unaccepted evidence, changes under the lock and the standing.

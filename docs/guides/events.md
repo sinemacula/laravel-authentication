@@ -179,11 +179,14 @@ guard, which may not be bound to the new session yet. The bind of a sign-in, a r
 session's commit, so inside your transaction its bind events follow the commit, after the events that report the
 session, and a rollback withdraws both.
 
-Every refusal is reported once: a guard settles and reports its request's credential at most once (asking `Auth::user()`,
-`Auth::context()`, `Auth::caller()` or `check()` again reports nothing more), each service call reports its own refusal,
-and building the authentication context reports nothing. A route listing several guards of one kind gets one report from
-each guard that refuses the credential, each naming its guard: they are different applications' refusals, and are not
-merged.
+Every refusal is reported once: a guard settles and reports its request's credential at most once (asking
+`Auth::user()`, `Auth::context()`, `Auth::caller()` or `check()` again reports nothing more), each service call reports
+its own refusal, and building the authentication context reports nothing. On a route whose `auth` middleware lists a
+`jwt` and an `api_key` guard, a bearer credential is reported only by the guard its form belongs to, so a token that
+fails is never reported again as a refused key: see
+[Tokens and keys on one route](machine-credentials.md#tokens-and-keys-on-one-route). A route listing several guards of
+one kind gets one report from each guard that refuses the credential, each naming its guard: they are different
+applications' refusals, and are not merged.
 
 `Auth::caller()` reports a refresh or pending credential the request carries and that is refused once per request, with
 `AuthenticationFailed` alone: flow `refresh` with the reason a refresh would give (`additional_factor_required` for a
