@@ -5,11 +5,14 @@ declare(strict_types = 1);
 namespace Tests\Feature\Listeners;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -22,6 +25,7 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\HandleIdentity;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
@@ -199,6 +203,44 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
     }
 
     /**
+     * An identity authenticated by a column other than its key is read by that
+     * column, as its guard's provider reads it: only its own sessions are
+     * ended, though its auth identifier is another identity's key.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityIsReadByItsAuthIdentifierNotItsKey(): void
+    {
+        Schema::create('handle_identities', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('handle')->unique();
+            $blueprint->string('email')->unique();
+            $blueprint->string('password');
+            $blueprint->timestamps();
+        });
+
+        try {
+            $password = app(Hasher::class)->make(self::PASSWORD);
+            $owner    = HandleIdentity::query()->create(['handle' => '2', 'email' => 'ada@example.test', 'password' => $password]);
+            $other    = HandleIdentity::query()->create(['handle' => 'grace', 'email' => 'grace@example.test', 'password' => $password]);
+
+            self::assertSame([1, 2], [$owner->id, $other->id]);
+            self::assertTrue($this->sessions('handles')->signIn('password', self::credentials())->isSignedIn());
+            self::assertTrue($this->sessions('handles')->signIn('password', self::credentials())->isSignedIn());
+            self::assertTrue($this->sessions('handles')->signIn('password', self::credentials('grace@example.test'))->isSignedIn());
+
+            event(new PasskeyRemoved(new EventContext('handles', new ClientContext(null, null), $owner, method: 'passkey', credentialId: 'removed')));
+
+            self::assertSame(['factor_removed', 'factor_removed'], DB::table('authentication_sessions')->where('authenticatable_id', '1')->pluck('revoked_reason')->all());
+            self::assertSame([null], DB::table('authentication_sessions')->where('authenticatable_id', '2')->pluck('revoked_reason')->all());
+        } finally {
+            Schema::drop('handle_identities');
+        }
+    }
+
+    /**
      * Rows of an event that names no identity a passkey could belong to: an
      * identifier no row has, an identity that is not a model, a model that is
      * not an identity (a session row, under its own key), a class that does not
@@ -276,6 +318,9 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
 
         self::configureSessionGuards($config);
         self::configurePasskeys($config);
+
+        $config->set('auth.providers.handles', ['driver' => 'model', 'model' => HandleIdentity::class]);
+        $config->set('auth.guards.handles', ['driver' => 'jwt', 'provider' => 'handles', 'application' => ['methods' => ['password']]]);
     }
 
     /**

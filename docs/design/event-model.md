@@ -53,8 +53,9 @@ to these events, so the shape and the timing are a contract.
   takes the session a package guard already resolved has bound when its identifier is the event's
   (`AuthManager::resolvedGuard()`, which creates no guard), so the bind that dispatched the event reads nothing more,
   and otherwise reads the session by identifier (`SessionLookup::find()`); `RevokeSessionsOnPasskeyRemoval` reloads the
-  identity by its key from the model `identityType` names (through the morph map or directly), with none of the model's
-  global scopes, and acts only when that is an Eloquent identity model and the row is there. A provider's scoping (soft
+  identity by its auth identifier (the column `ModelProvider` reads, which need not be the key) from the model
+  `identityType` names (through the morph map or directly), with none of the model's global scopes, and acts only when
+  that is an Eloquent identity model and the row is there. A provider's scoping (soft
   deletes, a tenant or application scope) would hide an identity that lost a passkey while out of scope, and its
   sessions would be live again once it was visible. Laravel's own auth events (`Attempting`, `Validated`, `Login`,
   `Authenticated`, `Failed`, `Logout`) keep their models.
@@ -209,7 +210,8 @@ to these events, so the shape and the timing are a contract.
   `tests/Feature/Sessions/ExternalReauthenticationTest.php` `testARedemptionIsReportedAfterTheReauthentication`
 - `tests/Feature/Listeners/RecordSessionUsageTest.php` `testASessionTheGuardHasNotBoundIsReadByItsIdentifier`,
   `testNoSessionOrAGoneOneRecordsNothing`; `tests/Feature/Listeners/RevokeSessionsOnPasskeyRemovalTest.php`
-  `testAnIdentityAGlobalScopeHidesHasItsSessionsRevoked`, `testAnEventNamingNoIdentityRevokesNothing`; on a lagging
+  `testAnIdentityAGlobalScopeHidesHasItsSessionsRevoked`, `testAnIdentityIsReadByItsAuthIdentifierNotItsKey`,
+  `testAnEventNamingNoIdentityRevokesNothing`; on a lagging
   replica, `tests/Integration/Listeners/RecordSessionUsageTest.php` and
   `tests/Integration/Listeners/RevokeSessionsOnPasskeyRemovalTest.php`
 - `tests/Integration/Events/EveryEventRestoresTest.php`

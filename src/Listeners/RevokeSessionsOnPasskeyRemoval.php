@@ -74,9 +74,11 @@ final readonly class RevokeSessionsOnPasskeyRemoval
     }
 
     /**
-     * The identity the type and identifier name, read by its key on the write
-     * connection with none of the model's global scopes, or `null` when the
-     * type names no Eloquent identity model or no row has the identifier.
+     * The identity the type and identifier name, read by its auth identifier
+     * (the column `ModelProvider` looks it up by, which need not be the key) on
+     * the write connection with none of the model's global scopes, or `null`
+     * when the type names no Eloquent identity model or no row has the
+     * identifier.
      *
      * @param  ?string  $type
      * @param  ?string  $id
@@ -92,7 +94,7 @@ final readonly class RevokeSessionsOnPasskeyRemoval
 
         /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity $model */
         $model = new $class;
-        $query = WriteConnection::query($model->newQueryWithoutScopes())->whereKey($id);
+        $query = WriteConnection::query($model->newQueryWithoutScopes())->where($model->getAuthIdentifierName(), $id);
 
         /** @var (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|null */
         return WriteConnection::during($model, static fn (): ?Model => $query->first());
