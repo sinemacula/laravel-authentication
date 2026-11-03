@@ -31,10 +31,6 @@ use SineMacula\Laravel\Authentication\Proofs\SignInProof;
  * identity-level requirement and a tenant's are judged against it at sign-in;
  * otherwise neither carries anything of it.
  *
- * Nothing here locks or writes: the link contract and the evidence contract are
- * asked before any lock the sign-in takes, so the adapter's own locks, taken
- * inside its transaction, come before the session's.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *

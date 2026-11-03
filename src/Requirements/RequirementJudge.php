@@ -26,22 +26,17 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantFactor;
  *
  * A requirement that asks for nothing is met, and nothing is read or asked. A
  * session with no first factor (neither the sign-in's evidence nor a stored
- * one) meets no other. A session an external provider established, holding
- * evidence the evidence contract accepted, meets it when the bound
- * `ExternalEvidencePolicy` says any of its accepted evidence meets the whole of
- * it: the sign-in's own, in memory, or, only when the first factor's channel is
- * the external provider, what its proofs record (newest first, the newest of
- * each assertion), one bounded read on the write connection, the policy told
- * the connection and the tenant whose requirement it is (none for the identity
- * level's), so one tenant's trust in a connection never meets another's, and
- * newer evidence the policy accepted for less never hides older evidence that
- * still meets it. Otherwise, or when the evidence falls short, the bound
+ * one) meets no other. A session an external provider established is asked of
+ * first: the bound `ExternalEvidencePolicy` is asked whether any of its
+ * accepted evidence (the sign-in's own, in memory, or what its proofs record,
+ * `SessionProofs::acceptedEvidence()`) meets the whole requirement, told the
+ * connection and the tenant whose requirement it is (none for the identity
+ * level's). Otherwise, or when the evidence falls short, the bound
  * `RequirementCheck` judges it, as the factor package sees it: evidence never
  * meets part of a requirement and leaves the rest to the factor package's
- * proofs. Either is asked inside `WriteConnection::during()` for the identity;
+ * proofs. Either is asked inside `WriteConnection::during()` for the identity,
  * the check with a subject whose proofs are the sign-in's own, in memory, or
- * the session's, each read a bounded query on the write connection; with
- * neither evidence nor a session there are none.
+ * the session's, read on the write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

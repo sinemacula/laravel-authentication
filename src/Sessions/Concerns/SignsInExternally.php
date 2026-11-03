@@ -49,15 +49,9 @@ trait SignsInExternally
      * session; the application policy must allow `external_provider`
      * (`method_not_allowed`, the link contract never asked); the link contract
      * must link the result to an identity (`ExternalResultUnlinked`, then
-     * `external_result_unlinked`); then, from the linked identity on, the
-     * sign-in follows the order `start()` does: the identity reloaded through
-     * the guard's provider (`identity_unknown`), admitted, a deadline already
-     * passed refused as `session_expired`, the principal the context names or
-     * the only one selected, or a choice left outstanding, the identity-level
-     * factor policy, the selected principal's tenant, and that tenant's
-     * authentication policy, judged against the provider's proof: one requiring
-     * a connection other than the result's refuses it as `sso_required`, and a
-     * further factor it requires is outstanding as the identity's own is. No
+     * `external_result_unlinked`); then the sign-in goes on from the linked
+     * identity as `start()` does, judged against the provider's proof, a tenant
+     * that requires another connection refusing it as `sso_required`. No
      * attempt limit or timebox applies, and no `Attempting` is dispatched:
      * nothing is guessed here.
      *
@@ -102,36 +96,24 @@ trait SignsInExternally
      * with; one that cannot be a key of the session model, or names no session,
      * is `session_unknown`.
      *
-     * Only on an application that allows `external_provider`
-     * (`method_not_allowed`), only for this guard's live, active session of a
-     * person (`session_unknown`, `session_guard_mismatch`, `session_revoked`,
-     * `session_pending`, `session_expired`, `machine_identity`), only with the
-     * time the provider authenticated the identity (`proof_invalid`, also when
-     * that is before the session began), and only through the very link that
-     * established the session: the link contract must link the result to an
-     * identity (`ExternalResultUnlinked`, then `external_result_unlinked`),
-     * that identity must own the session, and the session's provenance must
-     * record exactly the result's connection and the link's id
-     * (`link_mismatch`, as for a session established through another link or
-     * through none). With the proof recorded, the session must still meet its
-     * tenant's authentication policy, as every redemption must: a connection
-     * the tenant no longer admits is `sso_required` and a further factor it now
-     * requires and the session does not meet (its accepted evidence, this
-     * proof's included, judged by the evidence contract)
-     * `additional_factor_required`, the proof rolled back and the session left
-     * for its next refresh. Both policies are asked then, under the session's
-     * row lock, so neither may take a lock the adapter takes after the
-     * session's.
+     * Only through the very link that established the session
+     * (`external_result_unlinked`, `link_mismatch`), for this guard's live,
+     * active session of a person (`session_guard_mismatch`, `session_revoked`,
+     * `session_pending`, `session_expired`, `machine_identity`), on an
+     * application that allows `external_provider` (`method_not_allowed`), with
+     * the time the provider authenticated the identity, not before the session
+     * began (`proof_invalid`), and only while the session, with the proof
+     * recorded, still meets its tenant's authentication policy (`sso_required`,
+     * `additional_factor_required`, the proof rolled back). The tenant's policy
+     * and the evidence contract's `meets()` are asked under the session's row
+     * lock, so neither may take a lock the adapter takes after the session's.
+     * The new token's `auth_time` is the later of the session's and the
+     * provider's; its `amr` changes only when the evidence contract accepts the
+     * result's evidence.
      *
-     * The proof (`external_reauthentication`) is timed when the provider
-     * authenticated the identity (now, when that is after now), so the new
-     * token's `auth_time` is the later of the session's and the provider's. Its
-     * `amr` gains the provider's private value, and `mfa`, only when the
-     * evidence contract accepts the result's evidence (as multifactor, for
-     * `mfa`); otherwise only `auth_time` moves. Call it inside the transaction
-     * the adapter takes its own locks in, on the storage connection: the
-     * session's row is locked last, after them, and a database error, a
-     * serialization failure included, propagates. Once committed,
+     * Call it inside the transaction the adapter takes its own locks in, on the
+     * storage connection: the session's row is locked last, and a database
+     * error, a serialization failure included, propagates. Once committed,
      * `Reauthenticated` (method `external_provider`) reports it; a refusal
      * reports `AuthenticationFailed` (flow `reauthentication`) and is answered,
      * never thrown.

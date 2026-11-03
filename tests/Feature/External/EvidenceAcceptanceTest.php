@@ -20,8 +20,9 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 /**
  * Feature tests for deciding whether an external provider's evidence is
  * accepted at all, through the evidence policy bound in the container: only
- * when it meets multifactor authentication or an additional verification, and
- * then with what it met; never by default.
+ * when the policy accepts it for multifactor authentication, an additional
+ * verification or phishing resistance, and then with what it was accepted for;
+ * never by default.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

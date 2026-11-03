@@ -53,17 +53,14 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * wait. Every provenance key a link's read asks for exists, since only a
  * session under `external_provider` is asked about and its sign-in writes its
  * provenance with it, so MySQL locks those rows and no gap another identity's
- * sign-in would insert into. On PostgreSQL even a locking read at REPEATABLE
- * READ or SERIALIZABLE sees only the transaction's first snapshot, so a
- * revocation in a caller's transaction at either is refused (`CommittedReads`)
- * before anything is read. Once the revocation commits, the guard first forgets
- * a binding to any session revoked, so the rest of the request is not
+ * sign-in would insert into. On PostgreSQL a caller's transaction must be READ
+ * COMMITTED (`CommittedReads`). Once the revocation commits, the guard first
+ * forgets a binding to any session revoked, so the rest of the request is not
  * authenticated as a session it ended even when a listener throws, and then
  * `SessionRevoked` reports each one. No cutoff moves: the scope is how the
  * sessions began, not the identity. Each per-event trigger can be turned off
  * (`RevocationSettings`), and then writes nothing; a link's widened scope
- * cannot. A revocation called again finds nothing live left to end, so it ends
- * nothing and reports nothing more.
+ * cannot.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

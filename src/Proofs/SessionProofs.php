@@ -337,10 +337,8 @@ final class SessionProofs
     }
 
     /**
-     * The proof as callers read it. An external proof reads back with no
-     * evaluation: its acceptance is the application's, of evidence of any age,
-     * and never a tenant's, so only the evidence beside it, which the evidence
-     * contract judges, says what it is worth.
+     * The proof as callers read it; an external proof reads back with no
+     * evaluation, as `RecordedProof` explains.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\SessionProof  $proof
      * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof

@@ -15,10 +15,10 @@ use Carbon\CarbonInterface;
  *
  * Given by a trusted server-side caller with the provider's result, never built
  * from what a client sent. It counts for nothing on its own: only once the
- * bound `Contracts\ExternalEvidencePolicy` says it meets a requirement is it
- * accepted, and only accepted evidence is recorded. The time is kept to the
- * whole second. Its values are counted in characters, but it is stored as JSON
- * that escapes every character outside ASCII, up to twelve bytes for one, so
+ * bound `Contracts\ExternalEvidencePolicy` accepts it (`accepts()`) is it
+ * recorded, and only recorded evidence counts. The time is kept to the whole
+ * second. Its values are counted in characters, but it is stored as JSON that
+ * escapes every character outside ASCII, up to twelve bytes for one, so
  * evidence that is not valid UTF-8, or whose stored form would exceed
  * `STORED_MAX_BYTES`, is refused here rather than by the database once
  * accepted.

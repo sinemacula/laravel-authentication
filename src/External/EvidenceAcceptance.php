@@ -13,20 +13,18 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 
 /**
  * Decides whether an external provider's evidence is accepted at all, and so
- * whether it is recorded and counts: only when the bound
- * `ExternalEvidencePolicy` accepts it for multifactor authentication, an
- * additional verification or phishing resistance, of any age. Anything else
- * (the default policy, evidence it accepts for none) is insufficient, and
- * nothing is recorded. A minimum assurance level has no level to ask for on its
- * own, so evidence accepted for a level and none of the three is not accepted.
+ * whether it is recorded and counts: the bound `ExternalEvidencePolicy`'s
+ * `accepts()` is asked, whatever the evidence's age, for multifactor
+ * authentication, then an additional verification, then phishing resistance,
+ * stopping at the first it accepts. Evidence it accepts for none (as the
+ * default policy answers) is insufficient, and nothing is recorded. A minimum
+ * assurance level has no level to ask for on its own, so evidence accepted for
+ * a level and none of the three is not accepted.
  *
- * The policy's `accepts()` is asked first for multifactor authentication and,
- * only when that is refused, for an additional verification and then for
- * phishing resistance, stopping at the first it accepts, each inside
- * `WriteConnection::during()` for the identity and for no tenant: acceptance is
- * the application's, and each requirement it is later judged against is
- * `meets()`'s. Evidence dated after the time it is judged at (the clocks
- * disagree) is judged as of that time.
+ * Each is asked inside `WriteConnection::during()` for the identity and for no
+ * tenant: acceptance is the application's, and each requirement it is later
+ * judged against is `meets()`'s. Evidence dated after the time it is judged at
+ * (the clocks disagree) is judged as of that time.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
