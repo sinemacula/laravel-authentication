@@ -257,6 +257,54 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
+     * Every resolved guard bound to the session forgets the context it holds,
+     * once the proof rolls back and once it commits; a guard bound to another
+     * session keeps its own, and a guard the request never resolved is not
+     * created to forget.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEveryResolvedGuardBoundToTheSessionForgetsItsContext(): void
+    {
+        $signedIn = $this->signedIn();
+        $another  = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($another);
+
+        config()->set('auth.guards.elsewhere', config('auth.guards.api'));
+
+        $api       = $this->bearerGuard($signedIn);
+        $admin     = self::boundGuard('admin', $signedIn);
+        $elsewhere = self::boundGuard('elsewhere', $another);
+        $held      = [$api->authenticationContext(), $admin->authenticationContext(), $elsewhere->authenticationContext()];
+        $proof     = self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey());
+
+        self::assertSame([false, false, false], [$held[0]?->mfa, $held[1]?->mfa, $held[2]?->mfa]);
+
+        DB::beginTransaction();
+
+        self::assertTrue(Auth::sessions('api')->stepUp($proof)->isIssued());
+        self::assertSame($held, [$api->authenticationContext(), $admin->authenticationContext(), $elsewhere->authenticationContext()]);
+
+        DB::rollBack();
+
+        $rolledBack = [$api->authenticationContext(), $admin->authenticationContext()];
+
+        self::assertNotSame($held[0], $rolledBack[0]);
+        self::assertNotSame($held[1], $rolledBack[1]);
+        self::assertEquals([$held[0], $held[1]], $rolledBack);
+        self::assertSame($held[2], $elsewhere->authenticationContext());
+
+        self::assertTrue(Auth::sessions('api')->stepUp($proof)->isIssued());
+        self::assertSame([true, true], [$api->authenticationContext()?->mfa, $admin->authenticationContext()?->mfa]);
+        self::assertSame(['api', 'admin'], [$api->authenticationContext()?->application, $admin->authenticationContext()?->application]);
+        self::assertSame($held[2], $elsewhere->authenticationContext());
+        self::assertNull(Auth::resolvedGuard('members'));
+    }
+
+    /**
      * A tenant policy that reads the context once an external
      * reauthentication's proof is recorded, and then refuses it or throws,
      * leaves no context built from that proof: the proof rolls back and the
@@ -490,6 +538,25 @@ final class ContextForgettingTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
         self::assertTrue($guard->check());
+
+        return $guard;
+    }
+
+    /**
+     * The named guard, resolved for the request, with the session's identity
+     * bound to it as its own principal.
+     *
+     * @param  string  $name
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     */
+    private static function boundGuard(string $name, SignedInSession $session): JwtGuard
+    {
+        $guard = app('auth')->guard($name);
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $guard->login($session->identity, $session->identity, $session->record);
 
         return $guard;
     }

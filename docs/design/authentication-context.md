@@ -149,7 +149,8 @@ permission: a policy that reads the context is the application's.
   state, the forgetting scoped to its session, re-entry refused, an unloadable tenant
 - `tests/Feature/Context/ContextForgettingTest.php`: a step-up, a reauthentication and an external reauthentication seen
   by the rest of the request, only once committed, a context built inside a transaction that made one forgotten when it
-  rolls back, and a context a tenant policy built from a proof it then refused or threw on forgotten; `tests/Feature/Sessions/PendingSessionsTest.php`
+  rolls back, every resolved guard bound to the session forgetting and no other, and a context a tenant policy built
+  from a proof it then refused or threw on forgotten; `tests/Feature/Sessions/PendingSessionsTest.php`
   `testASatisfiedFactorIsSeenByTheContextOfAGuardBoundToTheSession`; `tests/Feature/Sessions/FactorRevocationsTest.php`
   `testAVoidedProofIsForgottenFromTheContextAtOnce`
 - `tests/Feature/Context/ContributionSubjectTest.php`: the provenance read once
