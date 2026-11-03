@@ -131,7 +131,8 @@ permission: a policy that reads the context is the application's.
 
 ## Authoritative Tests
 
-- `tests/Unit/Context/AuthenticationContextTest.php`, `tests/Unit/Context/ContextContributorsTest.php`,
+- `tests/Unit/Context/AuthenticationContextTest.php`, `tests/Unit/Context/ContextKeysTest.php`,
+  `tests/Unit/Context/ContextContributorsTest.php`,
   `tests/Unit/Context/Enums/CredentialKindTest.php`, `tests/Unit/Support/MorphClassTest.php`
 - `tests/Feature/Context/ContextBuilderTest.php`: a session token's context, a step-up read from the proofs and not the
   token, a recovery code kept apart, external evidence counted only when accepted for an additional verification, the

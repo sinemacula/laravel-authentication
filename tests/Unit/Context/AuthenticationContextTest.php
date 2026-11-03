@@ -9,7 +9,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
-use SineMacula\Laravel\Authentication\Context\ContextKeys;
 use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 
@@ -25,7 +24,6 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
  * @internal
  */
 #[CoversClass(AuthenticationContext::class)]
-#[CoversClass(ContextKeys::class)]
 final class AuthenticationContextTest extends TestCase
 {
     /**

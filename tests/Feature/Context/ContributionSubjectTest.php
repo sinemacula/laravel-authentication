@@ -22,6 +22,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainSessionFixture;
+use Tests\Unit\Stubs\StubBareSession;
 
 /**
  * Feature tests of what a contributor to the authentication context is given:
@@ -111,8 +112,8 @@ final class ContributionSubjectTest extends TestCase
 
     /**
      * A session no external provider established has none, read once; without a
-     * session, or with one that is not an Eloquent session, there is none and
-     * nothing is read.
+     * session, or with one that is not an Eloquent session (a plain session, or
+     * an Eloquent model that is not one), there is none and nothing is read.
      *
      * @return void
      *
@@ -135,6 +136,7 @@ final class ContributionSubjectTest extends TestCase
 
         self::assertNull(self::subject($identity, null)->provenance());
         self::assertNull(self::subject($identity, new PlainSessionFixture((string) IdentifierCoercion::stringify($session->record->getKey())))->provenance());
+        self::assertNull(self::subject($identity, new StubBareSession(['id' => IdentifierCoercion::stringify($session->record->getKey())]))->provenance());
         self::assertSame(1, $this->provenanceReads);
     }
 

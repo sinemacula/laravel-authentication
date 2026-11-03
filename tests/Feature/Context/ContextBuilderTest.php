@@ -10,6 +10,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -37,6 +38,7 @@ use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
+use Tests\Unit\Stubs\StubBareSession;
 
 /**
  * Feature tests of the authentication context a person's request is built with,
@@ -188,6 +190,92 @@ final class ContextBuilderTest extends TestCase
         self::assertSame(
             [['pwd', 'kba'], false, true, false, 0],
             [$context['amr'], $context['mfa'], $context['recovery_code'], $context['multifactor'], $context['seconds_since_step_up']],
+        );
+    }
+
+    /**
+     * The seconds since the step-up are never negative: a context built by a
+     * clock that reads earlier than the proof's time counts none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSecondsSinceTheStepUpAreNeverNegative(): void
+    {
+        $signedIn = $this->signedIn();
+
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+
+        $guard = $this->freshGuard();
+
+        $guard->login($signedIn->identity, $signedIn->identity, $signedIn->record);
+
+        $this->clockAt($this->now->subMinute());
+
+        self::assertSame([true, 0], [$guard->authenticationContext()?->mfa, $guard->authenticationContext()?->secondsSinceStepUp]);
+    }
+
+    /**
+     * A person's access-only token names no session: its context is the token's
+     * identity and principal with an access token as the credential, the scopes
+     * `Auth::scopes()` gives, and no proof.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAccessOnlyTokensContextHoldsNoSessionAndNoProof(): void
+    {
+        $identity = $this->seedIdentity();
+        $token    = Auth::jwt('api')->issueAccessToken($identity, $identity, null, null)->reveal();
+
+        Route::middleware('auth:api')->get('/api/context-and-scopes', static fn (): array => ['context' => Auth::context()?->toArray(), 'scopes' => Auth::scopes()]);
+
+        Auth::forgetGuards();
+
+        $response = $this->withToken($token)->getJson('/api/context-and-scopes')->assertOk();
+        $context  = $response->json('context.authentication');
+
+        self::assertIsArray($context);
+        self::assertSame([
+            'identity_id'           => IdentifierCoercion::stringify($identity->getAuthIdentifier()),
+            'session_id'            => null,
+            'amr'                   => [],
+            'auth_time'             => null,
+            'mfa'                   => false,
+            'recovery_code'         => false,
+            'multifactor'           => false,
+            'seconds_since_step_up' => null,
+            'credential'            => 'access_token',
+            'scopes'                => $response->json('scopes'),
+        ], array_diff_key($context, array_flip(['subject_type', 'identity_type', 'principal_type', 'principal_id', 'tenant_type', 'tenant_id', 'application', 'ip'])));
+    }
+
+    /**
+     * A bound session that is not an Eloquent session records no proofs: its
+     * context names the session, holds no proof, and reads nothing to say so.
+     *
+     * @return void
+     */
+    public function testASessionThatIsNotAnEloquentSessionHoldsNoProof(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = new StubBareSession(['id' => 'bare-session-1']);
+        $guard    = $this->freshGuard();
+
+        $guard->login($identity, $identity, $session);
+
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+
+        $context = $guard->authenticationContext();
+
+        self::assertSame([], DB::getQueryLog());
+        self::assertNotNull($context);
+        self::assertSame(
+            ['bare-session-1', [], null, false, false, false, null],
+            [$context->sessionId, $context->amr, $context->authTime, $context->mfa, $context->recoveryCode, $context->multifactor, $context->secondsSinceStepUp],
         );
     }
 

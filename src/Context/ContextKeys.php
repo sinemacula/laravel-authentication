@@ -61,13 +61,14 @@ final class ContextKeys
 
         foreach ($keys as $key => $value) {
 
-            $problem = self::problem($namespace, (string) $key, $value);
+            $name    = (string) $key;
+            $problem = self::problem($namespace, $name, $value);
 
             if ($problem !== null) {
                 return $problem;
             }
 
-            $checked[(string) $key] = $value;
+            $checked[$name] = $value;
         }
 
         return $checked;

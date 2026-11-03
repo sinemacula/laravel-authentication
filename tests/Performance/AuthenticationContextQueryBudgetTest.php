@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
 use SineMacula\Laravel\Authentication\Context\ContextBuilder;
 use SineMacula\Laravel\Authentication\Context\ContextContributors;
 use SineMacula\Laravel\Authentication\Context\ContributionSubject;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
@@ -23,10 +24,11 @@ use Tests\Fixtures\Context\ScriptedContributor;
 
 /**
  * Query-budget and timing contracts for the authentication context of a
- * person's session token: once the guard has authenticated the request, the
- * context costs the one aggregate read of the session's proofs, however many it
- * holds, and nothing when asked again; the session's provenance is read only
- * when a contributor asks for it.
+ * person's token: once the guard has authenticated the request, the context of
+ * a session token costs the one aggregate read of the session's proofs, however
+ * many it holds, and nothing when asked again, and that of an access-only token
+ * nothing at all; the session's provenance is read only when a contributor asks
+ * for it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,6 +91,31 @@ final class AuthenticationContextQueryBudgetTest extends PerformanceContractTest
 
         $first = $this->assertQueryBudget(1, 0, static fn (): ?AuthenticationContext => Auth::context());
 
+        self::assertSame($first, $this->assertQueryBudget(0, 0, static fn (): ?AuthenticationContext => Auth::context()));
+    }
+
+    /**
+     * A person's access-only token names no session, so its context reads
+     * nothing, first time or again.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAnAccessOnlyTokensContextReadsNothing(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->bindRequestWithBearer('/context', Auth::jwt('api')->issueAccessToken($identity, $identity, null, null)->reveal());
+
+        Auth::forgetGuards();
+        Auth::shouldUse('api');
+
+        self::assertTrue(Auth::guard('api')->check());
+
+        $first = $this->assertQueryBudget(0, 0, static fn (): ?AuthenticationContext => Auth::context());
+
+        self::assertSame([null, CredentialKind::ACCESS_TOKEN], [$first?->sessionId, $first?->credential]);
         self::assertSame($first, $this->assertQueryBudget(0, 0, static fn (): ?AuthenticationContext => Auth::context()));
     }
 

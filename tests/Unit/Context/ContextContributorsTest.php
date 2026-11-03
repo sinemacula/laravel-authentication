@@ -8,7 +8,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Context\ContextContributors;
-use SineMacula\Laravel\Authentication\Context\ContextKeys;
 
 /**
  * Unit tests for the registry of authentication context contributors: each
@@ -21,7 +20,6 @@ use SineMacula\Laravel\Authentication\Context\ContextKeys;
  * @internal
  */
 #[CoversClass(ContextContributors::class)]
-#[CoversClass(ContextKeys::class)]
 final class ContextContributorsTest extends TestCase
 {
     /**
