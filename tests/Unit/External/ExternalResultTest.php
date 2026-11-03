@@ -10,6 +10,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 
 /**
  * Unit tests for a result an external identity provider verified.
@@ -24,8 +25,8 @@ final class ExternalResultTest extends TestCase
 {
     /**
      * A result keeps the connection, issuer and subject exactly as given, the
-     * provider's times cut to the whole second, and the evidence and the link
-     * id as given; nothing else is required.
+     * provider's times cut to the whole second, and the evidence, the link id
+     * and the provider context as given; nothing else is required.
      *
      * @return void
      */
@@ -48,12 +49,17 @@ final class ExternalResultTest extends TestCase
             [null, null, null, null, null, null, null],
             [$bare->tenantId, $bare->authenticatedAt, $bare->sessionNotAfter, $bare->policyVersion, $bare->evidence, $bare->linkId, $bare->requestReference],
         );
+        self::assertNull($bare->providerContext);
         self::assertSame('Link-9 ', (new ExternalResult('c', 'i', 's', linkId: 'Link-9 '))->linkId);
         self::assertSame(' Request/7 ', (new ExternalResult('c', 'i', 's', requestReference: ' Request/7 '))->requestReference);
 
         $evidence = new ExternalEvidence(['otp'], 'urn:example:acr', $authenticated);
 
         self::assertSame($evidence, (new ExternalResult('c', 'i', 's', evidence: $evidence))->evidence);
+
+        $context = new ProviderContext(['protocol' => 'saml']);
+
+        self::assertSame($context, (new ExternalResult('c', 'i', 's', providerContext: $context))->providerContext);
     }
 
     /**

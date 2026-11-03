@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Context\ContextBuilder;
 use SineMacula\Laravel\Authentication\Context\ContextContributors;
 use SineMacula\Laravel\Authentication\Context\ContributionSubject;
 use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
@@ -122,7 +123,7 @@ final class AuthenticationContextQueryBudgetTest extends PerformanceContractTest
     /**
      * A contributor that reads only what it is given costs nothing; one that
      * asks for the session's provenance costs one read, once, however often it
-     * asks.
+     * asks, the provider context read in it.
      *
      * @return void
      *
@@ -139,10 +140,11 @@ final class AuthenticationContextQueryBudgetTest extends PerformanceContractTest
         $this->register('sso', static fn (ContributionSubject $subject): array => [
             'connection_id' => $subject->provenance()?->connectionId,
             'link_id'       => $subject->provenance()?->linkId,
+            'protocol'      => $subject->provenance()?->providerContext?->toArray()['protocol'] ?? null,
         ]);
 
         $identity = $this->seedIdentity('external@example.test');
-        $session  = $this->sessions()->signInExternally($this->linkedResult($identity))->session;
+        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, providerContext: new ProviderContext(['protocol' => 'saml'])))->session;
 
         self::assertNotNull($session);
 
@@ -150,7 +152,7 @@ final class AuthenticationContextQueryBudgetTest extends PerformanceContractTest
 
         $context = $this->assertQueryBudget(2, 0, static fn (): ?AuthenticationContext => Auth::context());
 
-        self::assertSame(['connection_id' => 'connection-7', 'link_id' => 'link-1'], $context?->contributed['sso']);
+        self::assertSame(['connection_id' => 'connection-7', 'link_id' => 'link-1', 'protocol' => 'saml'], $context?->contributed['sso']);
     }
 
     /**

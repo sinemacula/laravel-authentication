@@ -60,19 +60,20 @@ trait SignsInExternally
      * channel, the private `urn:sinemacula:amr:external_provider` `amr` value,
      * and the provider's authentication time (now, when it gave none or one
      * after now). Its provenance (the connection and tenant, the provider's
-     * time and deadline, the policy version and the id of the link) is written
-     * with it once, pending or active, and never rewritten, after the link's
-     * connection guard, which a revocation of the link or the connection writes
-     * too, so the two never miss each other. Call it inside the transaction the
-     * adapter takes its own locks in, on the storage connection: the link
-     * contract is asked and the session written in a savepoint there, and the
-     * reports and the guard's bind wait for the commit. Called outside one, it
-     * opens its own around both, so a contract that locks the link it reads
-     * holds it until the session commits; the connection guards order a sign-in
-     * against a revocation but never ask the contract again, so they add to the
-     * adapter's locks and never replace them. A database error, a serialization
-     * failure included, and an exception from the link contract propagate, so
-     * the whole transaction can be retried. Once the session commits,
+     * time and deadline, the policy version, the id of the link and the
+     * result's provider context) is written with it once, pending or active,
+     * and never rewritten, after the link's connection guard, which a
+     * revocation of the link or the connection writes too, so the two never
+     * miss each other. Call it inside the transaction the adapter takes its own
+     * locks in, on the storage connection: the link contract is asked and the
+     * session written in a savepoint there, and the reports and the guard's
+     * bind wait for the commit. Called outside one, it opens its own around
+     * both, so a contract that locks the link it reads holds it until the
+     * session commits; the connection guards order a sign-in against a
+     * revocation but never ask the contract again, so they add to the adapter's
+     * locks and never replace them. A database error, a serialization failure
+     * included, and an exception from the link contract propagate, so the whole
+     * transaction can be retried. Once the session commits,
      * `ExternalResultRedeemed` (flow `sign_in`) follows the session's own
      * events, with the result's connection and request reference. Failures are
      * results: Laravel's `Failed` and then `AuthenticationFailed` (flow
@@ -104,10 +105,11 @@ trait SignsInExternally
      * identity provider verified, which a trusted server-side adapter hands
      * over (from a reauthentication handoff it redeemed, say), and issue the
      * session a new access token only: the session, its refresh token, its
-     * deadlines and its provenance are kept. The identifier is the session the
-     * handoff names, never the one the request happens to be authenticated
-     * with; one that cannot be a key of the session model, or names no session,
-     * is `session_unknown`.
+     * deadlines and its provenance, provider context included, are kept (the
+     * result's own provider context is not recorded). The identifier is the
+     * session the handoff names, never the one the request happens to be
+     * authenticated with; one that cannot be a key of the session model, or
+     * names no session, is `session_unknown`.
      *
      * Only through the very link that established the session
      * (`external_result_unlinked`, `link_mismatch`), for this guard's live,

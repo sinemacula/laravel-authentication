@@ -11,6 +11,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationMethods;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
@@ -324,9 +325,10 @@ final class ProofValuesTest extends TestCase
     }
 
     /**
-     * A provenance keeps what the caller checked and the link's id, its times
-     * cut to the whole second, and nothing but the connection by default; each
-     * value fits up to its column's length in characters, not bytes.
+     * A provenance keeps what the caller checked, the link's id and the
+     * provider context, its times cut to the whole second, and nothing but the
+     * connection by default; each value fits up to its column's length in
+     * characters, not bytes.
      *
      * @return void
      */
@@ -348,6 +350,7 @@ final class ProofValuesTest extends TestCase
         self::assertNull($bare->sessionNotAfter);
         self::assertNull((new Provenance('connection-7'))->linkId);
         self::assertNull($bare->evidence);
+        self::assertNull($bare->providerContext);
         self::assertSame([255, 64], [Provenance::ID_MAX_LENGTH, Provenance::VERSION_MAX_LENGTH]);
 
         $wide = new Provenance(str_repeat('é', 255), str_repeat('é', 255), policyVersion: str_repeat('é', 64), linkId: str_repeat('é', 255));
@@ -360,6 +363,10 @@ final class ProofValuesTest extends TestCase
         $evidence = new ExternalEvidence(['pwd', 'otp'], 'urn:acr:mfa', CarbonImmutable::parse('2026-04-06 11:58:00'));
 
         self::assertSame($evidence, (new Provenance('connection-7', evidence: $evidence))->evidence);
+
+        $context = new ProviderContext(['protocol' => 'saml']);
+
+        self::assertSame($context, (new Provenance('connection-7', providerContext: $context))->providerContext);
     }
 
     /**

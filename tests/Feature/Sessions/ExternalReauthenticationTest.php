@@ -24,11 +24,13 @@ use SineMacula\Laravel\Authentication\Events\ExternalResultUnlinked;
 use SineMacula\Laravel\Authentication\Events\Reauthenticated;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
+use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
@@ -148,6 +150,39 @@ final class ExternalReauthenticationTest extends TestCase
         $event = $this->recordedEvent(Reauthenticated::class);
 
         self::assertSame(['api', 'external_provider'], [$event->context->guard, $event->context->method]);
+    }
+
+    /**
+     * A reauthentication whose result carries another provider context leaves
+     * the one the session was established with as it was, and reports neither
+     * on its events.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReauthenticationKeepsTheProviderContextTheSessionBeganWith(): void
+    {
+        $signedIn = $this->signedInExternally(new ProviderContext(['protocol' => 'saml-6c1f']));
+        $before   = self::sessionState();
+
+        $this->clockAt($this->now->addHour());
+        $this->recordEvents([Reauthenticated::class, ExternalResultRedeemed::class]);
+
+        $other   = new ProviderContext(['protocol' => 'oidc-9e2a']);
+        $through = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->now->addMinutes(59), providerContext: $other);
+
+        self::assertTrue($this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $through)->isIssued());
+        self::assertSame($before, self::sessionState());
+        self::assertSame(['protocol' => 'saml-6c1f'], SessionProofs::provenance($signedIn->record)?->providerContext?->toArray());
+        self::assertSame([Reauthenticated::class, ExternalResultRedeemed::class], $this->recordedClasses());
+
+        foreach ([Reauthenticated::class, ExternalResultRedeemed::class] as $class) {
+            $reported = serialize($this->recordedEvent($class));
+
+            self::assertStringNotContainsString('saml-6c1f', $reported);
+            self::assertStringNotContainsString('oidc-9e2a', $reported);
+        }
     }
 
     /**
@@ -843,16 +878,18 @@ final class ExternalReauthenticationTest extends TestCase
 
     /**
      * Sign the seeded identity in through its link, `link-1` of `connection-7`,
-     * authenticated at the provider now.
+     * authenticated at the provider now, with the provider context given.
      *
+     * @param  ?\SineMacula\Laravel\Authentication\External\ProviderContext  $providerContext
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
      * @throws \Throwable
      */
-    private function signedInExternally(): SignedInSession
+    private function signedInExternally(?ProviderContext $providerContext = null): SignedInSession
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->now))->session;
+        $result   = $this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->now, providerContext: $providerContext);
+        $session  = $this->sessions()->signInExternally($result)->session;
 
         self::assertNotNull($session);
 

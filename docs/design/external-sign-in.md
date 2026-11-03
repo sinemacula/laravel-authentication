@@ -15,10 +15,10 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   `External\NoExternalLinks`, links nothing, so no result signs anyone in until an application binds its own.
 - A result (`External\ExternalResult`: the connection, issuer and subject, and optionally the connection's tenant, the
   provider's authentication time and session deadline, the policy version checked, the provider's evidence, the id of
-  the link the adapter redeemed it through and the public reference of the authorisation request it answered) comes
-  only from a trusted adapter, never from a client: `external_provider`
-  is reserved, so `SignInMethodManager::extend()` refuses it, `method()` never resolves it, `signIn()` cannot reach it,
-  and `start()` and `reauthenticate()` refuse it as their method (`SessionPreconditions::assertSessionMethod()`). Only
+  the link the adapter redeemed it through, the public reference of the authorisation request it answered and the
+  adapter's provider context) comes only from a trusted adapter, never from a client: `external_provider` is reserved,
+  so `SignInMethodManager::extend()` refuses it, `method()` never resolves it, `signIn()` cannot reach it, and `start()`
+  and `reauthenticate()` refuse it as their method (`SessionPreconditions::assertSessionMethod()`). Only
   `signInExternally()` records a session under it.
 - The identity is the one `Contracts\ExternalIdentityLinks::find($connectionId, $issuer, $subject)` answers, through a
   link made through exactly that connection for exactly that issuer and subject, never by email or any other attribute
@@ -39,16 +39,34 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   evidence policy's `meets()` are then asked under the session's row lock, with the new proof recorded; both contracts'
   docblocks say they must only read, or take no lock the adapter does not already hold. No identity row is locked on
   these paths.
-- Every session an external provider established records its provenance once, with the session, pending or active,
-  and never rewrites it: the connection and its tenant, the provider's authentication time and deadline, the policy
-  version, the id of the link (`link_id`, compared byte for byte: a binary column on MySQL and MariaDB) and the
-  accepted evidence. The first proof is the provider's: the connection as an `external_provider` channel, the private
-  `amr` value `urn:sinemacula:amr:external_provider`, and the provider's time (now, when it gave none or one after now).
-  The provider's deadline is folded into the sign-in's own (`SignInContext::withNotAfter()`).
-- A session reauthenticates at the provider only through the very link that established it: the link's identity must
-  own it and its provenance must record exactly the result's connection and the link's id (`link_mismatch`); a session
-  recorded with no link never matches. Only an access token is issued; the refresh token, the session row, its
-  deadlines and its provenance are untouched.
+- Every session an external provider established records its provenance once, with the session, pending or active, and
+  never rewrites it: the connection and its tenant, the provider's authentication time and deadline, the policy version,
+  the id of the link (`link_id`, compared byte for byte: a binary column on MySQL and MariaDB), the accepted evidence
+  and the provider context. The first proof is the provider's: the connection as an `external_provider` channel, the
+  private `amr` value `urn:sinemacula:amr:external_provider`, and the provider's time (now, when it gave none or one
+  after now). The provider's deadline is folded into the sign-in's own (`SignInContext::withNotAfter()`).
+- The provider context (`External\ProviderContext`, `ExternalResult::$providerContext`) is the adapter's, for its own
+  authentication-context contributor: details of how the provider established the session (the protocol, or how the link
+  was made), whose keys are the contributing package's own. The package reserves and names no key, never interprets a
+  value, and only validates, stores and hands it back: `ExternalSignIn` passes it into the `Provenance`,
+  `ProofWriter::provenance()` writes it once with the rest, and `SessionProofs::provenance()` reads it back in the same
+  query, for `ContributionSubject::provenance()`. It is absent unless an adapter gives one (D21). It is a non-empty map
+  with string keys whose values are `null`, booleans, integers, finite floats, strings or arrays of them, at most
+  `MAX_DEPTH` (4) arrays deep, the map the first, refused otherwise with an `InvalidArgumentException` whose message
+  repeats no value; the values are copied, so a reference into the array given changes nothing kept. The package encodes
+  it itself (`toStored()`: `JSON_PRESERVE_ZERO_FRACTION`, so a float stays one, and the default escaping, so the stored
+  form is ASCII) into a nullable text column with no Eloquent cast, so an application's `Json::encodeUsing()` never
+  changes what is stored or measured. The cap, `STORED_MAX_BYTES` (4096), is measured on that string, every character
+  outside ASCII escaped (up to twelve bytes for one): details of how a session began are small, the contributor's read
+  of the provenance happens wherever a context is built, so a bounded row keeps that read small, and the cap fits every
+  engine's text column with room to spare; a context over it is refused, never truncated. A stored value that is
+  malformed or no longer validates reads as no context. It is never logged, never in an event, the event context or an
+  exception message, and its column is hidden from the provenance model's serialisation; it is provider metadata, not a
+  place for a secret, and is not protected as a credential is.
+- A session reauthenticates at the provider only through the very link that established it: the link's identity must own
+  it and its provenance must record exactly the result's connection and the link's id (`link_mismatch`); a session
+  recorded with no link never matches. Only an access token is issued; the refresh token, the session row, its deadlines
+  and its provenance are untouched, so a result's provider context is not recorded at reauthentication.
 - A link's sessions end only through that link: `linkRemoved()` and `linkScopeWidened()` revoke the identity's live
   sessions, pending ones included, whose provenance records exactly the connection and the link id, leaving its
   sessions through any other link. `linkRemoved()` honours `authentication.revocation.link_removed`;
@@ -146,7 +164,8 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 ## Implementation Anchors
 
 - `src/Contracts/ExternalIdentityLinks.php`, `src/External/*` (`ExternalResult`, `ExternalLink`, `NoExternalLinks`,
-  and the evidence values), `src/Events/ExternalResultUnlinked.php`, `src/Events/ExternalResultRedeemed.php`.
+  `ProviderContext`, and the evidence values), `src/Events/ExternalResultUnlinked.php`,
+  `src/Events/ExternalResultRedeemed.php`.
 - `src/Sessions/Concerns/SignsInExternally.php`, `src/Sessions/ExternalSignIn.php`, `ExternalResults.php`,
   `ExternalReauthentication.php`, `SessionService.php` (`startFor()`), `SessionPreconditions.php`,
   `SignInMethodManager.php` (`EXTERNAL_METHOD`).
@@ -162,14 +181,17 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 
 - `tests/Feature/Sessions/ExternalSignInTest.php`: the method and link checks, the unlinked event, admission as
   `start()` admits, the principal, accepted evidence meeting the identity's and a tenant's requirement, a result never
-  arriving as input, the redemption reported after the session's own events (active, pending, rolled back, refused).
+  arriving as input, the redemption reported after the session's own events (active, pending, rolled back, refused), the
+  provider context recorded but in no event or serialised model.
 - `tests/Feature/Sessions/ExternalReauthenticationTest.php`: the renewal and the later-time rule, every link mismatch,
-  the refusals, changes under the lock, the standing, the redemption reported after `Reauthenticated`.
+  the refusals, changes under the lock, the standing, the redemption reported after `Reauthenticated`, the provider
+  context the session began with kept.
 - `tests/Feature/Sessions/ConnectionRevocationsTest.php`, `tests/Integration/Sessions/ConnectionRevocationsTest.php`,
   `IntegerKeyConnectionRevocationsTest.php`: a link's sessions only, the mandatory and idempotent widening, the
   settings, folded collations, the caller's transaction.
-- `tests/Integration/Sessions/ExternalSignInTest.php`, `ExternalReauthenticationTest.php`: the adapter's transaction,
-  an exception from the link contract, the byte-exact link id, the largest evidence stored whole.
+- `tests/Integration/Sessions/ExternalSignInTest.php`, `ExternalReauthenticationTest.php`: the adapter's transaction, an
+  exception from the link contract, the byte-exact link id, the largest evidence and the largest provider context stored
+  whole, and the provider context's round trip.
 - `tests/Integration/Sessions/ReplicaExternalSessionsTest.php`: the provenance, the accepted evidence and a link's
   sessions read on the primary, so a session the replica has not seen reauthenticates, stands and is revoked.
 - `tests/Integration/Sessions/ConcurrentExternalReauthenticationsTest.php`,
@@ -180,6 +202,10 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   a widening or disabling committed fails to serialise there; and a widening holds up no other identity's sign-in.
   `tests/Feature/Sessions/ConnectionGuardsTest.php`, `SessionWriterTest.php`, `ConnectionRevocationsTest.php`: which
   guards each writes, and that it writes them first.
+- `tests/Feature/Context/ContributionSubjectTest.php`, `tests/Feature/Context/ContextBuilderTest.php`,
+  `tests/Feature/Proofs/ProofWriterTest.php`, `tests/Feature/Proofs/SessionProofsTest.php`: the provider context read
+  with the provenance in its one query and reported under a contributor's own namespace only, written as the package
+  encodes it whatever encoder Eloquent's casts use, and a malformed stored one read as none.
 - `tests/Unit/External/*`, `tests/Unit/Events/ExternalResultUnlinkedTest.php`,
   `tests/Unit/Events/ExternalResultRedeemedTest.php`, `tests/Feature/Sessions/SignInMethodManagerTest.php`,
   `tests/Unit/Sessions/SessionPreconditionsTest.php`.
@@ -196,3 +222,5 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 - Finding a connection's or link's sessions with a plain read, or letting a sign-in or either revocation read or
   write a session before it writes its connection guards.
 - Storing links, issuing or redeeming handoffs, or verifying provider responses in this package.
+- Reading a key of the provider context, reserving one, rewriting it after sign-in, putting it in an event, the event
+  context, a log or an exception message, storing it through an Eloquent cast, or raising its cap.

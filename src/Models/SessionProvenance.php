@@ -13,8 +13,10 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * row per such session, keyed by the session's key: the connection and its
  * tenant, the provider's authentication time, the evidence it asserted once the
  * evidence contract accepted it, the provider's session deadline, the policy
- * version the caller checked, and the id of the link the result was mapped to
- * its identity through.
+ * version the caller checked, the id of the link the result was mapped to its
+ * identity through, and the provider context the adapter gave with the result,
+ * as the JSON the package encodes it to (no cast, so an application's JSON
+ * encoder never changes what is stored).
  *
  * Kept on the storage connection with the sessions, in the table named by
  * `authentication.proofs.provenance_table`, written once with the session and
@@ -35,6 +37,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property ?\Carbon\CarbonInterface $provider_session_expires_at
  * @property ?string $policy_version
  * @property ?string $link_id
+ * @property ?string $provider_context
  * @property \Carbon\CarbonInterface $created_at
  */
 final class SessionProvenance extends Model
@@ -54,8 +57,8 @@ final class SessionProvenance extends Model
     /** @var list<string> The attributes that are mass assignable: none, every column is written with `forceFill()`. */
     protected $fillable = [];
 
-    /** @var list<string> The attributes hidden from serialisation: the evidence the provider asserted. */
-    protected $hidden = ['accepted_evidence'];
+    /** @var list<string> The attributes hidden from serialisation: the evidence the provider asserted and the provider context. */
+    protected $hidden = ['accepted_evidence', 'provider_context'];
 
     /**
      * Create a provenance on the storage connection, in the configured table.

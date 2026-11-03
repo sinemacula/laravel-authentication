@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Events\SessionPending;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -261,6 +262,63 @@ final class ExternalSignInTest extends TestCase
         EventContextAssertions::assertPrincipal($identity, $redeemed->context);
         EventContextAssertions::assertSession($session->record, $redeemed->context);
         self::assertSame([null, null], [$this->recordedEvent(SignedIn::class)->context->connectionId, $this->recordedEvent(SignedIn::class)->context->requestReference]);
+    }
+
+    /**
+     * A result's provider context is recorded with the provenance, as given,
+     * pending or active, and is in none of the events the sign-in reports, a
+     * refused one's included, nor in the serialised session or provenance.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheProviderContextIsRecordedButNeverReported(): void
+    {
+        $identity = $this->seedIdentity();
+        $context  = new ProviderContext(['protocol' => 'saml-6c1f', 'link' => ['made' => 'domain-4b7d']]);
+
+        $this->recordEvents([
+            SessionCreated::class, SignedIn::class, ExternalResultRedeemed::class, SessionPending::class, AuthenticationFailed::class, ExternalResultUnlinked::class,
+        ]);
+
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity, providerContext: $context))->session;
+
+        self::assertNotNull($session);
+        self::assertSame($context->toArray(), SessionProofs::provenance($session->record)?->providerContext?->toArray());
+
+        $factors = $this->bindMock(AdditionalFactorPolicy::class);
+        $factors->shouldReceive('requirementFor')->andReturn(new Requirement(new RequirementPart));
+
+        $pending = $this->sessions()->signInExternally($this->linkedResult($identity, providerContext: $context))->pending;
+
+        self::assertNotNull($pending);
+        self::assertSame($context->toArray(), SessionProofs::provenance($pending->session)?->providerContext?->toArray());
+
+        $refused = $this->sessions()->signInExternally(new ExternalResult('connection-7', self::ISSUER, 'nobody', providerContext: $context));
+
+        self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $refused->reason);
+        self::assertSame(
+            [
+                SessionCreated::class, SignedIn::class, ExternalResultRedeemed::class, SessionPending::class, ExternalResultRedeemed::class,
+                ExternalResultUnlinked::class, AuthenticationFailed::class,
+            ],
+            $this->recordedClasses(),
+        );
+
+        $serialised = [
+            ...array_map(static fn (object $event): string => serialize($event), $this->recorded),
+            (string) json_encode($session->record),
+            (string) json_encode(SessionProvenance::query()->get()),
+        ];
+
+        foreach ($serialised as $value) {
+            self::assertStringNotContainsString('saml-6c1f', $value);
+            self::assertStringNotContainsString('domain-4b7d', $value);
+        }
+
+        self::assertStringContainsString('saml-6c1f', $context->toStored());
+        self::assertSame([$context->toStored(), $context->toStored()], DB::table('authentication_provenance')->pluck('provider_context')->all());
     }
 
     /**

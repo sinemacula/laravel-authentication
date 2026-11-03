@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
@@ -266,6 +267,7 @@ final class SessionProofs
             $row->policy_version,
             $row->link_id,
             ExternalEvidence::fromStored($row->accepted_evidence),
+            ProviderContext::fromStored($row->provider_context),
         ) : null;
     }
 

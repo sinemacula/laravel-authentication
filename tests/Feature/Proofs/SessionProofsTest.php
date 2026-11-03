@@ -17,6 +17,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -882,6 +883,37 @@ final class SessionProofsTest extends TestCase
         DB::table('authentication_provenance')->update(['accepted_evidence' => '{"methods":[""]}']);
 
         self::assertNull(SessionProofs::provenance($record)?->evidence);
+    }
+
+    /**
+     * The provenance reads back with the provider context it recorded, values
+     * and types as given, and with none when it recorded none or holds one that
+     * is malformed.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheProvenanceReadsBackWithItsProviderContext(): void
+    {
+        $record = $this->signedIn()->record;
+        $values = ['protocol' => 'oidc', 'link' => ['made' => 'explicitly', 'at' => 1775476680, 'weight' => 1.0]];
+
+        ProofWriter::provenance($record, new Provenance('conn-a', providerContext: new ProviderContext($values)));
+
+        self::assertSame($values, SessionProofs::provenance($record)?->providerContext?->toArray());
+
+        DB::table('authentication_provenance')->update(['provider_context' => '{"7":"oidc"}']);
+
+        $malformed = SessionProofs::provenance($record);
+
+        self::assertNotNull($malformed);
+        self::assertSame('conn-a', $malformed->connectionId);
+        self::assertNull($malformed->providerContext);
+
+        DB::table('authentication_provenance')->update(['provider_context' => null]);
+
+        self::assertNull(SessionProofs::provenance($record)->providerContext);
     }
 
     /**

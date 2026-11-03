@@ -30,11 +30,22 @@ A session an external provider established (`signInExternally()`, see [External
 sign-in](signing-in.md#external-sign-in)) also records its provenance, once, in `proofs.provenance_table`: the
 connection and its tenant, the provider's authentication time, the evidence the provider asserted once accepted, the
 provider's deadline for its session (which also caps the session's absolute deadline, the earlier of it and the
-sign-in's own winning), the policy version the adapter checked, and the id of the link the result was mapped to its
-identity through, kept byte for byte. A later reauthentication at the provider is a proof of its own and never rewrites
-how the session began. The provenance is indexed by connection and by tenant: the sessions a connection established are
+sign-in's own winning), the policy version the adapter checked, the id of the link the result was mapped to its identity
+through, kept byte for byte, and the provider context the adapter gave with the result
+(`ExternalResult::$providerContext`), if any. A later reauthentication at the provider is a proof of its own and never
+rewrites how the session began: a reauthentication's provider context is not recorded, so the session keeps the one it
+was established with. The provenance is indexed by connection and by tenant: the sessions a connection established are
 revoked through it (see [Connections and links](#connections-and-links)); there is no lookup by connection or tenant
 yet.
+
+The provider context is the adapter's, for its own authentication-context contributor (see [Single
+sign-on](extending.md#single-sign-on-laravel-sso)): a map whose keys are the contributing package's own, opaque to this
+package, which never interprets it, never logs it, never puts it in an event, the event context or an exception message,
+and hides it from the provenance model's serialisation. It is validated when the adapter builds it (string keys; `null`,
+booleans, integers, finite floats, strings or arrays of them, nesting at most four arrays; at most 4096 bytes as stored)
+and stored as the JSON the package encodes itself. A contributor reads it with the rest of the provenance, from
+`ContributionSubject::provenance()`, in the one query that reads the provenance. It is provider metadata, not a place
+for a secret.
 
 A provider's evidence (its `amr` values, its `acr` value or SAML authentication context class reference, and the time it
 is for) counts for nothing until the application binds an `ExternalEvidencePolicy` that accepts it (see [Tenant

@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -76,6 +77,7 @@ trait InteractsWithExternalSignIns
      * @param  ?\Carbon\CarbonInterface  $sessionNotAfter
      * @param  ?string  $policyVersion
      * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
+     * @param  ?\SineMacula\Laravel\Authentication\External\ProviderContext  $providerContext
      * @return \SineMacula\Laravel\Authentication\External\ExternalResult
      */
     protected function linkedResult(
@@ -88,11 +90,22 @@ trait InteractsWithExternalSignIns
         ?CarbonInterface $sessionNotAfter = null,
         ?string $policyVersion = null,
         ?ExternalEvidence $evidence = null,
+        ?ProviderContext $providerContext = null,
     ): ExternalResult {
         $subject ??= 'subject-' . IdentifierCoercion::stringify($identity->getAuthIdentifier());
 
         $this->externalLinks()->link($identity, $linkId, $connectionId, self::ISSUER, $subject);
 
-        return new ExternalResult($connectionId, self::ISSUER, $subject, $tenantId, $authenticatedAt, $sessionNotAfter, $policyVersion, $evidence);
+        return new ExternalResult(
+            $connectionId,
+            self::ISSUER,
+            $subject,
+            $tenantId,
+            $authenticatedAt,
+            $sessionNotAfter,
+            $policyVersion,
+            $evidence,
+            providerContext: $providerContext,
+        );
     }
 }

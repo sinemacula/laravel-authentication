@@ -47,7 +47,8 @@ are caught on the server.
   the credentials it names, and a gate it takes part in when a passkey is registered or removed.
 - **External sign-in**: a result an external identity provider verified, handed over by a trusted adapter and never by a
   client, signs in only the identity a link contract maps its connection, issuer and subject to (never by email), on an
-  application that allows it, with the provider's time, deadline and the link recorded on the session; the session
+  application that allows it, with the provider's time, deadline and the link recorded on the session, and any provider
+  context the adapter gives (opaque, its keys the adapter's own) kept with them for its context contributor; the session
   reauthenticates at the provider only through that same link, under its own lock.
 - **One-time code challenges**: every code is a challenge with an id the check names, kept across resends with its
   attempt budget, capped in deliveries per destination, and bound to its purpose; a further-factor package's codes are

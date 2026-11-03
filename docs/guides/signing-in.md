@@ -215,8 +215,11 @@ deadline for its own session (SAML `SessionNotOnOrAfter`) and the version of the
 checked, the evidence the provider asserted of how it authenticated the identity (`External\ExternalEvidence`: its `amr`
 values, an `acr` value or SAML authentication context class reference, and the time it is for), and the public reference
 of the authorisation request the result answers (`requestReference`, opaque, 1 to 255 characters), which only the
-redemption's events carry. It is off unless the application lists `external_provider` in its `methods`
-(`method_not_allowed` otherwise, the link contract never asked).
+redemption's events carry, and a provider context (`providerContext`, an `External\ProviderContext`): details of how the
+provider established the session, for the adapter's own authentication-context contributor, whose keys are the
+contributing package's own and which this package stores but never interprets, logs or reports (see [Extending: single
+sign-on](extending.md#single-sign-on-laravel-sso)). It is off unless the application lists `external_provider` in its
+`methods` (`method_not_allowed` otherwise, the link contract never asked).
 
 The identity is the one the bound `Contracts\ExternalIdentityLinks` links the connection, issuer and subject to: only a
 link made through exactly that connection, for exactly that issuer and subject, never by email or any other attribute
@@ -232,17 +235,18 @@ connection refuses it as `sso_required`). No `Attempting` is dispatched, and no 
 The session's first proof is the provider's: the connection as an `external_provider` channel, the private `amr` value
 `urn:sinemacula:amr:external_provider` (RFC 8176 names none for it; the provider's own values are its package's to
 carry), and the provider's authentication time (now, when it gave none or one after now). Its provenance (the connection
-and tenant, the provider's time and deadline, the policy version and the id of the link the result came through) is
-recorded with the session, pending or active, and never rewritten, and the provider's deadline is folded into the
-context's (see [A sign-in's own deadline](#a-sign-ins-own-deadline)), so the earlier of the two caps the session's
-absolute deadline. The evidence counts only when the application's `ExternalEvidencePolicy` accepts it for the linked
-identity (as multifactor authentication, an additional verification or phishing resistance): the first proof then
+and tenant, the provider's time and deadline, the policy version, the id of the link the result came through and the
+provider context) is recorded with the session, pending or active, and never rewritten, and the provider's deadline is
+folded into the context's (see [A sign-in's own deadline](#a-sign-ins-own-deadline)), so the earlier of the two caps the
+session's absolute deadline. The evidence counts only when the application's `ExternalEvidencePolicy` accepts it for the
+linked identity (as multifactor authentication, an additional verification or phishing resistance): the first proof then
 carries the acceptance, so the token's `amr` gains `mfa` when it was accepted for multifactor authentication, the
 provenance records the evidence, and the identity-level requirement and a tenant's are judged against it at once.
 Evidence it does not accept is never recorded (see [Proofs and provenance](sessions.md#proofs-and-provenance)).
 
 ```php
 use SineMacula\Laravel\Authentication\External\ExternalResult;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 
 $result = Auth::sessions('api')->signInExternally(new ExternalResult(
     connectionId: $redeemed->connectionId,
@@ -255,6 +259,7 @@ $result = Auth::sessions('api')->signInExternally(new ExternalResult(
     evidence: $redeemed->evidence,
     linkId: $redeemed->linkId,
     requestReference: $redeemed->requestReference,
+    providerContext: new ProviderContext(['protocol' => $redeemed->protocol]),
 ));
 ```
 

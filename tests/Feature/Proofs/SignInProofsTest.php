@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -32,6 +33,7 @@ use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
+use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
@@ -876,8 +878,9 @@ final class SignInProofsTest extends TestCase
 
     /**
      * A session that waits for its identity to choose a principal keeps its
-     * first factor, with the time it was verified, and its provenance, and the
-     * session the choice activates holds them as they were.
+     * first factor, with the time it was verified, and its provenance, provider
+     * context included, and the session the choice activates holds them as they
+     * were.
      *
      * @return void
      *
@@ -887,7 +890,7 @@ final class SignInProofsTest extends TestCase
     {
         [$member, $membership] = $this->seedChooser();
 
-        $result = $this->linkedResult($member, tenantId: 'tenant-3', authenticatedAt: $this->now->subMinute());
+        $result = $this->linkedResult($member, tenantId: 'tenant-3', authenticatedAt: $this->now->subMinute(), providerContext: new ProviderContext(['protocol' => 'saml']));
 
         [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->signInExternally($result));
 
@@ -906,6 +909,7 @@ final class SignInProofsTest extends TestCase
         );
         self::assertSame($this->now->subMinute()->getTimestamp(), $proofs[0]->authenticated_at->getTimestamp());
         self::assertSame('tenant-3', self::provenanceOf($session->record)?->tenant_id);
+        self::assertSame(['protocol' => 'saml'], SessionProofs::provenance($session->record)?->providerContext?->toArray());
     }
 
     /**
