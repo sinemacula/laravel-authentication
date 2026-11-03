@@ -108,9 +108,11 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
-     * Two refreshes with the same token race: the second rotates the session
-     * between the first one's read and its swap. Both succeed with the same
-     * current credential, and the session stays live.
+     * Two refreshes with the same token, the second run inside the first's
+     * transaction between its re-read and its swap (holding the row from its
+     * issuance guard, the first lets no other request write it there): the
+     * second rotates the session, and both succeed with the same current
+     * credential, the session staying live.
      *
      * @return void
      *
@@ -138,8 +140,9 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
-     * With grace disabled, the request that loses the race holds a replaced
-     * token: it is treated as a replay and the session is revoked.
+     * With grace disabled, the refresh whose swap misses after the second, run
+     * inside its transaction, rotated the session holds a replaced token: it is
+     * treated as a replay and the session is revoked.
      *
      * @return void
      *

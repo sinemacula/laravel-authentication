@@ -41,15 +41,18 @@ use Tests\TestCase;
 
 /**
  * Integration tests of a refresh held to its tenant's authentication policy,
- * and of its compare-and-swaps racing other writes to the session, against a
- * real database: a grace retry is asked the policy as a rotation is; a refresh
- * that loses its rotation, or its return to pending, to a switch of the
+ * and of its compare-and-swaps missing after another write to the session,
+ * against a real database: a grace retry is asked the policy as a rotation is;
+ * a refresh whose rotation, or return to pending, misses after a switch of the
  * session's tenant refuses rather than issuing for a context it never judged; a
- * return to pending that loses to a rotation or a revocation applies neither
- * twice, and hands out no pair; a revocation for a connection the tenant now
- * requires never revokes a session a switch moved to another tenant; and a
- * rotation that loses to a return to pending whose deadlines equal its own is
- * told apart by the session's status alone.
+ * return to pending that misses after a rotation or a revocation applies
+ * neither twice, and hands out no pair; a revocation for a connection the
+ * tenant now requires never revokes a session a switch moved to another tenant;
+ * and a rotation that misses after a return to pending whose deadlines equal
+ * its own is told apart by the session's status alone. The refresh holds the
+ * row from its issuance guard, so no other request can write it before a swap;
+ * each such write here runs inside the refresh's own transaction, as a contract
+ * it asks could make, to exercise the safeguard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -171,10 +174,10 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A refresh that loses its rotation to a switch of the session's tenant,
-     * presenting the same token, is refused as `session_tenant_mismatch`
-     * instead of handing back a pair for the tenant it was admitted in: the
-     * switch stands, and nothing is revoked.
+     * A refresh whose rotation misses because a switch of the session's tenant,
+     * presenting the same token, was written to the row first is refused as
+     * `session_tenant_mismatch` instead of handing back a pair for the tenant
+     * it was admitted in: the switch stands, and nothing is revoked.
      *
      * @return void
      *
@@ -208,9 +211,10 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A refresh that falls short of a factor and loses its return to pending to
-     * a switch of the session's tenant, presenting the same token, is refused
-     * as `session_tenant_mismatch`: the switch stands, active in the tenant it
+     * A refresh that falls short of a factor, and whose return to pending
+     * misses because a switch of the session's tenant, presenting the same
+     * token, was written to the row first, is refused as
+     * `session_tenant_mismatch`: the switch stands, active in the tenant it
      * moved to, and nothing returns to pending.
      *
      * @return void
@@ -246,11 +250,12 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A refresh that falls short of a factor and loses its return to pending to
-     * a rotation of the same token is refused as `rotation_conflict` instead of
-     * getting the pair the policy refused it: the rotation stands, the session
-     * stays active and nothing returns to pending; presented again, the same
-     * token is judged afresh and returns the session to pending.
+     * A refresh that falls short of a factor, and whose return to pending
+     * misses after a rotation of the same token is written to the row, is
+     * refused as `rotation_conflict` instead of getting the pair the policy
+     * refused it: the rotation stands, the session stays active and nothing
+     * returns to pending; presented again, the same token is judged afresh and
+     * returns the session to pending.
      *
      * @return void
      *
@@ -302,10 +307,11 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * A refresh whose tenant now requires a connection, and whose revocation
-     * loses to a switch of the session to a tenant it meets, presenting the
-     * same token, leaves the switched session alone: nothing is revoked or
-     * reported, the session stays active in the tenant it moved to, and the
-     * refresh is refused as `session_tenant_mismatch`.
+     * misses because a switch of the session to a tenant it meets, presenting
+     * the same token, was written to the row first, leaves the switched session
+     * alone: nothing is revoked or reported, the session stays active in the
+     * tenant it moved to, and the refresh is refused as
+     * `session_tenant_mismatch`.
      *
      * @return void
      *
@@ -399,9 +405,10 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A refresh that falls short of a factor and loses its return to pending to
-     * a revocation of the session fails as `session_revoked` and leaves the
-     * revocation in place, the session never pending.
+     * A refresh that falls short of a factor, and whose return to pending
+     * misses after a revocation of the session is written to the row, fails as
+     * `session_revoked` and leaves the revocation in place, the session never
+     * pending.
      *
      * @return void
      *
@@ -566,7 +573,9 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * Run the callback once, just before the next update of a session that
-     * names the column executes, as another request that commits first would.
+     * names the column executes, inside the refresh's own transaction, as a
+     * contract it asks could make: holding the row from its issuance guard, no
+     * other request can write it there.
      *
      * @param  string  $column
      * @param  \Closure(): void  $callback

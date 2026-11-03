@@ -1501,10 +1501,12 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A parallel refresh with the same token that rotates first, between this
-     * exchange's read and its swap, makes this exchange a grace retry: the swap
-     * misses, the row is judged again, and this exchange gets the same current
-     * credential the winner got, without writing.
+     * A rotation to this exchange's successor written to the row between its
+     * re-read and its swap, inside the exchange's own transaction (holding the
+     * row from its issuance guard, no other request can write it there), makes
+     * this exchange a grace retry: the swap misses, the row is judged again,
+     * and this exchange gets the current credential that rotation recorded,
+     * without writing.
      *
      * @return void
      *
@@ -1556,9 +1558,10 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * With grace disabled, a parallel refresh that rotates first leaves the
-     * loser holding a replaced token: the row judged again proves a replay, and
-     * the session is revoked.
+     * With grace disabled, a rotation written to the row between the exchange's
+     * re-read and its swap, inside its own transaction, leaves the exchange
+     * holding a replaced token: the row judged again proves a replay, and the
+     * session is revoked.
      *
      * @return void
      *
@@ -1579,7 +1582,7 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Rows of `[competing change committed between the read and the swap,
+     * Rows of `[change written to the row between the re-read and the swap,
      * failure the row judged again gives]`.
      *
      * @return iterable<string, array{0: string, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
@@ -2156,8 +2159,8 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * Rotate the session's row from the given rotation id to its successor, as
-     * a refresh that won a race would, optionally moving it to another owner,
-     * or to another principal as a switch that won would.
+     * a refresh would, optionally moving it to another owner, or to another
+     * principal as a switch would.
      *
      * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  string  $rotationId
@@ -2222,8 +2225,10 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Run a competing write once, just before the exchange's compare-and-swap
-     * executes, as another request that commits first would.
+     * Run a write once, just before the exchange's compare-and-swap executes,
+     * inside the exchange's own transaction, as a contract it asks could make:
+     * holding the row from its issuance guard, no other request can write it
+     * there.
      *
      * @param  \Closure(): mixed  $competitor
      * @return void
