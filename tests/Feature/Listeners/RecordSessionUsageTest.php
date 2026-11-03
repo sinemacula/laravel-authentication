@@ -7,12 +7,14 @@ namespace Tests\Feature\Listeners;
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -150,6 +152,52 @@ final class RecordSessionUsageTest extends TestCase
 
         self::assertSame(self::IP, $this->storedRow($other->id)['last_used_ip']);
         self::assertNull($other->getAttribute('last_used_ip'));
+    }
+
+    /**
+     * A guard resolved for the request but not yet asked, its bearer token one
+     * it would refuse, has bound no session: the session is read by its
+     * identifier and written, and the guard's request is left unresolved, so
+     * nothing is refused.
+     *
+     * @return void
+     */
+    public function testAGuardNotYetAskedHasItsRequestLeftUnresolved(): void
+    {
+        $session = $this->persistedSession(null);
+
+        Event::fake([AuthenticationFailed::class]);
+
+        app()->instance('request', Request::create('/', server: ['HTTP_AUTHORIZATION' => 'Bearer not-a-token']));
+
+        Auth::forgetGuards();
+
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $queries = $this->countQueries(static fn () => (new RecordSessionUsage)(self::bound($session, self::IP, self::USER_AGENT)));
+
+        self::assertSame(2, $queries);
+        self::assertSame(self::IP, $this->storedRow($session->id)['last_used_ip']);
+        self::assertFalse($guard->hasUser());
+
+        Event::assertNotDispatched(AuthenticationFailed::class);
+    }
+
+    /**
+     * An event that names a session but no guard, as a session that records no
+     * guard does, has the session read by its identifier and written.
+     *
+     * @return void
+     */
+    public function testAnEventNamingNoGuardHasTheSessionReadByItsIdentifier(): void
+    {
+        $session = $this->persistedSession(null);
+        $event   = new SessionAuthenticated(new EventContext(null, new ClientContext(self::IP, self::USER_AGENT), sessionId: $session->id));
+
+        self::assertSame(2, $this->countQueries(static fn () => (new RecordSessionUsage)($event)));
+        self::assertSame(self::IP, $this->storedRow($session->id)['last_used_ip']);
     }
 
     /**
