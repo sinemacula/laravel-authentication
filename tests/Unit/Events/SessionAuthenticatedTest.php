@@ -45,18 +45,18 @@ final class SessionAuthenticatedTest extends TestCase
     }
 
     /**
-     * The event serialises its models for queued listeners and survives a round
-     * trip; it is dispatched at once, as the guard binds.
+     * The event holds no model, serialises as it is for queued listeners and
+     * survives a round trip; it is dispatched at once, as the guard binds.
      *
      * @return void
      */
-    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsValuesAndDispatchesWhenTheSenderSays(): void
     {
         $context = self::context();
         $event   = new SessionAuthenticated($context);
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesModels::class, class_uses_recursive($event));
+        self::assertNotContains(SerializesModels::class, class_uses_recursive($event));
 
         $copy = unserialize(serialize($event));
 

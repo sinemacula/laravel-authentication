@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
+use Tests\Fixtures\Events\EventContextAssertions;
 
 /**
  * Feature tests for the context every bind reports: the whole triple is bound
@@ -148,11 +149,11 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
         self::assertSame(self::GUARD_NAME, $context->guard);
         self::assertSame('203.0.113.9', $context->client->ip);
         self::assertSame('Agent/1.0', $context->client->userAgent);
-        self::assertSame($identity, $context->identity);
-        self::assertSame($principal, $context->principal);
-        self::assertSame($tenant, $context->tenant);
+        EventContextAssertions::assertIdentity($identity, $context);
+        EventContextAssertions::assertPrincipal($principal, $context);
+        EventContextAssertions::assertTenant($tenant, $context);
         self::assertSame('5', $context->tenantId);
-        self::assertSame($session, $context->session);
+        EventContextAssertions::assertSession($session, $context);
         self::assertSame('password', $context->method);
     }
 
@@ -189,7 +190,7 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
         $assigned = $events->getArrayCopy()[1];
 
         self::assertInstanceOf(PrincipalAssigned::class, $assigned);
-        self::assertNull($assigned->context->tenant);
+        EventContextAssertions::assertTenant(null, $assigned->context);
         self::assertNull($assigned->context->tenantId);
     }
 
@@ -241,12 +242,12 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
         $assigned = $recorded[3];
 
         self::assertInstanceOf(SessionAuthenticated::class, $bound);
-        self::assertSame($identity, $bound->context->identity);
-        self::assertSame($session, $bound->context->session);
+        EventContextAssertions::assertIdentity($identity, $bound->context);
+        EventContextAssertions::assertSession($session, $bound->context);
         self::assertSame('passkey', $bound->context->method);
         self::assertInstanceOf(PrincipalAssigned::class, $assigned);
-        self::assertSame($principal, $assigned->context->principal);
-        self::assertSame($session, $assigned->context->session);
+        EventContextAssertions::assertPrincipal($principal, $assigned->context);
+        EventContextAssertions::assertSession($session, $assigned->context);
         self::assertSame('passkey', $assigned->context->method);
     }
 
@@ -268,8 +269,8 @@ final class AbstractGuardEventContextTest extends AbstractGuardTestCase
 
         self::assertInstanceOf(SessionAuthenticated::class, $bound);
         self::assertInstanceOf(EventContext::class, $bound->context);
-        self::assertNull($bound->context->principal);
-        self::assertNull($bound->context->tenant);
+        EventContextAssertions::assertPrincipal(null, $bound->context);
+        EventContextAssertions::assertTenant(null, $bound->context);
     }
 
     /**

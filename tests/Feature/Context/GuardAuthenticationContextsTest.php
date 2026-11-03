@@ -16,6 +16,8 @@ use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Context\GuardAuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationContexts;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
@@ -131,6 +133,39 @@ final class GuardAuthenticationContextsTest extends TestCase
         $this->onRequest(null);
 
         self::assertNull($contexts->current());
+    }
+
+    /**
+     * A refused credential is reported once for the request: asking for the
+     * user, the context, the caller and whether the guard is authenticated,
+     * each again, reports nothing more, and building no context reports
+     * nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefusedCredentialIsReportedOncePerRequest(): void
+    {
+        $this->seedIdentity();
+
+        $token = $this->signedIn('api')->tokens->accessToken->reveal();
+
+        app()->instance('request', Request::create('/context', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token . 'x']));
+
+        Auth::forgetGuards();
+        Auth::shouldUse('api');
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        foreach ([1, 2] as $ask) {
+            self::assertSame([null, null, null, false], [Auth::user(), Auth::context(), Auth::caller(), Auth::guard()->check()], "Ask {$ask}");
+        }
+
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame([AuthenticationFlow::BEARER, 'api'], [$failed->flow, $failed->context->guard]);
     }
 
     /**

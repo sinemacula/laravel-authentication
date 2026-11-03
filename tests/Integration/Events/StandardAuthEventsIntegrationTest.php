@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -318,7 +319,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
         self::assertSame('password', $signIn->context->method);
         self::assertSame(self::USER_EMAIL, $signIn->identifier);
         self::assertSame('127.0.0.1', $signIn->context->client->ip);
-        self::assertNull($signIn->context->identity);
+        EventContextAssertions::assertIdentity(null, $signIn->context);
         self::assertStringNotContainsString('wrong-password', serialize($signIn));
     }
 

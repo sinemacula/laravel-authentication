@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Events\ExternalResultRedeemed;
 use SineMacula\Laravel\Authentication\Events\Reauthenticated;
 use SineMacula\Laravel\Authentication\External\ExternalLink;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
@@ -125,7 +126,7 @@ final readonly class ExternalReauthentication
         $checked = $this->checked($sessionId, $result, $now);
 
         if ($checked instanceof Refused) {
-            return $this->fail($checked);
+            return $this->fail($checked, $result);
         }
 
         [$stored, $link, $at]    = $checked;
@@ -154,22 +155,30 @@ final readonly class ExternalReauthentication
         );
 
         if ($issued instanceof Refused) {
-            return $this->fail($issued->reason === FailureReason::SESSION_UNKNOWN ? new Refused(FailureReason::SESSION_UNKNOWN, session: $stored) : $issued);
+            return $this->fail($issued->reason === FailureReason::SESSION_UNKNOWN ? new Refused(FailureReason::SESSION_UNKNOWN, session: $stored) : $issued, $result);
         }
 
         [$admitted, $record, $token, $expires] = $issued;
 
-        $event = new Reauthenticated(new EventContext(
+        $client   = $this->context->client();
+        $method   = SignInMethodManager::EXTERNAL_METHOD;
+        $event    = new Reauthenticated(new EventContext($this->context->name(), $client, $admitted->identity, $admitted->principal, $admitted->tenant, $record, $method));
+        $redeemed = new ExternalResultRedeemed(new EventContext(
             $this->context->name(),
-            $this->context->client(),
+            $client,
             $admitted->identity,
             $admitted->principal,
             $admitted->tenant,
             $record,
-            SignInMethodManager::EXTERNAL_METHOD,
-        ));
+            $method,
+            connectionId: $result->connectionId,
+            requestReference: $result->requestReference,
+        ), AuthenticationFlow::REAUTHENTICATION);
 
-        $this->afterCommit->run($record, fn () => $this->context->dispatch($event));
+        $this->afterCommit->run($record, function () use ($event, $redeemed): void {
+            $this->context->dispatch($event);
+            $this->context->dispatch($redeemed);
+        });
 
         return AccessTokenResult::issued($token, $record, $expires);
     }
@@ -374,13 +383,14 @@ final readonly class ExternalReauthentication
     }
 
     /**
-     * Report a refused reauthentication with `AuthenticationFailed` and answer
-     * it.
+     * Report a refused reauthentication with `AuthenticationFailed`, with the
+     * result's connection and request reference, and answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
+     * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      */
-    private function fail(Refused $refused): AccessTokenResult
+    private function fail(Refused $refused, ExternalResult $result): AccessTokenResult
     {
         $session = $refused->session;
         $context = new EventContext(
@@ -392,6 +402,8 @@ final readonly class ExternalReauthentication
             $session,
             SignInMethodManager::EXTERNAL_METHOD,
             fromSession: $session !== null,
+            connectionId: $result->connectionId,
+            requestReference: $result->requestReference,
         );
 
         $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::REAUTHENTICATION, $refused->reason));

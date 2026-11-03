@@ -19,9 +19,9 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\AccessOnlyMember;
 use Tests\Integration\Fixtures\ActivatableTenant;
-use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\TestCase;
@@ -103,10 +103,10 @@ final class RevocationScopeTest extends TestCase
         self::assertSame(1, $this->sessions('members')->revokePrincipalSessions($membership, RevocationReason::REVOKED));
         self::assertSame('revoked', DB::table('authentication_sessions')->value('revoked_reason'));
 
-        $identity = $this->recorded[0]->context->identity ?? null;
+        $context = $this->recorded[0]->context ?? null;
 
-        self::assertInstanceOf(ActivatableTenantMember::class, $identity);
-        self::assertSame($member->getKey(), $identity->getKey());
+        self::assertNotNull($context);
+        EventContextAssertions::assertIdentity($member, $context);
     }
 
     /**
@@ -132,7 +132,7 @@ final class RevocationScopeTest extends TestCase
 
         self::assertSame(1, $this->sessions('members')->revokePrincipalSessions($stored, RevocationReason::REVOKED));
         self::assertSame(0, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
-        self::assertNull($this->recordedEvent(SignedOutEverywhere::class)->context->identity);
+        EventContextAssertions::assertIdentity(null, $this->recordedEvent(SignedOutEverywhere::class)->context);
         self::assertSame(1, $this->recordedEvent(SignedOutEverywhere::class)->revoked);
     }
 
@@ -164,10 +164,7 @@ final class RevocationScopeTest extends TestCase
         self::assertSame(1, $this->sessions('members')->revokePrincipalSessions($memberships->firstOrFail(), RevocationReason::REVOKED));
         self::assertTrue($membership->is($memberships->first()));
 
-        $identity = $this->recordedEvent(SignedOutEverywhere::class)->context->identity;
-
-        self::assertInstanceOf(ActivatableTenantMember::class, $identity);
-        self::assertSame($member->getKey(), $identity->getKey());
+        EventContextAssertions::assertIdentity($member, $this->recordedEvent(SignedOutEverywhere::class)->context);
         self::assertFalse($memberships->firstOrFail()->relationLoaded('identity'));
     }
 
@@ -187,7 +184,7 @@ final class RevocationScopeTest extends TestCase
 
         $this->sessions()->revokePrincipalSessions($identity, RevocationReason::REVOKED);
 
-        self::assertSame($identity, $this->recordedEvent(SignedOutEverywhere::class)->context->identity);
+        EventContextAssertions::assertIdentity($identity, $this->recordedEvent(SignedOutEverywhere::class)->context);
     }
 
     /**

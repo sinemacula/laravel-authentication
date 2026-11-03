@@ -94,6 +94,20 @@ final class SignInMethodManagerTest extends TestCase
             }
 
             /**
+             * No challenge.
+             *
+             * @param  array<array-key, mixed>  $input
+             * @return null
+             */
+            #[\Override]
+            public function challenge(#[\SensitiveParameter] array $input): null
+            {
+                unset($input);
+
+                return null;
+            }
+
+            /**
              * Never verifies.
              *
              * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request

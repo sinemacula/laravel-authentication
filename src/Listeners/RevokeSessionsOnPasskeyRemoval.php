@@ -5,7 +5,9 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Listeners;
 
 use Illuminate\Container\Container;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
+use SineMacula\Laravel\Authentication\Support\MorphClass;
 
 /**
  * Optional listener: ends every session of an identity that removed a passkey,
@@ -24,9 +26,13 @@ use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
  * `factorRemoved()` itself; registered alongside it, the listener still ends
  * every session on any passkey's removal.
  *
- * The session service comes from the application now serving, not from the
- * container that built the listener, which under Octane is the application the
- * worker booted rather than the request's sandbox.
+ * The event names the identity by its type and identifier only, so the identity
+ * is loaded again through the guard's identity provider, on the write
+ * connection, and its sessions are ended only when it is still there and of the
+ * type the event names; an event that names none, or an identity that is gone,
+ * ends nothing. The session service comes from the application now serving, not
+ * from the container that built the listener, which under Octane is the
+ * application the worker booted rather than the request's sandbox.
  *
  * @api
  *
@@ -48,15 +54,24 @@ final readonly class RevokeSessionsOnPasskeyRemoval
      */
     public function handle(PasskeyRemoved $event): void
     {
-        $identity = $event->context->identity;
+        $context = $event->context;
 
-        if ($identity === null) {
+        if ($context->identityId === null) {
             return;
         }
 
         /** @var \SineMacula\Laravel\Authentication\AuthManager $auth */
-        $auth = Container::getInstance()->make('auth');
+        $auth     = Container::getInstance()->make('auth');
+        $sessions = $auth->sessions($context->guard);
 
-        $auth->sessions($event->context->guard)->credentialRemoved($identity);
+        /** @var \Illuminate\Contracts\Auth\Guard&\SineMacula\Laravel\Authentication\Contracts\HasGuardContext $guard */
+        $guard    = $auth->guard($context->guard);
+        $identity = $guard->context()->provider()->retrieveById($context->identityId);
+
+        if (!$identity instanceof Identity || MorphClass::of($identity) !== $context->identityType) {
+            return;
+        }
+
+        $sessions->credentialRemoved($identity);
     }
 }

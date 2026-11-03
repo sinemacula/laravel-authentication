@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithFoldingCollations;
 use Tests\Concerns\InteractsWithMachineCredentials;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\MachineAccount;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\Integration\Fixtures\MachineMembership;
@@ -140,7 +141,7 @@ final class ApiKeyServiceTest extends TestCase
         self::assertSame($issued->id, $events[0]->context->credentialId);
         self::assertSame(['invoices:read', 'reports'], $events[0]->context->scopes);
         self::assertSame('machine', $events[0]->context->guard);
-        self::assertSame($machine, $events[0]->context->identity);
+        EventContextAssertions::assertIdentity($machine, $events[0]->context);
         self::assertSame(IdentifierCoercion::stringify($machine->getKey()), $events[0]->context->principalId);
         self::assertSame(self::MACHINE_IP, $events[0]->context->client->ip);
         self::assertNull($events[0]->context->method);
@@ -662,8 +663,8 @@ final class ApiKeyServiceTest extends TestCase
         self::assertCount(1, $events);
         self::assertSame($issued->id, $events[0]->context->credentialId);
         self::assertSame(['read'], $events[0]->context->scopes);
-        self::assertTrue($machine->is($events[0]->context->identity));
-        self::assertSame($machine, $events[0]->context->principal);
+        EventContextAssertions::assertIdentity($machine, $events[0]->context);
+        EventContextAssertions::assertPrincipal($machine, $events[0]->context);
         self::assertSame('2026-04-06T12:01:00+00:00', $this->apiKeys()->find($machine, $issued->id)?->revokedAt?->toIso8601String());
     }
 
@@ -833,8 +834,8 @@ final class ApiKeyServiceTest extends TestCase
         self::assertSame($previous->id, $events[0]->previousKeyId);
         self::assertSame($rotated->id, $events[0]->context->credentialId);
         self::assertSame(['read'], $events[0]->context->scopes);
-        self::assertSame($membership, $events[0]->context->principal);
-        self::assertTrue($account->is($events[0]->context->identity));
+        EventContextAssertions::assertPrincipal($membership, $events[0]->context);
+        EventContextAssertions::assertIdentity($account, $events[0]->context);
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $events[0]->context->tenantId);
     }
 
@@ -1103,7 +1104,7 @@ final class ApiKeyServiceTest extends TestCase
         $this->recordMachineEvents([ApiKeyRevoked::class]);
 
         self::assertTrue($this->apiKeys('accounts')->revoke($membership, $issued->id));
-        self::assertNull($this->machineEventsOf(ApiKeyRevoked::class)[0]->context->tenant);
+        EventContextAssertions::assertTenant(null, $this->machineEventsOf(ApiKeyRevoked::class)[0]->context);
 
         $this->expectException(TenantUnavailableException::class);
 
@@ -1154,7 +1155,7 @@ final class ApiKeyServiceTest extends TestCase
         $this->recordMachineEvents([ApiKeyRevoked::class]);
 
         self::assertTrue($this->apiKeys()->revoke($machine, $issued->id));
-        self::assertNull($this->machineEventsOf(ApiKeyRevoked::class)[0]->context->identity);
+        EventContextAssertions::assertIdentity(null, $this->machineEventsOf(ApiKeyRevoked::class)[0]->context);
     }
 
     /**

@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasskeyRemoval;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
+use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
  * Feature tests of the optional `RevokeSessionsOnPasskeyRemoval` listener,
@@ -126,6 +127,31 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
         self::assertTrue($this->signInWithPasskey()->isSignedIn());
 
         event(new PasskeyRemoved(new EventContext('api', new ClientContext(null, null), method: 'passkey', credentialId: 'removed')));
+
+        self::assertSame([null], DB::table('authentication_sessions')->pluck('revoked_reason')->all());
+    }
+
+    /**
+     * An identity the guard's provider no longer finds, or one the provider
+     * finds under the identifier but of another type than the event names, has
+     * nothing revoked: the identity the event names is not the provider's.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityTheProviderDoesNotReturnRevokesNothing(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->registerPasskey($identity);
+
+        self::assertTrue($this->signInWithPasskey()->isSignedIn());
+
+        $client = new ClientContext(null, null);
+
+        event(new PasskeyRemoved(new EventContext('api', $client, new PlainIdentityFixture($identity->id), method: 'passkey', credentialId: 'removed')));
+        event(new PasskeyRemoved(new EventContext('api', $client, new PlainIdentityFixture($identity->id + 1), method: 'passkey', credentialId: 'removed')));
 
         self::assertSame([null], DB::table('authentication_sessions')->pluck('revoked_reason')->all());
     }

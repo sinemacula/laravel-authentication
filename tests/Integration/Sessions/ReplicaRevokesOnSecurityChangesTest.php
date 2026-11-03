@@ -13,7 +13,9 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
 use Tests\Integration\Fixtures\TenantAware3dTenant;
@@ -110,7 +112,7 @@ final class ReplicaRevokesOnSecurityChangesTest extends TestCase
 
         self::assertSame(0, Auth::sessions('api')->tenantDeactivated($tenant, [$principal]));
         self::assertCount(1, $reported);
-        self::assertSame($tenant, $reported[0]->context->tenant);
+        EventContextAssertions::assertTenant($tenant, $reported[0]->context);
     }
 
     /**
@@ -137,8 +139,8 @@ final class ReplicaRevokesOnSecurityChangesTest extends TestCase
 
         self::assertSame(0, Auth::sessions('api')->principalDeactivated($principal));
         self::assertCount(1, $reported);
-        self::assertInstanceOf(TenantAware3dIdentity::class, $reported[0]->context->identity);
-        self::assertSame($identity->getKey(), $reported[0]->context->identity->getKey());
+        self::assertSame(TenantAware3dIdentity::class, $reported[0]->context->identityType);
+        self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $reported[0]->context->identityId);
     }
 
     /**

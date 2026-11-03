@@ -38,6 +38,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\SendIdentifierChangeCode
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\InteractsWithRateLimits;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
@@ -135,8 +136,8 @@ final class IdentifierChangeRequestsTest extends TestCase
         self::assertSame(1, DB::table('one_time_codes')->where('id', self::bindingDigest($binding))->count());
 
         Event::assertDispatched(IdentifierChangeRequested::class, fn (IdentifierChangeRequested $event): bool => $event->context->guard === 'web'
-            && $event->context->identity                                                                                                === $identity
-            && [$event->type, $event->identifier]                                                                                       === ['email', self::NEW_EMAIL]
+            && EventContextAssertions::namesIdentity($identity, $event->context)
+            && [$event->type, $event->identifier] === ['email', self::NEW_EMAIL]
             && $event->expiresAt->equalTo($this->now->addSeconds(600)));
         Event::assertNotDispatched(AuthenticationFailed::class);
 
@@ -412,7 +413,7 @@ final class IdentifierChangeRequestsTest extends TestCase
             ],
             array_map(static fn (AuthenticationFailed $event): array => [$event->flow, $event->reason, $event->identifier], $this->failures()),
         );
-        self::assertSame($identity, $this->failures()[0]->context->identity);
+        EventContextAssertions::assertIdentity($identity, $this->failures()[0]->context);
         self::assertSame(0, self::rows('rate_limits'));
         self::assertSame(0, self::rows('identifier_changes'));
     }

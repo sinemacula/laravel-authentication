@@ -52,20 +52,21 @@ final class SignedInTest extends TestCase
     }
 
     /**
-     * The event serialises its models for queued listeners and survives a round
-     * trip. It does not ask the dispatcher to wait for a transaction: that
-     * would wait for whichever transaction is open last on any connection, so
-     * the package dispatches it once the written row's own connection commits.
+     * The event holds no model, serialises as it is for queued listeners and
+     * survives a round trip. It does not ask the dispatcher to wait for a
+     * transaction: that would wait for whichever transaction is open last on
+     * any connection, so the package dispatches it once the written row's own
+     * connection commits.
      *
      * @return void
      */
-    public function testSerializesItsModelsAndDispatchesWhenTheSenderSays(): void
+    public function testSerializesItsValuesAndDispatchesWhenTheSenderSays(): void
     {
         $context = self::context();
         $event   = new SignedIn($context, true);
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesModels::class, class_uses_recursive($event));
+        self::assertNotContains(SerializesModels::class, class_uses_recursive($event));
 
         $copy = unserialize(serialize($event));
 

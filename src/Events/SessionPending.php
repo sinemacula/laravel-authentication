@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Events;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Queue\SerializesModels;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 
 /**
@@ -34,8 +33,6 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
  */
 final readonly class SessionPending implements AuthenticationEvent
 {
-    use SerializesModels;
-
     /**
      * Constructor.
      *

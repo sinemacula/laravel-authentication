@@ -21,8 +21,9 @@ use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubTenant;
 
 /**
- * EventContext unit tests: the parts it keeps, the snapshot it takes when it is
- * built, and the snapshot as scalars.
+ * EventContext unit tests: the plain values it keeps, the identity, principal,
+ * tenant and session named by type and identifier when it is built and never
+ * kept as models, and the values as scalars.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,29 +49,77 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * Every part given is kept as given.
+     * The guard, the client and the method are kept as given, and the identity,
+     * principal, tenant and session given only as their types and identifiers.
      *
      * @return void
      */
-    public function testKeepsEveryPart(): void
+    public function testKeepsThePlainPartsAndNamesTheModels(): void
     {
-        $client    = new ClientContext('203.0.113.7', 'agent');
-        $identity  = new PlainIdentityFixture(7);
-        $principal = new PlainPrincipalFixture('p-1');
-        $tenant    = self::tenant(3);
-        $session   = new PlainSessionFixture('session-1');
+        $client  = new ClientContext('203.0.113.7', 'agent');
+        $session = new PlainSessionFixture('session-1');
 
-        $context = new EventContext('api', $client, $identity, $principal, $tenant, $session, 'password');
+        $context = new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), self::tenant(3), $session, 'password');
 
         self::assertSame('api', $context->guard);
         self::assertSame($client, $context->client);
-        self::assertSame($identity, $context->identity);
-        self::assertSame($principal, $context->principal);
-        self::assertSame($tenant, $context->tenant);
-        self::assertSame($session, $context->session);
         self::assertSame('password', $context->method);
+        self::assertSame([PlainIdentityFixture::class, '7'], [$context->identityType, $context->identityId]);
+        self::assertSame([PlainPrincipalFixture::class, 'p-1'], [$context->principalType, $context->principalId]);
+        self::assertSame([StubTenant::class, '3'], [$context->tenantType, $context->tenantId]);
+        self::assertSame('session-1', $context->sessionId);
         self::assertNull($context->credentialId);
         self::assertNull($context->scopes);
+    }
+
+    /**
+     * The context holds plain values only: no property can hold a model, and
+     * every value it holds is a scalar, a list of them, `null`, the time or the
+     * client.
+     *
+     * @return void
+     */
+    public function testHoldsNoModel(): void
+    {
+        $context = self::fullContext();
+        $types   = [];
+
+        foreach ((new \ReflectionClass($context))->getProperties() as $property) {
+            $types[$property->getName()] = (string) $property->getType();
+        }
+
+        self::assertSame([
+            'occurredAt'       => CarbonImmutable::class,
+            'identityType'     => '?string',
+            'identityId'       => '?string',
+            'principalType'    => '?string',
+            'principalId'      => '?string',
+            'tenantType'       => '?string',
+            'tenantId'         => '?string',
+            'sessionId'        => '?string',
+            'guard'            => '?string',
+            'client'           => ClientContext::class,
+            'method'           => '?string',
+            'credentialId'     => '?string',
+            'scopes'           => '?array',
+            'connectionId'     => '?string',
+            'requestReference' => '?string',
+        ], $types);
+    }
+
+    /**
+     * The connection and the request reference of a redeemed external result
+     * are kept as given, and are `null` by default.
+     *
+     * @return void
+     */
+    public function testKeepsTheConnectionAndTheRequestReference(): void
+    {
+        $client  = new ClientContext(null, null);
+        $context = new EventContext('api', $client, new PlainIdentityFixture(7), connectionId: 'connection-7', requestReference: 'request-3');
+
+        self::assertSame(['connection-7', 'request-3'], [$context->connectionId, $context->requestReference]);
+        self::assertSame([null, null], [(new EventContext('api', $client))->connectionId, (new EventContext('api', $client))->requestReference]);
     }
 
     /**
@@ -219,10 +268,6 @@ final class EventContextTest extends TestCase
         $context = new EventContext(null, new ClientContext(null, null));
 
         self::assertNull($context->guard);
-        self::assertNull($context->identity);
-        self::assertNull($context->principal);
-        self::assertNull($context->tenant);
-        self::assertNull($context->session);
         self::assertNull($context->method);
         self::assertNull($context->identityType);
         self::assertNull($context->identityId);
@@ -231,6 +276,8 @@ final class EventContextTest extends TestCase
         self::assertNull($context->tenantType);
         self::assertNull($context->tenantId);
         self::assertNull($context->sessionId);
+        self::assertNull($context->connectionId);
+        self::assertNull($context->requestReference);
     }
 
     /**
@@ -242,7 +289,6 @@ final class EventContextTest extends TestCase
     {
         $context = new EventContext('api', new ClientContext(null, null), sessionId: 'named-session');
 
-        self::assertNull($context->session);
         self::assertSame('named-session', $context->sessionId);
     }
 
@@ -259,8 +305,8 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * The snapshot is taken when the context is built: changing the models
-     * afterwards changes the live references, not the snapshot.
+     * The types and identifiers are taken when the context is built: changing
+     * the models afterwards changes nothing it holds.
      *
      * @return void
      */
@@ -279,14 +325,12 @@ final class EventContextTest extends TestCase
         self::assertSame('9', $context->identityId);
         self::assertSame('9', $context->principalId);
         self::assertSame('3', $context->tenantId);
-        self::assertSame(10, $context->principal?->getPrincipalIdentifier());
-        self::assertSame(4, $context->tenant?->getTenantIdentifier());
     }
 
     /**
-     * `toArray()` is the snapshot as scalars, with no model: the time as an ISO
-     * 8601 UTC string to the microsecond whatever the clock's timezone, and the
-     * client as its IP address and user agent. It encodes as JSON.
+     * `toArray()` is every value as scalars: the time as an ISO 8601 UTC string
+     * to the microsecond whatever the clock's timezone, and the client as its
+     * IP address and user agent. It encodes as JSON.
      *
      * @return void
      */
@@ -306,29 +350,29 @@ final class EventContextTest extends TestCase
 
         self::assertInstanceOf(Arrayable::class, $context);
         self::assertSame([
-            'occurred_at'    => '2026-04-06T12:00:00.123456Z',
-            'guard'          => 'api',
-            'method'         => 'password',
-            'ip'             => '203.0.113.7',
-            'user_agent'     => 'agent',
-            'identity_type'  => PlainIdentityFixture::class,
-            'identity_id'    => '7',
-            'principal_type' => $context->principal === null ? null : $context->principal::class,
-            'principal_id'   => '5',
-            'tenant_type'    => PlainTenantFixture::class,
-            'tenant_id'      => '3',
-            'session_id'     => 'session-1',
-            'credential_id'  => 'key-1',
-            'scopes'         => ['read'],
+            'occurred_at'       => '2026-04-06T12:00:00.123456Z',
+            'guard'             => 'api',
+            'method'            => 'password',
+            'ip'                => '203.0.113.7',
+            'user_agent'        => 'agent',
+            'identity_type'     => PlainIdentityFixture::class,
+            'identity_id'       => '7',
+            'principal_type'    => StubPrincipal::class,
+            'principal_id'      => '5',
+            'tenant_type'       => PlainTenantFixture::class,
+            'tenant_id'         => '3',
+            'session_id'        => 'session-1',
+            'credential_id'     => 'key-1',
+            'scopes'            => ['read'],
+            'connection_id'     => 'connection-7',
+            'request_reference' => 'request-3',
         ], $context->toArray());
         self::assertSame('14', $context->occurredAt->format('H'));
         self::assertJson(json_encode($context->toArray(), JSON_THROW_ON_ERROR));
     }
 
     /**
-     * The snapshot and the other values survive a round trip unchanged, the
-     * time to the microsecond; a part that is not an Eloquent model does not
-     * cross and comes back `null`.
+     * Every value survives a round trip unchanged, the time to the microsecond.
      *
      * @return void
      */
@@ -355,10 +399,7 @@ final class EventContextTest extends TestCase
         self::assertSame($context->toArray(), $copy->toArray());
         self::assertTrue($context->occurredAt->equalTo($copy->occurredAt));
         self::assertEquals($client, $copy->client);
-        self::assertNull($copy->identity);
-        self::assertNull($copy->principal);
-        self::assertNull($copy->tenant);
-        self::assertNull($copy->session);
+        self::assertEquals($context, $copy);
     }
 
     /**
@@ -378,6 +419,8 @@ final class EventContextTest extends TestCase
             'password',
             credentialId: 'key-1',
             scopes: ['read'],
+            connectionId: 'connection-7',
+            requestReference: 'request-3',
         );
     }
 

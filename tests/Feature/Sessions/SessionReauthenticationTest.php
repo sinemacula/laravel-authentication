@@ -45,6 +45,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Passwords\RecordingTimebox;
 use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -233,8 +234,8 @@ final class SessionReauthenticationTest extends TestCase
         self::assertSame([FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS], [$wrong->reason, $foreign->reason]);
         self::assertSame([AuthenticationFailed::class, AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(
-            [[AuthenticationFlow::REAUTHENTICATION, FailureReason::INVALID_CREDENTIALS], [AuthenticationFlow::REAUTHENTICATION, FailureReason::INVALID_CREDENTIALS]],
-            array_map(static fn (object $event): array => $event instanceof AuthenticationFailed ? [$event->flow, $event->reason] : [], $this->recorded),
+            [[AuthenticationFlow::REAUTHENTICATION, FailureReason::INVALID_CREDENTIALS, null], [AuthenticationFlow::REAUTHENTICATION, FailureReason::INVALID_CREDENTIALS, null]],
+            array_map(static fn (object $event): array => $event instanceof AuthenticationFailed ? [$event->flow, $event->reason, $event->challengeId] : [], $this->recorded),
         );
         self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
         self::assertSame(1, self::counterHits('sign_in', 'per_account', AccountAttempts::account($signedIn->identity)));
@@ -242,7 +243,8 @@ final class SessionReauthenticationTest extends TestCase
 
     /**
      * A method the application does not allow is refused before anything is
-     * counted, and a machine credential kind is no method at all.
+     * counted, one no method is registered under naming no challenge, and a
+     * machine credential kind is no method at all.
      *
      * @return void
      *
@@ -262,6 +264,12 @@ final class SessionReauthenticationTest extends TestCase
             [$this->recordedEvent(AuthenticationFailed::class)->flow, $this->recordedEvent(AuthenticationFailed::class)->reason],
         );
         self::assertSame(0, DB::table('rate_limits')->count());
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $unregistered = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
+
+        self::assertSame([FailureReason::METHOD_NOT_ALLOWED, null], [$unregistered->reason, $this->recordedEvent(AuthenticationFailed::class)->challengeId]);
 
         $this->expectException(\InvalidArgumentException::class);
 
@@ -490,10 +498,9 @@ final class SessionReauthenticationTest extends TestCase
 
         self::assertSame([FailureReason::IDENTITY_INACTIVE, null], [$result->reason, $result->accessToken]);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
-        self::assertSame(
-            [AuthenticationFlow::REAUTHENTICATION, FailureReason::IDENTITY_INACTIVE, $signedIn->identity->getAuthIdentifier(), $signedIn->record->getKey()],
-            [$failure->flow, $failure->reason, $failure->context->identity?->getAuthIdentifier(), $failure->context->session?->getSessionIdentifier()],
-        );
+        self::assertSame([AuthenticationFlow::REAUTHENTICATION, FailureReason::IDENTITY_INACTIVE], [$failure->flow, $failure->reason]);
+        EventContextAssertions::assertIdentity($signedIn->identity, $failure->context);
+        EventContextAssertions::assertSession($signedIn->record, $failure->context);
         self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
         self::assertSame(
             [1, 1],

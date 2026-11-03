@@ -59,6 +59,7 @@ use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\FirstFactorRecorder;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\StubBareSession;
@@ -282,7 +283,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame(FailureReason::TOKEN_INVALID, $failure->reason);
         self::assertSame(self::GUARD_NAME, $failure->context->guard);
         self::assertSame(self::CLIENT_IP, $failure->context->client->ip);
-        self::assertNull($failure->context->identity);
+        EventContextAssertions::assertIdentity(null, $failure->context);
         self::assertNull($failure->context->sessionId);
         self::assertNull($failure->identifier);
         self::assertNull($failure->retryAfter);
@@ -421,9 +422,9 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertSame(FailureReason::TENANT_INACTIVE, $failure->reason);
         self::assertSame($session->id, $failure->context->sessionId);
-        self::assertSame($identity, $failure->context->identity);
-        self::assertSame($principal, $failure->context->principal);
-        self::assertNull($failure->context->tenant);
+        EventContextAssertions::assertIdentity($identity, $failure->context);
+        EventContextAssertions::assertPrincipal($principal, $failure->context);
+        EventContextAssertions::assertTenant(null, $failure->context);
         self::assertSame('password', $failure->context->method);
         self::assertSame(RefreshTokenHasher::hash($plainRotationId), $session->fresh()?->getRefreshKey());
     }
@@ -486,7 +487,6 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertSame(FailureReason::IDENTITY_UNKNOWN, $failure->reason);
         self::assertSame($session->id, $failure->context->sessionId);
-        self::assertNull($failure->context->identity);
         self::assertSame('9', $failure->context->identityId);
         self::assertSame(PlainPrincipalFixture::class, $failure->context->principalType);
         self::assertSame('p-9', $failure->context->principalId);
@@ -1282,7 +1282,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($first, $this->row($session));
         self::assertCount(1, $this->dispatched);
         self::assertInstanceOf(SessionRevoked::class, $this->dispatched[0]);
-        self::assertSame($session, $this->dispatched[0]->context->session);
+        EventContextAssertions::assertSession($session, $this->dispatched[0]->context);
         self::assertSame(self::GUARD_NAME, $this->dispatched[0]->context->guard);
         self::assertSame(self::CLIENT_IP, $this->dispatched[0]->context->client->ip);
         self::assertSame('password', $this->dispatched[0]->context->method);
@@ -1658,7 +1658,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame([FailureReason::SESSION_GUARD_MISMATCH], $this->failureReasons());
         self::assertSame([], $this->dispatched);
         self::assertSame(self::GUARD_NAME, $failure->context->guard);
-        self::assertSame($session->id, $failure->context->session?->getSessionIdentifier());
+        self::assertSame($session->id, $failure->context->sessionId);
         self::assertSame($session->id, $failure->context->sessionId);
         self::assertSame($before, $this->row($session));
     }
@@ -2091,9 +2091,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertCount(1, $revocations);
         self::assertSame(RevocationReason::ROTATION_REUSE, $revocations[0]->reason);
-        self::assertSame($session->id, $revocations[0]->context->session?->getSessionIdentifier());
         self::assertSame($session->id, $revocations[0]->context->sessionId);
-        self::assertNull($revocations[0]->context->identity);
 
         foreach ([$revocations[0]->context, $this->failures[0]->context] as $context) {
             self::assertSame($session->getAttribute('authenticatable_id'), $context->identityId);

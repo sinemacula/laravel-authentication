@@ -36,6 +36,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\InteractsWithRateLimits;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubVerbatimNormalizer;
@@ -178,7 +179,8 @@ final class CodeSignInTest extends TestCase
 
     /**
      * A wrong code is refused and counted against the code; the identity is not
-     * named on the failure, which looks as it would for no identity.
+     * named on the failure, which looks as it would for no identity, and the
+     * challenge the code answered is.
      *
      * @return void
      *
@@ -197,8 +199,8 @@ final class CodeSignInTest extends TestCase
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $result->reason);
         self::assertSame(1, self::storedAttempts());
         self::assertSame([AuthenticationFlow::SIGN_IN, FailureReason::INVALID_CREDENTIALS, self::PHONE], [$failed->flow, $failed->reason, $failed->identifier]);
-        self::assertSame('phone_code', $failed->context->method);
-        self::assertNull($failed->context->identity);
+        self::assertSame(['phone_code', self::challenge()], [$failed->context->method, $failed->challengeId]);
+        EventContextAssertions::assertIdentity(null, $failed->context);
         self::assertSame(['phone' => self::PHONE], $this->recordedEvent(Attempting::class)->credentials);
         self::assertSame(['phone' => self::PHONE], $this->recordedEvent(Failed::class)->credentials);
     }
@@ -377,7 +379,7 @@ final class CodeSignInTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertSame(FailureReason::IDENTITY_INACTIVE, $this->signIn(self::CODE)->reason);
-        self::assertInstanceOf(CodeIdentity::class, $this->recordedEvent(AuthenticationFailed::class)->context->identity);
+        self::assertSame(CodeIdentity::class, $this->recordedEvent(AuthenticationFailed::class)->context->identityType);
     }
 
     /**
@@ -501,7 +503,8 @@ final class CodeSignInTest extends TestCase
 
     /**
      * Input without a well-formed number, code and challenge id is refused
-     * before any lookup or check: nothing is counted against the code.
+     * before any lookup or check: nothing is counted against the code, and a
+     * challenge id not in the form the engine issues is never reported.
      *
      * @param  array<string, mixed>  $input
      * @return void
@@ -511,6 +514,8 @@ final class CodeSignInTest extends TestCase
     #[DataProvider('provideMalformedInput')]
     public function testMalformedInputIsRefusedWithoutCountingAgainstTheCode(array $input): void
     {
+        $this->recordEvents([AuthenticationFailed::class]);
+
         self::seedCodeIdentity();
 
         $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
@@ -521,6 +526,7 @@ final class CodeSignInTest extends TestCase
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $result->reason);
         self::assertSame(0, self::storedAttempts());
         self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
+        self::assertSame(($input['challenge'] ?? null) === self::challenge() ? self::challenge() : null, $this->recordedEvent(AuthenticationFailed::class)->challengeId);
     }
 
     /**
@@ -755,6 +761,42 @@ final class CodeSignInTest extends TestCase
 
         self::assertIsArray($claims);
         self::assertSame([$later->getTimestamp(), ['sms']], [$claims['auth_time'] ?? null, $claims['amr'] ?? null]);
+    }
+
+    /**
+     * A reauthentication refused for a wrong code names the challenge the code
+     * answered.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefusedReauthenticationNamesItsChallenge(): void
+    {
+        self::seedCodeIdentity();
+
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE])->isSent());
+
+        $session = $this->signIn(self::CODE)->session;
+
+        self::assertNotNull($session);
+
+        $later = $this->now->addHour();
+
+        Carbon::setTestNow($later);
+        CarbonImmutable::setTestNow($later);
+
+        JWT::$timestamp = $later->getTimestamp();
+
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE])->isSent());
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $result = $this->sessions('mobile')->reauthenticate($session->record, 'phone_code', ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => '000000']);
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertFalse($result->isIssued());
+        self::assertSame([AuthenticationFlow::REAUTHENTICATION, self::challenge()], [$failed->flow, $failed->challengeId]);
     }
 
     /**

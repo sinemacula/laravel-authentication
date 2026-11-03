@@ -64,6 +64,19 @@ interface SignInMethod
     public function identifier(string $guard, #[\SensitiveParameter] array $input): ?string;
 
     /**
+     * The id of the challenge the input answers (a one-time code's, a passkey
+     * ceremony's) when it is in the form the method issues, or `null` for a
+     * method that answers none and for an id in any other form. The session
+     * service reports it with every failure of the method's sign-in or
+     * reauthentication, so a listener can follow every attempt at one
+     * challenge; it never looks anything up with it.
+     *
+     * @param  array<array-key, mixed>  $input
+     * @return ?string
+     */
+    public function challenge(#[\SensitiveParameter] array $input): ?string;
+
+    /**
      * Verify the input and return the first factor it proves, or why it does
      * not.
      *

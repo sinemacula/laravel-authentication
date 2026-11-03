@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Events;
 
-use Illuminate\Queue\SerializesModels;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -26,6 +25,20 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  * the sign-in's result says `invalid_credentials`, so listeners (lockout
  * notices, a SIEM) can tell a locked account from a wrong password.
  *
+ * A failed check of a challenge the package issued (a one-time code checked as
+ * a sign-in, a factor, an identifier's verification or change, a password
+ * reset, or a passkey ceremony signed in or reauthenticated with) carries the
+ * challenge's id, which the further-factor package's own per-attempt events
+ * share, so a listener can follow every attempt at one challenge. An id that is
+ * not in the form the package issues is never carried.
+ *
+ * Reported once for each refusal: a guard settles and reports its request's
+ * credential at most once, each service call reports its own refusal once, and
+ * reading the caller reports a refused refresh or pending credential once per
+ * guard and credential. Building the authentication context reports nothing.
+ * Guards of one kind listed on one route each report their own refusal of the
+ * credential, naming their guard: they are different applications' refusals.
+ *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -33,8 +46,6 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  */
 final readonly class AuthenticationFailed implements AuthenticationEvent
 {
-    use SerializesModels;
-
     /**
      * Constructor.
      *
@@ -43,6 +54,7 @@ final readonly class AuthenticationFailed implements AuthenticationEvent
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?string  $identifier
      * @param  ?int  $retryAfter
+     * @param  ?string  $challengeId
      */
     public function __construct(
 
@@ -60,6 +72,9 @@ final readonly class AuthenticationFailed implements AuthenticationEvent
 
         /** Seconds until another attempt may be made, for `rate_limited` and `account_rate_limited` only. */
         public ?int $retryAfter = null,
+
+        /** The id of the challenge (a one-time code's or a passkey ceremony's) the failed check answered, when it is in the form the package issues; `null` otherwise. */
+        public ?string $challengeId = null,
     ) {}
 
     /**

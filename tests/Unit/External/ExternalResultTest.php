@@ -45,10 +45,11 @@ final class ExternalResultTest extends TestCase
         $bare = new ExternalResult('c', 'i', 's');
 
         self::assertSame(
-            [null, null, null, null, null, null],
-            [$bare->tenantId, $bare->authenticatedAt, $bare->sessionNotAfter, $bare->policyVersion, $bare->evidence, $bare->linkId],
+            [null, null, null, null, null, null, null],
+            [$bare->tenantId, $bare->authenticatedAt, $bare->sessionNotAfter, $bare->policyVersion, $bare->evidence, $bare->linkId, $bare->requestReference],
         );
         self::assertSame('Link-9 ', (new ExternalResult('c', 'i', 's', linkId: 'Link-9 '))->linkId);
+        self::assertSame(' Request/7 ', (new ExternalResult('c', 'i', 's', requestReference: ' Request/7 '))->requestReference);
 
         $evidence = new ExternalEvidence(['otp'], 'urn:example:acr', $authenticated);
 
@@ -91,16 +92,22 @@ final class ExternalResultTest extends TestCase
     public function testEachValueFitsUpToItsLengthInCharacters(): void
     {
         self::assertSame(
-            [255, 2048, 1024, 64],
-            [ExternalResult::ID_MAX_LENGTH, ExternalResult::ISSUER_MAX_LENGTH, ExternalResult::SUBJECT_MAX_LENGTH, ExternalResult::VERSION_MAX_LENGTH],
+            [255, 2048, 1024, 64, 255],
+            [
+                ExternalResult::ID_MAX_LENGTH,
+                ExternalResult::ISSUER_MAX_LENGTH,
+                ExternalResult::SUBJECT_MAX_LENGTH,
+                ExternalResult::VERSION_MAX_LENGTH,
+                ExternalResult::REFERENCE_MAX_LENGTH,
+            ],
         );
 
         $id   = str_repeat('é', 255);
-        $wide = new ExternalResult($id, str_repeat('é', 2048), str_repeat('é', 1024), $id, policyVersion: str_repeat('é', 64), linkId: $id);
+        $wide = new ExternalResult($id, str_repeat('é', 2048), str_repeat('é', 1024), $id, policyVersion: str_repeat('é', 64), linkId: $id, requestReference: $id);
 
         self::assertSame(
-            [str_repeat('é', 255), str_repeat('é', 2048), str_repeat('é', 1024), str_repeat('é', 255), str_repeat('é', 64), str_repeat('é', 255)],
-            [$wide->connectionId, $wide->issuer, $wide->subject, $wide->tenantId, $wide->policyVersion, $wide->linkId],
+            [str_repeat('é', 255), str_repeat('é', 2048), str_repeat('é', 1024), str_repeat('é', 255), str_repeat('é', 64), str_repeat('é', 255), str_repeat('é', 255)],
+            [$wide->connectionId, $wide->issuer, $wide->subject, $wide->tenantId, $wide->policyVersion, $wide->linkId, $wide->requestReference],
         );
     }
 
@@ -125,6 +132,8 @@ final class ExternalResultTest extends TestCase
             'an empty policy'     => [['policyVersion' => ''] + $valid, 'policy version', 64],
             'an empty link'       => [['linkId' => ''] + $valid, 'link id', 255],
             'a long link'         => [['linkId' => str_repeat('l', 256)] + $valid, 'link id', 255],
+            'an empty reference'  => [['requestReference' => ''] + $valid, 'request reference', 255],
+            'a long reference'    => [['requestReference' => str_repeat('r', 256)] + $valid, 'request reference', 255],
             'a long policy'       => [['policyVersion' => str_repeat('v', 65)] + $valid, 'policy version', 64],
         ];
     }

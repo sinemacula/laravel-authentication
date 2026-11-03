@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
+use Tests\Fixtures\Events\EventContextAssertions;
 
 /**
  * Feature tests for the credential `attempt()` event dispatch flow on
@@ -185,10 +186,10 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
-                    && $event->reason            === FailureReason::INVALID_CREDENTIALS
-                    && $event->context->identity === null
-                    && $event->identifier        === 'x'
-                    && $event->context->method   === 'password'),
+                    && $event->reason === FailureReason::INVALID_CREDENTIALS
+                    && EventContextAssertions::namesIdentity(null, $event->context)
+                    && $event->identifier      === 'x'
+                    && $event->context->method === 'password'),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
@@ -303,9 +304,9 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
-                    && $event->reason             === FailureReason::PRINCIPAL_UNRESOLVED
-                    && $event->context->identity  === $identity
-                    && $event->context->principal === null),
+                    && $event->reason === FailureReason::PRINCIPAL_UNRESOLVED
+                    && EventContextAssertions::namesIdentity($identity, $event->context)
+                    && EventContextAssertions::namesPrincipal(null, $event->context)),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
@@ -348,8 +349,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
-                    && $event->reason            === FailureReason::IDENTITY_INACTIVE
-                    && $event->context->identity === $identity),
+                    && $event->reason === FailureReason::IDENTITY_INACTIVE
+                    && EventContextAssertions::namesIdentity($identity, $event->context)),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
@@ -401,9 +402,9 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
-                    && $event->reason             === FailureReason::PRINCIPAL_INACTIVE
-                    && $event->context->principal === $principal
-                    && $event->context->tenant    === null),
+                    && $event->reason === FailureReason::PRINCIPAL_INACTIVE
+                    && EventContextAssertions::namesPrincipal($principal, $event->context)
+                    && EventContextAssertions::namesTenant(null, $event->context)),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
@@ -456,9 +457,9 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
-                    && $event->reason             === FailureReason::TENANT_INACTIVE
-                    && $event->context->principal === $principal
-                    && $event->context->tenant    === null),
+                    && $event->reason === FailureReason::TENANT_INACTIVE
+                    && EventContextAssertions::namesPrincipal($principal, $event->context)
+                    && EventContextAssertions::namesTenant(null, $event->context)),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));

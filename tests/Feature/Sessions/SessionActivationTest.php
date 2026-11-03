@@ -42,6 +42,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -220,7 +221,7 @@ final class SessionActivationTest extends TestCase
 
         self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame(RevocationReason::SUPERSEDED, $this->recordedEvent(SessionRevoked::class)->reason);
-        self::assertSame($proven, $this->recordedEvent(SessionRevoked::class)->context->session);
+        EventContextAssertions::assertSession($proven, $this->recordedEvent(SessionRevoked::class)->context);
         self::assertSame(RevocationReason::SUPERSEDED->value, $proven->getRevokedReason());
         self::assertSame($this->now->getTimestamp(), $proven->getRevokedAt()?->getTimestamp());
         self::assertNull($proven->getRefreshKey());

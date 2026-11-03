@@ -511,6 +511,9 @@ seam has a default that works alone.
   transaction that inserts a new passkey and may associate it as a factor (`PasskeyFactorAssociation`, carried in the
   `PasskeyRegistration`'s `factor`), and `removing()` inside the one that deletes it; either may refuse by throwing,
   which rolls the change back whole. The default, `Passkeys\NoPasskeyFactors`, associates nothing and refuses nothing.
+- Every failed check of one of this package's challenges reports `AuthenticationFailed` with the challenge's id
+  (`challengeId`), the id the factor package's own per-attempt events carry, so both can be followed per challenge; the
+  context is plain values the factor package reads as scalars (see [Events](events.md#events)).
 - A factor's one-time codes (a text message or email factor, and the confirmation of one being enrolled) are this
   package's challenges: `Auth::codes($guard)->sendFactorCode($binding, $client)` sends one and answers a `CodeRequest`
   with its `challengeId`, and `verifyFactorCode($binding, $challengeId, $code, $client)` checks it and answers a
@@ -658,15 +661,17 @@ public, and refuses contributed keys no contributor could give) or binds a fake 
   so no external result signs anyone in until the identity package's adapter binds `laravel-sso`'s links. Linking, and
   the links, are `laravel-sso`'s; this package stores none.
 - Inside the transaction in which it redeems a handoff, after `laravel-sso`'s own locks, the adapter hands the verified
-  result, naming the link it redeemed it through (`linkId`), to
-  `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
+  result, naming the link it redeemed it through (`linkId`) and the authorisation request's public reference
+  (`requestReference`), to `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
   sign-in](signing-in.md#external-sign-in)). The application must list `external_provider` in its `methods`. The
   identity is reloaded through the guard's provider, and activity, the application policy, the additional-factor policy,
   the choice of principal and the tenant's authentication policy all apply; no attempt limit or timebox does, since
-  nothing is guessed. The package takes no lock before the link contract is asked, so every row of its own it locks
-  (the link's connection guard, then any session the sign-in replaces) is locked after the adapter's own. A database
-  error, a PostgreSQL serialization failure included, propagates for the adapter to retry the whole transaction. The
-  contract must answer exactly the link the result names (`link_mismatch` otherwise).
+  nothing is guessed. The package takes no lock before the link contract is asked, so every row of its own it locks (the
+  link's connection guard, then any session the sign-in replaces) is locked after the adapter's own. A database error, a
+  PostgreSQL serialization failure included, propagates for the adapter to retry the whole transaction. The contract
+  must answer exactly the link the result names (`link_mismatch` otherwise). Once committed, `ExternalResultRedeemed`
+  reports the redemption with the connection and the request reference, which the redemption's failures carry too, so
+  they correlate with `laravel-sso`'s completion events.
 - A result linked to no identity dispatches `ExternalResultUnlinked` and fails as `external_result_unlinked`. The event
   is informational: `laravel-iam` provisions on `laravel-sso`'s own unlinked-result event, before any handoff is issued,
   never on this one, since provisioning on both would provision twice.
@@ -706,9 +711,11 @@ public, and refuses contributed keys no contributor could give) or binds a fake 
 - With `laravel-iam` installed, it maps every package event into the audit log, and there is nothing to wire. Without
   it, register an `EventMapper` for `Contracts\AuthenticationEvent` with `AuditLog::map()`, giving each event an
   explicit, dotted code (see [Events](events.md#events) for an example).
-- Every package event carries one `Events\EventContext`, so one mapper records them all from its snapshot: when, the
-  guard, the client, the identity, principal and tenant by type and identifier, the session's identifier, the method,
-  and the credential and its scopes, never a secret.
+- Every package event carries one `Events\EventContext`, so one mapper records them all from its plain values: when, the
+  guard, the client, the identity, principal and tenant by type and identifier (`identityType`/`identityId`,
+  `principalType`/`principalId`, `tenantType`/`tenantId`), the session's identifier (`sessionId`), the method, the
+  credential and its scopes (`credentialId`, `scopes`), and for a redeemed external result the connection and the
+  request reference, never a model and never a secret. A failure's `challengeId` names the challenge it answered.
 - Events that report a write are dispatched once it commits on the written row's connection, and never for a rolled-back
   one, so a mapped event is recorded at once and only for what happened.
 - `laravel-audit-log` also records Laravel's own `Login`, `Failed` and `Logout`. This package's guards dispatch those

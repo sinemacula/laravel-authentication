@@ -172,9 +172,7 @@ final class TenantPolicyChangesTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($member->getKey()), $revoked->context->identityId);
         self::assertSame(IdentifierCoercion::stringify($membership->getKey()), $revoked->context->principalId);
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $revoked->context->tenantId);
-        self::assertInstanceOf(Session::class, $revoked->context->session);
-        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, $revoked->context->session->getRevokedReason());
-        self::assertFalse($revoked->context->session->isDirty());
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, Session::query()->whereKey($revoked->context->sessionId)->sole()->getRevokedReason());
     }
 
     /**

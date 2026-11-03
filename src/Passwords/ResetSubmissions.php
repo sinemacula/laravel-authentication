@@ -146,18 +146,19 @@ final readonly class ResetSubmissions
 
         $context     = new EventContext($this->context->name(), $client ?? $this->context->client());
         $given       = ResetInput::identifier($input, $type);
+        $challenge   = $purpose === CodePurpose::PASSWORD_RESET ? ResetInput::secret($input, ResetInput::CHALLENGE_KEY) : '';
+        $challengeId = $this->challengeIdOf($challenge);
         $limiter     = $this->container->make(AttemptLimiter::class);
         $reservation = $limiter->acquire(new AttemptSubject($this->context->name(), AttemptFlow::PASSWORD_RESET, $given, $type, $context->client->ip));
 
         if ($reservation->retryAfter !== null) {
-            return $this->refuse(ResetResult::rateLimited($reservation->retryAfter), FailureReason::RATE_LIMITED, $context, $given, $reservation->retryAfter);
+            return $this->refuse(ResetResult::rateLimited($reservation->retryAfter), FailureReason::RATE_LIMITED, $context, $given, $reservation->retryAfter, $challengeId);
         }
 
         // `#[\SensitiveParameter]` does not cover what a closure captures,
         // which a dump of the trace shows.
-        $proof     = new \SensitiveParameterValue(ResetInput::secret($input, $proofKey));
-        $password  = new \SensitiveParameterValue(ResetInput::secret($input, ResetInput::PASSWORD_KEY));
-        $challenge = $purpose === CodePurpose::PASSWORD_RESET ? ResetInput::secret($input, ResetInput::CHALLENGE_KEY) : '';
+        $proof    = new \SensitiveParameterValue(ResetInput::secret($input, $proofKey));
+        $password = new \SensitiveParameterValue(ResetInput::secret($input, ResetInput::PASSWORD_KEY));
 
         $client = $context->client;
 
@@ -172,7 +173,7 @@ final readonly class ResetSubmissions
             $limiter->release($reservation);
         }
 
-        return $reason === null ? $result : $this->refuse($result, $reason, $context, $given);
+        return $reason === null ? $result : $this->refuse($result, $reason, $context, $given, null, $challengeId);
     }
 
     /**
@@ -341,6 +342,21 @@ final readonly class ResetSubmissions
     }
 
     /**
+     * The id of the challenge a code reset answers, when the input names one in
+     * the form the engine issues; `null` otherwise, and for a link's reset,
+     * which answers none.
+     *
+     * @param  ?string  $challenge
+     * @return ?string
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function challengeIdOf(?string $challenge): ?string
+    {
+        return $challenge !== null && $this->container->make(OneTimeCodes::class)->isWellFormedChallenge($challenge) ? $challenge : null;
+    }
+
+    /**
      * Validate every setting a reset reads, and refuse an identity model on
      * another connection than the storage connection before anything is
      * counted.
@@ -363,18 +379,20 @@ final readonly class ResetSubmissions
     }
 
     /**
-     * Report a refused reset with `AuthenticationFailed` and answer it.
+     * Report a refused reset with `AuthenticationFailed`, with the id of the
+     * challenge a code reset answered, and answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\Passwords\ResetResult  $result
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  ?string  $given
      * @param  ?int  $retryAfter
+     * @param  ?string  $challengeId
      * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
      */
-    private function refuse(ResetResult $result, FailureReason $reason, EventContext $context, ?string $given, ?int $retryAfter = null): ResetResult
+    private function refuse(ResetResult $result, FailureReason $reason, EventContext $context, ?string $given, ?int $retryAfter = null, ?string $challengeId = null): ResetResult
     {
-        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::PASSWORD_RESET, $reason, $given, $retryAfter));
+        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::PASSWORD_RESET, $reason, $given, $retryAfter, $challengeId));
 
         return $result;
     }

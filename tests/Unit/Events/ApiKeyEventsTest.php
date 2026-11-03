@@ -47,7 +47,7 @@ final class ApiKeyEventsTest extends TestCase
             self::assertInstanceOf(AuthenticationEvent::class, $event);
             self::assertSame($context, $event->context());
             self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-            self::assertContains(SerializesModels::class, class_uses_recursive($event));
+            self::assertNotContains(SerializesModels::class, class_uses_recursive($event));
         }
 
         self::assertSame($context, $rotated->context);

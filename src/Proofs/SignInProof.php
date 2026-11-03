@@ -41,6 +41,7 @@ final readonly class SignInProof
      * @param  \Carbon\CarbonImmutable  $authenticatedAt
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\Provenance  $provenance
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\Evaluation  $evaluation
+     * @param  ?string  $requestReference
      */
     private function __construct(
 
@@ -67,6 +68,9 @@ final readonly class SignInProof
 
         /** The acceptance of the provider's evidence, when it was accepted. */
         public ?Evaluation $evaluation = null,
+
+        /** The public reference of the authorisation request an external provider's result answered, if it had one. */
+        public ?string $requestReference = null,
     ) {}
 
     /**
@@ -90,17 +94,20 @@ final readonly class SignInProof
      * none or one after now (the clocks disagree), with the provenance. The
      * first factor carries the evaluation `External\EvidenceAcceptance` gave
      * the provider's evidence when it was accepted, and the provenance carries
-     * that evidence: the two come together or not at all.
+     * that evidence: the two come together or not at all. The authorisation
+     * request's reference, when the result had one, is carried for the
+     * redemption's report and never recorded.
      *
      * @param  string  $method
      * @param  \SineMacula\Laravel\Authentication\Proofs\Provenance  $provenance
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\Evaluation  $evaluation
+     * @param  ?string  $requestReference
      * @return self
      *
      * @throws \LogicException
      */
-    public static function external(string $method, Provenance $provenance, CarbonImmutable $now, ?Evaluation $evaluation = null): self
+    public static function external(string $method, Provenance $provenance, CarbonImmutable $now, ?Evaluation $evaluation = null, ?string $requestReference = null): self
     {
         if (($evaluation === null) !== ($provenance->evidence === null)) {
             throw new \LogicException('An external sign-in carries the acceptance of the provider\'s evidence and that evidence together, or neither.');
@@ -118,6 +125,7 @@ final readonly class SignInProof
             $at === null || $at->greaterThan($now) ? $now : $at,
             $provenance,
             $evaluation,
+            $requestReference,
         );
     }
 

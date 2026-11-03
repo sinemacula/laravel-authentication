@@ -53,7 +53,7 @@ final class ExternalResultUnlinkedTest extends TestCase
         $event = new ExternalResultUnlinked(self::context(), 'connection-7', 'https://idp.example.test');
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesModels::class, class_uses_recursive($event));
+        self::assertNotContains(SerializesModels::class, class_uses_recursive($event));
 
         $copy = unserialize(serialize($event));
 

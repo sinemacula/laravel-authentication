@@ -39,6 +39,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Factors\FirstFactorMeetsRequirements;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Unit\Stubs\PlainTenantFixture;
@@ -238,7 +239,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertSame('password', $signIn->context->method);
         self::assertSame('ada@example.test', $signIn->identifier);
         self::assertSame(self::IP, $signIn->context->client->ip);
-        self::assertNull($signIn->context->identity);
+        EventContextAssertions::assertIdentity(null, $signIn->context);
         self::assertNull($signIn->retryAfter);
     }
 
@@ -577,7 +578,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertInstanceOf(AuthenticationFailed::class, $signIn);
         self::assertSame(FailureReason::ACCOUNT_RATE_LIMITED, $signIn->reason);
         self::assertSame(90, $signIn->retryAfter);
-        self::assertNull($signIn->context->identity);
+        EventContextAssertions::assertIdentity(null, $signIn->context);
     }
 
     /**
@@ -619,8 +620,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertSame($identity, $failed->user);
         self::assertInstanceOf(AuthenticationFailed::class, $signIn);
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $signIn->reason);
-        self::assertSame($identity, $signIn->context->identity);
-        self::assertSame($principal, $signIn->context->principal);
+        EventContextAssertions::assertIdentity($identity, $signIn->context);
+        EventContextAssertions::assertPrincipal($principal, $signIn->context);
     }
 
     /**
@@ -673,7 +674,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         self::assertInstanceOf(AuthenticationFailed::class, $signIn);
         self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $signIn->reason);
-        self::assertSame($principal, $signIn->context->principal);
+        EventContextAssertions::assertPrincipal($principal, $signIn->context);
     }
 
     /**
@@ -784,8 +785,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         self::assertInstanceOf(AuthenticationFailed::class, $signIn);
         self::assertSame(FailureReason::SESSION_MISMATCH, $signIn->reason);
-        self::assertSame($principal, $signIn->context->principal);
-        self::assertNull($signIn->context->session);
+        EventContextAssertions::assertPrincipal($principal, $signIn->context);
+        EventContextAssertions::assertSession(null, $signIn->context);
     }
 
     /**
@@ -834,7 +835,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         self::assertInstanceOf(AuthenticationFailed::class, $signIn);
         self::assertSame(FailureReason::TENANT_INACTIVE, $signIn->reason);
-        self::assertSame($elsewhere, $signIn->context->session);
+        EventContextAssertions::assertSession($elsewhere, $signIn->context);
     }
 
     /**
@@ -887,7 +888,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         self::assertInstanceOf(AuthenticationFailed::class, $signIn);
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $signIn->reason);
-        self::assertSame($session, $signIn->context->session);
+        EventContextAssertions::assertSession($session, $signIn->context);
     }
 
     /**
@@ -942,7 +943,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         self::assertInstanceOf(AuthenticationFailed::class, $signIn);
         self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $signIn->reason);
-        self::assertSame($session, $signIn->context->session);
+        EventContextAssertions::assertSession($session, $signIn->context);
     }
 
     /**
@@ -1153,7 +1154,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertFalse($login->remember);
         self::assertInstanceOf(PrincipalAssigned::class, $assigned);
         self::assertSame('password', $assigned->context->method);
-        self::assertSame($tenant, $assigned->context->tenant);
+        EventContextAssertions::assertTenant($tenant, $assigned->context);
     }
 
     /**
@@ -1234,7 +1235,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertSame([Authenticated::class, PrincipalAssigned::class], array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()));
         self::assertInstanceOf(PrincipalAssigned::class, $events[1]);
         self::assertNull($events[1]->context->method);
-        self::assertNull($events[1]->context->session);
+        EventContextAssertions::assertSession(null, $events[1]->context);
     }
 
     /**

@@ -38,6 +38,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\AccessOnlyIdentity;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -217,8 +218,8 @@ final class RevocationWriterTest extends TestCase
         self::assertInstanceOf(SessionRevoked::class, $loading);
         self::assertInstanceOf(SessionRevoked::class, $unloadable);
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $loading->context->tenantId);
-        self::assertSame($loaded, $loading->context->principal);
-        self::assertNull($unloadable->context->tenant);
+        EventContextAssertions::assertPrincipal($loaded, $loading->context);
+        self::assertNull($unloadable->context->tenantType);
     }
 
     /**
@@ -380,8 +381,7 @@ final class RevocationWriterTest extends TestCase
 
         self::assertSame('admin', $record->context->guard);
         self::assertSame(self::idOf($revoked), $record->context->sessionId);
-        self::assertSame($identity, $record->context->identity);
-        self::assertNull($record->context->principal);
+        EventContextAssertions::assertIdentity($identity, $record->context);
         self::assertSame($identity->getMorphClass(), $record->context->principalType);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $record->context->principalId);
         self::assertSame(RevocationReason::PASSWORD_CHANGED, $record->reason);
@@ -389,7 +389,7 @@ final class RevocationWriterTest extends TestCase
         $scope = $this->recordedEvent(SignedOutEverywhere::class);
 
         self::assertSame('api', $scope->context->guard);
-        self::assertSame($identity, $scope->context->identity);
+        EventContextAssertions::assertIdentity($identity, $scope->context);
         self::assertSame(self::idOf($kept), $scope->context->sessionId);
         self::assertSame(2, $scope->revoked);
         self::assertNull($scope->tokensValidAfter);
@@ -640,11 +640,14 @@ final class RevocationWriterTest extends TestCase
 
         $scope = $this->recordedEvent(SignedOutEverywhere::class);
 
-        self::assertSame($membership, $scope->context->principal);
-        self::assertInstanceOf(ActivatableTenantMember::class, $scope->context->identity);
+        EventContextAssertions::assertPrincipal($membership, $scope->context);
+        self::assertSame(ActivatableTenantMember::class, $scope->context->identityType);
         self::assertSame(IdentifierCoercion::stringify($membership->identity_id), $scope->context->identityId);
-        self::assertSame($membership, $this->recordedEvent(SessionRevoked::class)->context->principal);
-        self::assertSame($scope->context->identity, $this->recordedEvent(SessionRevoked::class)->context->identity);
+        EventContextAssertions::assertPrincipal($membership, $this->recordedEvent(SessionRevoked::class)->context);
+        self::assertSame(
+            [$scope->context->identityType, $scope->context->identityId],
+            [$this->recordedEvent(SessionRevoked::class)->context->identityType, $this->recordedEvent(SessionRevoked::class)->context->identityId],
+        );
         self::assertSame(self::NOW, self::revokedAt($mine));
         self::assertNull(self::revokedAt($theirs));
         self::assertSame(IdentifierCoercion::stringify($otherMembership->getKey()), DB::table('authentication_sessions')->whereNull('revoked_at')->value('principal_id'));

@@ -14,8 +14,12 @@ use Carbon\CarbonInterface;
  * identity, the provider's own deadline for its session (SAML
  * `SessionNotOnOrAfter`), the version of the enforcement or policy the adapter
  * checked, the evidence the provider asserted of how it authenticated the
- * identity, which counts only once the evidence contract accepts it, and the id
- * of the link the adapter redeemed the result through, when it names one.
+ * identity, which counts only once the evidence contract accepts it, the id of
+ * the link the adapter redeemed the result through, when it names one, and the
+ * public reference of the authorisation request the result answers, when the
+ * result has one: opaque, kept as given, and carried on the redemption's events
+ * (`ExternalResultRedeemed`, and its failures), so they correlate with the
+ * provider-side completion that reported the same reference.
  *
  * Only a trusted server-side adapter builds one, from a result it verified
  * itself (a redeemed handoff, say), never from what a client sent: the session
@@ -51,6 +55,9 @@ final readonly class ExternalResult
     /** @var int Longest policy version, in characters. */
     public const int VERSION_MAX_LENGTH = 64;
 
+    /** @var int Longest authorisation request reference, in characters. */
+    public const int REFERENCE_MAX_LENGTH = 255;
+
     /** @var ?\Carbon\CarbonImmutable When the provider authenticated the identity, to the whole second. */
     public ?CarbonImmutable $authenticatedAt;
 
@@ -69,6 +76,7 @@ final readonly class ExternalResult
      * @param  ?string  $policyVersion
      * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  ?string  $linkId
+     * @param  ?string  $requestReference
      *
      * @throws \InvalidArgumentException
      */
@@ -100,6 +108,9 @@ final readonly class ExternalResult
 
         /** The id of the link the adapter redeemed the result through, if it names one, compared exactly. */
         public ?string $linkId = null,
+
+        /** The public reference of the authorisation request the result answers, if it has one, opaque. */
+        public ?string $requestReference = null,
     ) {
         self::assertText($connectionId, self::ID_MAX_LENGTH, 'connection id');
         self::assertText($issuer, self::ISSUER_MAX_LENGTH, 'issuer');
@@ -107,6 +118,7 @@ final readonly class ExternalResult
         self::assertText($tenantId, self::ID_MAX_LENGTH, 'tenant id');
         self::assertText($policyVersion, self::VERSION_MAX_LENGTH, 'policy version');
         self::assertText($linkId, self::ID_MAX_LENGTH, 'link id');
+        self::assertText($requestReference, self::REFERENCE_MAX_LENGTH, 'request reference');
 
         $this->authenticatedAt = $authenticatedAt === null ? null : CarbonImmutable::instance($authenticatedAt)->startOfSecond();
         $this->sessionNotAfter = $sessionNotAfter === null ? null : CarbonImmutable::instance($sessionNotAfter)->startOfSecond();

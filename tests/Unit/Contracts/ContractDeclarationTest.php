@@ -499,14 +499,14 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `SignInMethod` declares exactly what the session service asks of a
-     * method: the identifier type, the identifier the input names, and the
-     * verification itself.
+     * method: the identifier type, the identifier the input names, the
+     * challenge it answers, and the verification itself.
      *
      * @return void
      */
     public function testSignInMethodDeclaresExactlyItsVerificationSurface(): void
     {
-        self::assertSame(['authenticate', 'identifier', 'identifierType'], self::declaredMethods(SignInMethod::class));
+        self::assertSame(['authenticate', 'challenge', 'identifier', 'identifierType'], self::declaredMethods(SignInMethod::class));
     }
 
     /**

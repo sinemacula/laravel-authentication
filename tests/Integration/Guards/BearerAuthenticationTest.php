@@ -39,6 +39,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -426,9 +427,8 @@ final class BearerAuthenticationTest extends TestCase
 
         self::assertSame((string) $identity->getKey(), $revoked->identityId); // @phpstan-ignore cast.string
         self::assertSame((string) $identity->getKey(), $revoked->principalId); // @phpstan-ignore cast.string
-        self::assertSame($sessionId, $revoked->session?->getSessionIdentifier());
+        self::assertSame($sessionId, $revoked->sessionId);
         self::assertSame('password', $revoked->method);
-        self::assertNull($missing->session);
         self::assertSame($sessionId, $missing->sessionId);
         self::assertNull($missing->method);
     }
@@ -504,7 +504,7 @@ final class BearerAuthenticationTest extends TestCase
         self::assertSame('members', $failure->context->guard);
         self::assertSame((string) $member->getKey(), $failure->context->identityId); // @phpstan-ignore cast.string
         self::assertSame((string) $membership->getKey(), $failure->context->principalId); // @phpstan-ignore cast.string
-        self::assertNull($failure->context->tenant);
+        EventContextAssertions::assertTenant(null, $failure->context);
     }
 
     /**

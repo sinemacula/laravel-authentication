@@ -51,7 +51,8 @@ final class JwtBenchSetup
     /**
      * Bind on a harness's own container the access, tenancy and requirement
      * defaults the service provider registers, which the bearer and refresh
-     * paths resolve from the global container, and make it that container.
+     * paths resolve from the global container, and an auth manager that holds
+     * the guards the harness builds, and make it that container.
      *
      * @param  \Illuminate\Container\Container  $container
      * @return void
@@ -63,6 +64,7 @@ final class JwtBenchSetup
         $container->singleton(TenantResolver::class, ResolveNoTenant::class);
         $container->singleton(TenantAuthenticationPolicy::class, RequireNothingOfTenants::class);
         $container->singleton(RequirementCheck::class, MeetNoRequirement::class);
+        $container->instance('auth', new BenchAuthManager($container));
 
         Container::setInstance($container);
     }

@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubSession;
@@ -173,7 +174,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertSame($identity, $guard->user());
         self::assertCount(2, $dispatched);
         self::assertInstanceOf(PrincipalAssigned::class, $dispatched[1]);
-        self::assertNull($dispatched[1]->context->session);
+        EventContextAssertions::assertSession(null, $dispatched[1]->context);
         self::assertNull($dispatched[1]->context->method);
     }
 
@@ -220,7 +221,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $failure->reason);
         self::assertSame(self::GUARD_NAME, $failure->context->guard);
         self::assertSame('203.0.113.9', $failure->context->client->ip);
-        self::assertNull($failure->context->identity);
+        EventContextAssertions::assertIdentity(null, $failure->context);
         self::assertNull($failure->retryAfter);
         self::assertFalse($guard->hasUser());
     }
@@ -304,7 +305,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertFalse($dispatched[4]->remember);
         self::assertInstanceOf(SignedIn::class, $dispatched[2]);
         self::assertTrue($dispatched[2]->refresh);
-        self::assertSame($guard->session(), $dispatched[2]->context->session);
+        EventContextAssertions::assertSession($guard->session(), $dispatched[2]->context);
         self::assertTrue($guard->hasUser());
     }
 

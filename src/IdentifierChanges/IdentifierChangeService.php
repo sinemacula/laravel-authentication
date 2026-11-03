@@ -218,9 +218,10 @@ final readonly class IdentifierChangeService
         $changeable = $this->changeable($identity, $type);
         $context    = $this->eventContext($changeable, $client);
         $codes      = $this->collaborator(OneTimeCodes::class);
+        $challenge  = $codes->isWellFormedChallenge($challengeId) ? $challengeId : null;
 
-        if (!$codes->isWellFormed($code) || !$codes->isWellFormedChallenge($challengeId)) {
-            return new LimitedOutcome($this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context));
+        if ($challenge === null || !$codes->isWellFormed($code)) {
+            return new LimitedOutcome($this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context, $challenge));
         }
 
         $limiter     = $this->collaborator(AttemptLimiter::class);
@@ -229,9 +230,12 @@ final readonly class IdentifierChangeService
         );
 
         if ($reservation->retryAfter !== null) {
-            $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter));
+            $retryAfter = $reservation->retryAfter;
+            $failure    = new AuthenticationFailed($context, AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::RATE_LIMITED, retryAfter: $retryAfter, challengeId: $challenge);
 
-            return new LimitedOutcome(IdentifierChangeOutcome::RATE_LIMITED, $reservation->retryAfter);
+            $this->context->dispatch($failure);
+
+            return new LimitedOutcome(IdentifierChangeOutcome::RATE_LIMITED, $retryAfter);
         }
 
         // `#[\SensitiveParameter]` does not cover what a closure captures,
@@ -250,7 +254,7 @@ final readonly class IdentifierChangeService
             };
         };
 
-        $outcome = $this->confirm($changeable, $type, $context, $prove, FailureReason::CODE_EXPIRED);
+        $outcome = $this->confirm($changeable, $type, $context, $prove, FailureReason::CODE_EXPIRED, $challenge);
 
         if ($outcome === IdentifierChangeOutcome::CHANGED) {
             $limiter->release($reservation);
@@ -395,6 +399,7 @@ final readonly class IdentifierChangeService
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  \Closure(\SineMacula\Laravel\Authentication\Models\IdentifierChange, \Carbon\CarbonImmutable): ?\SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRefused  $prove
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $expired
+     * @param  ?string  $challengeId
      * @return \SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -413,6 +418,7 @@ final readonly class IdentifierChangeService
         EventContext $context,
         \Closure $prove,
         FailureReason $expired,
+        ?string $challengeId = null,
     ): IdentifierChangeOutcome {
         $now     = CarbonImmutable::now()->startOfSecond();
         $attempt = fn (): ?ChangeRefused => self::lockedRefusal($identity) ?? $this->make($identity, $type, $context, $prove, $expired, $now);
@@ -423,7 +429,7 @@ final readonly class IdentifierChangeService
             $refused = $refusal;
         }
 
-        return $refused === null ? IdentifierChangeOutcome::CHANGED : $this->refuseConfirmation($refused->outcome, $refused->reason, $context);
+        return $refused === null ? IdentifierChangeOutcome::CHANGED : $this->refuseConfirmation($refused->outcome, $refused->reason, $context, $challengeId);
     }
 
     /**
@@ -579,16 +585,18 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * Report a refused confirmation with `AuthenticationFailed` and answer it.
+     * Report a refused confirmation with `AuthenticationFailed`, with the id of
+     * the challenge a code confirmation checked, and answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome  $outcome
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
+     * @param  ?string  $challengeId
      * @return \SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome
      */
-    private function refuseConfirmation(IdentifierChangeOutcome $outcome, FailureReason $reason, EventContext $context): IdentifierChangeOutcome
+    private function refuseConfirmation(IdentifierChangeOutcome $outcome, FailureReason $reason, EventContext $context, ?string $challengeId = null): IdentifierChangeOutcome
     {
-        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::IDENTIFIER_CHANGE, $reason));
+        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::IDENTIFIER_CHANGE, $reason, challengeId: $challengeId));
 
         return $outcome;
     }

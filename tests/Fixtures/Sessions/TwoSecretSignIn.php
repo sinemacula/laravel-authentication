@@ -53,6 +53,20 @@ final readonly class TwoSecretSignIn implements SignInMethod
     }
 
     /**
+     * No challenge.
+     *
+     * @param  array<array-key, mixed>  $input
+     * @return null
+     */
+    #[\Override]
+    public function challenge(#[\SensitiveParameter] array $input): null
+    {
+        unset($input);
+
+        return null;
+    }
+
+    /**
      * Check the password and then the PIN, each counted against the account.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request

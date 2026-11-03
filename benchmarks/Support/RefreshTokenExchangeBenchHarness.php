@@ -540,7 +540,8 @@ final class RefreshTokenExchangeBenchHarness
     }
 
     /**
-     * Instantiate a fresh JwtGuard for refresh benchmarking.
+     * Instantiate a fresh JwtGuard for refresh benchmarking, held by the auth
+     * manager as the guard resolved under its name.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Providers\ModelProvider  $provider
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
@@ -549,7 +550,7 @@ final class RefreshTokenExchangeBenchHarness
     {
         $provider ??= $this->provider;
 
-        return new JwtGuard(
+        $guard = new JwtGuard(
             'api',
             $provider,
             $this->resolver,
@@ -564,6 +565,13 @@ final class RefreshTokenExchangeBenchHarness
             ),
             BenchRequest::refreshTransport(...),
         );
+
+        /** @var \Benchmarks\Support\BenchAuthManager $auth */
+        $auth = Container::getInstance()->make('auth');
+
+        $auth->hold($guard);
+
+        return $guard;
     }
 
     /**

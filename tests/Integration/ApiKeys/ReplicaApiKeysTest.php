@@ -25,6 +25,7 @@ use Tests\Concerns\InteractsWithApplicationGrants;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithMachineCredentials;
 use Tests\Fixtures\Database\ShippedMigrations;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\GrantedApplicationAccess;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\MachineClient;
@@ -223,7 +224,7 @@ final class ReplicaApiKeysTest extends TestCase
         $this->recordMachineEvents([ApiKeyRevoked::class]);
 
         self::assertTrue($this->apiKeys('accounts')->revoke($current, $issued->id));
-        self::assertTrue($moved->is($this->machineEventsOf(ApiKeyRevoked::class)[0]->context->tenant));
+        EventContextAssertions::assertTenant($moved, $this->machineEventsOf(ApiKeyRevoked::class)[0]->context);
     }
 
     /**

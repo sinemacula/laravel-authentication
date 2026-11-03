@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -274,7 +275,7 @@ final class ActiveTenantTest extends TestCase
         $revoked = $this->recordedEvent(SessionRevoked::class);
 
         self::assertSame(RevocationReason::TENANT_DEACTIVATED, $revoked->reason);
-        self::assertSame($descendant, $revoked->context->tenant);
+        EventContextAssertions::assertTenant($descendant, $revoked->context);
         self::assertSame($session->record->getKey(), $revoked->context->sessionId);
         self::assertSame(1, Session::query()->whereNull('revoked_at')->count());
     }

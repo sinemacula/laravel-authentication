@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\ExternalResultRedeemed;
 use SineMacula\Laravel\Authentication\Events\ExternalResultUnlinked;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SessionPending;
@@ -37,6 +38,7 @@ use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\LevelRequirement;
@@ -45,12 +47,14 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SignsInExternally;
 use SineMacula\Laravel\Authentication\Sessions\ExternalResults;
 use SineMacula\Laravel\Authentication\Sessions\ExternalSignIn;
+use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
@@ -70,6 +74,8 @@ use Tests\TestCase;
  */
 #[CoversClass(ExternalResults::class)]
 #[CoversClass(ExternalSignIn::class)]
+#[CoversClass(SessionEstablishment::class)]
+#[CoversClass(SignInProof::class)]
 #[CoversClass(SessionService::class)]
 #[CoversTrait(SignsInExternally::class)]
 final class ExternalSignInTest extends TestCase
@@ -186,7 +192,7 @@ final class ExternalSignInTest extends TestCase
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([AuthenticationFlow::SIGN_IN, FailureReason::METHOD_NOT_ALLOWED, 'external_provider'], [$failed->flow, $failed->reason, $failed->context->method]);
-        self::assertNull($failed->context->identity);
+        EventContextAssertions::assertIdentity(null, $failed->context);
         self::assertSame(0, Session::query()->count());
     }
 
@@ -215,12 +221,109 @@ final class ExternalSignInTest extends TestCase
 
         $unlinked = $this->recordedEvent(ExternalResultUnlinked::class);
 
-        self::assertSame(['api', self::CLIENT_IP, null], [$unlinked->context->guard, $unlinked->context->client->ip, $unlinked->context->identity]);
+        self::assertSame(['api', self::CLIENT_IP, null], [$unlinked->context->guard, $unlinked->context->client->ip, $unlinked->context->identityId]);
         self::assertSame(['connection-7', self::ISSUER], [$unlinked->connectionId, $unlinked->issuer]);
         self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull($this->recordedEvent(Failed::class)->user);
         self::assertSame(0, Session::query()->count());
         self::assertFalse(Auth::guard('api')->hasUser());
+    }
+
+    /**
+     * A redeemed result is reported once the session commits, after the
+     * session's own events, as a sign-in redemption naming the session, the
+     * identity and principal it established, the connection and the request
+     * reference; the session's own events name neither.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARedemptionIsReportedAfterTheSessionsOwnEvents(): void
+    {
+        $identity = $this->seedIdentity();
+        $linked   = $this->linkedResult($identity);
+        $result   = new ExternalResult($linked->connectionId, $linked->issuer, $linked->subject, requestReference: 'request-3');
+
+        $this->recordEvents([SessionCreated::class, SignedIn::class, ExternalResultRedeemed::class, AuthenticationFailed::class]);
+
+        $session = $this->sessions()->signInExternally($result)->session;
+
+        self::assertNotNull($session);
+        self::assertSame([SessionCreated::class, SignedIn::class, ExternalResultRedeemed::class], $this->recordedClasses());
+
+        $redeemed = $this->recordedEvent(ExternalResultRedeemed::class);
+
+        self::assertSame(AuthenticationFlow::SIGN_IN, $redeemed->flow);
+        self::assertSame(['api', 'external_provider'], [$redeemed->context->guard, $redeemed->context->method]);
+        self::assertSame(['connection-7', 'request-3'], [$redeemed->context->connectionId, $redeemed->context->requestReference]);
+        EventContextAssertions::assertIdentity($identity, $redeemed->context);
+        EventContextAssertions::assertPrincipal($identity, $redeemed->context);
+        EventContextAssertions::assertSession($session->record, $redeemed->context);
+        self::assertSame([null, null], [$this->recordedEvent(SignedIn::class)->context->connectionId, $this->recordedEvent(SignedIn::class)->context->requestReference]);
+    }
+
+    /**
+     * A redemption that leaves its session pending is reported after
+     * `SessionPending`; one the caller's transaction rolls back is never
+     * reported; one with no request reference names none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingRedemptionIsReportedAndARolledBackOneIsNot(): void
+    {
+        $identity = $this->seedIdentity();
+        $result   = $this->linkedResult($identity);
+
+        $factors = $this->bindMock(AdditionalFactorPolicy::class);
+        $factors->shouldReceive('requirementFor')->andReturn(new Requirement(new RequirementPart));
+
+        $this->recordEvents([SessionPending::class, ExternalResultRedeemed::class]);
+
+        DB::beginTransaction();
+
+        self::assertTrue($this->sessions()->signInExternally($result)->isPending());
+        self::assertSame([], $this->recordedClasses());
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+
+        $pending = $this->sessions()->signInExternally($result)->pending;
+
+        self::assertNotNull($pending);
+        self::assertSame([SessionPending::class, ExternalResultRedeemed::class], $this->recordedClasses());
+
+        $redeemed = $this->recordedEvent(ExternalResultRedeemed::class);
+
+        EventContextAssertions::assertSession($pending->session, $redeemed->context);
+        self::assertSame(['connection-7', null], [$redeemed->context->connectionId, $redeemed->context->requestReference]);
+    }
+
+    /**
+     * A refused redemption names the connection and the request reference on
+     * every event it reports, the unlinked report included.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefusedRedemptionNamesTheConnectionAndTheRequest(): void
+    {
+        $this->externalLinks();
+
+        $this->recordEvents([ExternalResultUnlinked::class, AuthenticationFailed::class, ExternalResultRedeemed::class]);
+
+        $refused = $this->sessions()->signInExternally(new ExternalResult('connection-7', self::ISSUER, 'nobody', requestReference: 'request-9'));
+
+        self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $refused->reason);
+        self::assertSame([ExternalResultUnlinked::class, AuthenticationFailed::class], $this->recordedClasses());
+
+        foreach ([$this->recordedEvent(ExternalResultUnlinked::class)->context, $this->recordedEvent(AuthenticationFailed::class)->context] as $context) {
+            self::assertSame(['connection-7', 'request-9'], [$context->connectionId, $context->requestReference]);
+        }
     }
 
     /**

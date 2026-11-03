@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
@@ -258,7 +259,7 @@ final readonly class SessionService
         $subject = new AttemptSubject($this->context->name(), AttemptFlow::SIGN_IN, $identifier, $type, $context->client->ip);
         $outcome = $this->signInWith($driver, $method, $input, $context, $subject, $transport);
 
-        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, $identifier, $safe) : $outcome;
+        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, $identifier, $safe, $driver->challenge($input)) : $outcome;
     }
 
     /**
@@ -754,27 +755,49 @@ final readonly class SessionService
 
     /**
      * Report a failed sign-in, with Laravel's `Failed` and then
-     * `AuthenticationFailed`, and answer it.
+     * `AuthenticationFailed` (with the challenge the method's input answered,
+     * and the connection and request reference of an external result being
+     * redeemed), and answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @param  ?string  $method
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  ?string  $identifier
      * @param  array<string, string>  $credentials
+     * @param  ?string  $challengeId
+     * @param  ?\SineMacula\Laravel\Authentication\External\ExternalResult  $redeemed
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      */
-    private function fail(Refused $refused, ?string $method, SignInContext $context, ?string $identifier, #[\SensitiveParameter] array $credentials): SignInResult
-    {
+    private function fail(
+        Refused $refused,
+        ?string $method,
+        SignInContext $context,
+        ?string $identifier,
+        #[\SensitiveParameter] array $credentials,
+        ?string $challengeId = null,
+        ?ExternalResult $redeemed = null,
+    ): SignInResult {
         $name = $this->context->name();
 
         $this->context->dispatch(new Failed($name, $refused->identity, $credentials));
 
         $this->context->dispatch(new AuthenticationFailed(
-            new EventContext($name, $context->client, $refused->identity, $refused->principal, $refused->tenant, $refused->session, $method),
+            new EventContext(
+                $name,
+                $context->client,
+                $refused->identity,
+                $refused->principal,
+                $refused->tenant,
+                $refused->session,
+                $method,
+                connectionId: $redeemed?->connectionId,
+                requestReference: $redeemed?->requestReference,
+            ),
             AuthenticationFlow::SIGN_IN,
             $refused->reason,
             $identifier,
             $refused->retryAfter,
+            $challengeId,
         ));
 
         return SignInResult::failed($refused->reason, $refused->retryAfter);

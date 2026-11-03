@@ -12,46 +12,43 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\MorphClass;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
- * Who and what a package event is about: the guard, the client the request came
- * from, the identity, principal, tenant and session, the sign-in method, and
- * the credential (an API key or a passkey) with the scopes it grants. Every
- * package event carries one, so a single listener on `AuthenticationEvent` can
- * attribute them all the same way.
+ * Who and what a package event is about, as plain values: the guard, the client
+ * the request came from, the identity, principal, tenant and session, each by
+ * morph class and identifier, the sign-in method, the credential (an API key or
+ * a passkey) with the scopes it grants, and, for what an external provider's
+ * result was redeemed into, the connection and the authorisation request's
+ * public reference. Every package event carries one, so a single listener on
+ * `AuthenticationEvent` can attribute them all the same way.
+ *
+ * It is an allowlist of values fixed when the context is built, never a model:
+ * the identity, principal, tenant and session it is built from are read once,
+ * and none of them is kept, so the event crosses a queue as it is, its restore
+ * runs no query and cannot fail on a row that is gone, and a listener that
+ * needs a model loads it itself, on the write connection, from the type and
+ * identifier. The morph class is an Eloquent model's morph class, else the
+ * class name, which also stands for a model an enforced morph map leaves out.
+ * `toArray()` gives the record an audit sink keeps.
  *
  * A part the event's flow did not establish is `null`: a failure carries only
- * as much as it got to before it failed, and a session id a token named is kept
- * even when no session row was loaded. An event about the session row itself (a
- * revocation, or a refresh or switch refused on the row's own state before its
- * owner was read) is built with `fromSession`: an identity, principal or tenant
- * it does not hold then takes the snapshot of the owner, the principal and the
- * active tenant's identifier the row records (a tenant has no morph class
- * there: the row records only its opaque identifier). Every other event keeps
- * the snapshots of what it holds, so an identity's sign-out everywhere, a
- * pending choice of principal or a refused switch to another principal names no
- * principal, even when it carries a session.
- *
- * Everything but the four models is the snapshot, fixed when the context is
- * built: when (`occurredAt`), the guard, the client, the method, the
- * credential's id and scopes, the morph class (an Eloquent model's morph class,
- * else the class name, which also stands for a model an enforced morph map
- * leaves out) and identifier of the identity, the principal and the tenant, and
- * the session's identifier. It is the record an audit sink keeps, and
- * `toArray()` gives it as scalars. The models are a convenience: a synchronous
- * listener gets the instances the package holds, and after a queue each
- * Eloquent model is fetched again in its state then (with the relations it had
- * loaded), or is `null` once its row is gone; a part that is not an Eloquent
- * model does not cross a queue and is `null` after one. A queued model is
- * current state, not evidence of what was authorised. `scopes` is `null` for a
- * human identity's session, which no credential limits, and the list the
- * credential grants otherwise (`[]` grants none). Never carries a token, a key,
- * a digest, a password or any other secret.
+ * as much as it got to before it failed, the session before one exists has no
+ * identifier, and a session id a token named is kept even when no session row
+ * was loaded. An event about the session row itself (a revocation, or a refresh
+ * or switch refused on the row's own state before its owner was read) is built
+ * with `fromSession`: an identity, principal or tenant it is not given then
+ * takes the owner, the principal and the active tenant's identifier the row
+ * records (a tenant has no morph class there: the row records only its opaque
+ * identifier). Every other event names only what it is given, so an identity's
+ * sign-out everywhere, a pending choice of principal or a refused switch to
+ * another principal names no principal, even when it names a session. `scopes`
+ * is `null` for a human identity's session, which no credential limits, and the
+ * list the credential grants otherwise (`[]` grants none). Never carries a
+ * token, a key, a digest, a password or any other secret.
  *
  * @api
  *
@@ -62,8 +59,6 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  */
 final readonly class EventContext implements Arrayable
 {
-    use SerializesLiveModels;
-
     /** @var \Carbon\CarbonImmutable When the event was built. */
     public CarbonImmutable $occurredAt;
 
@@ -102,6 +97,8 @@ final readonly class EventContext implements Arrayable
      * @param  bool  $fromSession
      * @param  ?string  $credentialId
      * @param  ?list<string>  $scopes
+     * @param  ?string  $connectionId
+     * @param  ?string  $requestReference
      */
     public function __construct(
 
@@ -111,17 +108,20 @@ final readonly class EventContext implements Arrayable
         /** Client of the request being served (in a queue job or a console command, that process's request). */
         public ClientContext $client,
 
-        /** Identity the event is about, if known. */
-        public ?Identity $identity = null,
+        // Identity the event is about, if known; only its type and identifier
+        // are kept.
+        ?Identity $identity = null,
 
-        /** Principal the identity acts as, if known. */
-        public ?Principal $principal = null,
+        // Principal the identity acts as, if known; only its type and
+        // identifier are kept.
+        ?Principal $principal = null,
 
-        /** The active tenant, the one the principal acts in, if known and there is one. */
-        public ?Tenant $tenant = null,
+        // The active tenant, the one the principal acts in, if known and there
+        // is one; only its type and identifier are kept.
+        ?Tenant $tenant = null,
 
-        /** The session, if one was loaded. */
-        public ?Session $session = null,
+        // The session, if one was loaded; only its identifier is kept.
+        ?Session $session = null,
 
         /** Name of the sign-in method; for a session's events, the method it records, or the one a step-up or reauthentication proved it with. */
         public ?string $method = null,
@@ -140,6 +140,12 @@ final readonly class EventContext implements Arrayable
 
         /** Scopes the credential grants; `null` for a human identity's session, which no credential limits. */
         public ?array $scopes = null,
+
+        /** The connection (the configured external provider) a redeemed external result came through, for a redemption's own events. */
+        public ?string $connectionId = null,
+
+        /** The public reference of the authorisation request a redeemed external result answered, opaque, when the result had one. */
+        public ?string $requestReference = null,
     ) {
         $recorded = $fromSession ? $session : null;
 
@@ -154,9 +160,9 @@ final readonly class EventContext implements Arrayable
     }
 
     /**
-     * Return the snapshot as scalars, the record an audit sink keeps: the time
+     * Return the context as scalars, the record an audit sink keeps: the time
      * as an ISO 8601 UTC string to the microsecond, and the client as its IP
-     * address and user agent. The models are left out.
+     * address and user agent.
      *
      * @return array<string, mixed>
      */
@@ -164,20 +170,22 @@ final readonly class EventContext implements Arrayable
     public function toArray(): array
     {
         return [
-            'occurred_at'    => $this->occurredAt->utc()->format('Y-m-d\TH:i:s.u\Z'),
-            'guard'          => $this->guard,
-            'method'         => $this->method,
-            'ip'             => $this->client->ip,
-            'user_agent'     => $this->client->userAgent,
-            'identity_type'  => $this->identityType,
-            'identity_id'    => $this->identityId,
-            'principal_type' => $this->principalType,
-            'principal_id'   => $this->principalId,
-            'tenant_type'    => $this->tenantType,
-            'tenant_id'      => $this->tenantId,
-            'session_id'     => $this->sessionId,
-            'credential_id'  => $this->credentialId,
-            'scopes'         => $this->scopes,
+            'occurred_at'       => $this->occurredAt->utc()->format('Y-m-d\TH:i:s.u\Z'),
+            'guard'             => $this->guard,
+            'method'            => $this->method,
+            'ip'                => $this->client->ip,
+            'user_agent'        => $this->client->userAgent,
+            'identity_type'     => $this->identityType,
+            'identity_id'       => $this->identityId,
+            'principal_type'    => $this->principalType,
+            'principal_id'      => $this->principalId,
+            'tenant_type'       => $this->tenantType,
+            'tenant_id'         => $this->tenantId,
+            'session_id'        => $this->sessionId,
+            'credential_id'     => $this->credentialId,
+            'scopes'            => $this->scopes,
+            'connection_id'     => $this->connectionId,
+            'request_reference' => $this->requestReference,
         ];
     }
 

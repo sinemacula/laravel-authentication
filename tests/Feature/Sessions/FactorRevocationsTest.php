@@ -410,7 +410,7 @@ final class FactorRevocationsTest extends TestCase
         $event = $this->recorded[1];
 
         self::assertInstanceOf(SessionRevoked::class, $event);
-        self::assertSame($current->record->getKey(), $event->context->session?->getSessionIdentifier());
+        self::assertSame($current->record->getKey(), $event->context->sessionId);
         self::assertSame(IdentifierCoercion::stringify($current->record->getAttribute('principal_id')), $event->context->principalId);
     }
 

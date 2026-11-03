@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Identifiers\EmailNormalizer;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\VerifiableIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
@@ -103,9 +104,9 @@ final class IdentifierVerifierTest extends TestCase
 
         Event::assertDispatchedTimes(IdentifierVerified::class, 1);
         Event::assertDispatched(IdentifierVerified::class, static fn (IdentifierVerified $event): bool => $event->context->guard === self::GUARD
-            && $event->context->identity                                                                                         === $identity
-            && $event->type                                                                                                      === 'email'
-            && $event->context->client                                                                                           === $client);
+            && EventContextAssertions::namesIdentity($identity, $event->context)
+            && $event->type            === 'email'
+            && $event->context->client === $client);
 
         self::assertFalse(Auth::guard(self::GUARD)->hasUser());
         self::assertSame(0, DB::table('authentication_sessions')->count());

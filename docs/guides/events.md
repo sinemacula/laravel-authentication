@@ -34,6 +34,7 @@
 | `SineMacula\...\Events\ApiKeyRotated`             | An API key was rotated, once committed; previous key id                                             |
 | `SineMacula\...\Events\ApiKeyRevoked`             | An API key was revoked, once committed                                                              |
 | `SineMacula\...\Events\ClientCredentialsGranted`  | A client credentials exchange issued an access token                                                |
+| `SineMacula\...\Events\ExternalResultRedeemed`    | An external result signed a session in or reauthenticated one, once committed; with connection      |
 | `SineMacula\...\Events\ExternalResultUnlinked`    | An external result was linked to no identity; informational, never provisions                       |
 | `SineMacula\...\Events\AuthenticationFailed`      | Any sign-in, refresh, switch, step-up, reauthentication, bearer, key, code, reset or change failure |
 
@@ -104,35 +105,36 @@ Codes follow the audit log's vocabulary: `authentication.` for signing in, `sess
 (`session.pending`, `session.returned_to_pending`, `session.activated`, `session.switched` for `PrincipalSwitched`). A
 mapped event is recorded at once: the events that report a write are already dispatched after it commits.
 
-The context holds the guard, the client of the request being served (IP address and user agent, cleaned as the session
-columns are), and as much as the event's flow established of the identity, the principal, the tenant it acts within, the
-session and the sign-in method (for a session's events, the method it records; for a step-up or a reauthentication,
-the method that proved it, such as `totp` or `passkey`, whether it succeeded or failed), and the credential (an API key
-or a passkey) in `credentialId` with the scopes it grants in `scopes` (`null` for a human identity's session, which no
-credential limits); what was not established is `null`. It also snapshots, when the event is built, when it happened
-(`occurredAt`), the identity, the principal and the tenant each by morph class and identifier (`identityType` and
-`identityId`, `principalType` and `principalId`, `tenantType` and `tenantId`; the morph class is an Eloquent
-model's `getMorphClass()`, else its class name, as it is for a model an enforced morph map leaves out), and the
-session's identifier (`sessionId`, which keeps the session id a token named even when no session was found). An event
-about a session row itself (every `SessionRevoked`, and a refresh or switch refused on the row's own state before its
-owner was read, such as a revoked or ended session or a replay) names the owner and principal the row records in
-`identityType`, `identityId`, `principalType` and `principalId` when the flow did not load them, and the
-active tenant the row records (its `tenant_id`) in `tenantId`, with no `tenantType`, when the flow did not load
-the tenant. Other events name only what they hold, even when
-they carry a session: an identity's `SignedOutEverywhere`, a `SessionPending` waiting on a choice of principal and a
-switch refused for its target have no principal.
+The context is an allowlist of plain values, never a model: the guard, the client of the request being served (IP
+address and user agent, cleaned as the session columns are), the identity, the principal and the tenant it acts within
+each by morph class and identifier (`identityType` and `identityId`, `principalType` and `principalId`, `tenantType` and
+`tenantId`; the morph class is an Eloquent model's `getMorphClass()`, else its class name, as it is for a model an
+enforced morph map leaves out), the session's identifier (`sessionId`, which keeps the session id a token named even
+when no session was found), the sign-in method (for a session's events, the method it records; for a step-up or a
+reauthentication, the method that proved it, such as `totp` or `passkey`, whether it succeeded or failed), the
+credential (an API key or a passkey) in `credentialId` with the scopes it grants in `scopes` (`null` for a human
+identity's session, which no credential limits), when it happened (`occurredAt`), and, for what an external provider's
+result was redeemed into, the connection (`connectionId`) and the authorisation request's public reference
+(`requestReference`). As much as the event's flow established is named, and what it did not establish is `null`: a
+failure names only as much as it got to, and the session before one exists has no identifier. An event about a session
+row itself (every `SessionRevoked`, and a refresh or switch refused on the row's own state before its owner was read,
+such as a revoked or ended session or a replay) names the owner and principal the row records in `identityType`,
+`identityId`, `principalType` and `principalId` when the flow did not load them, and the active tenant the row records
+(its `tenant_id`) in `tenantId`, with no `tenantType`, when the flow did not load the tenant. Other events name only what
+they hold, even when they carry a session: an identity's `SignedOutEverywhere`, a `SessionPending` waiting on a choice
+of principal and a switch refused for its target have no principal.
 
-Everything but the four models is the snapshot, fixed when the event is built: record it, not the models. `toArray()`
-gives it as scalars, with `occurred_at` as an ISO 8601 UTC string to the microsecond, ready to store or to queue on its
-own. The models are a convenience: a synchronous listener gets the package's own instances, and a queued listener gets
-each Eloquent model fetched again from the writer in its state when it runs, or `null` once its row is gone (a pruned
-session, an erased account), so a deleted row never stops the event from restoring with its snapshot. A part that is not
-an Eloquent model does not cross a queue and is `null` there. A model a queued listener gets is current state, not
-evidence of what happened. No event carries a token, a digest, a password or any other secret. An event that reports a
-write is dispatched once the write is committed on the written row's own connection: at once when it has no open
-transaction, on its commit otherwise, and never when it is rolled back; a transaction on another connection neither
-delays nor withdraws it. It goes to the dispatcher bound when it is dispatched, not the one bound at the write, so an
-`Event::fake()` made between the write and its commit receives it, while what it reports is still taken at the write.
+`toArray()` gives the context as scalars, with `occurred_at` as an ISO 8601 UTC string to the microsecond, ready to store
+or to queue on its own. Since every package event holds plain values only, it crosses a queue as it is: restoring it
+runs no query and never fails on a row that is gone (a pruned session, an erased account), and a queued listener gets
+exactly what was dispatched. A listener that needs a model loads it itself, on the write connection, from the type and
+identifier, and treats one that is gone as nothing to do, as the package's own listeners do. Laravel's own events
+(`Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) are unchanged and keep their models. No event
+carries a token, a digest, a password or any other secret. An event that reports a write is dispatched once the write is
+committed on the written row's own connection: at once when it has no open transaction, on its commit otherwise, and
+never when it is rolled back; a transaction on another connection neither delays nor withdraws it. It goes to the
+dispatcher bound when it is dispatched, not the one bound at the write, so an `Event::fake()` made between the write and
+its commit receives it, while what it reports is still taken at the write.
 
 A request's bearer token authenticates; it is not a sign-in. It dispatches only Laravel's `Authenticated` and the
 package's `PrincipalAssigned` and `SessionAuthenticated`, and a rejected token only `AuthenticationFailed`, once per
@@ -150,25 +152,38 @@ is written pending (a further factor or a choice of principal outstanding) dispa
 committed, with what it waits on and when its credential expires: from `signIn()` it answers the sign-in's `Attempting`,
 and from `start()` and `signInExternally()`, which dispatch no `Attempting`, it is the only event. Its first activation
 dispatches `SessionCreated` and `SignedIn` (with the superseded session's `SessionRevoked` first), and discarding it
-`SessionRevoked` with `signed_out`. An external result linked to no identity dispatches `ExternalResultUnlinked` (the
-guard, the client, the connection and the issuer, never the subject) and then the sign-in's `Failed` and
-`AuthenticationFailed` (`external_result_unlinked`); it reports, and provisions nothing: the package that verified the
-result provisions on its own event, before it hands the result over. A session that returns to pending from active
-dispatches `SessionReturnedToPending`, with the flow, what it waits on and the principal and tenant it left when they
-changed, and its later activation `SessionActivated`, not `SessionCreated` or `SignedIn`. A switch is no sign-in: it
-dispatches `PrincipalSwitched` when it changed the principal or the active tenant (with which in `principalChanged` and
-`tenantChanged`, and the tenant left in `previousTenantId`), or `SessionReturnedToPending` when its destination asks for
-a further factor, and no `Login` or `SignedIn`. Nor is a step-up or a reauthentication, which keep their session: each
-dispatches `SteppedUp` or `Reauthenticated` once committed, and a refusal `AuthenticationFailed`, never `Attempting`,
-`Failed`, `Login` or `SignedIn`. Nor is the factor package's removal of a factor the current session relied on: when
-that leaves it short, `SessionReturnedToPending` reports it with the flow `factor_change` (see [Sign-in
-factors](sessions.md#sign-in-factors)). The event that reports a session's write (`SessionCreated`, `SignedIn`,
-`Refreshed` or `PrincipalSwitched`) is scheduled before the guard is bound to the session, so a listener that throws on
-`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated` cannot keep it from being reported
-(its exception still reaches the caller). Outside a transaction it is therefore dispatched before those bind events:
-read the event's context in its listener, not the guard, which may not be bound to the new session yet. The bind of a
-sign-in, a refresh or a switch itself waits for the session's commit, so inside your transaction its bind events follow
-the commit, after the events that report the session, and a rollback withdraws both.
+`SessionRevoked` with `signed_out`. An external result redeemed into a session dispatches `ExternalResultRedeemed` once
+committed, after the session's own events: flow `sign_in` for a `signInExternally()` that wrote a session, active or
+pending (after its `SessionCreated` and `SignedIn`, or its `SessionPending`), and flow `reauthentication` for a
+`reauthenticateExternally()` that issued a token (after its `Reauthenticated`); a rolled-back redemption dispatches
+nothing. Its context carries the identity, principal, tenant and session as the redemption established them, the method
+`external_provider`, the connection and the request reference, and so does every event of a refused redemption
+(`AuthenticationFailed`, `ExternalResultUnlinked`), while the session's own events correlate with it by session id. An
+external result linked to no identity dispatches `ExternalResultUnlinked` (the guard, the client, the connection and the
+issuer, never the subject) and then the sign-in's `Failed` and `AuthenticationFailed` (`external_result_unlinked`); it
+reports, and provisions nothing: the package that verified the result provisions on its own event, before it hands the
+result over. A session that returns to pending from active dispatches `SessionReturnedToPending`, with the flow, what it
+waits on and the principal and tenant it left when they changed, and its later activation `SessionActivated`, not
+`SessionCreated` or `SignedIn`. A switch is no sign-in: it dispatches `PrincipalSwitched` when it changed the principal
+or the active tenant (with which in `principalChanged` and `tenantChanged`, and the tenant left in `previousTenantId`),
+or `SessionReturnedToPending` when its destination asks for a further factor, and no `Login` or `SignedIn`. Nor is a
+step-up or a reauthentication, which keep their session: each dispatches `SteppedUp` or `Reauthenticated` once
+committed, and a refusal `AuthenticationFailed`, never `Attempting`, `Failed`, `Login` or `SignedIn`. Nor is the factor
+package's removal of a factor the current session relied on: when that leaves it short, `SessionReturnedToPending`
+reports it with the flow `factor_change` (see [Sign-in factors](sessions.md#sign-in-factors)). The event that reports a
+session's write (`SessionCreated`, `SignedIn`, `Refreshed` or `PrincipalSwitched`) is scheduled before the guard is
+bound to the session, so a listener that throws on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or
+`SessionAuthenticated` cannot keep it from being reported (its exception still reaches the caller). Outside a
+transaction it is therefore dispatched before those bind events: read the event's context in its listener, not the
+guard, which may not be bound to the new session yet. The bind of a sign-in, a refresh or a switch itself waits for the
+session's commit, so inside your transaction its bind events follow the commit, after the events that report the
+session, and a rollback withdraws both.
+
+Every refusal is reported once: a guard settles and reports its request's credential at most once (asking `Auth::user()`,
+`Auth::context()`, `Auth::caller()` or `check()` again reports nothing more), each service call reports its own refusal,
+and building the authentication context reports nothing. A route listing several guards of one kind gets one report from
+each guard that refuses the credential, each naming its guard: they are different applications' refusals, and are not
+merged.
 
 `Auth::caller()` reports a refresh or pending credential the request carries and that is refused once per request, with
 `AuthenticationFailed` alone: flow `refresh` with the reason a refresh would give (`additional_factor_required` for a
@@ -184,10 +199,13 @@ and change or establishment of a password, after Laravel's `Failed` where that f
 (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `switch`, `sign_out`, `step_up`, `reauthentication`, `api_key`,
 `client_credentials`, `code_request`, `identifier_verification`, `password_reset`, `identifier_change`, `factor_code`,
 `password_change`; see [Failure outcomes](#failure-outcomes) for what each answers), a `FailureReason`, the identifier a
-sign-in's input named (as given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the
-identity only once a sign-in method verified it, a refresh reloaded the session's owner or a token's subject was found
-(a wrong password or an unknown identifier carries none), the principal and tenant once resolved, and the session once
-found, else the `sid` a token named. A bearer token is checked in this order, so its reason is the first that applies:
+sign-in's input named (as given), the wait for `rate_limited` and `account_rate_limited`, and the id of the challenge a
+failed check answered (`challengeId`: a one-time code's checked as a sign-in, a factor, an identifier's verification or
+change, or a password reset, and a passkey ceremony's signed in or reauthenticated with), when it is in the form the
+package issues, which the further-factor package's own per-attempt events share. Its context carries the identity only
+once a sign-in method verified it, a refresh reloaded the session's owner or a token's subject was found (a wrong
+password or an unknown identifier carries none), the principal and tenant once resolved, and the session once found,
+else the `sid` a token named. A bearer token is checked in this order, so its reason is the first that applies:
 `token_invalid`, for a client credentials token `credential_invalid`, `credential_revoked` and `credential_expired`,
 then `identity_unknown`, `machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`,
 `tenant_inactive`, then for a token that names no session `issued_before_cutoff`, and for one that names a session

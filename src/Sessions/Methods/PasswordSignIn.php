@@ -138,6 +138,18 @@ final readonly class PasswordSignIn implements SignInMethod
     }
 
     /**
+     * A password answers no challenge.
+     *
+     * @param  array<array-key, mixed>  $input
+     * @return null
+     */
+    #[\Override]
+    public function challenge(#[\SensitiveParameter] array $input): null
+    {
+        return null;
+    }
+
+    /**
      * The credentials `attempt()` looks the account up by, or `null` when they
      * must not be looked up. They are looked up when they leave the guard's
      * identifier key out (and find the account by other keys) or give it a

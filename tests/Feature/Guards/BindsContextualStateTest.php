@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\StubCredentialGuard;
 use Tests\Unit\Stubs\StubIdentity;
@@ -194,8 +195,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         $first = $this->contextsOf($events, PrincipalAssigned::class);
 
         self::assertCount(1, $first);
-        self::assertSame($other, $first[0]->principal);
-        self::assertSame($this->session, $first[0]->session);
+        EventContextAssertions::assertPrincipal($other, $first[0]);
+        EventContextAssertions::assertSession($this->session, $first[0]);
         self::assertSame('password', $first[0]->method);
     }
 
@@ -213,9 +214,9 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         $contexts = $this->contextsOf($events, PrincipalAssigned::class);
 
         self::assertCount(1, $contexts);
-        self::assertNull($contexts[0]->session);
+        EventContextAssertions::assertSession(null, $contexts[0]);
         self::assertNull($contexts[0]->method);
-        self::assertSame($this->tenant, $contexts[0]->tenant);
+        EventContextAssertions::assertTenant($this->tenant, $contexts[0]);
     }
 
     /**
@@ -239,9 +240,9 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         $contexts = $this->contextsOf($events, SessionAuthenticated::class);
 
         self::assertCount(2, $contexts);
-        self::assertNull($contexts[0]->tenant);
-        self::assertNull($contexts[0]->principal);
-        self::assertSame($this->tenant, $contexts[1]->tenant);
+        EventContextAssertions::assertTenant(null, $contexts[0]);
+        EventContextAssertions::assertPrincipal(null, $contexts[0]);
+        EventContextAssertions::assertTenant($this->tenant, $contexts[1]);
         self::assertSame('password', $contexts[1]->method);
     }
 
@@ -265,7 +266,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
         $guard->authenticateAs($this->identity, $principal);
 
-        self::assertNull($this->contextsOf($events, PrincipalAssigned::class)[0]->tenant);
+        EventContextAssertions::assertTenant(null, $this->contextsOf($events, PrincipalAssigned::class)[0]);
         self::assertSame($principal, $guard->principal());
         self::assertSame($unavailable, self::unavailableTenantOf($guard));
 
@@ -394,7 +395,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         $guard->authenticateAs($this->identity, $this->principal, $this->session, tenant: $other);
 
         self::assertSame($other, $guard->tenant());
-        self::assertSame($other, $this->contextsOf($events, PrincipalAssigned::class)[0]->tenant);
+        EventContextAssertions::assertTenant($other, $this->contextsOf($events, PrincipalAssigned::class)[0]);
     }
 
     /**
@@ -624,9 +625,9 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         self::assertSame($this->identity, $events[1]->user ?? null);
 
         foreach ([...$this->contextsOf($events, PrincipalAssigned::class), ...$this->contextsOf($events, SessionAuthenticated::class)] as $context) {
-            self::assertSame($verified, $context->tenant);
+            EventContextAssertions::assertTenant($verified, $context);
             self::assertSame('passkey', $context->method);
-            self::assertSame($this->session, $context->session);
+            EventContextAssertions::assertSession($this->session, $context);
         }
 
         self::assertSame([$this->identity, $this->principal, $this->session], [$guard->user(), $guard->principal(), $guard->session()]);
@@ -637,7 +638,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
         self::assertNull($guard->session());
         self::assertSame([], $this->contextsOf($events, SessionAuthenticated::class));
-        self::assertNull($this->contextsOf($events, PrincipalAssigned::class)[0]->tenant);
+        EventContextAssertions::assertTenant(null, $this->contextsOf($events, PrincipalAssigned::class)[0]);
     }
 
     /**

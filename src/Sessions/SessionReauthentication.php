@@ -111,11 +111,12 @@ final readonly class SessionReauthentication
     {
         SessionPreconditions::assertSessionMethod($method);
 
-        $now     = CarbonImmutable::now()->startOfSecond();
-        $outcome = $this->verified($session, $method, $input, $now);
+        $now       = CarbonImmutable::now()->startOfSecond();
+        $challenge = $this->challengeOf($method, $input);
+        $outcome   = $this->verified($session, $method, $input, $now);
 
         if ($outcome instanceof Refused) {
-            return $this->fail($outcome, $method);
+            return $this->fail($outcome, $method, $challenge);
         }
 
         [$stored, $factor, $at, $attempt] = $outcome;
@@ -127,7 +128,7 @@ final readonly class SessionReauthentication
         if ($issued instanceof Refused) {
             $refused = $issued->reason === FailureReason::SESSION_UNKNOWN ? new Refused(FailureReason::SESSION_UNKNOWN, session: $stored) : $issued;
 
-            return $this->fail($refused, $method);
+            return $this->fail($refused, $method, $challenge);
         }
 
         [$admitted, $record, $token, $expires] = $issued;
@@ -258,20 +259,40 @@ final readonly class SessionReauthentication
     }
 
     /**
-     * Report a refused reauthentication with `AuthenticationFailed` and answer
-     * it.
+     * The id of the challenge the input answers, as the method registered under
+     * the name says, or `null` for a name no method is registered under.
+     *
+     * @param  string  $method
+     * @param  array<array-key, mixed>  $input
+     * @return ?string
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    private function challengeOf(string $method, #[\SensitiveParameter] array $input): ?string
+    {
+        $methods = $this->container->make(SignInMethodManager::class);
+
+        return in_array($method, $methods->names(), true) ? $methods->method($method)->challenge($input) : null;
+    }
+
+    /**
+     * Report a refused reauthentication with `AuthenticationFailed`, with the
+     * id of the challenge the input answered, and answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @param  string  $method
+     * @param  ?string  $challengeId
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      */
-    private function fail(Refused $refused, string $method): AccessTokenResult
+    private function fail(Refused $refused, string $method, ?string $challengeId): AccessTokenResult
     {
         $session = $refused->session;
         $client  = $this->context->client();
         $context = new EventContext($this->context->name(), $client, $refused->identity, $refused->principal, $refused->tenant, $session, $method, fromSession: $session !== null);
 
-        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::REAUTHENTICATION, $refused->reason, null, $refused->retryAfter));
+        $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::REAUTHENTICATION, $refused->reason, null, $refused->retryAfter, $challengeId));
 
         return AccessTokenResult::failed($refused->reason, $refused->retryAfter);
     }

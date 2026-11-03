@@ -21,8 +21,10 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithCallers;
 use Tests\Concerns\InteractsWithMachineClients;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
@@ -232,7 +234,7 @@ final class CallerCredentialsTest extends TestCase
         self::assertSame(AuthenticationFlow::REFRESH, $failure->flow);
         self::assertSame(FailureReason::TOKEN_INVALID, $failure->reason);
         self::assertSame(self::MEMBERS, $failure->context->guard);
-        self::assertNull($failure->context->identity);
+        EventContextAssertions::assertIdentity(null, $failure->context);
         self::assertStringNotContainsString('not-a-refresh-token', serialize($failure));
 
         $again = $this->request('POST', body: ['refresh_token' => 'not-a-refresh-token']);
@@ -314,15 +316,15 @@ final class CallerCredentialsTest extends TestCase
         self::assertCount(1, $this->failures);
         self::assertSame(FailureReason::PENDING_ACTION_NOT_ALLOWED, $this->failure(0)->reason);
         self::assertSame(AuthenticationFlow::SIGN_IN, $this->failure(0)->flow);
-        self::assertSame($member->getKey(), $this->failure(0)->context->identity?->getAuthIdentifier());
-        self::assertSame($result->pending->session->getSessionIdentifier(), $this->failure(0)->context->session?->getSessionIdentifier());
+        self::assertSame(IdentifierCoercion::stringify($member->getKey()), $this->failure(0)->context->identityId);
+        self::assertSame($result->pending->session->getSessionIdentifier(), $this->failure(0)->context->sessionId);
         self::assertSame('password', $this->failure(0)->context->method);
 
         foreach (['not-a-pending-credential', '', ['nested']] as $index => $refused) {
             self::assertNull($this->pendingCaller(PendingAction::CHOOSE_PRINCIPAL, ['pending_credential' => $refused]));
             self::assertSame(FailureReason::PENDING_INVALID, $this->failure($index + 1)->reason);
             self::assertSame(AuthenticationFlow::SIGN_IN, $this->failure($index + 1)->flow);
-            self::assertNull($this->failure($index + 1)->context->session);
+            EventContextAssertions::assertSession(null, $this->failure($index + 1)->context);
         }
 
         self::assertCount(4, $this->failures);

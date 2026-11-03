@@ -162,6 +162,7 @@ $result = Auth::sessions('api')->reauthenticateExternally($redeemed->sessionId, 
     subject: $redeemed->subject,
     authenticatedAt: $redeemed->authenticatedAt,
     evidence: $redeemed->evidence,
+    requestReference: $redeemed->requestReference,
 ));
 ```
 
@@ -190,7 +191,9 @@ committed after your first read is left out of that one token, which is then old
 renewed: no refresh token is issued, and the session row, its deadlines and its provenance are kept. Its `amr` gains the
 provider's private value, and `mfa`, only when the application's `ExternalEvidencePolicy` accepts the result's evidence
 (see [Proofs and provenance](#proofs-and-provenance)); otherwise only `auth_time` moves. `Reauthenticated` (method
-`external_provider`) reports it once committed. A step-up refuses an external proof.
+`external_provider`) reports it once committed, and then `ExternalResultRedeemed` (flow `reauthentication`), whose
+context carries the result's connection and request reference, as a refusal's `AuthenticationFailed` does. A step-up
+refuses an external proof.
 
 An adapter asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` whether a session, by its identifier,
 stands for such a reauthentication: `null` for one of the guard's live, active sessions of a person owned by the

@@ -430,7 +430,10 @@ final class ResetSubmissionsTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
-        self::assertSame('link_expired', $this->recordedEvent(AuthenticationFailed::class)->reason->value);
+
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame(['link_expired', null], [$failed->reason->value, $failed->challengeId]);
     }
 
     /**
@@ -459,7 +462,7 @@ final class ResetSubmissionsTest extends TestCase
     /**
      * Wrong codes count their attempts: once they are used up the code is
      * locked (`code_exhausted`) and even the right one is refused; nothing is
-     * reset.
+     * reset, and each refusal names the challenge it answered.
      *
      * @return void
      *
@@ -489,6 +492,7 @@ final class ResetSubmissionsTest extends TestCase
         $reasons = array_map(static fn (AuthenticationFailed $event): string => $event->reason->value, $this->recorded);
 
         self::assertSame(['invalid_credentials', 'invalid_credentials', 'code_exhausted'], $reasons);
+        self::assertSame(array_fill(0, 3, self::challenge()), array_map(static fn (AuthenticationFailed $event): ?string => $event->challengeId, $this->recorded));
         self::assertSame(0, DB::transactionLevel());
         self::assertEquals(2, DB::table('one_time_codes')->value('attempts'));
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
@@ -522,7 +526,8 @@ final class ResetSubmissionsTest extends TestCase
 
     /**
      * A malformed submission is refused before the password reaches the policy,
-     * still counted against the limits.
+     * still counted against the limits; it names the challenge a code reset
+     * answered only when that is in the form the engine issues.
      *
      * @param  string  $channel
      * @param  array<string, mixed>  $input
@@ -543,6 +548,7 @@ final class ResetSubmissionsTest extends TestCase
         $event = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([AuthenticationFlow::PASSWORD_RESET, 'invalid_credentials'], [$event->flow, $event->reason->value]);
+        self::assertSame(($input['challenge'] ?? null) === self::NO_CHALLENGE ? self::NO_CHALLENGE : null, $event->challengeId);
         self::assertSame(0, $checker->count());
         self::assertGreaterThan(0, DB::table('rate_limits')->count());
     }
@@ -578,6 +584,31 @@ final class ResetSubmissionsTest extends TestCase
         self::assertSame([ResetStatus::RATE_LIMITED, 900], [$limited->status, $limited->retryAfter]);
         self::assertSame(['rate_limited', 900], [$this->recordedEvent(AuthenticationFailed::class)->reason->value, $this->recordedEvent(AuthenticationFailed::class)->retryAfter]);
         self::assertSame(3, $checker->count());
+    }
+
+    /**
+     * A code reset held back by the limits still names the challenge it
+     * answered.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALimitedCodeResetNamesItsChallenge(): void
+    {
+        config()->set('authentication.rate_limits.password_reset.per_identifier', ['max' => 1, 'decay_seconds' => 900]);
+
+        $input = ['phone' => self::PHONE, 'challenge' => self::NO_CHALLENGE, 'code' => '123456', 'password' => self::NEW_PASSWORD];
+
+        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', $input)->status);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(ResetStatus::RATE_LIMITED, $this->passwords()->resetWithCode('phone', $input)->status);
+
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([FailureReason::RATE_LIMITED, self::NO_CHALLENGE], [$failed->reason, $failed->challengeId]);
     }
 
     /**

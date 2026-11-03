@@ -42,6 +42,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\TestCase;
 
 /**
@@ -174,7 +175,7 @@ final class SessionRefreshTest extends TestCase
         $signedIn   = $this->recordedEvent(SignedIn::class);
 
         self::assertSame(['api', [], false], [$attempting->guard, $attempting->credentials, $attempting->remember]);
-        self::assertSame($refreshed->record, $this->recordedEvent(Refreshed::class)->context->session);
+        EventContextAssertions::assertSession($refreshed->record, $this->recordedEvent(Refreshed::class)->context);
         self::assertSame(self::CLIENT_IP, $this->recordedEvent(Refreshed::class)->context->client->ip);
         self::assertTrue($signedIn->refresh);
         self::assertSame('password', $signedIn->context->method);
@@ -236,8 +237,8 @@ final class SessionRefreshTest extends TestCase
 
             $context = $event->context();
 
-            self::assertTrue($tenant->is($context->tenant));
-            self::assertTrue($membership->is($context->principal));
+            EventContextAssertions::assertTenant($tenant, $context);
+            EventContextAssertions::assertPrincipal($membership, $context);
             self::assertSame('password', $context->method);
         }
 
@@ -400,7 +401,7 @@ final class SessionRefreshTest extends TestCase
         $failure = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([AuthenticationFlow::REFRESH, FailureReason::REFRESH_TOKEN_CONFLICT], [$failure->flow, $failure->reason]);
-        self::assertSame(['api', self::CLIENT_IP, null], [$failure->context->guard, $failure->context->client->ip, $failure->context->identity]);
+        self::assertSame(['api', self::CLIENT_IP, null], [$failure->context->guard, $failure->context->client->ip, $failure->context->identityId]);
         self::assertSame($before, $this->refreshKeyOf($session));
         self::assertTrue($guard->guest());
     }

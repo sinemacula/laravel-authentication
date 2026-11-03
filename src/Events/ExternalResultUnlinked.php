@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Events;
 
-use Illuminate\Queue\SerializesModels;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 
 /**
@@ -19,9 +18,11 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
  * own event, before it hands the result over; provisioning on this one as well
  * would provision twice.
  *
- * The context carries the guard and the client, and no identity. The connection
- * and the issuer say where the result came from; the subject, and everything
- * else the provider asserted, is never carried.
+ * The context carries the guard and the client, no identity, and the connection
+ * and the authorisation request's public reference, when the result had one, as
+ * every event of a redemption does. The connection and the issuer say where the
+ * result came from; the subject, and everything else the provider asserted, is
+ * never carried.
  *
  * @api
  *
@@ -30,8 +31,6 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
  */
 final readonly class ExternalResultUnlinked implements AuthenticationEvent
 {
-    use SerializesModels;
-
     /**
      * Constructor.
      *
