@@ -10,9 +10,11 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Worker;
 use Illuminate\Queue\WorkerOptions;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Testing\Fakes\EventFake;
@@ -83,6 +85,9 @@ final class CrossTenantRequestsTest extends TestCase
 
     /** @var ?string The request id of the report last asked for. */
     private ?string $requestId = null;
+
+    /** @var ?array<string, mixed> What the request that throws reported, with its failures, just before it threw. */
+    private ?array $exploded = null;
 
     /**
      * Freeze the clocks, create the tables, add the routes, register a
@@ -340,8 +345,10 @@ final class CrossTenantRequestsTest extends TestCase
     }
 
     /**
-     * A person authenticated on a route that then throws gets a server error,
-     * and the guest request after it sees nothing of them.
+     * A person authenticated on a route that then throws: the route had the
+     * person bound on `admin`, with the session, tenant and context, when it
+     * threw the exception it throws, which became a server error, and the guest
+     * request after it sees nothing of them.
      *
      * @return void
      */
@@ -353,7 +360,25 @@ final class CrossTenantRequestsTest extends TestCase
 
         $session = $this->signIn('admin', $person, $membership);
 
-        $this->serve(self::octaneRequest('GET', '/explode', bearer: $session['access']))->assertStatus(500);
+        $reported = [];
+
+        Exceptions::reportable(static function (\Throwable $exception) use (&$reported): void {
+            $reported[] = [$exception::class, $exception->getMessage()];
+        });
+
+        $this->requestId = 'request-' . ++$this->requests;
+        $this->exploded  = null;
+
+        $this->serve(self::octaneRequest('GET', '/explode', bearer: $session['access'], server: ['HTTP_X_REQUEST_ID' => $this->requestId]))->assertStatus(500);
+
+        self::assertSame([[\RuntimeException::class, 'The route failed after authenticating.']], $reported);
+
+        TestResponse::fromBaseResponse(new JsonResponse($this->exploded))->assertExactJson(self::expected(
+            guards: ['admin' => self::bound($person, $membership, $session['session'], $tenant)],
+            caller: self::caller('admin', 'access', $person, $membership, $tenant, $session['session']),
+            context: $this->context('admin', $person, $membership, $tenant, $session['session'], 'access_token'),
+            failures: [['console', 'token_invalid'], ['machines', 'credential_invalid'], ['m2m', 'token_invalid']],
+        ));
 
         $this->report(null)->assertExactJson(self::expected());
     }
@@ -493,8 +518,8 @@ final class CrossTenantRequestsTest extends TestCase
             return $this->reportWithFailures();
         });
 
-        Route::get('/explode', static function (): never {
-            Auth::guard('admin')->user();
+        Route::get('/explode', function (): never {
+            $this->exploded = $this->reportWithFailures();
 
             throw new \RuntimeException('The route failed after authenticating.');
         });
