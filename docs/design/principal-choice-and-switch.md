@@ -78,11 +78,12 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 - With the current rotation id, the token's `principal` must be the principal the session records
   (`session_principal_mismatch`). Then the destination tenant's authentication policy judges the session against its own
   proofs and provenance (`TenantPolicyCheck::check()`, inside the switch's transaction, with the session's row held
-  after its issuance guard): connections the session was not established through refuse the switch (`sso_required`,
-  nothing written); a further factor the session lacks returns it to pending with the destination recorded
-  (`PendingTransitions::returnToPending()`, flow `switch`), a missed compare-and-swap there judged as a missed switch
-  swap is. A return forgets a binding of the guard to the session (`GuardBinding::forgetSession()`, no event), as a
-  refresh's return does, so nothing later in the request acts in the context it left.
+  after its issuance guard): connections the session was not established through refuse the switch (`sso_required`, with
+  only the issuance guard written and no switch or rotation applied); a further factor the session lacks returns it to
+  pending with the destination recorded (`PendingTransitions::returnToPending()`, flow `switch`), a missed
+  compare-and-swap there judged as a missed switch swap is. A return forgets a binding of the guard to the session
+  (`GuardBinding::forgetSession()`, no event), as a refresh's return does, so nothing later in the request acts in the
+  context it left.
 - The absolute deadline stays the session's, held to `signed_in_at` plus the guard's absolute lifetime
   (`session_expired` when that has passed), so a lifetime shortened or set since the sign-in applies and a switch never
   extends the session or lifts its deadline; a session with no absolute deadline under a guard with no absolute limit
@@ -97,13 +98,13 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   `session_principal_mismatch`, `session_switched`). A switch to the recorded principal and tenant writes no switch. The
   session's key does not change, so its proofs and provenance carry over unchanged.
 - With the previous rotation id inside the grace window, the current credential is reissued for the destination, writing
-  nothing, only when the session records the destination principal and tenant and either its last rotation was a switch
-  that changed them (`switched_at` not before `refresh_rotated_at`: a switch in a second the floor already reached
-  writes the floor past the rotation, see `SessionRecords\SwitchFloor`) or the token's own `principal` is the
-  destination; anything else is `rotation_conflict`, without revoking. The destination tenant's policy is asked again
-  on a retry, as a refresh with the same token asks it (the rotation that opened the window may have been a refresh, or
-  the policy may have changed since): `sso_required` refuses the retry and leaves the session alone, and a further
-  factor the session lacks returns it to pending, a return that loses its swap answered `rotation_conflict`.
+  nothing but the issuance guard, only when the session records the destination principal and tenant and either its last
+  rotation was a switch that changed them (`switched_at` not before `refresh_rotated_at`: a switch in a second the floor
+  already reached writes the floor past the rotation, see `SessionRecords\SwitchFloor`) or the token's own `principal`
+  is the destination; anything else is `rotation_conflict`, without revoking. The destination tenant's policy is asked
+  again on a retry, as a refresh with the same token asks it (the rotation that opened the window may have been a
+  refresh, or the policy may have changed since): `sso_required` refuses the retry, writing only the issuance guard, and
+  a further factor the session lacks returns it to pending, a return that loses its swap answered `rotation_conflict`.
 - A missed swap re-reads the row with a lock and judges it once: a still-current id is `rotation_conflict`, a previous
   id is answered by the retry rule against the row as it now is (after the owner is checked again), and anything else
   fails for its reason, a replay (`rotation_reuse`) revoking the session as a first judgement does. There is never a
