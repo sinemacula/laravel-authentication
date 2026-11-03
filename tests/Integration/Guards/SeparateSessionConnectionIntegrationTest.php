@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -24,6 +25,9 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
@@ -33,8 +37,9 @@ use Tests\TestCase;
 /**
  * End-to-end tests for a session model kept on its own connection, apart from
  * the identities: refresh and the bearer path read and write the session on
- * that connection, and a replay revocation is reported once it is committed
- * there, whatever a transaction on another connection does.
+ * that connection, every issuance runs in a transaction on it, and a replay
+ * revocation is reported once it is committed there, whatever a transaction on
+ * another connection does.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -43,8 +48,10 @@ use Tests\TestCase;
  */
 #[CoversClass(SessionRevoked::class)]
 #[CoversClass(JwtGuard::class)]
+#[CoversClass(JwtTokenService::class)]
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(RefreshRotationStore::class)]
+#[CoversClass(SessionSwitch::class)]
 final class SeparateSessionConnectionIntegrationTest extends TestCase
 {
     use InteractsWithSessionRecords;
@@ -288,6 +295,56 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * A refresh opens its transaction on the session's own connection, not the
+     * default one: the issuance guard, the re-read and the rotation all run
+     * inside it.
+     *
+     * @return void
+     */
+    public function testARefreshRunsInATransactionOnTheSessionsOwnConnection(): void
+    {
+        [$identity, $session] = $this->signIn();
+
+        $token      = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
+        $statements = $this->statementsOf(fn (): mixed => GuardSessions::of($this->guard())->refresh($token)->session);
+
+        self::assertIssuedInATransactionOnTheSessionsConnection($statements, 'refresh_rotated_at');
+    }
+
+    /**
+     * A switch opens its transaction on the session's own connection, not the
+     * default one: the issuance guard, the re-read and the compare-and-swap all
+     * run inside it.
+     *
+     * @return void
+     */
+    public function testASwitchRunsInATransactionOnTheSessionsOwnConnection(): void
+    {
+        [$identity, $session] = $this->signIn();
+
+        $token      = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
+        $statements = $this->statementsOf(fn (): mixed => GuardSessions::of($this->guard())->switchTo($token, SwitchTarget::tenant(TenantSelection::none()))->session);
+
+        self::assertIssuedInATransactionOnTheSessionsConnection($statements, 'refresh_rotated_at');
+    }
+
+    /**
+     * An access token issued for the session opens its transaction on the
+     * session's own connection, not the default one: the issuance guard and the
+     * read of the session's proofs run inside it.
+     *
+     * @return void
+     */
+    public function testAnAccessTokenIsIssuedInATransactionOnTheSessionsOwnConnection(): void
+    {
+        [$identity, $session] = $this->signIn();
+
+        $statements = $this->statementsOf(fn (): mixed => $this->tokens()->issueAccessToken($identity, $identity, null, $session));
+
+        self::assertIssuedInATransactionOnTheSessionsConnection($statements, 'group by');
+    }
+
+    /**
      * Keep the sessions on their own connection, a separate database, as the
      * storage connection, the counters on the default one, and configure the
      * `api` guard.
@@ -358,6 +415,56 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
         ]);
 
         return $this->tokens()->issueRefreshToken($this->record(), self::ROTATION_ID, $identity)->reveal();
+    }
+
+    /**
+     * Run the operation, asserting it returned something, and return each
+     * statement it ran: its connection, that connection's transaction level and
+     * the default connection's, and its SQL.
+     *
+     * @param  \Closure(): mixed  $operation
+     * @return list<array{0: string, 1: int, 2: int, 3: string}>
+     */
+    private function statementsOf(\Closure $operation): array
+    {
+        /** @var \ArrayObject<int, array{0: string, 1: int, 2: int, 3: string}> $statements */
+        $statements = new \ArrayObject;
+
+        Event::listen(QueryExecuted::class, static function (QueryExecuted $query) use ($statements): void {
+            $statements->append([$query->connectionName, $query->connection->transactionLevel(), DB::connection()->transactionLevel(), $query->sql]);
+        });
+
+        self::assertNotNull($operation());
+
+        return array_values($statements->getArrayCopy());
+    }
+
+    /**
+     * Assert the issuance guard is written on the session's connection, and
+     * that it and every statement on that connection up to the last one whose
+     * SQL holds the marker run inside one transaction there, while the default
+     * connection never opens one.
+     *
+     * @param  list<array{0: string, 1: int, 2: int, 3: string}>  $statements
+     * @param  string  $last
+     * @return void
+     */
+    private static function assertIssuedInATransactionOnTheSessionsConnection(array $statements, string $last): void
+    {
+        $sql   = array_column($statements, 3);
+        $guard = array_key_first(array_filter($sql, static fn (string $statement): bool => str_starts_with($statement, 'update') && str_contains($statement, 'issuance_sequence')));
+        $end   = array_key_last(array_filter($sql, static fn (string $statement): bool => str_contains($statement, $last)));
+
+        self::assertIsInt($guard);
+        self::assertIsInt($end);
+        self::assertGreaterThan($guard, $end);
+        self::assertSame(SeparateConnectionSession::CONNECTION, $statements[$guard][0]);
+
+        $held = array_filter(array_slice($statements, $guard, $end - $guard + 1), static fn (array $statement): bool => $statement[0] === SeparateConnectionSession::CONNECTION);
+
+        self::assertSame([1], array_values(array_unique(array_column($held, 1))));
+        self::assertSame([0], array_values(array_unique(array_column($statements, 2))));
+        self::assertSame(0, DB::connection(SeparateConnectionSession::CONNECTION)->transactionLevel());
     }
 
     /**
