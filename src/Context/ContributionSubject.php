@@ -21,8 +21,10 @@ use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
  *
  * The session's external provenance (the connection and tenant it was
  * established through, the provider's time and deadline, the policy version,
- * the link, the evidence accepted with the provider's own `amr`) is read only
- * when a contributor first asks for it, on the write connection, and once.
+ * the link, the evidence accepted with the provider's own `amr`, and the
+ * provider context the adapter gave, whose keys are its own) is read only when
+ * a contributor first asks for it, on the write connection, and once, in one
+ * query.
  *
  * @api
  *

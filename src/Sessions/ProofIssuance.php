@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\SessionRecords\IssuanceGuard;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
@@ -46,9 +47,15 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * access lifetime from its issue, never past the session's end). Once the proof
  * commits or rolls back, every resolved guard bound to the session forgets the
  * authentication context it holds, so the rest of the request reads the proofs
- * as they then stand. Nothing else is written: the refresh token, the deadlines
- * and the session row stay as they were, so a concurrent refresh's
- * compare-and-swap is unaffected.
+ * as they then stand. Nothing else is written: the refresh token and the
+ * deadlines stay as they were, and the session row takes only its issuance
+ * guard (`IssuanceGuard`), written before the proof, which no compare-and-swap
+ * reads, so a concurrent refresh's compare-and-swap is unaffected. The guard
+ * makes a refresh, switch or other issuance of the session that overlaps this
+ * one wait for it and then read its proof, or, where that one reads a snapshot
+ * taken before this commits (PostgreSQL's REPEATABLE READ), fail to serialise,
+ * so no later token of the session carries an older `auth_time` or fewer `amr`
+ * values than this one.
  *
  * Every check and the token are judged at the second the lock is taken, not
  * when the caller began: a credential's verification and the wait for the lock
@@ -155,6 +162,8 @@ final readonly class ProofIssuance
             return $admitted;
         }
 
+        IssuanceGuard::hold($session);
+
         // Registered before the proof is written, so a context `$admits` builds
         // from it is forgotten when `$admits` then refuses or throws.
         ContextForgetting::onSettle($this->afterCommit, $session);
@@ -163,7 +172,7 @@ final readonly class ProofIssuance
 
         self::assertAdmits($admits, $admitted, $session, $now);
 
-        $token   = $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
+        $token   = $this->tokens->issueGuardedAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
         $expires = $this->tokens->lifetimes()->accessExpiry($now, WriteConnection::during($session, static fn (): ?CarbonImmutable => SessionDeadlines::liveEnd($session, $now)));
 
         return [$admitted, $session, $token, $expires];

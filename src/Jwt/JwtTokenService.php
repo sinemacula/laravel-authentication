@@ -25,7 +25,9 @@ use SineMacula\Laravel\Authentication\Proofs\AuthenticationClaims;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationSummary;
 use SineMacula\Laravel\Authentication\Secrets\Plaintext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\SessionRecords\IssuanceGuard;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
@@ -50,6 +52,9 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * - configurable clock skew via `leewaySeconds` on every verification
  * - token lifetimes from the guard's `TokenLifetimes`; a token for a session
  *   mirrors the session and is never issued for one that has ended
+ * - a token for a session is issued after its issuance guard, reading its
+ *   proofs current, so its `auth_time` and `amr` never go back on a token of
+ *   the session committed before it
  * - every token it issues is a `Secret`, revealed only where it is sent, and no
  *   token or claim that is a secret ever reaches its logger
  *
@@ -145,6 +150,20 @@ final class JwtTokenService
      * authentication method references in `amr`, both derived from the session
      * when the token is issued.
      *
+     * A token for an Eloquent session is issued in a transaction on the
+     * session's connection (a savepoint inside one of the caller's), which
+     * first writes the session's issuance guard (`IssuanceGuard`), then takes
+     * the issue time, then reads the session's proofs current: a token issued
+     * after another one of the session committed never carries an older
+     * `auth_time` or fewer `amr` values than it, whatever the isolation level.
+     * Under PostgreSQL's REPEATABLE READ or SERIALIZABLE, a caller's
+     * transaction whose snapshot predates such a token or a proof of the
+     * session fails to serialise on the guard instead, for the caller to retry
+     * whole. A caller that passes `$issuedAt` should take it after it locks the
+     * session in its own transaction around the call, or it may be earlier than
+     * a proof that committed in between, and `auth_time` is never after the
+     * issue time.
+     *
      * Refuses to issue a token that `parse()` would reject or that would lose
      * part of its context: the identity and principal, the tenant when one is
      * given, and the session when one is given, must each have an identifier
@@ -155,6 +174,9 @@ final class JwtTokenService
      * the `TenantUnavailableException` its `getTenant()` does). Refuses, too, a
      * session that has ended or that has no idle deadline, and a non-human
      * identity: a machine gets tokens only from a client credentials exchange.
+     * An Eloquent session model off the storage connection is refused with an
+     * `InvalidSessionModelConfigurationException`, and a session with no key or
+     * no row left with a `LogicException`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -166,13 +188,65 @@ final class JwtTokenService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \Throwable
      */
     public function issueAccessToken(Identity $identity, Principal $principal, ?Tenant $tenant, ?Session $session, ?CarbonInterface $issuedAt = null): Secret
     {
         MachineTokens::refuseSession($identity instanceof MachineIdentity);
 
-        return $this->issueAccess($identity, $principal, $tenant, $session, $issuedAt, null, []);
+        if (!$session instanceof EloquentSession || !$session instanceof Model) {
+            return $this->encode($this->accessClaims($identity, $principal, $tenant, $session, $issuedAt), TokenType::ACCESS);
+        }
+
+        SessionLookup::assertOnStorage($session);
+
+        return $session->getConnection()->transaction(function () use ($identity, $principal, $tenant, $session, $issuedAt): Secret {
+
+            IssuanceGuard::hold($session);
+
+            return $this->issueGuardedAccessToken($identity, $principal, $tenant, $session, TokenLifetimes::issueTime($issuedAt));
+        });
+    }
+
+    /**
+     * Encode an access-token payload for the session as `issueAccessToken()`
+     * does, at `$issuedAt`, inside the transaction of the issuer that called
+     * it, writing nothing: the issuer must have written the session's row first
+     * in that transaction, on the session's connection (its issuance guard, or
+     * its own write of the row, such as an activation's), and taken `$issuedAt`
+     * after that write, so the proofs read for the token, current, include
+     * every one committed before it. A session the transaction inserted
+     * (`$inserted`) holds no proofs but its own until it commits, so they are
+     * read as the transaction sees them, without a lock.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \Carbon\CarbonInterface  $issuedAt
+     * @param  bool  $inserted
+     * @return \SineMacula\Laravel\Authentication\Secrets\Secret
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     *
+     * @internal
+     */
+    public function issueGuardedAccessToken(
+        Identity $identity,
+        Principal $principal,
+        ?Tenant $tenant,
+        EloquentSession&Model $session,
+        CarbonInterface $issuedAt,
+        bool $inserted = false,
+    ): Secret {
+        MachineTokens::refuseSession($identity instanceof MachineIdentity);
+
+        return $this->encode($this->accessClaims($identity, $principal, $tenant, $session, $issuedAt, null, !$inserted), TokenType::ACCESS);
     }
 
     /**
@@ -213,7 +287,9 @@ final class JwtTokenService
         ?CarbonInterface $notAfter = null,
         ?CarbonInterface $issuedAt = null,
     ): Secret {
-        return $this->issueAccess($identity, $principal, $tenant, null, $issuedAt, $notAfter, MachineTokens::claims($credentialId, $scopes));
+        $payload = $this->accessClaims($identity, $principal, $tenant, null, $issuedAt, $notAfter);
+
+        return $this->encode([...$payload, ...MachineTokens::claims($credentialId, $scopes)], TokenType::ACCESS);
     }
 
     /**
@@ -329,16 +405,18 @@ final class JwtTokenService
 
         [$typ, $payload] = $decoded;
 
-        $claims = $this->normalizeClaims($payload);
+        /** @var array<string, mixed> $claims */
+        $claims = array_filter((array) $payload, static fn (mixed $key): bool => is_string($key), ARRAY_FILTER_USE_KEY);
 
         return $this->matchesExpectedClaims($claims, $typ, $expectedType) ? $claims : null;
     }
 
     /**
-     * Encode an access token for the context, with any further claims: its
-     * lifetime is the guard's access lifetime, never past the end of the
-     * session or, without a session, `$notAfter`, which must be after the issue
-     * time. The subject type follows the identity's kind.
+     * The claims of an access token for the context: its lifetime is the
+     * guard's access lifetime, never past the end of the session or, without a
+     * session, `$notAfter`, which must be after the issue time; a session's
+     * proofs are read current unless `$currentProofs` is `false`. The subject
+     * type follows the identity's kind.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -346,23 +424,23 @@ final class JwtTokenService
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\Carbon\CarbonInterface  $issuedAt
      * @param  ?\Carbon\CarbonInterface  $notAfter
-     * @param  array<string, string>  $claims
-     * @return \SineMacula\Laravel\Authentication\Secrets\Secret
+     * @param  bool  $currentProofs
+     * @return array<string, mixed>
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
-    private function issueAccess(
+    private function accessClaims(
         Identity $identity,
         Principal $principal,
         ?Tenant $tenant,
         ?Session $session,
         ?CarbonInterface $issuedAt,
-        ?CarbonInterface $notAfter,
-        array $claims,
-    ): Secret {
+        ?CarbonInterface $notAfter = null,
+        bool $currentProofs = true,
+    ): array {
         $issuedAt  = TokenLifetimes::issueTime($issuedAt);
         $ends      = $session === null ? TokenLifetimes::notAfter($notAfter, $issuedAt) : $this->sessionEnd($session, $issuedAt);
         $expiresAt = $this->lifetimes->accessExpiry($issuedAt, $ends);
@@ -384,14 +462,14 @@ final class JwtTokenService
         }
 
         if ($session !== null) {
-            $payload = [...$payload, ...$this->sessionClaims($session, $issuedAt)];
+            $payload = [...$payload, ...$this->sessionClaims($session, $issuedAt, $currentProofs)];
         }
 
         $payload[Claims::JWT_ID->value]     = RefreshTokenHasher::generate();
         $payload[Claims::ISSUED_AT->value]  = $issuedAt->getTimestamp();
         $payload[Claims::EXPIRES_AT->value] = $expiresAt->getTimestamp();
 
-        return $this->encode([...$payload, ...$claims], TokenType::ACCESS);
+        return $payload;
     }
 
     /**
@@ -399,19 +477,21 @@ final class JwtTokenService
      * of its latest authentication, never after the issue time, and its
      * authentication method references, derived inside
      * `WriteConnection::during()` for the session, so they are read from the
-     * writer rather than a lagging replica.
+     * writer rather than a lagging replica, and current unless `$current` is
+     * `false` (`AuthenticationClaims`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Carbon\CarbonImmutable  $issuedAt
+     * @param  bool  $current
      * @return array<string, mixed>
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    private function sessionClaims(Session $session, CarbonImmutable $issuedAt): array
+    private function sessionClaims(Session $session, CarbonImmutable $issuedAt, bool $current): array
     {
         $sessionId = $this->requireClaimValue(Claims::SESSION_ID, $session->getSessionIdentifier());
-        $summary   = WriteConnection::during($session, static fn (): AuthenticationSummary => AuthenticationClaims::forSession($session));
+        $summary   = WriteConnection::during($session, static fn (): AuthenticationSummary => AuthenticationClaims::forSession($session, $current));
 
         return [
             Claims::SESSION_ID->value             => $sessionId,
@@ -553,18 +633,6 @@ final class JwtTokenService
         } finally {
             JWT::$leeway = $previousLeeway;
         }
-    }
-
-    /**
-     * Convert the decoded payload into a string-keyed array, dropping any
-     * numeric keys.
-     *
-     * @param  object  $decoded
-     * @return array<string, mixed>
-     */
-    private function normalizeClaims(object $decoded): array
-    {
-        return array_filter((array) $decoded, fn ($key) => is_string($key), ARRAY_FILTER_USE_KEY);
     }
 
     /**

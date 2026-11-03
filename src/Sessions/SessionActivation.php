@@ -54,6 +54,15 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * before its return is accepted, and is reported as `SessionActivated`. Every
  * report waits for the commit on the session's connection.
  *
+ * The activation's write of the locked pending row, made before the pair is
+ * issued, is the session's issuance guard, and the pair's proofs are read
+ * current after it, so they include every proof the session committed before.
+ * The pair is issued at the operation's `$now`, taken before the lock: no token
+ * of the session can have committed in between, since an operation that issued
+ * one activated the session, and this one, judged under the lock, would then
+ * have found it no longer pending; a proof another operation recorded without
+ * activating the session is read with the rest.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -133,7 +142,7 @@ final readonly class SessionActivation
         ]);
 
         $tokens = new TokenPair(
-            $this->tokens->issueAccessToken($identity, $principal, $tenant, $session, $now),
+            $this->tokens->issueGuardedAccessToken($identity, $principal, $tenant, $session, $now),
             $this->tokens->issueRefreshToken($session, $rotationId, $principal, $now),
         );
 

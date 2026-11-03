@@ -42,10 +42,11 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
  * Both are asked inside `WriteConnection::during()` for the identity, so a
  * model read either makes of its own state (which providers or connections it
  * trusts) sees the primary rather than a replica that may lag behind a change.
- * They may be asked while the package holds a session's row lock (a
- * reauthentication judges its tenant's requirement with the new proof recorded
- * under it), so an implementation only reads, or takes no lock the adapter does
- * not already hold, and never one the adapter takes after the session's.
+ * They may be asked while the package holds a session's row lock (a refresh and
+ * a switch judge a tenant's requirement from their issuance guard on, a
+ * reauthentication with the new proof recorded under its lock), so an
+ * implementation only reads, or takes no lock its caller does not already hold,
+ * and never one its caller takes after the session's.
  *
  * @api
  *

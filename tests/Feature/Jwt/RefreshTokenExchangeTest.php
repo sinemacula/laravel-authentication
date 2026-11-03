@@ -57,6 +57,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
+use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Events\EventContextAssertions;
@@ -89,7 +90,7 @@ use Tests\Unit\Stubs\StubSession;
 #[CoversClass(IdentifierCoercion::class)]
 final class RefreshTokenExchangeTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessionRecords, MockeryPHPUnitIntegration;
+    use InspectsIssuanceGuards, InteractsWithProofs, InteractsWithSessionRecords, MockeryPHPUnitIntegration;
 
     /** @var string Shared JWT secret for the test fixtures. */
     private const string SECRET = 'test-secret-key-with-at-least-32-bytes!';
@@ -325,6 +326,7 @@ final class RefreshTokenExchangeTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
+     * @throws \Throwable
      */
     public function testExchangePropagatesUnresolvableIdentityException(): void
     {
@@ -509,7 +511,8 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * Both tokens are issued before the rotation commits, so a failure while
-     * issuing either of them leaves the stored digest untouched and the
+     * issuing either of them rolls the exchange's transaction back, the
+     * issuance guard with it, leaves the stored digest untouched, and the
      * presented refresh token still rotates on the next attempt. The failure is
      * injected through the principal identifier each token embeds.
      *
@@ -518,6 +521,7 @@ final class RefreshTokenExchangeTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
+     * @throws \Throwable
      */
     #[DataProvider('provideIssuingFailures')]
     public function testExchangeLeavesTheRefreshTokenValidWhenIssuingFails(int $failingRead): void
@@ -586,9 +590,217 @@ final class RefreshTokenExchangeTest extends TestCase
         }
 
         self::assertSame($storedDigest, $this->storedDigest($session->id));
+        self::assertSame(0, self::issuanceGuardWrites($session->id, 'stub_sessions'));
+        self::assertSame(0, DB::transactionLevel());
 
         self::assertInstanceOf(ExchangedRefresh::class, $exchange->exchange($token, self::client()));
         self::assertNotSame($storedDigest, $this->storedDigest($session->id));
+        self::assertSame(1, self::issuanceGuardWrites($session->id, 'stub_sessions'));
+    }
+
+    /**
+     * Once the session is found, the exchange runs in one transaction whose
+     * first statement is the session's issuance guard: the owner's reads, the
+     * read of the session's proofs for the access token and the rotation all
+     * follow it in that transaction, which has ended once the pair is handed
+     * back.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testTheExchangeRunsInATransactionTheIssuanceGuardOpens(): void
+    {
+        $session    = $this->seedSession(45, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $statements = [];
+
+        $this->expectRefreshContext(45);
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = [$query->sql, $query->connection->transactionLevel()];
+        });
+
+        self::assertInstanceOf(ExchangedRefresh::class, $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
+
+        $guard = array_key_first(array_filter($statements, static fn (array $statement): bool => str_contains($statement[0], 'issuance_sequence')));
+
+        self::assertIsInt($guard);
+        self::assertSame(0, $statements[$guard - 1][1]);
+        self::assertSame([1], array_values(array_unique(array_column(array_slice($statements, $guard), 1))));
+        self::assertStringContainsString('group by', implode(' | ', array_column(array_slice($statements, $guard), 0)));
+        self::assertStringContainsString('refresh_rotated_at', end($statements)[0]);
+        self::assertSame(0, DB::transactionLevel());
+        self::assertSame(1, self::issuanceGuardWrites($session->id, 'stub_sessions'));
+    }
+
+    /**
+     * The exchange's one time is taken once the issuance guard is written, not
+     * when the token was parsed: an issuance the guard waited for is never
+     * later than the rotation it allows, nor than its tokens' `iat`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testTheExchangesTimeIsTakenOnceTheIssuanceGuardIsWritten(): void
+    {
+        $session = $this->seedSession(46, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $later   = $this->now->copy()->addSeconds(2);
+
+        $this->expectRefreshContext(46);
+
+        DB::listen(static function (QueryExecuted $query) use ($later): void {
+            if (!str_contains($query->sql, 'issuance_sequence')) {
+                return;
+            }
+
+            Carbon::setTestNow($later);
+
+            JWT::$timestamp = $later->getTimestamp();
+        });
+
+        $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
+
+        self::assertInstanceOf(ExchangedRefresh::class, $result);
+        self::assertSame($later->getTimestamp(), $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::ISSUED_AT->value]);
+        $rotatedAt = DB::table('stub_sessions')->where('id', $session->id)->value('refresh_rotated_at');
+
+        self::assertIsString($rotatedAt);
+        self::assertSame($later->getTimestamp(), Carbon::parse($rotatedAt)->getTimestamp());
+    }
+
+    /**
+     * A parallel refresh that rotates between this exchange's lookup and its
+     * issuance guard is seen by the locking read that follows the guard: the
+     * row read there makes this exchange a grace retry, which gets the
+     * successor's credential without a second rotation.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testARotationCommittedBeforeTheGuardMakesTheExchangeAGraceRetry(): void
+    {
+        $session = $this->seedSession(47, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+
+        $this->expectRefreshContext(47);
+        $this->recordEvents();
+        $this->beforeTheGuard(fn () => $this->rotateOnTheRow($session, self::ROTATION_ID));
+
+        $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
+
+        self::assertInstanceOf(ExchangedRefresh::class, $result);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::JWT_ID->value]);
+        self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->storedDigest($session->id));
+        self::assertSame([], $this->dispatched);
+    }
+
+    /**
+     * A session deleted between the exchange's lookup and its issuance guard
+     * fails as `session_unknown`, as one the lookup never found does, before
+     * its owner is loaded.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testASessionGoneBeforeTheGuardIsUnknown(): void
+    {
+        $session = $this->seedSession(48, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->recordEvents();
+        $this->beforeTheGuard(static fn () => DB::table('stub_sessions')->where('id', $session->id)->delete());
+
+        $failure = $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
+
+        self::assertSame(FailureReason::SESSION_UNKNOWN, $failure->reason);
+        self::assertSame($session->id, $failure->context->sessionId);
+        self::assertNull($failure->context->identityId);
+        self::assertSame([], $this->dispatched);
+    }
+
+    /**
+     * Rows of `[the change committed before the guard, the failure]`.
+     *
+     * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     */
+    public static function provideChangesBeforeTheGuard(): iterable
+    {
+        yield 'revoked' => [['revoked_at' => '2026-04-06 11:59:59', 'revoked_reason' => 'signed_out'], FailureReason::SESSION_REVOKED];
+
+        yield 'returned to pending' => [['status' => 'pending'], FailureReason::SESSION_PENDING];
+    }
+
+    /**
+     * A grace retry whose session is revoked, or returned to pending, between
+     * the exchange's lookup and its issuance guard (as by a transaction the
+     * guard waited for) is judged on the row read after the guard: it fails as
+     * `session_revoked` or `session_pending` before its owner is loaded, and
+     * hands out no pair, although the row it found was active and the retry
+     * writes no compare-and-swap that would have missed.
+     *
+     * @param  array<string, mixed>  $change
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideChangesBeforeTheGuard')]
+    public function testAGraceRetryIsJudgedOnTheRowReadAfterTheGuard(array $change, FailureReason $reason): void
+    {
+        $session = $this->seedRotatedSession(49, rotatedSecondsAgo: 5);
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->recordEvents();
+        $this->beforeTheGuard(static fn () => DB::table('stub_sessions')->where('id', $session->id)->update($change));
+
+        $failure = $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
+
+        self::assertSame($reason, $failure->reason);
+        self::assertSame($session->id, $failure->context->sessionId);
+        self::assertSame([], $this->dispatched);
+    }
+
+    /**
+     * A grace retry whose session a switch rotated again, to another principal,
+     * between the exchange's lookup and its issuance guard (as by a transaction
+     * the guard waited for) is judged on the row read after the guard: its
+     * token is two rotations old there, so it is a replay that revokes the
+     * session as `rotation_reuse`, reported for the principal the switch
+     * recorded, and it hands out no pair, although the row it found held its
+     * token as the previous one.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testAGraceRetryAfterASwitchTheGuardWaitedForIsAReplay(): void
+    {
+        $session = $this->seedRotatedSession(50, rotatedSecondsAgo: 5);
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->recordEvents();
+        $this->beforeTheGuard(fn () => $this->rotateOnTheRow($session, RefreshTokenHasher::successor(self::ROTATION_ID), principalId: 'p-switched'));
+
+        $failure = $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
+        $row     = $this->row($session);
+
+        self::assertSame(FailureReason::ROTATION_REUSE, $failure->reason);
+        self::assertSame('p-switched', $failure->context->principalId);
+        self::assertSame('rotation_reuse', $row['revoked_reason']);
+        self::assertNull($row['refresh_key']);
+        self::assertNull($row['previous_refresh_key']);
+        self::assertCount(1, $this->dispatched);
+        self::assertInstanceOf(SessionRevoked::class, $this->dispatched[0]);
+        self::assertSame(RevocationReason::ROTATION_REUSE, $this->dispatched[0]->reason);
+        self::assertSame('p-switched', $this->dispatched[0]->context->principalId);
     }
 
     /**
@@ -862,7 +1074,7 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * A session that has ended, or that has no idle deadline, fails as
      * `session_expired` before its owner is loaded or its digest compared, and
-     * nothing is written: the session is not revoked.
+     * nothing but the issuance guard is written: the session is not revoked.
      *
      * @param  ?int  $idleIn
      * @param  ?int  $absoluteIn
@@ -904,7 +1116,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertSame(FailureReason::SESSION_EXPIRED, $failure->reason);
         self::assertSame($session->id, $failure->context->sessionId);
-        self::assertSame($before, (array) DB::table('stub_sessions')->where('id', $session->id)->first());
+        self::assertSame(self::guarded($before), (array) DB::table('stub_sessions')->where('id', $session->id)->first());
     }
 
     /**
@@ -993,8 +1205,8 @@ final class RefreshTokenExchangeTest extends TestCase
      * The rotation id the current one replaced, presented inside the grace
      * window, gets the session's current credential: a pair whose refresh token
      * carries the current rotation id and expires at the stored idle deadline.
-     * No rotation state is written, so the window stays anchored at the
-     * rotation that opened it.
+     * No rotation state is written (only the issuance guard), so the window
+     * stays anchored at the rotation that opened it.
      *
      * @return void
      *
@@ -1016,7 +1228,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertInstanceOf(ExchangedRefresh::class, $result);
         self::assertSame($current, $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::JWT_ID->value]);
         self::assertSame($idle->getTimestamp(), $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::EXPIRES_AT->value]);
-        self::assertSame($before, $this->row($session));
+        self::assertSame(self::guarded($before), $this->row($session));
         self::assertSame([], $this->dispatched);
     }
 
@@ -1158,7 +1370,7 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * A session that holds no refresh credential cannot tell a replay from
      * anything else, so its tokens are rejected as `refresh_key_missing`
-     * without revoking it or writing anything.
+     * without revoking it or writing anything but the issuance guard.
      *
      * @return void
      *
@@ -1174,14 +1386,14 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->recordEvents();
 
         $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
-        self::assertSame($before, $this->row($session));
+        self::assertSame(self::guarded($before), $this->row($session));
         self::assertSame([FailureReason::REFRESH_KEY_MISSING], $this->failureReasons());
     }
 
     /**
      * A refresh for a principal the session no longer records (the session was
      * switched to another one) fails as `session_principal_mismatch`, without
-     * revoking the session or writing to it.
+     * revoking the session or writing to it beyond the issuance guard.
      *
      * @return void
      *
@@ -1198,13 +1410,13 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
         self::assertSame([FailureReason::SESSION_PRINCIPAL_MISMATCH], $this->failureReasons());
-        self::assertSame($before, $this->row($session));
+        self::assertSame(self::guarded($before), $this->row($session));
     }
 
     /**
      * A session that holds no refresh credential and has ended fails as
      * `session_expired`, not `refresh_key_missing`: the session is judged
-     * before the credential, and nothing is written.
+     * before the credential, and nothing but the issuance guard is written.
      *
      * @return void
      *
@@ -1220,7 +1432,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->recordEvents();
 
         $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
-        self::assertSame($before, $this->row($session));
+        self::assertSame(self::guarded($before), $this->row($session));
         self::assertSame([FailureReason::SESSION_EXPIRED], $this->failureReasons());
     }
 
@@ -1238,7 +1450,7 @@ final class RefreshTokenExchangeTest extends TestCase
     {
         $session = $this->seedRotatedSession(37, rotatedSecondsAgo: 5);
 
-        $loaded = new StubSession;
+        $loaded = new StubInjectableSession;
         $loaded->setRawAttributes(array_diff_key((array) DB::table('stub_sessions')->where('id', $session->id)->first(), ['previous_refresh_key' => true]), true);
         $loaded->exists = true;
 
@@ -1289,10 +1501,12 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A parallel refresh with the same token that rotates first, between this
-     * exchange's read and its swap, makes this exchange a grace retry: the swap
-     * misses, the row is judged again, and this exchange gets the same current
-     * credential the winner got, without writing.
+     * A rotation to this exchange's successor written to the row between its
+     * re-read and its swap, inside the exchange's own transaction (holding the
+     * row from its issuance guard, no other request can write it there), makes
+     * this exchange a grace retry: the swap misses, the row is judged again,
+     * and this exchange gets the current credential that rotation recorded,
+     * without writing.
      *
      * @return void
      *
@@ -1344,9 +1558,10 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * With grace disabled, a parallel refresh that rotates first leaves the
-     * loser holding a replaced token: the row judged again proves a replay, and
-     * the session is revoked.
+     * With grace disabled, a rotation written to the row between the exchange's
+     * re-read and its swap, inside its own transaction, leaves the exchange
+     * holding a replaced token: the row judged again proves a replay, and the
+     * session is revoked.
      *
      * @return void
      *
@@ -1367,7 +1582,7 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Rows of `[competing change committed between the read and the swap,
+     * Rows of `[change written to the row between the re-read and the swap,
      * failure the row judged again gives]`.
      *
      * @return iterable<string, array{0: string, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
@@ -1636,7 +1851,8 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * A session of another guard, or of none, fails as `session_guard_mismatch`
      * before its rotation id is judged, so even a replayed token of it revokes
-     * nothing, and its owner is never loaded.
+     * nothing, nothing is written to it, not even its issuance guard, and its
+     * owner is never loaded.
      *
      * @param  ?string  $guard
      * @return void
@@ -1659,14 +1875,13 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame([], $this->dispatched);
         self::assertSame(self::GUARD_NAME, $failure->context->guard);
         self::assertSame($session->id, $failure->context->sessionId);
-        self::assertSame($session->id, $failure->context->sessionId);
         self::assertSame($before, $this->row($session));
     }
 
     /**
      * The method that started the session must still be one the guard lets
      * start its sessions; a session that records no method fails closed without
-     * asking. Neither writes anything.
+     * asking. Neither writes anything but the issuance guard.
      *
      * @return void
      *
@@ -1687,13 +1902,13 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->refused($this->makeExchange()->exchange($this->tokenFor($removed, self::ROTATION_ID), self::client()));
         $this->refused($this->makeExchange()->exchange($this->tokenFor($unstated, self::ROTATION_ID), self::client()));
         self::assertSame([FailureReason::METHOD_NOT_ALLOWED, FailureReason::METHOD_NOT_ALLOWED], $this->failureReasons());
-        self::assertSame($before, [$this->row($removed), $this->row($unstated)]);
+        self::assertSame(array_map(self::guarded(...), $before), [$this->row($removed), $this->row($unstated)]);
     }
 
     /**
      * `ApplicationAccess` must still let the principal use the application;
-     * when it does not, the exchange fails as `principal_ineligible` without
-     * writing.
+     * when it does not, the exchange fails as `principal_ineligible` writing
+     * nothing but the issuance guard.
      *
      * @return void
      *
@@ -1716,7 +1931,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
         self::assertSame([FailureReason::PRINCIPAL_INELIGIBLE], $this->failureReasons());
-        self::assertSame($before, $this->row($session));
+        self::assertSame(self::guarded($before), $this->row($session));
     }
 
     /**
@@ -1841,8 +2056,10 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * Swap the configured session model so the exchange resolves the supplied
      * in-memory session through `find()` instead of issuing a real polymorphic
-     * query. The session is reloaded first, unless told otherwise, so it
-     * carries every column, as the exchange's own lookup would.
+     * query, and through the locking read after the issuance guard too when the
+     * session is itself of the swapped model. The session is reloaded first,
+     * unless told otherwise, so it carries every column, as the exchange's own
+     * lookup would.
      *
      * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  bool  $reload
@@ -1857,6 +2074,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')
             ->atLeast()->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('lockForUpdate')
             ->andReturnSelf();
         $builder->shouldReceive('find')
             ->with($session->id)
@@ -1939,8 +2158,8 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * Rotate the session's row from the given rotation id to its successor, as
-     * a refresh that won a race would, optionally moving it to another owner,
-     * or to another principal as a switch that won would.
+     * a refresh would, optionally moving it to another owner, or to another
+     * principal as a switch would.
      *
      * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  string  $rotationId
@@ -1983,8 +2202,32 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Run a competing write once, just before the exchange's compare-and-swap
+     * Run a competing write once, just before the exchange's issuance guard
      * executes, as another request that commits first would.
+     *
+     * @param  \Closure(): mixed  $competitor
+     * @return void
+     */
+    private function beforeTheGuard(\Closure $competitor): void
+    {
+        $ran = false;
+
+        DB::connection()->beforeExecuting(static function (string $query) use (&$ran, $competitor): void {
+            if ($ran || !str_contains($query, 'issuance_sequence')) {
+                return;
+            }
+
+            $ran = true;
+
+            $competitor();
+        });
+    }
+
+    /**
+     * Run a write once, just before the exchange's compare-and-swap executes,
+     * inside the exchange's own transaction, as a contract it asks could make:
+     * holding the row from its issuance guard, no other request can write it
+     * there.
      *
      * @param  \Closure(): mixed  $competitor
      * @return void
@@ -2098,6 +2341,23 @@ final class RefreshTokenExchangeTest extends TestCase
             self::assertSame(PlainPrincipalFixture::class, $context->principalType);
             self::assertSame($session->getAttribute('principal_id'), $context->principalId);
         }
+    }
+
+    /**
+     * The row as an exchange leaves it when it writes nothing to it but the
+     * issuance guard, which every exchange that finds the session writes first,
+     * whatever it then decides.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    private static function guarded(array $row): array
+    {
+        $sequence = $row['issuance_sequence'] ?? null;
+
+        self::assertIsNumeric($sequence);
+
+        return [...$row, 'issuance_sequence' => (int) $sequence + 1];
     }
 
     /**

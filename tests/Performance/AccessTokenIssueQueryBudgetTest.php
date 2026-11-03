@@ -6,9 +6,16 @@ namespace Tests\Performance;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Evaluation;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithProofs;
+use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
@@ -18,7 +25,11 @@ use Tests\Integration\Fixtures\TypedTenant;
  * Query-budget contracts for issuing an access token: issuing reads nothing,
  * not even the tenant a 3D principal acts within, unless the token names that
  * tenant and the principal has not loaded it, and the bearer request the token
- * then authenticates pays only its own reads.
+ * then authenticates pays only its own reads. A token for a session costs the
+ * one `UPDATE` of the session's issuance guard, which comes first so the token
+ * reads the session's proofs after any issuance or proof change of it that
+ * overlaps, and the one grouped read of those proofs for its `auth_time` and
+ * `amr`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -28,7 +39,7 @@ use Tests\Integration\Fixtures\TypedTenant;
 #[CoversClass(JwtTokenService::class)]
 final class AccessTokenIssueQueryBudgetTest extends PerformanceContractTestCase
 {
-    use InteractsWithTypedPrincipals;
+    use InteractsWithProofs, InteractsWithSessionRecords, InteractsWithTypedPrincipals;
 
     /** @var string Guard the budgets are measured on. */
     private const string GUARD = 'typed_api';
@@ -96,6 +107,33 @@ final class AccessTokenIssueQueryBudgetTest extends PerformanceContractTestCase
 
         self::assertNotSame('', $this->assertQueryBudget(1, 0, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, $tenant, null)->reveal()));
         self::assertTrue($membership->relationLoaded('tenant'));
+    }
+
+    /**
+     * Issuing a token for a stored session writes its issuance guard and reads
+     * its proofs once, however many it holds.
+     *
+     * @return void
+     */
+    public function testIssuingForASessionWritesItsGuardAndReadsItsProofsOnce(): void
+    {
+        [$identity, $membership] = $this->seedMembership();
+
+        $session = new Session;
+
+        $session->forceFill([
+            ...self::liveSession(self::GUARD),
+            'authenticatable_type' => $identity->getMorphClass(),
+            'authenticatable_id'   => IdentifierCoercion::stringify($identity->getKey()),
+        ])->save();
+
+        foreach (range(0, 9) as $minutes) {
+            $kind = $minutes === 0 ? ProofKind::FIRST_FACTOR : ProofKind::ADDITIONAL_FACTOR;
+
+            self::recordProof($session, $kind, Carbon::now()->subMinutes(10 - $minutes), ['pwd'], new Evaluation(true, true));
+        }
+
+        self::assertNotSame('', $this->assertQueryBudget(1, 1, fn (): string => $this->tokens()->issueAccessToken($identity, $membership, null, $session)->reveal()));
     }
 
     /**

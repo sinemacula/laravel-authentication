@@ -78,5 +78,6 @@ final class RecordsSessionMilestonesTest extends TestCase
         self::assertSame('generation', $session->getGenerationName());
         self::assertSame('signed_in_at', $session->getSignedInAtName());
         self::assertSame('switched_at', $session->getSwitchedAtName());
+        self::assertSame('issuance_sequence', $session->getIssuanceSequenceName());
     }
 }

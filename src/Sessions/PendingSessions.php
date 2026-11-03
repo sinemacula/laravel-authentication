@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Plaintext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\SessionRecords\IssuanceGuard;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
@@ -169,8 +170,9 @@ final readonly class PendingSessions
      * `ProofAcceptance::forPendingSession()`: `proof_invalid`,
      * `proof_binding_mismatch`); the gate admits the identity,
      * the method, and the principal and tenant the session records, if any;
-     * then the proof is stored and what the session still waits on is judged
-     * again: nothing, and it activates; the further factor still, and it stays
+     * then the proof is stored, after the session's issuance guard
+     * (`IssuanceGuard`), and what the session still waits on is judged again:
+     * nothing, and it activates; the further factor still, and it stays
      * pending; or the choice, and it moves on to it, listing the principals. A
      * proof is stored once per call, also when the session stays pending: a
      * verification is single use on the adapter's side.
@@ -203,6 +205,8 @@ final readonly class PendingSessions
             if ($admitted instanceof Refused) {
                 return $admitted;
             }
+
+            IssuanceGuard::hold($session);
 
             ProofWriter::record($session, $this->context->name(), NewProof::fromResult($proof));
 

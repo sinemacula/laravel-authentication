@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Context\ContributionSubject;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationContextContributor;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -432,6 +433,38 @@ final class ContextBuilderTest extends TestCase
         self::assertSame(['session' => IdentifierCoercion::stringify($signedIn->record->getKey()), 'mfa_seen' => false], $context['sso']);
         self::assertSame(['identity' => IntegrationIdentity::class, 'tenant' => null, 'principal_is_identity' => true], $context['mfa']);
         self::assertSame([], $sso->asked[0]->context->contributed);
+    }
+
+    /**
+     * A contributor reads the provider context the adapter gave with the
+     * session's provenance and reports what it wants of it under its own
+     * namespace; the package's own keys carry nothing of it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAContributorReportsTheProviderContextUnderItsOwnNamespace(): void
+    {
+        $sso = new ScriptedContributor(static function (ContributionSubject $subject): array {
+            $context = $subject->provenance()?->providerContext?->toArray() ?? [];
+
+            return ['protocol' => $context['protocol'] ?? null, 'connection_id' => $subject->provenance()?->connectionId];
+        });
+
+        $this->register(['sso' => $sso]);
+
+        $identity = $this->seedIdentity();
+        $result   = $this->linkedResult($identity, providerContext: new ProviderContext(['protocol' => 'saml-6c1f', 'verified_by' => 'domain-4b7d']));
+        $session  = $this->sessions()->signInExternally($result)->session;
+
+        self::assertNotNull($session);
+
+        $context = $this->contextOf($session->tokens->accessToken->reveal());
+
+        self::assertSame(['protocol' => 'saml-6c1f', 'connection_id' => 'connection-7'], $context['sso']);
+        self::assertStringNotContainsString('saml-6c1f', (string) json_encode($context['authentication']));
+        self::assertStringNotContainsString('domain-4b7d', (string) json_encode($context));
     }
 
     /**

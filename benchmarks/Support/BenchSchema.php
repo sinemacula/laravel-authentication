@@ -137,6 +137,7 @@ final class BenchSchema
         $blueprint->string('tenant_id')->nullable();
         $blueprint->string('tenant_policy_version', 64)->nullable();
         $blueprint->dateTime('switched_at', 0)->nullable();
+        $blueprint->unsignedBigInteger('issuance_sequence')->default(0);
         $blueprint->string('guard')->nullable();
         $blueprint->string('sign_in_method')->nullable();
         $blueprint->string('sign_in_identifier_type')->nullable();
@@ -212,6 +213,7 @@ final class BenchSchema
             $blueprint->dateTime('provider_session_expires_at', 0)->nullable();
             $blueprint->string('policy_version', 64)->nullable();
             $blueprint->string('link_id')->nullable();
+            $blueprint->text('provider_context')->nullable();
             $blueprint->dateTime('created_at', 0)->nullable();
             $blueprint->index('connection_id', 'authentication_provenance_provider_index');
             $blueprint->index(['tenant_id', 'connection_id'], 'authentication_provenance_tenant_index');

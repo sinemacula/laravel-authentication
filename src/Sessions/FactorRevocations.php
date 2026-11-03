@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Factors\FactorReference;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\SessionRecords\IssuanceGuard;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
@@ -243,8 +244,10 @@ final readonly class FactorRevocations
 
     /**
      * Lock the current session and, while it is still the session given and
-     * live, void its proofs made with the factor. An active one is then judged
-     * again; a pending one stays pending, its next action judged without them.
+     * live, write its issuance guard (`IssuanceGuard`) and void its proofs made
+     * with the factor, so no issuance of the session that overlaps the removal
+     * counts them. An active one is then judged again; a pending one stays
+     * pending, its next action judged without them.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $current
@@ -277,6 +280,8 @@ final readonly class FactorRevocations
         if ($refusal !== null && !$pending) {
             return new FactorRemoval($revoked);
         }
+
+        IssuanceGuard::hold($locked);
 
         ProofWriter::void($locked, $guard, $factor, $now);
         ContextForgetting::now($locked);

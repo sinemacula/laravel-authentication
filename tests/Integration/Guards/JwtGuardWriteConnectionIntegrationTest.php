@@ -221,7 +221,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
      * A retry of the previous rotation id is recognised from the primary while
      * the replica still shows that id as current: the exchange hands back the
      * current credential without attempting a rotation the replica's stale
-     * state would have led it to.
+     * state would have led it to, its only write the session's issuance guard.
      *
      * @return void
      *
@@ -246,13 +246,15 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         self::assertNotNull($pair);
         self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->authManager()->jwt('api')->parse($pair->refreshToken?->reveal())['jti'] ?? null);
-        self::assertSame([], $updates->getArrayCopy());
+        self::assertCount(1, $updates);
+        self::assertStringContainsString('issuance_sequence', $updates[0]);
     }
 
     /**
      * A replay is recognised from the primary while the replica still shows the
-     * replayed id as current: the session is revoked without first attempting
-     * the rotation the replica's stale state would have led to.
+     * replayed id as current: the session is revoked, after its issuance guard,
+     * without first attempting the rotation the replica's stale state would
+     * have led to.
      *
      * @return void
      *
@@ -272,8 +274,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $updates      = $this->recordUpdates();
 
         self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session);
-        self::assertCount(1, $updates);
-        self::assertStringContainsString('revoked_reason', $updates[0]);
+        self::assertCount(2, $updates);
+        self::assertStringContainsString('issuance_sequence', $updates[0]);
+        self::assertStringContainsString('revoked_reason', $updates[1]);
         self::assertSame('rotation_reuse', DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->where('id', $session->getKey())->value('revoked_reason'));
     }
 

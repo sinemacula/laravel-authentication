@@ -54,6 +54,7 @@ final class SessionsTableSchemaTest extends TestCase
         'tenant_id'               => true,
         'tenant_policy_version'   => true,
         'switched_at'             => true,
+        'issuance_sequence'       => false,
         'guard'                   => true,
         'sign_in_method'          => true,
         'sign_in_identifier_type' => true,
@@ -321,6 +322,43 @@ final class SessionsTableSchemaTest extends TestCase
         ]);
 
         self::assertSame('active', DB::table(self::TABLE)->where('id', $id)->value('status'));
+    }
+
+    /**
+     * The issuance guard is a required big integer, unsigned where the engine
+     * has unsigned integers, that a row written without it starts at zero and
+     * an increment moves by one, and it is not indexed (the index contract
+     * above lists every index).
+     *
+     * @return void
+     */
+    public function testTheIssuanceGuardIsARequiredBigIntegerStartingAtZero(): void
+    {
+        $id     = (string) Str::uuid7();
+        $column = array_column(Schema::getColumns(self::TABLE), null, 'name')['issuance_sequence'] ?? null;
+
+        self::assertIsArray($column);
+        self::assertFalse($column['nullable']);
+        self::assertContains(strtolower($column['type_name']), ['bigint', 'int8', 'integer']);
+
+        if (Schema::getConnection()->getDriverName() === 'mysql') {
+            self::assertStringContainsString('unsigned', $column['type']);
+        }
+
+        DB::table(self::TABLE)->insert([
+            'id'                   => $id,
+            'generation'           => (string) Str::uuid7(),
+            'authenticatable_type' => 'App\Models\User',
+            'authenticatable_id'   => '1',
+            'signed_in_at'         => '2026-04-06 12:00:00',
+            'idle_expires_at'      => '2026-04-06 13:00:00',
+        ]);
+
+        self::assertEquals(0, DB::table(self::TABLE)->where('id', $id)->value('issuance_sequence'));
+
+        DB::table(self::TABLE)->where('id', $id)->increment('issuance_sequence');
+
+        self::assertEquals(1, DB::table(self::TABLE)->where('id', $id)->value('issuance_sequence'));
     }
 
     /**

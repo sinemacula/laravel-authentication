@@ -7,10 +7,12 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
@@ -56,21 +58,40 @@ final class SessionProofs
     /**
      * What the session's counting proofs say about its authentication.
      *
+     * `$current` reads what is committed now rather than what the transaction's
+     * snapshot holds, for an issuance that has written the session's issuance
+     * guard: on MySQL and MariaDB, whose plain reads inside a REPEATABLE READ
+     * transaction return the snapshot of its first read, with a shared lock on
+     * the rows read, held until the transaction ends. At REPEATABLE READ that
+     * lock also takes the gaps on either side of the session's proofs in their
+     * session index, so another transaction's proof that falls there waits for
+     * this one to end: a new session's, after the newest session's proofs, and
+     * a step-up's or a reauthentication's of the session whose proofs border
+     * these, keys being time-ordered. Every other engine reads as it does
+     * without: PostgreSQL refuses a shared lock on a grouped read, and needs
+     * none, since at READ COMMITTED each statement reads what is committed once
+     * the guard has waited for any writer of the session still in flight, and
+     * at REPEATABLE READ the guard fails to serialise when one committed after
+     * the snapshot; SQLite lets one writer in at a time.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  bool  $current
      * @return \SineMacula\Laravel\Authentication\Proofs\ProofHistory
      *
      * @throws \InvalidArgumentException
      */
-    public static function history(Session $session): ProofHistory
+    public static function history(Session $session, bool $current = false): ProofHistory
     {
-        $model = new SessionProof;
-        $at    = $model->getConnection()->getQueryGrammar()->wrap('authenticated_at');
+        $model  = new SessionProof;
+        $at     = $model->getConnection()->getQueryGrammar()->wrap('authenticated_at');
+        $shared = $current && in_array($model->getConnection()->getDriverName(), ['mysql', 'mariadb'], true);
 
         $rows = WriteConnection::during($model, static fn (): array => self::counting($session)
             ->toBase()
             ->select(['kind', 'methods', 'multifactor', 'additional_verification', 'accepted'])
             ->selectRaw("max({$at}) as newest")
             ->groupBy(['kind', 'methods', 'multifactor', 'additional_verification', 'accepted'])
+            ->when($shared, static fn (QueryBuilder $query): QueryBuilder => $query->sharedLock())
             ->get()
             ->all());
 
@@ -251,6 +272,7 @@ final class SessionProofs
             $row->policy_version,
             $row->link_id,
             ExternalEvidence::fromStored($row->accepted_evidence),
+            ProviderContext::fromStored($row->provider_context),
         ) : null;
     }
 

@@ -71,6 +71,11 @@ return new class extends Migration {
             // sessions are found by their identity's session keys first.
             self::exact($schema, $blueprint, 'link_id')->nullable();
 
+            // The provider context the adapter gave with the result, encoded by
+            // the package as JSON: opaque, written once with the provenance and
+            // never rewritten; `null` for none.
+            $blueprint->text('provider_context')->nullable();
+
             $blueprint->dateTime('created_at', 0)->nullable();
 
             // Indexes for finding the sessions of a connection, which revoking

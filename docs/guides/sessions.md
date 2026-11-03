@@ -30,11 +30,22 @@ A session an external provider established (`signInExternally()`, see [External
 sign-in](signing-in.md#external-sign-in)) also records its provenance, once, in `proofs.provenance_table`: the
 connection and its tenant, the provider's authentication time, the evidence the provider asserted once accepted, the
 provider's deadline for its session (which also caps the session's absolute deadline, the earlier of it and the
-sign-in's own winning), the policy version the adapter checked, and the id of the link the result was mapped to its
-identity through, kept byte for byte. A later reauthentication at the provider is a proof of its own and never rewrites
-how the session began. The provenance is indexed by connection and by tenant: the sessions a connection established are
+sign-in's own winning), the policy version the adapter checked, the id of the link the result was mapped to its identity
+through, kept byte for byte, and the provider context the adapter gave with the result
+(`ExternalResult::$providerContext`), if any. A later reauthentication at the provider is a proof of its own and never
+rewrites how the session began: a reauthentication's provider context is not recorded, so the session keeps the one it
+was established with. The provenance is indexed by connection and by tenant: the sessions a connection established are
 revoked through it (see [Connections and links](#connections-and-links)); there is no lookup by connection or tenant
 yet.
+
+The provider context is the adapter's, for its own authentication-context contributor (see [Single
+sign-on](extending.md#single-sign-on-laravel-sso)): a map whose keys are the contributing package's own, opaque to this
+package, which never interprets it, never logs it, never puts it in an event, the event context or an exception message,
+and hides it from the provenance model's serialisation. It is validated when the adapter builds it (string keys; `null`,
+booleans, integers, finite floats, strings or arrays of them, nesting at most four arrays; at most 4096 bytes as stored)
+and stored as the JSON the package encodes itself. A contributor reads it with the rest of the provenance, from
+`ContributionSubject::provenance()`, in the one query that reads the provenance. It is provider metadata, not a place
+for a secret.
 
 A provider's evidence (its `amr` values, its `acr` value or SAML authentication context class reference, and the time it
 is for) counts for nothing until the application binds an `ExternalEvidencePolicy` that accepts it (see [Tenant
@@ -60,6 +71,53 @@ recorded under its key before (by an earlier session whose key the database issu
 read of them is from the write connection, so a lagging replica cannot hide a proof just written. They hold personal
 data (a code's destination), are hidden from a model's serialised form, and are pruned with their session (see
 [Pruning](operations.md#pruning)).
+
+### Issuance order
+
+A session's tokens never go back on each other: in the order their issuances commit, a token never carries an older
+`auth_time` or fewer `amr` values than one of the same session committed before it, whatever the isolation level, except
+where a factor's removal voided the proofs that gave them, on purpose. Every issuance of an access token for a session
+(a refresh and its grace retry, a switch and its retry, a step-up, a reauthentication at either factor, an activation, a
+direct `issueAccessToken()` with a session) writes the session's issuance guard, an increment of its
+`issuance_sequence`, before it reads the session's proofs, unless it writes the session's row itself (an activation, a
+sign-in's insert): a refresh, a switch and a direct `issueAccessToken()` write it first, a step-up or a reauthentication
+under its lock of the row, before its proof. Every change of a session's proofs (`satisfy()`, a step-up, a
+reauthentication, `factorRemoved()`) writes it before the change. The issuance takes its time once it holds the row (an
+activation issues at its operation's time: no other token of a pending session can have committed meanwhile; a direct
+`issueAccessToken()` given an `$issuedAt` uses it as given, so take it after you lock the session in your transaction
+around the call, or the guarantee does not hold for that token), and then reads the proofs current, in the same
+transaction on the session's connection, which holds the row until it commits. So two of them on one session never read
+the proofs past each other:
+
+- At READ COMMITTED, on PostgreSQL and MySQL, and at MySQL's REPEATABLE READ, the later waits on the row the earlier
+  wrote, and then reads what it committed (on MySQL with a shared lock, since its plain reads inside a REPEATABLE READ
+  transaction return the transaction's first snapshot).
+- At PostgreSQL's REPEATABLE READ or SERIALIZABLE, a transaction whose snapshot was taken before the other committed
+  fails to serialise on the guard (SQLSTATE 40001; inside your transaction Laravel raises it as a `DeadlockException`).
+  The package does not retry: retry your whole transaction, whose new snapshot sees the other. Two parallel refreshes of
+  one session at that level fail one of them this way; at READ COMMITTED the second is answered as a grace retry.
+
+A sign-in reads its new session's proofs as its own transaction sees them: nothing else can record a proof under a
+session that is not committed yet. Reading the authentication context of a request is not an issuance and writes
+nothing. Deadlocks, if any, propagate as every database error does.
+
+On MySQL at REPEATABLE READ, the shared lock of the current read also locks the gaps on either side of the session's
+proofs in the proofs' session index, so a proof another transaction inserts into one of them waits for the issuance's
+transaction to commit: briefly in the package's own transaction, but inside yours until you commit, so keep such a
+transaction short. Keys are time-ordered and the index sorts a session's proofs by kind, so the proofs that wait are:
+
+- a new session's, after the newest session's proofs: a sign-in that starts while an issuance of the newest session is
+  in flight (a refresh, a switch, a step-up, a reauthentication, an activation) waits;
+- a neighbouring session's, the one whose proofs come just before or just after the issued session's, from its step-up,
+  reauthentication or `satisfy()`: a further factor, a `satisfy()` or a reauthentication at the provider of the next
+  session, and a recovery code or a reauthentication with the first factor of the previous one, wait.
+
+The waiting side then commits; the wait never deadlocks on its own, but it can when your transaction, after the
+issuance, goes on to take a lock the waiting side already holds: an external sign-in holds its link's guard row, and a
+neighbour's step-up, reauthentication or `satisfy()` holds that session's row, so signing in through the same link, or
+revoking, refreshing or switching that session (or signing its identity out everywhere) in the same transaction can
+deadlock, and MySQL then fails one of them as a deadlock for you to retry. At READ COMMITTED MySQL locks no gap, and
+PostgreSQL takes no shared lock, so nothing waits there.
 
 ## Stepping up
 
@@ -94,7 +152,8 @@ The new access token's `auth_time` is the newest time of the session's proofs, s
 (a reauthentication recorded after the proof was made keeps its own, later time), and its `amr` gains the proof's
 values, and `mfa` when the evaluation reports multifactor authentication. The session keeps its key, its refresh token
 and its deadlines: a refresh afterwards issues tokens that still carry the step-up, since `auth_time` and `amr` are
-derived from the session's proofs each time a token is issued. No refresh token is issued and nothing is bound to the
+derived from the session's proofs each time a token is issued. The session's row takes only its issuance guard, written
+before the proof (see [Issuance order](#issuance-order)). No refresh token is issued and nothing is bound to the
 request, which is already authenticated. `SteppedUp` reports it once committed, with the proof's kind and, as the
 context's method, the method the adapter verified it with; a refusal is an `AccessTokenResult` whose `reason` says why,
 reported by `AuthenticationFailed` with the flow `step_up` and the same method, and never thrown.
@@ -186,14 +245,16 @@ transaction.
 
 The proof is recorded as `external_reauthentication`, timed when the provider authenticated the identity (now, when that
 is after now), so the new access token's `auth_time` is the later of the session's and the provider's, decided under the
-lock (inside a transaction of yours at REPEATABLE READ, from the proofs its snapshot holds, so a racing reauthentication
-committed after your first read is left out of that one token, which is then older, never fresher). Nothing else is
-renewed: no refresh token is issued, and the session row, its deadlines and its provenance are kept. Its `amr` gains the
-provider's private value, and `mfa`, only when the application's `ExternalEvidencePolicy` accepts the result's evidence
-(see [Proofs and provenance](#proofs-and-provenance)); otherwise only `auth_time` moves. `Reauthenticated` (method
-`external_provider`) reports it once committed, and then `ExternalResultRedeemed` (flow `reauthentication`), whose
-context carries the result's connection and request reference, as a refusal's `AuthenticationFailed` does. A step-up
-refuses an external proof.
+lock, after the session's issuance guard, so a racing reauthentication or step-up either committed first and is counted
+in this token, or waits for this one (see [Issuance order](#issuance-order)); inside a transaction of yours at
+PostgreSQL's REPEATABLE READ that read before such a one committed, this one fails to serialise instead, for you to
+retry. Nothing else is renewed: no refresh token is issued, and the session row (apart from its issuance guard), its
+deadlines and its provenance are kept. Its `amr` gains the provider's private value, and `mfa`, only when the
+application's `ExternalEvidencePolicy` accepts the result's evidence (see [Proofs and
+provenance](#proofs-and-provenance)); otherwise only `auth_time` moves. `Reauthenticated` (method `external_provider`)
+reports it once committed, and then `ExternalResultRedeemed` (flow `reauthentication`), whose context carries the
+result's connection and request reference, as a refusal's `AuthenticationFailed` does. A step-up refuses an external
+proof.
 
 An adapter asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` whether a session, by its identifier,
 stands for such a reauthentication: `null` for one of the guard's live, active sessions of a person owned by the
@@ -381,15 +442,20 @@ itself; on a cookie application it throws a `LogicException`.
 A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`, with the wait in the
 result's `retryAfter`: a switch returns its refusal, as a refresh does, so answer it with `Retry-After` as above), the
 token parsed for this guard, the session found, of this guard, live, and the rotation id current, or the previous one
-inside the grace window; any other id is a replay and revokes the session (`rotation_reuse`). On every path the
-session's owner must still be returned by the guard's provider and be active; the destination principal (the target, or
-the one the session records for a tenant-only switch) must resolve through the resolver's hinted path as the very
-principal named, of its class, owned by that identity (read from the principal's own key, not trusted to the resolver),
-active, in an active tenant of its own, allowed the application by `ApplicationAccess` (`principal_ineligible`) and
-admitted by the application policy, also with the type of identifier the session's sign-in used (which the session
-records), so a principal your policy refuses to that identifier cannot be reached by switching to it; the session's
-sign-in method must still be allowed; and the destination tenant must be one `TenantAccess` lets the principal act in
-(`tenant_ineligible`, also for a tenant `TenantResolver` cannot find) and active (`tenant_inactive`).
+inside the grace window; any other id is a replay and revokes the session (`rotation_reuse`). Once a session of this
+guard is found, the switch runs in one transaction on its connection whose first statement writes its issuance guard,
+then reads the session again with a lock and judges only that row, and takes its time after it (see
+[Issuance order](#issuance-order)), so a session revoked, returned to pending or switched while the switch waited is
+refused for that, a retry included, and the contracts below are asked with the session's row held and must only read. On
+every path the session's owner must still be returned by the guard's provider and be active; the destination principal
+(the target, or the one the session records for a tenant-only switch) must resolve through the resolver's hinted path as
+the very principal named, of its class, owned by that identity (read from the principal's own key, not trusted to the
+resolver), active, in an active tenant of its own, allowed the application by `ApplicationAccess`
+(`principal_ineligible`) and admitted by the application policy, also with the type of identifier the session's sign-in
+used (which the session records), so a principal your policy refuses to that identifier cannot be reached by switching
+to it; the session's sign-in method must still be allowed; and the destination tenant must be one `TenantAccess` lets
+the principal act in (`tenant_ineligible`, also for a tenant `TenantResolver` cannot find) and active
+(`tenant_inactive`).
 
 Then the destination tenant's authentication policy judges the session, with the proofs and provenance it already holds:
 a policy that requires connections the session was not established through refuses the switch (`sso_required`) and

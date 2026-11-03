@@ -47,7 +47,8 @@ are caught on the server.
   the credentials it names, and a gate it takes part in when a passkey is registered or removed.
 - **External sign-in**: a result an external identity provider verified, handed over by a trusted adapter and never by a
   client, signs in only the identity a link contract maps its connection, issuer and subject to (never by email), on an
-  application that allows it, with the provider's time, deadline and the link recorded on the session; the session
+  application that allows it, with the provider's time, deadline and the link recorded on the session, and any provider
+  context the adapter gives (opaque, its keys the adapter's own) kept with them for its context contributor; the session
   reauthenticates at the provider only through that same link, under its own lock.
 - **One-time code challenges**: every code is a challenge with an id the check names, kept across resends with its
   attempt budget, capped in deliveries per destination, and bound to its purpose; a further-factor package's codes are
@@ -59,12 +60,13 @@ are caught on the server.
   application's evidence policy accepts it (never by default), and a tenant may require single sign-on of the sessions
   acting in it.
 - **Sessions**: timestamped proofs of every sign-in and an external provider's provenance on each session, step-up and
-  reauthentication with `auth_time` and `amr` derived from the proofs, per-operation freshness judged on the proof that
-  meets it, a gate for changing a further factor, list and get one, sign out (by the access token, or by the refresh
-  credential once the access token has expired), sign out everywhere, revoke on security changes (a further factor's
-  removal ends the other sessions and judges the current one again without it) and when a connection is disabled or
-  deleted or a link through it removed or its scope widened (only that link's sessions), and list, get and switch to the
-  principals an identity may use, or switch its active tenant.
+  reauthentication with `auth_time` and `amr` derived from the proofs and never going back from one of a session's
+  tokens to the next, whatever the isolation level (a per-session issuance guard), except where a factor's removal voids
+  them, per-operation freshness judged on the proof that meets it, a gate for changing a further factor, list and get
+  one, sign out (by the access token, or by the refresh credential once the access token has expired), sign out
+  everywhere, revoke on security changes (a further factor's removal ends the other sessions and judges the current one
+  again without it) and when a connection is disabled or deleted or a link through it removed or its scope widened (only
+  that link's sessions), and list, get and switch to the principals an identity may use, or switch its active tenant.
 - **The caller of a request**: `Auth::caller()` reads who a request is from the access, refresh or pending credential
   its route authenticates with, and says whether a session, identity or principal is the caller's, so an application can
   scope its own route bindings.

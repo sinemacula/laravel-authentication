@@ -646,16 +646,17 @@ $this->app->make(ContextContributors::class)->register('sso', SsoContextContribu
 It is resolved from the container serving the request each time a context is built, in the order registered, and asked
 once with a `Context\ContributionSubject`: the package's keys, the live identity, principal, tenant and session, and
 `provenance()`, the session's external provenance (`Proofs\Provenance`: the connection and its tenant, the provider's
-authentication time and deadline, the policy version, the link and the accepted evidence with the provider's own `amr`),
-read on the write connection the first time it is asked for. It answers its keys without the namespace: each a
-lower-case letter and then up to 63 lower-case letters, digits or underscores, each value `null`, a scalar or an array
-of them. Anything else fails loudly with a `LogicException` naming the namespace and key, and so does asking for the
-context it is being asked to build; an exception it throws reaches the caller (a policy cannot be judged on part of a
-context). A namespace is a lower-case letter and then up to 31 lower-case letters, digits or underscores;
-`authentication` is the package's, and a second registration of a namespace is a `LogicException`, so no contributor's
-keys can overwrite another's. `mfa` and `sso` are kept for the further-factor and single sign-on packages' adapters,
-which register them; the package registers none. A test builds an `AuthenticationContext` itself (its constructor is
-public, and refuses contributed keys no contributor could give) or binds a fake `AuthenticationContexts`.
+authentication time and deadline, the policy version, the link, the accepted evidence with the provider's own `amr`, and
+the provider context the adapter gave with the result, its keys the adapter's own), read on the write connection the
+first time it is asked for, in one query. It answers its keys without the namespace: each a lower-case letter and then
+up to 63 lower-case letters, digits or underscores, each value `null`, a scalar or an array of them. Anything else fails
+loudly with a `LogicException` naming the namespace and key, and so does asking for the context it is being asked to
+build; an exception it throws reaches the caller (a policy cannot be judged on part of a context). A namespace is a
+lower-case letter and then up to 31 lower-case letters, digits or underscores; `authentication` is the package's, and a
+second registration of a namespace is a `LogicException`, so no contributor's keys can overwrite another's. `mfa` and
+`sso` are kept for the further-factor and single sign-on packages' adapters, which register them; the package registers
+none. A test builds an `AuthenticationContext` itself (its constructor is public, and refuses contributed keys no
+contributor could give) or binds a fake `AuthenticationContexts`.
 
 ### Single sign-on (`laravel-sso`)
 
@@ -667,8 +668,9 @@ public, and refuses contributed keys no contributor could give) or binds a fake 
   so no external result signs anyone in until the identity package's adapter binds `laravel-sso`'s links. Linking, and
   the links, are `laravel-sso`'s; this package stores none.
 - Inside the transaction in which it redeems a handoff, after `laravel-sso`'s own locks, the adapter hands the verified
-  result, naming the link it redeemed it through (`linkId`) and the authorisation request's public reference
-  (`requestReference`), to `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
+  result, naming the link it redeemed it through (`linkId`), the authorisation request's public reference
+  (`requestReference`) and, if it wants one, its provider context (`providerContext`, below), to
+  `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
   sign-in](signing-in.md#external-sign-in)). The application must list `external_provider` in its `methods`. The
   identity is reloaded through the guard's provider, and activity, the application policy, the additional-factor policy,
   the choice of principal and the tenant's authentication policy all apply; no attempt limit or timebox does, since
@@ -684,25 +686,42 @@ public, and refuses contributed keys no contributor could give) or binds a fake 
 - An external result never arrives as a sign-in's input: `external_provider` is reserved, so no sign-in method can be
   registered under it, `signIn()` cannot reach it and `start()` refuses it.
 - The session records the method `external_provider` and its provenance once (the connection and its tenant, the
-  provider's authentication time, its session deadline, the policy version and the link's id), indexed by connection and
-  by tenant. Its first proof is the provider's, with the private `amr` value `urn:sinemacula:amr:external_provider`, and
-  the provider's deadline caps the session. The provider's own `amr` values never become this package's: its evidence
-  counts only once the application's `ExternalEvidencePolicy` accepts it (see [Tenant authentication
-  policies](#tenant-authentication-policies)), and is recorded only then. The application can stop allowing
-  `external_provider`, and those sessions stop refreshing.
+  provider's authentication time, its session deadline, the policy version, the link's id and the provider context),
+  indexed by connection and by tenant. Its first proof is the provider's, with the private `amr` value
+  `urn:sinemacula:amr:external_provider`, and the provider's deadline caps the session. The provider's own `amr` values
+  never become this package's: its evidence counts only once the application's `ExternalEvidencePolicy` accepts it (see
+  [Tenant authentication policies](#tenant-authentication-policies)), and is recorded only then. The application can
+  stop allowing `external_provider`, and those sessions stop refreshing.
+- The adapter keeps details of how the provider established the session (the protocol, say, or whether the link was
+  verified by domain or made explicitly) with it by passing an `External\ProviderContext` as the result's
+  `providerContext`. Its keys are the contributing package's own: this package reserves none, names none and never
+  interprets them. It is a map with string keys whose values are `null`, booleans, integers, finite floats, strings or
+  arrays (lists or maps) of them, nesting at most `MAX_DEPTH` (4) arrays, the map the first, and taking at most
+  `STORED_MAX_BYTES` (4096) bytes as the JSON the package stores, every character outside ASCII escaped; anything else
+  is refused with an `InvalidArgumentException` whose message repeats no value, never truncated. It is written once,
+  with the provenance, by the sign-in (pending or active), carried through activation, refresh and switch, and never
+  rewritten: `reauthenticateExternally()` ignores a result's provider context, so the session keeps the one it was
+  established with. The package never logs it, never puts it in an event, the event context or an exception message, and
+  hides its column from the provenance model's serialisation; it is provider metadata, not a place for a secret or a
+  credential. The adapter's own contributor reads it as `$subject->provenance()?->providerContext?->toArray()`, in the
+  same read as the rest of the provenance, and reports what it wants of it under its own namespace (`sso.*`, say); the
+  package's own `authentication` keys carry nothing of it.
 - A tenant that requires sign-in through its connections says so through its `TenantAuthenticationPolicy` (see
   [Tenant authentication policies](#tenant-authentication-policies)): a session established through none of them is
   refused as `sso_required`, at sign-in and at refresh (which also revokes it).
-- Inside the transaction in which it redeems a reauthentication handoff, the adapter hands the identifier of the
-  session the handoff names, and the result, to `Auth::sessions($guard)->reauthenticateExternally($sessionId, $result)`
-  (see [At the external provider](sessions.md#at-the-external-provider)): only the very link that established the
-  session reauthenticates it (`link_mismatch` otherwise, and for a session no link established), the session's row is
-  locked after the adapter's own locks, and `auth_time` becomes the later of the session's and the provider's, under
-  that lock. The tenant's authentication policy and the evidence policy are then asked under that lock, so neither may
-  take a lock the adapter takes after the session's row. An adapter that must answer a session's standing
-  (`laravel-sso`'s re-authentication sessions) asks `externalStanding($sessionId, $identity, $connectionId, $linkId)`:
-  with no link id and outside a transaction when a flow starts, which locks nothing, and with the link id inside the
-  redemption's transaction, which locks the row; it answers `null` or the reason.
+- Inside the transaction in which it redeems a reauthentication handoff, the adapter hands the identifier of the session
+  the handoff names, and the result, to `Auth::sessions($guard)->reauthenticateExternally($sessionId, $result)` (see [At
+  the external provider](sessions.md#at-the-external-provider)): only the very link that established the session
+  reauthenticates it (`link_mismatch` otherwise, and for a session no link established), the session's row is locked
+  after the adapter's own locks, and `auth_time` becomes the later of the session's and the provider's, under that lock
+  and after the session's issuance guard (see [Issuance order](sessions.md#issuance-order)), so another issuance of the
+  session that overlaps it is counted or waits; at PostgreSQL's REPEATABLE READ, a redemption whose snapshot predates
+  one fails to serialise, for the adapter to retry the whole transaction. The tenant's authentication policy and the
+  evidence policy are then asked under that lock, so neither may take a lock the adapter takes after the session's row.
+  An adapter that must answer a session's standing (`laravel-sso`'s re-authentication sessions) asks
+  `externalStanding($sessionId, $identity, $connectionId, $linkId)`: with no link id and outside a transaction when a
+  flow starts, which locks nothing, and with the link id inside the redemption's transaction, which locks the row; it
+  answers `null` or the reason.
 - When a link is removed, or its scope widened so it may act for more than its sessions were established for, the
   adapter calls `linkRemoved($identity, $connectionId, $linkId)` or `linkScopeWidened(...)` in the same transaction (see
   [Connections and links](sessions.md#connections-and-links)): each ends only the identity's sessions established

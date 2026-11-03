@@ -6,6 +6,7 @@ namespace Tests\Feature\Proofs;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Casts\Json;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
@@ -13,6 +14,7 @@ use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
@@ -267,6 +269,39 @@ final class ProofWriterTest extends TestCase
 
         self::assertSame($evidence->toArray(), $accepted->getAttribute('accepted_evidence'));
         self::assertArrayNotHasKey('accepted_evidence', $accepted->toArray());
+        self::assertNull($accepted->getAttribute('provider_context'));
+    }
+
+    /**
+     * A provenance's provider context is recorded in the form the package
+     * encodes it in, whatever JSON encoder the application gives Eloquent's
+     * casts, and is hidden from serialisation.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheProviderContextIsRecordedAsThePackageEncodesIt(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->newSession();
+        $context = new ProviderContext(['protocol' => 'saml', 'whole' => 1.0, 'name' => 'Zoë']);
+
+        Json::encodeUsing(static fn (): string => '"replaced"');
+
+        try {
+            ProofWriter::provenance($session, new Provenance('conn-a', providerContext: $context));
+        } finally {
+            Json::encodeUsing(null);
+        }
+
+        $row = SessionProvenance::query()->findOrFail(IdentifierCoercion::stringify($session->getKey()));
+
+        self::assertSame($context->toStored(), $row->getAttribute('provider_context'));
+        self::assertSame('{"protocol":"saml","whole":1.0,"name":"Zo\u00eb"}', $row->getAttribute('provider_context'));
+        self::assertArrayNotHasKey('provider_context', $row->toArray());
+        self::assertStringNotContainsString('saml', (string) json_encode($row));
     }
 
     /**

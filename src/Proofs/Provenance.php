@@ -7,14 +7,16 @@ namespace SineMacula\Laravel\Authentication\Proofs;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 
 /**
  * How a session established through an external identity provider began: the
  * connection and its tenant, when the provider authenticated the identity, the
  * provider's own deadline for its session (SAML `SessionNotOnOrAfter`), the
  * version of the enforcement or policy the caller checked, the id of the link
- * the result was mapped to its identity through, and the evidence the provider
- * asserted, once accepted.
+ * the result was mapped to its identity through, the evidence the provider
+ * asserted, once accepted, and the provider context the adapter gave with the
+ * result, opaque to the package and its keys the adapter's own.
  *
  * Built by the session service from a trusted server-side adapter's result and
  * the link the link contract found, never from what a client sent. The session
@@ -55,6 +57,7 @@ final readonly class Provenance
      * @param  ?string  $policyVersion
      * @param  ?string  $linkId
      * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
+     * @param  ?\SineMacula\Laravel\Authentication\External\ProviderContext  $providerContext
      *
      * @throws \InvalidArgumentException
      */
@@ -80,6 +83,9 @@ final readonly class Provenance
 
         /** The evidence the provider asserted, once the evidence contract accepted it. */
         public ?ExternalEvidence $evidence = null,
+
+        /** The provider context the adapter gave with the result, if any, never interpreted by the package. */
+        public ?ProviderContext $providerContext = null,
     ) {
         self::assertText($connectionId, self::ID_MAX_LENGTH, 'connection id');
         self::assertText($tenantId, self::ID_MAX_LENGTH, 'tenant id');

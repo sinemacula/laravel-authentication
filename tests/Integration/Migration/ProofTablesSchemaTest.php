@@ -139,8 +139,8 @@ final class ProofTablesSchemaTest extends TestCase
     /**
      * The provenance table holds one row per session: the connection and its
      * tenant, the provider's time and deadline, the accepted evidence, the
-     * policy version and the link; only the session and the connection are
-     * required.
+     * policy version, the link and the provider context, as text; only the
+     * session and the connection are required.
      *
      * @return void
      */
@@ -157,11 +157,13 @@ final class ProofTablesSchemaTest extends TestCase
             'link_id'                     => true,
             'policy_version'              => true,
             'provider_authenticated_at'   => true,
+            'provider_context'            => true,
             'provider_session_expires_at' => true,
             'session_id'                  => false,
             'tenant_id'                   => true,
         ], $columns);
 
+        self::assertSame('text', array_column(Schema::getColumns(self::PROVENANCE), 'type_name', 'name')['provider_context']);
         self::assertSame([['session_id']], self::primaryColumns(self::PROVENANCE));
     }
 

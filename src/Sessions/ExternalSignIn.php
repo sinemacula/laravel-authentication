@@ -26,11 +26,11 @@ use SineMacula\Laravel\Authentication\Proofs\SignInProof;
  * provider's proof: the connection as its channel, the private
  * external-provider `amr` value and the provider's time (see
  * `SignInProof::external()`), with the provenance the session records, the
- * link's id included. Evidence the result carries is judged for the link's
- * identity by the evidence contract: accepted, the first proof carries the
- * acceptance and the provenance the evidence (dated no later than now), so the
- * identity-level requirement and a tenant's are judged against it at sign-in;
- * otherwise neither carries anything of it.
+ * link's id and the result's provider context included. Evidence the result
+ * carries is judged for the link's identity by the evidence contract: accepted,
+ * the first proof carries the acceptance and the provenance the evidence (dated
+ * no later than now), so the identity-level requirement and a tenant's are
+ * judged against it at sign-in; otherwise neither carries anything of it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -98,6 +98,7 @@ final readonly class ExternalSignIn
             $result->policyVersion,
             $link->id,
             $evidence,
+            $result->providerContext,
         );
 
         return [$link->identity, SignInProof::external(SignInMethodManager::EXTERNAL_METHOD, $provenance, $now, $evaluation, $result->requestReference)];

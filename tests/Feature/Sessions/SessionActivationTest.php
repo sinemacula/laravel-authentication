@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\DatabaseTransactionRecord;
 use Illuminate\Database\DatabaseTransactionsManager;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -41,6 +42,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
@@ -63,7 +65,7 @@ use Tests\TestCase;
 #[CoversClass(SessionActivation::class)]
 final class SessionActivationTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InspectsIssuanceGuards, InteractsWithSessions;
 
     /** @var string Guard over `ActivatableTenantMember`. */
     private const string GUARD = 'members';
@@ -197,6 +199,40 @@ final class SessionActivationTest extends TestCase
         self::assertNull($row->getSwitchedAt());
 
         $this->bearer($activated->tokens->accessToken->reveal())->assertOk()->assertExactJson(['session' => $row->getKey()]);
+    }
+
+    /**
+     * The activation's write of the locked pending row is the session's
+     * issuance guard: it comes before the proofs are read for the pair, and the
+     * pair is issued without a further write to the row.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheActivationsOwnWriteIsItsIssuanceGuard(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $pending    = $this->pendingSession();
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        $client = new ClientContext('198.51.100.20', 'Activator/2.0');
+
+        self::assertNotNull($this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, $client, $this->now));
+
+        $writes = array_values(array_filter($statements, static fn (string $sql): bool => str_starts_with($sql, 'update')));
+        $read   = array_key_first(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'group by')));
+
+        self::assertCount(1, $writes);
+        self::assertStringNotContainsString('issuance_sequence', $writes[0]);
+        self::assertIsInt($read);
+        self::assertLessThan($read, array_search($writes[0], $statements, true));
+        self::assertSame(0, self::issuanceGuardWrites($pending->getKey()));
     }
 
     /**

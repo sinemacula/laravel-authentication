@@ -55,6 +55,11 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 - A switch is proven by the session's refresh token, never an access token, and judged by `RefreshJudgment::classify()`
   as a refresh is: the refresh limits (counted against the token's session and the client's IP address), the guard, a
   live session, and the rotation id. A replayed id revokes the session as `rotation_reuse`.
+- Once a session of this guard is found, the switch runs in one transaction on its connection (a savepoint inside a
+  caller's) opened by the session's issuance guard, then reads the session again with a lock
+  (`RefreshRotationStore::reload()`) and judges only that row, taking its time after it: a revocation, return to
+  pending or switch that committed while it waited on the guard is seen, the retry (which writes no compare-and-swap)
+  included, and nothing commits to the row after the guard until the switch ends.
 - A switch names its destination with a `SwitchTarget`: another principal of the identity, in the tenant selected for it
   or its default (its own), or another tenant for the principal the session records (`SwitchTarget::tenant()`).
 - Every path of a switch, the retry included, runs every live check: the owner reloaded through the guard's provider and
@@ -72,9 +77,10 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   (`PendingTransitions::outstanding()`), so the pending session names the strictest of both.
 - With the current rotation id, the token's `principal` must be the principal the session records
   (`session_principal_mismatch`). Then the destination tenant's authentication policy judges the session against its own
-  proofs and provenance (`TenantPolicyCheck::check()`, outside any transaction): connections the session was not
-  established through refuse the switch (`sso_required`, nothing written); a further factor the session lacks returns it
-  to pending with the destination recorded (`PendingTransitions::returnToPending()`, flow `switch`), a missed
+  proofs and provenance (`TenantPolicyCheck::check()`, inside the switch's transaction, with the session's row held
+  after its issuance guard): connections the session was not established through refuse the switch (`sso_required`, with
+  only the issuance guard written and no switch or rotation applied); a further factor the session lacks returns it to
+  pending with the destination recorded (`PendingTransitions::returnToPending()`, flow `switch`), a missed
   compare-and-swap there judged as a missed switch swap is. A return forgets a binding of the guard to the session
   (`GuardBinding::forgetSession()`, no event), as a refresh's return does, so nothing later in the request acts in the
   context it left.
@@ -92,13 +98,13 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   `session_principal_mismatch`, `session_switched`). A switch to the recorded principal and tenant writes no switch. The
   session's key does not change, so its proofs and provenance carry over unchanged.
 - With the previous rotation id inside the grace window, the current credential is reissued for the destination, writing
-  nothing, only when the session records the destination principal and tenant and either its last rotation was a switch
-  that changed them (`switched_at` not before `refresh_rotated_at`: a switch in a second the floor already reached
-  writes the floor past the rotation, see `SessionRecords\SwitchFloor`) or the token's own `principal` is the
-  destination; anything else is `rotation_conflict`, without revoking. The destination tenant's policy is asked again
-  on a retry, as a refresh with the same token asks it (the rotation that opened the window may have been a refresh, or
-  the policy may have changed since): `sso_required` refuses the retry and leaves the session alone, and a further
-  factor the session lacks returns it to pending, a return that loses its swap answered `rotation_conflict`.
+  nothing but the issuance guard, only when the session records the destination principal and tenant and either its last
+  rotation was a switch that changed them (`switched_at` not before `refresh_rotated_at`: a switch in a second the floor
+  already reached writes the floor past the rotation, see `SessionRecords\SwitchFloor`) or the token's own `principal`
+  is the destination; anything else is `rotation_conflict`, without revoking. The destination tenant's policy is asked
+  again on a retry, as a refresh with the same token asks it (the rotation that opened the window may have been a
+  refresh, or the policy may have changed since): `sso_required` refuses the retry, writing only the issuance guard, and
+  a further factor the session lacks returns it to pending, a return that loses its swap answered `rotation_conflict`.
 - A missed swap re-reads the row with a lock and judges it once: a still-current id is `rotation_conflict`, a previous
   id is answered by the retry rule against the row as it now is (after the owner is checked again), and anything else
   fails for its reason, a replay (`rotation_reuse`) revoking the session as a first judgement does. There is never a
@@ -175,13 +181,17 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a switch read
   from the request and the transport's refusals, a switch screen's listing, a tenant-only switch and one of both,
   switching back to a tenant, two switches in one second, the destination tenant's refusals, the proofs kept, the
-  identity-level factor policy not asked by a switch the destination lets through, and its requirement named by one
-  the destination returns to pending)
+  identity-level factor policy not asked by a switch the destination lets through, its requirement named by one the
+  destination returns to pending, and a retry judged on the row read after the issuance guard, after a revocation, a
+  return to pending or another switch committed before it)
 - `tests/Integration/Sessions/SessionSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch, a
   different switch, a deadline change, a tenant or policy version change, a deletion and an owner change, and a swap
   lost to a refresh with no grace window or to two refreshes, which revokes the session)
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php` (on PostgreSQL and MySQL, two processes: a switch
-  waiting on a revocation, on a refresh of its token and on an identical switch, after a commit and after a rollback)
+  waiting on a revocation, on a refresh of its token and on an identical switch, and a grace retry of a refresh or a
+  switch waiting on a revocation, after a commit and after a rollback; and a grace retry inside a caller's REPEATABLE
+  READ transaction whose session another connection revoked, returned to pending or switched again before its issuance
+  guard)
 - `tests/Integration/Applications/ReplicaChoicesAcrossConnectionsTest.php` (the principals read on the write
   connection)
 - `tests/Feature/Jwt/RefreshRotationStoreTest.php` `testSwitchSessionRecordsTheDestinationAndMirrorsIt`,
@@ -191,10 +201,11 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   `testContextChangesCompareTheDestinationWithTheLoadedSession`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php` (a switch proven by the refresh cookie, its
   cross-site checks, and the rotated cookie)
-- `tests/Performance/SessionSwitchQueryBudgetTest.php` (seven reads and one write per switch, from the request
-  too; seven reads and no write per grace retry; the counters' writes alone for a refusal, and their read alone when
-  rate-limited; the reads, the counters' writes and the insert of a sign-in left pending on a choice, the reads of a
-  choice listed, and the reads and writes of a choice made; and a time ceiling for switches, retries and refusals)
+- `tests/Performance/SessionSwitchQueryBudgetTest.php` (eight reads, the issuance guard and one update per switch, from
+  the request too; eight reads and the issuance guard alone per grace retry; the issuance guard and the counters' writes
+  for a refusal, and their read alone when rate-limited; the reads, the counters' writes and the insert of a sign-in
+  left pending on a choice, the reads of a choice listed, and the reads and writes of a choice made; and a time ceiling
+  for switches, retries and refusals)
 
 ## Change Triggers
 

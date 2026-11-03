@@ -44,6 +44,20 @@ new session, so "the device" and "the record" are no longer one thing.
   only selects the session to replace; the sign-in is admitted on its own credentials first.
 - A replaced session is revoked with `RevocationReason::SUPERSEDED` (`superseded`), in the transaction that creates the
   new one.
+- `issuance_sequence` (unsigned big integer, `0` at insert, not indexed, named by
+  `EloquentSession::getIssuanceSequenceName()`, `issuance_sequence` in `RecordsSessionMilestones`) is the session's
+  issuance guard: `SessionRecords\IssuanceGuard::write()` increments it with one `UPDATE` by key, through the query
+  builder (no model event, `updated_at` untouched, the in-memory session not mirrored), before the proofs are read in
+  every transaction that issues the session an access token without writing its row otherwise, and before every change
+  of its proofs. Nothing reads its value: the write is what makes two issuances of one session wait on each other or,
+  under PostgreSQL's REPEATABLE READ, fail to serialise (see `proofs-and-freshness.md` and
+  `refresh-rotation-and-replay.md`). The session row is the last row in the package's lock order (the caller's locks,
+  then the connection guard rows, then session rows, then that session's proof rows), so the guard adds no row lock and
+  no order. The current read of the proofs that follows it takes more on MySQL and MariaDB at REPEATABLE READ: its
+  shared lock also holds the gaps on either side of the session's proofs, so a proof of another session that falls there
+  (a new session's, a neighbouring session's step-up) waits for the issuance to commit (see `proofs-and-freshness.md`).
+  `IssuanceGuard::write()` returns whether it wrote the row: refresh and switch refuse a `false` as `session_unknown`,
+  and `IssuanceGuard::hold()`, used under a lock and by the token service's public issue, makes it a `LogicException`.
 - `SignedInSession` and `SignedIn` carry no flag saying a session was created. Every sign-in creates one, so on
   `SignedIn` the flag would always be `!$refresh`, and on `SignedInSession` it would only repeat which result carries
   it; `SessionCreated` marks a creation.
@@ -62,7 +76,8 @@ new session, so "the device" and "the record" are no longer one thing.
   cuts it short without an error, so the index is not under its documented name; past 48 MySQL refuses it when the
   migration runs. The migration does not check the name itself, as no package migration does.
 - A refresh token that proves nothing (another identity's, another guard's or principal's, a revoked or pending
-  session's, a previous rotation id) replaces nothing: the sign-in creates a session and revokes none, and nothing is reported.
+  session's, a previous rotation id) replaces nothing: the sign-in creates a session and revokes none, and nothing is
+  reported.
 - A proven session that changed before the replacement's compare-and-swap is not revoked; the sign-in is reconsidered
   without it (see `session-service.md`).
 
@@ -75,6 +90,7 @@ new session, so "the device" and "the record" are no longer one thing.
 - `src/Events/Enums/RevocationReason.php`: `SUPERSEDED`.
 - `src/Sessions/SessionWriter.php`: `replace()`; `src/Sessions/ProvenSessions.php`: what proves a session.
 - `src/Sessions/SignedInSession.php`, `src/Events/SignedIn.php`.
+- `src/SessionRecords/IssuanceGuard.php`: the issuance guard.
 
 ## Authoritative Tests
 
@@ -89,6 +105,10 @@ new session, so "the device" and "the record" are no longer one thing.
   `testReplaceMissesARowThatChangedSinceItWasProven`
 - `tests/Feature/Sessions/SessionEstablishmentTest.php` `testAProvenSessionIsReplacedAndReportedInOrder`
 - `tests/Integration/Sessions/ConcurrentSignInReplacementTest.php`
+- `tests/Feature/SessionRecords/IssuanceGuardTest.php`; `tests/Integration/Migration/SessionsTableSchemaTest.php`
+  `testTheIssuanceGuardIsARequiredBigIntegerStartingAtZero`
+- `tests/Integration/Sessions/ConcurrentIssuanceTest.php`,
+  `tests/Integration/Sessions/ConcurrentRefreshAndProofChangeTest.php`
 
 ## Change Triggers
 
@@ -99,3 +119,4 @@ Update this note when any of the following change:
 - what proves a previous session for replacement, or the reason a replaced session is revoked with
 - the index names of the sessions table, or the longest table name they fit
 - whether a sign-in's results or events say a session was created
+- what writes the issuance guard, or where it sits in the lock order

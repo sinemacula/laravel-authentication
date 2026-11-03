@@ -275,10 +275,11 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * A digest replaced between the exchange's read and its swap by something
-     * other than a rotation (no previous digest records the presented id) is
-     * judged again from the row as it now is: the presented id is neither
-     * current nor previous, so it is a replay and the session is revoked.
+     * A digest replaced between the exchange's re-read and its swap, inside its
+     * own transaction, by something other than a rotation (no previous digest
+     * records the presented id) is judged again from the row as it now is: the
+     * presented id is neither current nor previous, so it is a replay and the
+     * session is revoked.
      *
      * @return void
      *

@@ -88,7 +88,9 @@ final class ProofWriter
 
     /**
      * Record how the session, established through an external provider, began,
-     * with the provider's evidence when it was accepted.
+     * with the provider's evidence when it was accepted and the provider
+     * context in the form the package encodes it in, never through a cast an
+     * application could replace.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Proofs\Provenance  $provenance
@@ -110,6 +112,7 @@ final class ProofWriter
             'provider_session_expires_at' => self::local($provenance->sessionNotAfter),
             'policy_version'              => $provenance->policyVersion,
             'link_id'                     => $provenance->linkId,
+            'provider_context'            => $provenance->providerContext?->toStored(),
         ]);
 
         self::insert($row);

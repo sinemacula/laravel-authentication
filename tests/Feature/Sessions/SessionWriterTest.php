@@ -38,8 +38,10 @@ use SineMacula\Laravel\Authentication\Sessions\PendingSessionDraft;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\PretendsStorageEngines;
 use Tests\Integration\Fixtures\EncryptedDescriptionSession;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
@@ -60,7 +62,7 @@ use Tests\Unit\Stubs\StubSession;
 #[CoversClass(PendingSessionDraft::class)]
 final class SessionWriterTest extends TestCase
 {
-    use InteractsWithSessionRecords, InteractsWithSessions;
+    use InspectsIssuanceGuards, InteractsWithSessionRecords, InteractsWithSessions, PretendsStorageEngines;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -143,6 +145,76 @@ final class SessionWriterTest extends TestCase
         self::assertSame('Writer/1.0', $record->last_used_user_agent);
         self::assertSame($this->now->addMinutes(60)->getTimestamp(), $record->getIdleExpiresAt()?->getTimestamp());
         self::assertSame($this->now->addMinutes(120)->getTimestamp(), $record->getAbsoluteExpiresAt()?->getTimestamp());
+    }
+
+    /**
+     * A sign-in's insert is its session's issuance guard: the session is stored
+     * with its issuance sequence at zero, active or pending, and its first pair
+     * is issued with no further write to its row.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInsInsertIsItsIssuanceGuard(): void
+    {
+        $identity = $this->seedIdentity();
+        $updates  = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$updates): void {
+            if (!str_starts_with($query->sql, 'update')) {
+                return;
+            }
+
+            $updates[] = $query->sql;
+        });
+
+        $proof   = SignInProof::unattested('password', $this->now);
+        $session = $this->writer()->create($this->admitted($identity), 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client, $proof);
+
+        $waiting   = SignInProof::unattested('password', $this->now);
+        [$pending] = $this->writer()->createPending(self::draft($identity, $waiting), $this->context(), $this->lifetimes(), $this->now, 300);
+
+        self::assertSame([], $updates);
+        self::assertSame(0, self::issuanceGuardWrites($session->record->getKey()));
+        self::assertSame(0, self::issuanceGuardWrites($pending->getKey()));
+        self::assertSame(0, $session->record->getAttribute('issuance_sequence'));
+        self::assertSame(0, $pending->getAttribute('issuance_sequence'));
+    }
+
+    /**
+     * A sign-in reads its new session's proofs as its own transaction sees
+     * them, never with a lock, on every engine: until it commits, no other
+     * transaction can record a proof under the session it inserted, and a
+     * shared lock on the newest session's proofs would make every concurrent
+     * sign-in on MySQL wait on it.
+     *
+     * @param  string  $driver
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideStorageEngines')]
+    public function testASignInReadsItsOwnProofsWithoutALock(string $driver): void
+    {
+        $identity = $this->seedIdentity();
+
+        $statements = self::statementsOn($driver, function () use ($identity): void {
+            $proof = SignInProof::unattested('password', $this->now);
+
+            try {
+                $this->writer()->create($this->admitted($identity), 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client, $proof);
+
+                self::fail('A pretended sign-in found its own proof.');
+            } catch (\LogicException $exception) {
+                self::assertStringContainsString('no counting first factor', $exception->getMessage());
+            }
+        });
+
+        $read = array_values(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'group by')));
+
+        self::assertCount(1, $read);
+        self::assertStringNotContainsString(' lock in share mode', $read[0]);
     }
 
     /**

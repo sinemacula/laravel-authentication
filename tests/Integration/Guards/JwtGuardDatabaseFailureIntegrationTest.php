@@ -132,10 +132,11 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
         ]);
 
         // Its sign-in's proof is on the storage connection; only its own row is
-        // out of reach.
+        // out of reach, so the token is minted without the issuance guard the
+        // public issue writes to that row.
         self::recordProof($session, ProofKind::FIRST_FACTOR, Carbon::now(), ['pwd']);
 
-        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, null, $session)->reveal();
+        $token = $this->authManager()->jwt('api')->issueGuardedAccessToken($identity, $identity, null, $session, Carbon::now())->reveal();
 
         Route::middleware('auth:api')->get('/me', static fn (): string => 'ok');
 

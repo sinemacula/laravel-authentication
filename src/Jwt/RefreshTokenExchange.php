@@ -34,6 +34,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\SessionRecords\IssuanceGuard;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
@@ -82,7 +83,21 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
  *   cannot tell a replay from anything else, so its tokens are rejected without
  *   revoking it.
  *
- * Every check uses one time per exchange, taken after the token is parsed and
+ * The exchange of a session it finds runs in one transaction on the session's
+ * connection (a savepoint inside one of the caller's), which first writes the
+ * session's issuance guard (`IssuanceGuard`): a refresh that overlaps another
+ * issuance of the session, or a change of its proofs, waits for it and then
+ * reads what it committed, so its access token never carries an older
+ * `auth_time` or fewer `amr` values than one committed before it; where the
+ * transaction reads a snapshot taken before the other committed (PostgreSQL's
+ * REPEATABLE READ), the guard fails to serialise instead, for the caller to
+ * retry. The session is then read again with a lock, and only the row read
+ * there is judged: a revocation, a return to pending or a switch the guard
+ * waited for is seen, so a grace retry, which writes no compare-and-swap, never
+ * hands out a pair for a session that changed before the exchange held it. A
+ * session whose row is gone by then fails as `session_unknown`.
+ *
+ * Every check uses one time per exchange, taken once the guard is written and
  * cut to the whole second. A failure is returned as the `AuthenticationFailed`
  * event that reports it, with a machine-readable reason and as much context as
  * the exchange established, for the caller to dispatch.
@@ -145,6 +160,7 @@ final readonly class RefreshTokenExchange
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Throwable
      */
     public function exchange(#[\SensitiveParameter] Secret|string $refreshToken, ClientContext $client): AuthenticationFailed|ExchangedRefresh|ReturnedToPending
     {
@@ -185,10 +201,16 @@ final readonly class RefreshTokenExchange
     }
 
     /**
-     * Run the exchange for the parsed claims: the session the token names, its
-     * guard, the rotation id against it, its owner and principal, and the
-     * application policy, then the rotation or the grace reissue. Returns the
-     * `AuthenticationFailed` event of the first check that fails.
+     * Run the exchange for the parsed claims: the session the token names and
+     * its guard, then, in one transaction that first writes its issuance guard
+     * and reads the session again with a lock, the rotation id against the row
+     * read there, its owner and principal, and the application policy, then the
+     * rotation or the grace reissue. Returns the `AuthenticationFailed` event
+     * of the first check that fails. A session of another guard (or of none),
+     * read on the write connection, fails as `session_guard_mismatch` before
+     * anything else is judged or written, so a token of one guard never
+     * revokes, or writes anything to, another guard's session; the guard a
+     * session records never changes.
      *
      * @param  ?array<string, mixed>  $claims
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -200,6 +222,7 @@ final readonly class RefreshTokenExchange
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Throwable
      */
     private function exchangeClaims(#[\SensitiveParameter] ?array $claims, ClientContext $client): AuthenticationFailed|ExchangedRefresh|ReturnedToPending
     {
@@ -211,19 +234,32 @@ final readonly class RefreshTokenExchange
 
         [$rawSessionId, $rotationId, $principalHint] = $claims;
 
-        $record = SessionLookup::find($rawSessionId);
+        $record  = SessionLookup::find($rawSessionId);
+        $unknown = fn (): AuthenticationFailed => $this->refused(
+            FailureReason::SESSION_UNKNOWN,
+            new EventContext($this->context->name(), $client, sessionId: IdentifierCoercion::stringify($rawSessionId)),
+        );
 
-        return $record === null
-            ? $this->refused(FailureReason::SESSION_UNKNOWN, new EventContext($this->context->name(), $client, sessionId: IdentifierCoercion::stringify($rawSessionId)))
-            : $this->exchangeOn($record, $rotationId, $principalHint, CarbonImmutable::now()->startOfSecond(), $client);
+        if ($record === null) {
+            return $unknown();
+        }
+
+        $exchange = function () use ($record, $rotationId, $principalHint, $client, $unknown): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
+            $held = IssuanceGuard::write($record) ? $this->store->reload($record) : null;
+
+            return $held === null
+                ? $unknown()
+                : $this->exchangeOn($held, $rotationId, $principalHint, CarbonImmutable::now()->startOfSecond(), $client);
+        };
+
+        return WriteConnection::during($record, static fn (): ?string => $record->getGuard()) === $this->context->name()
+            ? $record->getConnection()->transaction($exchange)
+            : $this->refused(FailureReason::SESSION_GUARD_MISMATCH, $this->sessionContext($client, $record));
     }
 
     /**
-     * Run the exchange on the session the token names. A session of another
-     * guard (or of none), read on the write connection, fails as
-     * `session_guard_mismatch` before anything else is judged, so a token of
-     * one guard can never revoke another guard's session. A failure that proves
-     * a replay revokes the session; no other one does.
+     * Run the exchange on the session of this guard the token names. A failure
+     * that proves a replay revokes the session; no other one does.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
      * @param  string  $rotationId
@@ -245,10 +281,7 @@ final readonly class RefreshTokenExchange
         CarbonImmutable $now,
         ClientContext $client,
     ): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
-        $guard   = WriteConnection::during($record, static fn (): ?string => $record->getGuard());
-        $verdict = $guard === $this->context->name()
-            ? RefreshJudgment::classify($record, $rotationId, $now, $this->tokens->lifetimes())
-            : FailureReason::SESSION_GUARD_MISMATCH;
+        $verdict = RefreshJudgment::classify($record, $rotationId, $now, $this->tokens->lifetimes());
 
         if ($verdict instanceof FailureReason) {
             return $this->fail($record, $verdict, $now, $client);
@@ -539,11 +572,12 @@ final readonly class RefreshTokenExchange
      * The new idle deadline is the idle lifetime the application policy gives
      * the guard, from `$now`, never past the absolute deadline when the session
      * has one, which a rotation never moves (and never adds). Both tokens are
-     * issued at `$now`, the time the session was judged at, before anything is
+     * issued at `$now`, the time the session was judged at, before the swap is
      * written, so a failure while issuing (signing, randomness, an identifier
-     * that cannot be read) leaves the presented refresh token valid. The pair
-     * is only returned once the compare-and-swap has committed; when the swap
-     * misses, the row changed under the exchange and is judged again.
+     * that cannot be read) rolls the exchange's transaction back, its guard
+     * with it, and leaves the presented refresh token valid. The pair is only
+     * returned once the compare-and-swap has applied; when the swap misses, the
+     * row changed under the exchange and is judged again.
      *
      * @formatter:off
      *
@@ -582,7 +616,7 @@ final readonly class RefreshTokenExchange
         $record->setAttribute($record->getIdleExpiresAtName(), $idle);
 
         $tokens = new TokenPair(
-            $this->tokens->issueAccessToken($session->identity, $session->principal, $session->tenant, $record, $now),
+            $this->tokens->issueGuardedAccessToken($session->identity, $session->principal, $session->tenant, $record, $now),
             $this->tokens->issueRefreshToken($record, $next, $session->principal, $now),
         );
 
@@ -598,19 +632,22 @@ final readonly class RefreshTokenExchange
      * the compare-and-swap missed, with the same `$now`. There is never a
      * second swap.
      *
-     * The usual cause is a parallel refresh with the same token that rotated
-     * first; its successor is this exchange's, so this one is a grace retry and
-     * gets the current credential. A replay is revoked, and a session that was
-     * revoked, deleted, or ended in between fails for that reason. A token that
-     * is still the current one means other security state changed in between (a
-     * deadline, say): that proves nothing, so it fails as `rotation_conflict`
-     * without revoking, and the client can retry. Before any success the fresh
-     * row must still belong to the identity the exchange hydrated and still
-     * record the principal and the active tenant it admitted: a switch that won
-     * the swap moved the session to a context this exchange never judged, so
-     * its retry fails as `session_principal_mismatch` or
-     * `session_tenant_mismatch` instead. When the write that missed was for a
-     * session this exchange found short of its tenant's policy, a grace retry
+     * The exchange holds the row from its issuance guard, so no other
+     * transaction changes it before the swap; a miss means its own transaction
+     * wrote the row meanwhile (a contract it asked that writes the session),
+     * and the row is judged by the rules a parallel exchange that wrote first
+     * calls for. A rotation whose successor is this exchange's makes this one a
+     * grace retry, which gets the current credential. A replay is revoked, and
+     * a session that was revoked, deleted, or ended in between fails for that
+     * reason. A token that is still the current one means other security state
+     * changed in between (a deadline, say): that proves nothing, so it fails as
+     * `rotation_conflict` without revoking, and the client can retry. Before
+     * any success the fresh row must still belong to the identity the exchange
+     * hydrated and still record the principal and the active tenant it
+     * admitted: a switch written in between moved the session to a context this
+     * exchange never judged, so its retry fails as `session_principal_mismatch`
+     * or `session_tenant_mismatch` instead. When the write that missed was for
+     * a session this exchange found short of its tenant's policy, a grace retry
      * fails as `rotation_conflict` instead of getting the pair that policy
      * refused it, and the client's next refresh is judged afresh.
      *
@@ -715,7 +752,7 @@ final readonly class RefreshTokenExchange
     private function reissue(EloquentSession&Model $record, Admitted $session, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): ExchangedRefresh
     {
         $tokens = new TokenPair(
-            $this->tokens->issueAccessToken($session->identity, $session->principal, $session->tenant, $record, $now),
+            $this->tokens->issueGuardedAccessToken($session->identity, $session->principal, $session->tenant, $record, $now),
             $this->tokens->issueRefreshToken($record, RefreshTokenHasher::successor($rotationId), $session->principal, $now),
         );
 

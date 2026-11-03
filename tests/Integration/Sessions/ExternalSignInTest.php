@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -203,6 +204,43 @@ final class ExternalSignInTest extends TestCase
         self::assertNotNull($record);
         self::assertEquals([$evidence], SessionProofs::acceptedEvidence($record));
         self::assertEquals($evidence, SessionProofs::provenance($record)?->evidence);
+    }
+
+    /**
+     * A provider context of every kind of value JSON keeps (nested lists and
+     * maps, text outside ASCII and the basic plane, the largest integers,
+     * floats whole and not) round-trips through the provenance on every engine,
+     * and so does one that takes the most bytes it may, stored whole.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheProviderContextRoundTripsAndTheLargestIsStoredWhole(): void
+    {
+        $values = [
+            'protocol' => 'saml',
+            'verified' => true,
+            'none'     => null,
+            'range'    => [PHP_INT_MIN, PHP_INT_MAX],
+            'weights'  => [1.0, 0.125, -2.5e-7],
+            'name'     => "Zoë \u{1F600} 漢字",
+            'link'     => ['made' => 'explicitly', 'domains' => ['example.test', 'example.org'], 'by' => [7 => ['level' => 3]]],
+        ];
+
+        $identity = $this->seedIdentity();
+        $record   = $this->sessions()->signInExternally($this->linkedResult($identity, providerContext: new ProviderContext($values)))->session?->record;
+
+        self::assertNotNull($record);
+        self::assertSame($values, SessionProofs::provenance($record)?->providerContext?->toArray());
+
+        $largest = new ProviderContext(['k' => str_repeat("\u{1F600}", 340) . str_repeat('a', 8)]);
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity, 'connection-8', 'link-8', providerContext: $largest))->session?->record;
+
+        self::assertNotNull($session);
+        self::assertSame(ProviderContext::STORED_MAX_BYTES, strlen($largest->toStored()));
+        self::assertSame($largest->toStored(), SessionProvenance::query()->whereKey($session->getKey())->value('provider_context'));
+        self::assertSame($largest->toArray(), SessionProofs::provenance($session)?->providerContext?->toArray());
     }
 
     /**

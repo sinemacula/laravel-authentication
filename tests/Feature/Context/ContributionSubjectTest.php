@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
 use SineMacula\Laravel\Authentication\Context\ContributionSubject;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\External\ProviderContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithExternalSignIns;
@@ -82,8 +83,9 @@ final class ContributionSubjectTest extends TestCase
 
     /**
      * A session an external provider established has its provenance read once,
-     * on the first ask, as the session records it; asked again it is the same
-     * provenance, read from nothing.
+     * on the first ask, as the session records it, the adapter's provider
+     * context with it in the same read; asked again it is the same provenance,
+     * read from nothing.
      *
      * @return void
      *
@@ -92,7 +94,8 @@ final class ContributionSubjectTest extends TestCase
     public function testAnExternalSessionsProvenanceIsReadOnceOnTheFirstAsk(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, 'connection-7', 'link-9', tenantId: 'tenant-3'))->session;
+        $context  = new ProviderContext(['protocol' => 'saml', 'link' => ['made' => 'explicitly']]);
+        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, 'connection-7', 'link-9', tenantId: 'tenant-3', providerContext: $context))->session;
 
         self::assertNotNull($session);
 
@@ -106,6 +109,7 @@ final class ContributionSubjectTest extends TestCase
 
         self::assertNotNull($provenance);
         self::assertSame(['connection-7', 'tenant-3', 'link-9'], [$provenance->connectionId, $provenance->tenantId, $provenance->linkId]);
+        self::assertSame(['protocol' => 'saml', 'link' => ['made' => 'explicitly']], $provenance->providerContext?->toArray());
         self::assertSame($provenance, $subject->provenance());
         self::assertSame(1, $this->provenanceReads);
     }

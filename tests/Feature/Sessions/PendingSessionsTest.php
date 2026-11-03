@@ -67,6 +67,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
+use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessionRecords;
@@ -104,7 +105,7 @@ use Tests\TestCase;
 #[CoversClass(SessionActivation::class)]
 final class PendingSessionsTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessionRecords, InteractsWithSessions;
+    use InspectsIssuanceGuards, InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessionRecords, InteractsWithSessions;
 
     /** @var string Guard over `ChoosingMember`, whose sign-ins wait for a choice of principal. */
     private const string CHOOSERS = 'choosers';
@@ -516,6 +517,55 @@ final class PendingSessionsTest extends TestCase
         self::assertTrue($this->sessions()->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
         self::assertNull($this->sessions()->pending($credential));
         self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->reason);
+    }
+
+    /**
+     * Satisfying writes the session's issuance guard under the row lock before
+     * it records the further factor's proof, so an issuance of the session that
+     * overlaps the proof reads it; the activation then writes the row itself,
+     * which is its own guard, before the proofs are read for its pair. A choice
+     * that activates the session writes the row and no further guard.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSatisfyingWritesTheGuardBeforeTheProofAndTheActivationBeforeTheRead(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->isSignedIn());
+
+        $first = static fn (\Closure $matches): ?int => array_key_first(array_filter($statements, $matches));
+        $guard = $first(static fn (string $sql): bool => str_contains($sql, 'issuance_sequence'));
+        $proof = $first(static fn (string $sql): bool => str_starts_with($sql, 'insert') && str_contains($sql, 'authentication_proofs'));
+        $state = $first(static fn (string $sql): bool => str_starts_with($sql, 'update') && str_contains($sql, 'requires'));
+        $read  = $first(static fn (string $sql): bool => str_contains($sql, 'group by'));
+
+        self::assertIsInt($guard);
+        self::assertIsInt($proof);
+        self::assertIsInt($state);
+        self::assertIsInt($read);
+        self::assertLessThan($proof, $guard);
+        self::assertLessThan($read, $proof);
+        self::assertLessThan($read, $state);
+        self::assertSame(1, self::issuanceGuardWrites($pending->id));
+
+        [$member, $membership] = $this->seedChooser();
+
+        [$choice, $waiting] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        self::assertTrue($this->sessions(self::CHOOSERS)->satisfy($choice, self::adapterProof($member, self::CHOOSERS, $waiting->id, Purpose::SIGN_IN))->isPending());
+        self::assertTrue($this->sessions(self::CHOOSERS)->choose($choice, $membership)->isSignedIn());
+        self::assertSame(1, self::issuanceGuardWrites($waiting->id));
     }
 
     /**

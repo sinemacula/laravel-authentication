@@ -19,7 +19,12 @@ use Carbon\CarbonInterface;
  * public reference of the authorisation request the result answers, when the
  * result has one: opaque, kept as given, and carried on the redemption's events
  * (`ExternalResultRedeemed`, and its failures), so they correlate with the
- * provider-side completion that reported the same reference.
+ * provider-side completion that reported the same reference. It may also carry
+ * a provider context (`ProviderContext`): details of how the provider
+ * established the session, for the adapter's own authentication-context
+ * contributor, stored once with the session's provenance at sign-in, never
+ * rewritten (a reauthentication's is not recorded), and never interpreted,
+ * logged or reported by this package.
  *
  * Only a trusted server-side adapter builds one, from a result it verified
  * itself (a redeemed handoff, say), never from what a client sent: the session
@@ -77,6 +82,7 @@ final readonly class ExternalResult
      * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      * @param  ?string  $linkId
      * @param  ?string  $requestReference
+     * @param  ?\SineMacula\Laravel\Authentication\External\ProviderContext  $providerContext
      *
      * @throws \InvalidArgumentException
      */
@@ -111,6 +117,9 @@ final readonly class ExternalResult
 
         /** The public reference of the authorisation request the result answers, if it has one, opaque. */
         public ?string $requestReference = null,
+
+        /** Details of how the provider established the session, for the adapter's own context contributor, if any: opaque, stored with the provenance at sign-in. */
+        public ?ProviderContext $providerContext = null,
     ) {
         self::assertText($connectionId, self::ID_MAX_LENGTH, 'connection id');
         self::assertText($issuer, self::ISSUER_MAX_LENGTH, 'issuer');

@@ -28,8 +28,10 @@ use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 /**
  * Query-budget contracts for the factor package's mandatory triggers: a
  * factor's removal costs the bulk revocation of the identity's other sessions,
- * then one locking read of the current session, one `UPDATE` voiding its proofs
- * with the factor, and the reads of judging it again as a refresh does (its
+ * then one locking read of the current session, one `UPDATE` writing its
+ * issuance guard (so an issuance of the session that overlaps the removal never
+ * counts the factor's proofs), one `UPDATE` voiding its proofs with the factor,
+ * and the reads of judging it again as a refresh does (its
  * owner and its first factor, and the requirement's page of proofs while a
  * further factor is asked), plus the return to pending's one `UPDATE` when it
  * falls short; without a current session, it is the bulk revocation alone, and
@@ -73,7 +75,8 @@ final class FactorRevocationsQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A removal that keeps the current session active revokes the two other
-     * sessions in bulk, locks and voids the current one and judges it again.
+     * sessions in bulk, locks the current one, writes its issuance guard, voids
+     * its proofs with the factor and judges it again.
      *
      * @return void
      *
@@ -89,7 +92,7 @@ final class FactorRevocationsQueryBudgetTest extends PerformanceContractTestCase
         $current  = $this->signIn();
         $sessions = $this->sessions();
 
-        $removal = $this->assertQueryBudget(4, 3, static fn (): FactorRemoval => $sessions->factorRemoved($identity, 'factor-a', $current->record));
+        $removal = $this->assertQueryBudget(4, 4, static fn (): FactorRemoval => $sessions->factorRemoved($identity, 'factor-a', $current->record));
 
         self::assertSame(2, $removal->revoked);
         self::assertFalse($removal->isPending());
@@ -116,7 +119,7 @@ final class FactorRevocationsQueryBudgetTest extends PerformanceContractTestCase
         $current  = $this->satisfied();
         $sessions = $this->sessions();
 
-        $removal = $this->assertQueryBudget(5, 4, static fn (): FactorRemoval => $sessions->factorRemoved($identity, 'factor-a', $current->record));
+        $removal = $this->assertQueryBudget(5, 5, static fn (): FactorRemoval => $sessions->factorRemoved($identity, 'factor-a', $current->record));
 
         self::assertSame(2, $removal->revoked);
         self::assertTrue($removal->isPending());

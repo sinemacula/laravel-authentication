@@ -147,9 +147,9 @@ final class ContractDeclarationTest extends TestCase
     /**
      * `EloquentSession` adds exactly the owner and principal relations and the
      * column names the session creation, activation, refresh, revocation, and
-     * last-use writes need, and the generation's, besides those of the
-     * session's origin and standing. The identifier has no column name: it is
-     * always the primary key.
+     * last-use writes need, and the generation's and the issuance guard's,
+     * besides those of the session's origin and standing. The identifier has no
+     * column name: it is always the primary key.
      *
      * @return void
      */
@@ -160,6 +160,7 @@ final class ContractDeclarationTest extends TestCase
             'getAbsoluteExpiresAtName',
             'getGenerationName',
             'getIdleExpiresAtName',
+            'getIssuanceSequenceName',
             'getLastUsedAtName',
             'getLastUsedIpName',
             'getLastUsedUserAgentName',

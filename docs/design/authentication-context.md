@@ -77,9 +77,11 @@ permission: a policy that reads the context is the application's.
 - On each build every registered abstract is resolved from the container serving now, in the order registered, so a
   contributor may depend on request-scoped services, and asked once with a `Context\ContributionSubject`: the package's
   keys, the live identity, principal, tenant and session the guard holds, and `provenance()`, the session's external
-  provenance read on the write connection the first time a contributor asks and never again in that build. Its answer is
-  its keys without the namespace (`/^[a-z][a-z0-9_]{0,63}$/D`), each value `null`, a scalar or an array of them; keys
-  hold no dot, so no key of one namespace can collide with another's.
+  provenance read on the write connection, in one query, the first time a contributor asks and never again in that
+  build; it carries the provider context the adapter gave at sign-in (`External\ProviderContext`), whose keys are the
+  contributing package's own and which the package's own keys never carry. Its answer is its keys without the namespace
+  (`/^[a-z][a-z0-9_]{0,63}$/D`), each value `null`, a scalar or an array of them; keys hold no dot, so no key of one
+  namespace can collide with another's.
 - The context holds plain values only: no model and no secret, so it can be logged, compared or queued as it is. Its
   constructor is public, for tests, and checks contributed keys as the builder does (`InvalidArgumentException`).
   `get('namespace.key', $default)` gives the default only for an absent key; `has()` is true for a key held with
@@ -153,7 +155,8 @@ permission: a policy that reads the context is the application's.
   from a proof it then refused or threw on forgotten; `tests/Feature/Sessions/PendingSessionsTest.php`
   `testASatisfiedFactorIsSeenByTheContextOfAGuardBoundToTheSession`; `tests/Feature/Sessions/FactorRevocationsTest.php`
   `testAVoidedProofIsForgottenFromTheContextAtOnce`
-- `tests/Feature/Context/ContributionSubjectTest.php`: the provenance read once
+- `tests/Feature/Context/ContributionSubjectTest.php`: the provenance read once, its provider context with it;
+  `tests/Feature/Context/ContextBuilderTest.php` `testAContributorReportsTheProviderContextUnderItsOwnNamespace`
 - `tests/Unit/Proofs/ProofHistoryTest.php`, `tests/Feature/Proofs/SessionProofsTest.php`
   `testTheHistoryReadsWhetherAProofIsAnAdditionalVerification`, `tests/Feature/Proofs/ProofWriterTest.php`
   `testAProofIsRecordedAsAnAdditionalVerificationByItsKind`, `tests/Feature/External/EvidenceAcceptanceTest.php`,

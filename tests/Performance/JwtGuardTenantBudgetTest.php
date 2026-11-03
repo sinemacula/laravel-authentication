@@ -268,8 +268,10 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 
     /**
      * A refresh for a member of a tenant that opts in reads its refresh limits,
-     * the session, the owner, the principal, the tenant and the session's
-     * proofs once each, and writes only the rotation.
+     * the session (and again with a lock once its issuance guard is written),
+     * the owner, the principal, the tenant and the session's proofs once each,
+     * and writes only the session's issuance guard, which every refresh of a
+     * session it finds writes first, and the rotation.
      *
      * @param  string  $guard
      * @return void
@@ -277,7 +279,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[DataProvider('provideOptedInTenantGuards')]
-    public function testRefreshForAMemberOfAnOptedInTenantUsesSixReadsAndOneWrite(string $guard): void
+    public function testRefreshForAMemberOfAnOptedInTenantUsesSevenReadsAndTwoWrites(string $guard): void
     {
         [$member, $membership] = $this->seedMembership($guard);
 
@@ -288,15 +290,15 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 
         $resolved = $this->freshJwtGuard($guard);
 
-        self::assertTrue($this->assertQueryBudget(6, 1, static fn (): RefreshResult => GuardSessions::of($resolved)->refresh($token))->isRefreshed());
+        self::assertTrue($this->assertQueryBudget(7, 2, static fn (): RefreshResult => GuardSessions::of($resolved)->refresh($token))->isRefreshed());
     }
 
     /**
-     * A refresh for a member of an inactive tenant spends the same five reads
-     * to reach the tenant check, is rejected, and leaves the rotation alone.
-     * Its only writes count the failure against the session and the IP address:
-     * on a fresh window, an update that changes nothing and the insert that
-     * creates the counter, for each.
+     * A refresh for a member of an inactive tenant spends the same six reads to
+     * reach the tenant check, is rejected, and leaves the rotation alone.
+     * Besides the session's issuance guard, its only writes count the failure
+     * against the session and the IP address: on a fresh window, an update that
+     * changes nothing and the insert that creates the counter, for each.
      *
      * @param  string  $guard
      * @return void
@@ -304,7 +306,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[DataProvider('provideOptedInTenantGuards')]
-    public function testRefreshForAMemberOfAnInactiveTenantIsRejectedInFiveReadsAndCountsTheFailure(string $guard): void
+    public function testRefreshForAMemberOfAnInactiveTenantIsRejectedInSixReadsAndCountsTheFailure(string $guard): void
     {
         [$member, $membership] = $this->seedMembership($guard, false);
 
@@ -315,7 +317,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 
         $resolved = $this->freshJwtGuard($guard);
 
-        self::assertNull($this->assertQueryBudget(5, 4, static fn (): RefreshResult => GuardSessions::of($resolved)->refresh($token))->session);
+        self::assertNull($this->assertQueryBudget(6, 5, static fn (): RefreshResult => GuardSessions::of($resolved)->refresh($token))->session);
     }
 
     /**
