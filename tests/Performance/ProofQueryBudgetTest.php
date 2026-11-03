@@ -12,7 +12,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
 use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
@@ -36,11 +38,13 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
+use SineMacula\Laravel\Authentication\Sessions\ExternalReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\FactorChangeGate;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\SessionReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\SessionStepUp;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
@@ -59,6 +63,7 @@ use Tests\Fixtures\External\ScriptedEvidencePolicy;
  */
 #[CoversClass(SessionStepUp::class)]
 #[CoversClass(SessionReauthentication::class)]
+#[CoversClass(ExternalReauthentication::class)]
 #[CoversClass(ProofIssuance::class)]
 #[CoversClass(ConfiguredFreshness::class)]
 #[CoversClass(SessionProofs::class)]
@@ -67,7 +72,7 @@ use Tests\Fixtures\External\ScriptedEvidencePolicy;
 #[CoversClass(RequirementJudge::class)]
 final class ProofQueryBudgetTest extends PerformanceContractTestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
 
     /** @var int Proofs a long-lived session holds in the bounded-read contracts. */
     private const int MANY = 200;
@@ -139,6 +144,34 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
             7,
             static fn (): AccessTokenResult => $sessions->reauthenticate($session->record, 'password', self::credentials()),
         )->isIssued());
+    }
+
+    /**
+     * An external reauthentication reads the session, then, under the lock, the
+     * session, its provenance, its owner and its proofs for the new token, and
+     * writes the proof; the link contract, here a fake, reads nothing of the
+     * package's. A locked standing reads the session and its provenance and
+     * writes nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExternalReauthenticationAndAStandingHaveFixedBudgets(): void
+    {
+        $identity = $this->seedIdentity();
+        $sessions = $this->sessions();
+        $session  = $sessions->signInExternally($this->linkedResult($identity, subject: 'subject-1'))->session;
+        $result   = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: CarbonImmutable::now());
+
+        self::assertNotNull($session);
+        self::assertTrue($this->assertQueryBudget(5, 1, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($session->record, $result))->isIssued());
+
+        $standing = $this->assertQueryBudget(2, 0, static fn (): ?FailureReason => DB::transaction(
+            static fn (): ?FailureReason => $sessions->externalStanding($session->record, $session->identity, 'connection-7', 'link-1'),
+        ));
+
+        self::assertNull($standing);
     }
 
     /**

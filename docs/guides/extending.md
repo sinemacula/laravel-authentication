@@ -569,10 +569,13 @@ $passed = $result->isVerified();   // else $result->reason
 - A tenant that requires sign-in through its connections says so through its `TenantAuthenticationPolicy` (see
   [Tenant authentication policies](#tenant-authentication-policies)): a session established through none of them is
   refused as `sso_required`, at sign-in and at refresh (which also revokes it).
-- A reauthentication at the provider (`external_reauthentication`) is reserved for the provider's reauthentication
-  handoff, which this package does not take yet; until then, a session reauthenticates with
-  `Auth::sessions()->reauthenticate()` through a sign-in method the application allows, the package's or one
-  registered with `SignInMethodManager::extend()`.
+- Inside the transaction in which it redeems a reauthentication handoff, the adapter hands the result to
+  `Auth::sessions($guard)->reauthenticateExternally($session, $result)` (see [At the external
+  provider](sessions.md#at-the-external-provider)): only the very link that established the session reauthenticates it
+  (`link_mismatch` otherwise, and for a session no link established), the session's row is locked after the adapter's
+  own locks, and `auth_time` becomes the later of the session's and the provider's, under that lock. An adapter that
+  must answer a locked standing first (`laravel-sso`'s re-authentication sessions) asks `externalStanding($session,
+  $identity, $connectionId, $linkId)` in the same transaction; it locks the row and answers `null` or the reason.
 
 ### Audit (`laravel-audit-log`)
 

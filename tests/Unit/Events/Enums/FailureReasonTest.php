@@ -86,6 +86,7 @@ final class FailureReasonTest extends TestCase
             'password_not_set',
             'password_already_set',
             'external_result_unlinked',
+            'link_mismatch',
         ], array_map(static fn (FailureReason $reason): string => $reason->value, FailureReason::cases()));
     }
 

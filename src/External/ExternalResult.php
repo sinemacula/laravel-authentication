@@ -12,8 +12,9 @@ use Carbon\CarbonInterface;
  * configured provider) it came through, the issuer and the subject the provider
  * asserted, the connection's tenant, when the provider authenticated the
  * identity, the provider's own deadline for its session (SAML
- * `SessionNotOnOrAfter`), and the version of the enforcement or policy the
- * adapter checked.
+ * `SessionNotOnOrAfter`), the version of the enforcement or policy the adapter
+ * checked, and the evidence the provider asserted of how it authenticated the
+ * identity, which counts only once the evidence contract accepts it.
  *
  * Only a trusted server-side adapter builds one, from a result it verified
  * itself (a redeemed handoff, say), never from what a client sent: the session
@@ -56,6 +57,7 @@ final readonly class ExternalResult
      * @param  ?\Carbon\CarbonInterface  $authenticatedAt
      * @param  ?\Carbon\CarbonInterface  $sessionNotAfter
      * @param  ?string  $policyVersion
+     * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      *
      * @throws \InvalidArgumentException
      */
@@ -81,6 +83,9 @@ final readonly class ExternalResult
 
         /** The version of the enforcement or policy the adapter checked, if any. */
         public ?string $policyVersion = null,
+
+        /** The evidence the provider asserted of how it authenticated the identity, if any. */
+        public ?ExternalEvidence $evidence = null,
     ) {
         self::assertText($connectionId, self::ID_MAX_LENGTH, 'connection id');
         self::assertText($issuer, self::ISSUER_MAX_LENGTH, 'issuer');

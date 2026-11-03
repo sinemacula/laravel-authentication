@@ -111,8 +111,8 @@ the token's claims and every freshness answer are worked out from them, never st
   anything is counted or written.
 - A token issued on a lagging replica's request still sees a proof just written: every proof read is on the write
   connection.
-- An `external_reauthentication` has no entry point yet: the kind is reserved for the provider's reauthentication
-  handoff, and a step-up refuses it.
+- An `external_reauthentication` is recorded only by `reauthenticateExternally()`, through the very link the session's
+  provenance records (`link_mismatch` otherwise), under the session's lock; a step-up and `satisfy()` refuse it.
 
 ## Seams Left
 
@@ -127,8 +127,6 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   accepts none. Accepted evidence is written to the proof's `evidence` and, at sign-in, the provenance's
   `accepted_evidence`, and the judge (`RequirementJudge`) asks the policy with the newest of it before the
   `RequirementCheck`.
-- `external_reauthentication`: a reserved kind that nothing records; there is no reauthentication handoff from the
-  provider, and step-up and `satisfy()` refuse it.
 - Provenance by connection or tenant: the connection index finds the sessions a connection established for
   `connectionDisabled()` and `connectionDeleted()` (`Sessions\ConnectionRevocations`); there is no lookup or listing of
   the sessions of a connection or of a tenant's connections, and the tenant index has no reader yet.

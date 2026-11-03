@@ -212,8 +212,10 @@ trusted server-side adapter hands over (from a handoff it redeemed, say), never 
 (`External\ExternalResult`) names the connection (the configured provider) it came through, the issuer and the subject
 the provider asserted, and optionally the connection's tenant, when the provider authenticated the identity, its
 deadline for its own session (SAML `SessionNotOnOrAfter`) and the version of the enforcement or policy the adapter
-checked. It is off unless the application lists `external_provider` in its `methods` (`method_not_allowed` otherwise,
-the link contract never asked).
+checked, and the evidence the provider asserted of how it authenticated the identity (`External\ExternalEvidence`: its
+`amr` values, an `acr` value or SAML authentication context class reference, and the time it is for). It is off unless
+the application lists `external_provider` in its `methods` (`method_not_allowed` otherwise, the link contract never
+asked).
 
 The identity is the one the bound `Contracts\ExternalIdentityLinks` links the connection, issuer and subject to: only a
 link made through exactly that connection, for exactly that issuer and subject, never by email or any other attribute
@@ -231,7 +233,11 @@ carry), and the provider's authentication time (now, when it gave none or one af
 and tenant, the provider's time and deadline, the policy version and the id of the link the result came through) is
 recorded with the session, pending or active, and never rewritten, and the provider's deadline is folded into the
 context's (see [A sign-in's own deadline](#a-sign-ins-own-deadline)), so the earlier of the two caps the session's
-absolute deadline.
+absolute deadline. The evidence counts only when the application's `ExternalEvidencePolicy` accepts it for the linked
+identity (as multifactor authentication or an additional verification): the first proof then carries the acceptance, so
+the token's `amr` gains `mfa` when it met multifactor authentication, the provenance records the evidence, and the
+identity-level requirement and a tenant's are judged against it at once. Evidence it does not accept is never recorded
+(see [Proofs and provenance](sessions.md#proofs-and-provenance)).
 
 ```php
 use SineMacula\Laravel\Authentication\External\ExternalResult;
@@ -244,6 +250,7 @@ $result = Auth::sessions('api')->signInExternally(new ExternalResult(
     authenticatedAt: $redeemed->authenticatedAt,
     sessionNotAfter: $redeemed->sessionNotAfter,
     policyVersion: $redeemed->enforcementVersion,
+    evidence: $redeemed->evidence,
 ));
 ```
 

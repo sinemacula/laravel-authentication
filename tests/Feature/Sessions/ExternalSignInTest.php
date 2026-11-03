@@ -17,6 +17,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -24,13 +26,17 @@ use SineMacula\Laravel\Authentication\Events\ExternalResultUnlinked;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SessionPending;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SignsInExternally;
@@ -38,8 +44,11 @@ use SineMacula\Laravel\Authentication\Sessions\ExternalSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\External\ScriptedEvidencePolicy;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
 
 /**
@@ -351,6 +360,49 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
+     * Evidence the evidence contract accepts as multifactor authentication
+     * meets the identity-level requirement in memory, so the sign-in starts
+     * active: the first proof carries the acceptance, the provenance the
+     * evidence (dated no later than now), and the token's `amr` gains `mfa`.
+     * The default contract accepts nothing, so the same sign-in waits for a
+     * further factor, and nothing of the evidence is recorded.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAcceptedEvidenceMeetsTheIdentityLevelRequirement(): void
+    {
+        $identity = $this->seedIdentity();
+        $evidence = new ExternalEvidence(['pwd', 'otp'], 'urn:example:acr:mfa', $this->now->addMinute());
+
+        $factors = $this->bindMock(AdditionalFactorPolicy::class);
+        $factors->shouldReceive('requirementFor')->andReturn(new Requirement(multifactor: new RequirementPart));
+
+        $pending = $this->sessions()->signInExternally($this->linkedResult($identity, evidence: $evidence));
+
+        self::assertTrue($pending->isPending());
+        self::assertNull(SessionProvenance::query()->sole()->accepted_evidence);
+        self::assertNull(SessionProof::query()->sole()->getAttributes()['evidence']);
+
+        $this->app?->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR, RequirementKind::ADDITIONAL_VERIFICATION]));
+
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity, evidence: $evidence))->session;
+
+        self::assertNotNull($session);
+
+        $proof      = SessionProof::query()->where('session_id', $session->record->getKey())->sole();
+        $provenance = SessionProofs::provenance($session->record);
+        $claims     = Auth::manager()->jwt('api')->parse($session->tokens->accessToken->reveal(), TokenType::ACCESS);
+
+        self::assertSame([true, true], [$proof->accepted, $proof->multifactor]);
+        self::assertSame($this->now->getTimestamp(), $provenance?->evidence?->authenticatedAt->getTimestamp());
+        self::assertSame(['pwd', 'otp'], $provenance->evidence->methods);
+        self::assertIsArray($claims);
+        self::assertSame([FirstFactor::EXTERNAL_PROVIDER_METHOD, 'mfa'], $claims['amr'] ?? null);
+    }
+
+    /**
      * A sign-in whose transport is misconfigured fails before the link contract
      * is asked.
      *
@@ -374,6 +426,36 @@ final class ExternalSignInTest extends TestCase
         }
 
         self::assertSame(0, SessionProof::query()->count());
+    }
+
+    /**
+     * A tenant that requires a further factor of its sessions is met by
+     * evidence the evidence contract accepts, so the sign-in through its
+     * connection starts active, while one through a connection it does not name
+     * is `sso_required`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAcceptedEvidenceMeetsATenantsFactorRequirement(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        $evidence = new ExternalEvidence(['otp'], null, $this->now);
+        $policy   = new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v3', new Requirement(new RequirementPart), ['connection-7']));
+
+        $this->app?->instance(TenantAuthenticationPolicy::class, $policy);
+        $this->app?->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::ADDITIONAL_VERIFICATION]));
+
+        $met = $this->sessions('members')->signInExternally($this->linkedResult($member, evidence: $evidence), self::asPrincipal($membership));
+
+        self::assertTrue($met->isSignedIn());
+        self::assertSame('v3', $met->session?->record->getTenantPolicyVersion());
+
+        $elsewhere = $this->sessions('members')->signInExternally($this->linkedResult($member, 'connection-8', evidence: $evidence), self::asPrincipal($membership));
+
+        self::assertSame(FailureReason::SSO_REQUIRED, $elsewhere->reason);
     }
 
     /**

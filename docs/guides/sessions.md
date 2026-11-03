@@ -11,7 +11,7 @@ Every session records the proofs it was established and kept with, each a timest
 | `first_factor_reauthentication` | a reauthentication with the first factor on an active session                                                                                                                   |
 | `additional_factor`             | a further factor an adapter verified: at sign-in, with `satisfy()`, or as a step-up                                                                                             |
 | `recovery_code`                 | a recovery code an adapter accepted in place of a further factor                                                                                                                |
-| `external_reauthentication`     | reserved for a reauthentication at the external provider the session began with: nothing records it yet                                                                         |
+| `external_reauthentication`     | a reauthentication at the external provider the session began with, through the link that established it (`reauthenticateExternally()`)                                         |
 
 Each holds its method, its channel (`password`, `sms`, `email`, `authenticator_app`, `passkey`, `external_provider` or
 `unknown`, with the destination or credential reference: a code's address or number in its normal form, a passkey's own
@@ -137,9 +137,49 @@ owner's, and of the generation verified) and admitted again, as for a step-up, t
 A reauthentication renews the session's authentication time and nothing else: the new access token's `auth_time` is now,
 its `amr` is the session's as it was, and a further factor the session holds keeps its own time, so an operation that
 asks for a further factor within a minute is not met by a fresh password. `Reauthenticated` reports it once committed; a
-refusal is reported by `AuthenticationFailed` with the flow `reauthentication`. An `external_reauthentication`, at the
-provider the session began with, has no entry point yet: the kind is reserved for the provider's reauthentication
-handoff, and a step-up refuses it.
+refusal is reported by `AuthenticationFailed` with the flow `reauthentication`.
+
+### At the external provider
+
+A session an external identity provider established reauthenticates at that provider through
+`reauthenticateExternally($session, $result)`, which a trusted server-side adapter calls with the result the provider
+verified (from a reauthentication handoff it redeemed, say), never a client:
+
+```php
+$result = Auth::sessions('api')->reauthenticateExternally($session, new ExternalResult(
+    connectionId: $redeemed->connectionId,
+    issuer: $redeemed->issuer,
+    subject: $redeemed->subject,
+    authenticatedAt: $redeemed->authenticatedAt,
+    evidence: $redeemed->evidence,
+));
+```
+
+Only on an application that allows `external_provider` (`method_not_allowed`), only for one of the guard's live, active
+sessions of a person, as for a step-up, and only with the time the provider authenticated the identity (`proof_invalid`
+without one, or with one before the session began). The result must come through the very link that established the
+session: the link contract must link it to an identity (`ExternalResultUnlinked`, then `external_result_unlinked`), that
+identity must own the session, and the session's provenance must record exactly the result's connection and the link's
+id, compared byte for byte (`link_mismatch`, as for another link of the same identity through the same connection, or a
+session no link established). The link contract is asked before anything is locked; the session's row is then locked,
+after every lock the adapter took, and judged again (its generation, its provenance and the provider's time), so call it
+inside the adapter's transaction on the storage connection. A database error, a serialization failure included,
+propagates for the adapter to retry the whole transaction.
+
+The proof is recorded as `external_reauthentication`, timed when the provider authenticated the identity (now, when that
+is after now), so the new access token's `auth_time` is the later of the session's and the provider's, decided under the
+lock. Nothing else is renewed: no refresh token is issued, and the session row, its deadlines and its provenance are
+kept. Its `amr` gains the provider's private value, and `mfa`, only when the application's `ExternalEvidencePolicy`
+accepts the result's evidence (see [Proofs and provenance](#proofs-and-provenance)); otherwise only `auth_time` moves.
+`Reauthenticated` (method `external_provider`) reports it once committed. A step-up refuses an external proof.
+
+An adapter that must answer a locked standing before it renews asks
+`externalStanding($session, $identity, $connectionId, $linkId)` inside its transaction (a `LogicException` outside one):
+it locks the session's row until the transaction ends and answers `null` for one of the guard's live, active sessions of
+a person owned by the identity and established through exactly that connection and link, on an application that allows
+`external_provider`, and otherwise the reason (`method_not_allowed`, `session_unknown`, `session_guard_mismatch`,
+`session_revoked`, `session_pending`, `session_expired`, `machine_identity`, `link_mismatch`). It writes and reports
+nothing.
 
 ## Freshness
 

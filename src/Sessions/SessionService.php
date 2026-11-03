@@ -88,16 +88,18 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * sessions are acted on through `PendingSessions`. The service also refreshes a
  * session through `SessionRefresh` (`RefreshesSessions`), steps a session up
  * and reauthenticates it through `SessionStepUp` and `SessionReauthentication`
- * (`ProvesSessions`), each of which issues a new access token only, gates the
- * factor package's changes to an identity's further factors through
- * `FactorChangeGate` (`GatesFactorChanges`), lets a session switch the
- * principal it acts as or its active tenant through `SessionSwitch`
- * (`SwitchesSessions`), lists sessions, looks one session or principal up
- * (`LooksUpSessions`), and signs out, revokes sessions and ends sessions on
- * security changes through `SessionRevocations` (`EndsSessions`), which the
- * guard's `logout()` and password changes use too, signs out by refresh
- * credential through `SessionSignOut`, and ends the sessions a connection
- * established through `ConnectionRevocations` (`EndsConnectionSessions`).
+ * (`ProvesSessions`), or at an external provider through the link that
+ * established it through `ExternalReauthentication` (`SignsInExternally`), each
+ * of which issues a new access token only, gates the factor package's changes
+ * to an identity's further factors through `FactorChangeGate`
+ * (`GatesFactorChanges`), lets a session switch the principal it acts as or its
+ * active tenant through `SessionSwitch` (`SwitchesSessions`), lists sessions,
+ * looks one session or principal up (`LooksUpSessions`), and signs out, revokes
+ * sessions and ends sessions on security changes through `SessionRevocations`
+ * (`EndsSessions`), which the guard's `logout()` and password changes use too,
+ * signs out by refresh credential through `SessionSignOut`, and ends the
+ * sessions a connection established through `ConnectionRevocations`
+ * (`EndsConnectionSessions`).
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
@@ -164,15 +166,16 @@ final readonly class SessionService
         // Returns the current transactions manager, if any, when called.
         \Closure $transactions,
     ) {
-        $sessions = new RevocationWriter($connections, $transactions);
-        $proof    = new ProvenSessions($tokens);
-        $writer   = new SessionWriter($context->name(), $tokens, $connections);
+        $sessions        = new RevocationWriter($connections, $transactions);
+        $externalResults = new ExternalResults($context, $container);
+        $proof           = new ProvenSessions($tokens);
+        $writer          = new SessionWriter($context->name(), $tokens, $connections);
 
         $this->afterCommit       = new AfterCommit($transactions);
         $this->binds             = new DeferredBind($context, $this->afterCommit);
         $this->rotations         = new RefreshRotationStore($connections);
         $this->evaluation        = new PendingEvaluation($context, $container);
-        $this->externalSignIns   = new ExternalSignIn($context, $this->evaluation, $container);
+        $this->externalSignIns   = new ExternalSignIn($externalResults, $this->evaluation);
         $this->establishment     = new SessionEstablishment($context, $writer, $proof, $this->evaluation, $this->afterCommit, $container);
         $this->pendings          = new PendingSessions($context, $this->evaluation, new SessionActivation($context, $tokens, $this->afterCommit, $container), $sessions);
         $this->revocations       = new SessionRevocations($context, $sessions, $container);
@@ -200,7 +203,9 @@ final readonly class SessionService
 
         $this->stepUps           = new SessionStepUp($context, $issuance, $this->afterCommit);
         $this->reauthentications = new SessionReauthentication($context, $issuance, $this->afterCommit, $container);
-        $this->factorChanges     = new FactorChangeGate($context, $container);
+
+        $this->externalReauthentications = new ExternalReauthentication($context, $issuance, $externalResults, $this->evaluation, $this->afterCommit);
+        $this->factorChanges             = new FactorChangeGate($context, $container);
     }
 
     /**

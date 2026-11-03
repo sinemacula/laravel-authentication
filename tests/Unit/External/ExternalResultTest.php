@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
 
 /**
@@ -22,8 +23,9 @@ use SineMacula\Laravel\Authentication\External\ExternalResult;
 final class ExternalResultTest extends TestCase
 {
     /**
-     * A result keeps the connection, issuer and subject exactly as given, and
-     * the provider's times cut to the whole second; nothing else is required.
+     * A result keeps the connection, issuer and subject exactly as given, the
+     * provider's times cut to the whole second, and the evidence as given;
+     * nothing else is required.
      *
      * @return void
      */
@@ -42,7 +44,11 @@ final class ExternalResultTest extends TestCase
 
         $bare = new ExternalResult('c', 'i', 's');
 
-        self::assertSame([null, null, null, null], [$bare->tenantId, $bare->authenticatedAt, $bare->sessionNotAfter, $bare->policyVersion]);
+        self::assertSame([null, null, null, null, null], [$bare->tenantId, $bare->authenticatedAt, $bare->sessionNotAfter, $bare->policyVersion, $bare->evidence]);
+
+        $evidence = new ExternalEvidence(['otp'], 'urn:example:acr', $authenticated);
+
+        self::assertSame($evidence, (new ExternalResult('c', 'i', 's', evidence: $evidence))->evidence);
     }
 
     /**

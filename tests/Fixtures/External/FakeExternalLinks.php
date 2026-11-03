@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\External\ExternalLink;
  * links made in memory, each through one connection for one issuer and subject,
  * found only when all three match exactly. Every lookup is recorded, so a test
  * can show whether, and with what, the link contract was asked, and a test may
- * have the next lookup throw.
+ * have the next lookup throw, or change something before it answers.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,6 +30,9 @@ final class FakeExternalLinks implements ExternalIdentityLinks
 
     /** @var ?\Throwable What the next lookup throws, if anything. */
     private ?\Throwable $failure = null;
+
+    /** @var ?\Closure(): void What the next lookup runs before it answers, if anything. */
+    private ?\Closure $during = null;
 
     /**
      * Link the identity through the connection for the issuer and subject,
@@ -61,6 +64,18 @@ final class FakeExternalLinks implements ExternalIdentityLinks
     }
 
     /**
+     * Have the next lookup run the callback before it answers, as if something
+     * changed while the adapter held the result.
+     *
+     * @param  \Closure(): void  $callback
+     * @return void
+     */
+    public function whileAsked(\Closure $callback): void
+    {
+        $this->during = $callback;
+    }
+
+    /**
      * The link made through exactly the connection for exactly the issuer and
      * subject, or `null`.
      *
@@ -80,6 +95,12 @@ final class FakeExternalLinks implements ExternalIdentityLinks
             [$failure, $this->failure] = [$this->failure, null];
 
             throw $failure;
+        }
+
+        if ($this->during !== null) {
+            [$during, $this->during] = [$this->during, null];
+
+            $during();
         }
 
         foreach ($this->links as [$connection, $linkIssuer, $linkSubject, $link]) {

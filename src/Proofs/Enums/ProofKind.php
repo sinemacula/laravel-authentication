@@ -32,8 +32,8 @@ enum ProofKind: string
     // A recovery code an adapter accepted in place of a further factor
     case RECOVERY_CODE = 'recovery_code';
 
-    // A reauthentication at the external provider the session began with:
-    // reserved, nothing records it yet
+    // A reauthentication at the external provider the session began with,
+    // through the link that established it
     case EXTERNAL_REAUTHENTICATION = 'external_reauthentication';
 
     /**

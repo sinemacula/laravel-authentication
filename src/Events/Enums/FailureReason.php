@@ -242,6 +242,11 @@ enum FailureReason: string
     // its connection, issuer and subject
     case EXTERNAL_RESULT_UNLINKED = 'external_result_unlinked';
 
+    // A session was not established through the connection and link an external
+    // result came through (or through any link), or the link maps to another
+    // identity than the session's
+    case LINK_MISMATCH = 'link_mismatch';
+
     /**
      * Whether a sign-in method may answer with this reason. Every other reason
      * is the session service's to decide, so a method that returns one is
