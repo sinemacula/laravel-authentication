@@ -157,7 +157,6 @@ final readonly class FactorCodes
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -268,7 +267,7 @@ final readonly class FactorCodes
     private function answer(DeliveryRefusal|FactorCodeAdmission|IssuedCode $issued, EventContext $context): CodeRequest
     {
         return match (true) {
-            $issued instanceof IssuedCode                    => CodeRequest::sent($issued->expiresAt, $issued->challengeId),
+            $issued instanceof IssuedCode                    => CodeRequest::sent($issued->expiresAt, $issued->resendAvailableAt, $issued->challengeId),
             $issued instanceof DeliveryRefusal               => $this->refuse($issued->request(), $issued->reason(), $context, $issued->retryAfter),
             $issued->standing === FactorCodeStanding::LOCKED => $this->refuse(CodeRequest::locked($issued->lockedUntil), FailureReason::FACTOR_CODE_LOCKED, $context),
             default                                          => $this->refuse(CodeRequest::refused($issued->refusal), FailureReason::FACTOR_CODE_REFUSED, $context),

@@ -110,7 +110,8 @@ final class CodeServiceTest extends TestCase
      * A sign-in code is issued and its delivery queued on the configured
      * connection and queue: the job carries the binding and the issuance, and
      * no identity, since the recipient is found only when it runs. The result
-     * says when the code expires; nothing is reported as failed.
+     * says when the code expires and when another may be requested; nothing is
+     * reported as failed.
      *
      * @return void
      *
@@ -127,6 +128,7 @@ final class CodeServiceTest extends TestCase
 
         self::assertSame([CodeRequestStatus::SENT, null], [$request->status, $request->retryAfter]);
         self::assertTrue($this->now->addSeconds(600)->equalTo($request->expiresAt));
+        self::assertTrue($this->now->addSeconds(60)->equalTo($request->resendAvailableAt));
 
         Queue::assertPushedOn('codes', SendOneTimeCode::class, static fn (SendOneTimeCode $job): bool => $job->connection === 'deliveries'
                 && $job->identity                                                                                         === null
@@ -154,6 +156,7 @@ final class CodeServiceTest extends TestCase
         $unknown = $this->codeService()->send('phone_code', ['phone' => self::UNKNOWN_PHONE]);
 
         self::assertEquals([$known->status, $known->expiresAt, $known->retryAfter], [$unknown->status, $unknown->expiresAt, $unknown->retryAfter]);
+        self::assertEquals($known->resendAvailableAt, $unknown->resendAvailableAt);
         self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, (string) $known->challengeId);
         self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, (string) $unknown->challengeId);
         self::assertNotSame($known->challengeId, $unknown->challengeId);

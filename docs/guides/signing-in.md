@@ -377,7 +377,11 @@ Route::post('/codes', function (Request $request) {
         CodeRequestStatus::METHOD_NOT_ALLOWED,
         CodeRequestStatus::LOCKED,
         CodeRequestStatus::REFUSED              => abort(403),
-        CodeRequestStatus::SENT                 => response()->json(['challenge' => $result->challengeId, 'expires_at' => $result->expiresAt->toIso8601String()], 202),
+        CodeRequestStatus::SENT                 => response()->json([
+            'challenge'           => $result->challengeId,
+            'expires_at'          => $result->expiresAt->toIso8601String(),
+            'resend_available_at' => $result->resendAvailableAt->toIso8601String(),
+        ], 202),
     };
 });
 
@@ -403,15 +407,19 @@ the resend cooldown (`rate_limited`, with the seconds left), and the number's de
 delivery (`deliveries_exhausted`, with the wait until the window ends); then a code is issued, for anyone's number, and
 its delivery queued. The answer carries the challenge's id: a request after the cooldown, while the challenge lives, is
 a resend of the same challenge (the same id, its attempts kept, a new code that replaces the previous one at once, never
-past the window's end), and otherwise a new challenge, under the same delivery cap. The job alone finds the recipient,
-when it runs: the active identity the guard's provider returns for the number that holds exactly that number, reports it
-verified and is not a machine identity. For anyone else it sends nothing and says nothing, so the response, the
-statements run and the time taken are the same for a number no one has. "Exactly" is decided by the package, not your
-database: the identity's own identifier, in its normal form, must be byte for byte the requested one. A lookup matches
-whatever the column's collation does, and MySQL's default `utf8mb4_unicode_ci` ignores accents, so `ben@examplé.com`
-(another domain, which anyone can register) finds the holder of `ben@example.com`; such an identity neither receives the
-code nor signs in with it. Each refusal is reported with `AuthenticationFailed` on the `code_request` flow (an invalid
-number as `invalid_credentials`).
+past the window's end), and otherwise a new challenge, under the same delivery cap. It also carries `resendAvailableAt`,
+when the number may next be sent one: the resend cooldown after this delivery, or the end of the delivery window when
+the window would refuse one before then (its deliveries used up, or less than the cooldown left of it). It depends only
+on the number's deliveries, so it is the same for a number no one has, and a client can count down to it instead of
+waiting for a `429`; the `code_request` rate limits can still refuse a request made after it. The job alone finds the
+recipient, when it runs: the active identity the guard's provider returns for the number that holds exactly that number,
+reports it verified and is not a machine identity. For anyone else it sends nothing and says nothing, so the response,
+the statements run and the time taken are the same for a number no one has. "Exactly" is decided by the package, not
+your database: the identity's own identifier, in its normal form, must be byte for byte the requested one. A lookup
+matches whatever the column's collation does, and MySQL's default `utf8mb4_unicode_ci` ignores accents, so
+`ben@examplé.com` (another domain, which anyone can register) finds the holder of `ben@example.com`; such an identity
+neither receives the code nor signs in with it. Each refusal is reported with `AuthenticationFailed` on the
+`code_request` flow (an invalid number as `invalid_credentials`).
 
 Signing in, the method brings the number to its normal form and requires a code of exactly `length` digits and a
 challenge id the package issues (`invalid_credentials` otherwise, nothing counted), looks the identity up (an identity

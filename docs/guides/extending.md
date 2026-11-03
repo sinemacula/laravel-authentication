@@ -537,7 +537,7 @@ seam has a default that works alone.
   (`codes.max_attempts`, `codes.max_deliveries`, the `code_request` and `factor_code` limits); the per-factor and
   per-identity counts and lockouts are yours. Turn a verified check into a `ProofResult` (its method, the channel, the
   factor, the binding) and hand it to `satisfy()` or `stepUp()`, inside the same transaction when both are to commit
-  together.
+  together. A sent code's `CodeRequest` also says when another may be sent (`resendAvailableAt`).
 - A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see [Proofs and
   provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session service as a
   `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart), method,

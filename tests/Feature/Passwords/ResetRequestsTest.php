@@ -187,9 +187,9 @@ final class ResetRequestsTest extends TestCase
     }
 
     /**
-     * A reset code's answer carries the challenge id its reset names, for an
-     * identifier no one holds as for a held one; a reset link's carries none,
-     * its token being its own challenge.
+     * A reset code's answer carries the challenge id its reset names, and when
+     * another may be requested, for an identifier no one holds as for a held
+     * one; a reset link's carries no challenge, its token being its own.
      *
      * @return void
      *
@@ -204,6 +204,8 @@ final class ResetRequestsTest extends TestCase
         self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, (string) $known->challengeId);
         self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, (string) $unknown->challengeId);
         self::assertSame([$known->status, $known->expiresAt?->getTimestamp()], [$unknown->status, $unknown->expiresAt?->getTimestamp()]);
+        self::assertSame($known->resendAvailableAt?->getTimestamp(), $unknown->resendAvailableAt?->getTimestamp());
+        self::assertNotNull($link->resendAvailableAt);
         self::assertTrue($link->isSent());
         self::assertNull($link->challengeId);
     }

@@ -86,7 +86,6 @@ final readonly class ResetRequests
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function link(#[\SensitiveParameter] array $input, ?ClientContext $client): CodeRequest
     {
@@ -111,7 +110,6 @@ final readonly class ResetRequests
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function code(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client): CodeRequest
     {
@@ -137,7 +135,6 @@ final readonly class ResetRequests
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     private function send(CodePurpose $purpose, string $type, #[\SensitiveParameter] array $input, ?ClientContext $client): CodeRequest
     {
@@ -164,7 +161,7 @@ final readonly class ResetRequests
 
         $delivery->dispatch(new SendPasswordReset($binding, $issued), new OneTimeCode);
 
-        return CodeRequest::sent($issued->expiresAt, $link ? null : $issued->challengeId);
+        return CodeRequest::sent($issued->expiresAt, $issued->resendAvailableAt, $link ? null : $issued->challengeId);
     }
 
     /**

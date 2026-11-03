@@ -115,7 +115,10 @@ the same whether or not anyone has the identifier, and who a code is ever delive
 
 - `Auth::codes('mobile')->send('phone_code', ['phone' => '+447700900123'])`: method resolved and allowed; identifier
   normalised; `code_request` reservation; `OneTimeCodes::issue()` (an `UPDATE`, plus an `INSERT` the first time);
-  `SendOneTimeCode` dispatched once committed; `CodeRequest::sent($expiresAt, $challengeId)`.
+  `SendOneTimeCode` dispatched once committed; `CodeRequest::sent($expiresAt, $resendAvailableAt, $challengeId)`, where
+  `$resendAvailableAt` is worked out from the row just written by the rules that refuse a delivery: the cooldown after
+  it, or the window's end when the window would by then have had all its deliveries or (for a code) have less than the
+  cooldown left.
 - The worker runs the job: live issuance; recipient found and eligible; `OneTimeCodeSender::send(OneTimeCodeMessage)`.
 - `Auth::sessions('mobile')->signIn('phone_code', ['phone' => ..., 'challenge' => $challengeId, 'code' => ...])`: the
   session service's `Attempting`, method check and `sign_in` reservation; `CodeSignIn::authenticate()` (lookup, account

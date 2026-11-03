@@ -23,20 +23,23 @@ use SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeRefusal;
 final class CodeRequestTest extends TestCase
 {
     /**
-     * A sent request carries when its code expires and the challenge it was
-     * sent for, and no wait; a reset link's carries no challenge.
+     * A sent request carries when its code expires, when another may be
+     * requested and the challenge it was sent for, and no wait; a reset link's
+     * carries no challenge.
      *
      * @return void
      */
     public function testASentRequestCarriesTheExpiryAndTheChallenge(): void
     {
         $expiresAt = CarbonImmutable::createStrict(2026, 4, 6, 12, 10, 0);
-        $request   = CodeRequest::sent($expiresAt, 'challenge-1');
-        $link      = CodeRequest::sent($expiresAt);
+        $resendAt  = CarbonImmutable::createStrict(2026, 4, 6, 12, 1, 0);
+        $request   = CodeRequest::sent($expiresAt, $resendAt, 'challenge-1');
+        $link      = CodeRequest::sent($expiresAt, $resendAt);
 
         self::assertSame([CodeRequestStatus::SENT, $expiresAt, null, 'challenge-1'], [$request->status, $request->expiresAt, $request->retryAfter, $request->challengeId]);
         self::assertSame([null, null], [$request->lockedUntil, $request->refusal]);
-        self::assertNull($link->challengeId);
+        self::assertSame($resendAt, $request->resendAvailableAt);
+        self::assertSame([null, $resendAt], [$link->challengeId, $link->resendAvailableAt]);
         self::assertTrue($request->isSent());
     }
 
@@ -51,6 +54,7 @@ final class CodeRequestTest extends TestCase
         $request = CodeRequest::deliveriesExhausted(900);
 
         self::assertSame([CodeRequestStatus::DELIVERIES_EXHAUSTED, null, 900, null], [$request->status, $request->expiresAt, $request->retryAfter, $request->challengeId]);
+        self::assertNull($request->resendAvailableAt);
         self::assertFalse($request->isSent());
     }
 

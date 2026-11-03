@@ -109,7 +109,6 @@ final readonly class CodeService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function send(string $method, #[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
     {
@@ -146,7 +145,6 @@ final readonly class CodeService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     public function sendVerification(Identity $identity, string $type, ?ClientContext $client = null): CodeRequest
     {
@@ -312,7 +310,6 @@ final readonly class CodeService
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     private function issue(CodeBinding $binding, EventContext $context, ?string $given, AttemptSubject $subject, ?Identity $identity = null): CodeRequest
     {
@@ -331,7 +328,7 @@ final readonly class CodeService
 
         $delivery->dispatch(new SendOneTimeCode($binding, $issued, $identity), new OneTimeCode);
 
-        return CodeRequest::sent($issued->expiresAt, $issued->challengeId);
+        return CodeRequest::sent($issued->expiresAt, $issued->resendAvailableAt, $issued->challengeId);
     }
 
     /**

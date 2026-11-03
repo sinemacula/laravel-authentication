@@ -55,7 +55,6 @@ final readonly class ChallengeDeliveries
      * @return \SineMacula\Laravel\Authentication\Codes\DeliveryRefusal|\SineMacula\Laravel\Authentication\Codes\IssuedCode
      *
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      *
      * @phpstan-impure
      */
@@ -68,7 +67,7 @@ final readonly class ChallengeDeliveries
         bool $insertFirst = false,
     ): DeliveryRefusal|IssuedCode {
         $delivery = CodeDelivery::for($this->keys, $binding, $secret, $now, $ttlSeconds);
-        $first    = $delivery->issued($delivery->challengeId, $now->addSeconds($ttlSeconds));
+        $first    = $this->first($delivery, $capped);
 
         if ($insertFirst && $this->insert($binding, $delivery)) {
             return $first;
@@ -111,14 +110,17 @@ final readonly class ChallengeDeliveries
         }
 
         if ($windowEnds <= $now) {
-            return $this->rewrite($row, $delivery, $delivery->window(), $delivery->challengeId, $delivery->now->addSeconds($delivery->ttlSeconds));
+            return $this->rewrite($row, $delivery->window(), $this->first($delivery, $capped));
         }
 
         $expiresAt = $delivery->now->addSeconds($capped ? min($delivery->ttlSeconds, $windowEnds - $now) : $delivery->ttlSeconds);
+        $resendAt  = $this->resendAt($delivery->now, $row->deliveries + 1, $windowEnds, $capped);
         $live      = CodeRows::live($row, $this->settings->maxAttempts(), $delivery->now) instanceof OneTimeCode && CodeRows::isSameContext($row->context, $delivery->context);
-        $resent    = $live ? $this->rewrite($row, $delivery, $delivery->resend($row->deliveries, $expiresAt), $row->challenge_id, $expiresAt, true) : null;
+        $resent    = $live
+            ? $this->rewrite($row, $delivery->resend($row->deliveries, $expiresAt), $delivery->issued($row->challenge_id, $expiresAt, $resendAt), $delivery->now)
+            : null;
 
-        return $resent ?? $this->rewrite($row, $delivery, $delivery->challenge($row->deliveries, $expiresAt), $delivery->challengeId, $expiresAt);
+        return $resent ?? $this->rewrite($row, $delivery->challenge($row->deliveries, $expiresAt), $delivery->issued($delivery->challengeId, $expiresAt, $resendAt));
     }
 
     /**
@@ -156,34 +158,73 @@ final readonly class ChallengeDeliveries
     }
 
     /**
+     * The code the delivery issues as the first of a new delivery window, for a
+     * new challenge.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeDelivery  $delivery
+     * @param  bool  $capped
+     * @return \SineMacula\Laravel\Authentication\Codes\IssuedCode
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function first(CodeDelivery $delivery, bool $capped): IssuedCode
+    {
+        $windowEnds = $delivery->now->getTimestamp() + $this->settings->deliveryWindowSeconds();
+
+        return $delivery->issued($delivery->challengeId, $delivery->now->addSeconds($delivery->ttlSeconds), $this->resendAt($delivery->now, 1, $windowEnds, $capped));
+    }
+
+    /**
+     * When another delivery may be made to the key after one made at the time
+     * given, by the same rules `refusal()` applies: once the cooldown has
+     * passed, unless the window, ending at the second given, would by then
+     * still be running and have had all its deliveries, or (`$capped`) have
+     * less than the cooldown left; then when the window ends.
+     *
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  int  $deliveries
+     * @param  int  $windowEnds
+     * @param  bool  $capped
+     * @return \Carbon\CarbonImmutable
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function resendAt(CarbonImmutable $now, int $deliveries, int $windowEnds, bool $capped): CarbonImmutable
+    {
+        $cooldown = $this->settings->cooldownSeconds();
+        $next     = $now->getTimestamp() + $cooldown;
+        $waits    = $next < $windowEnds && ($deliveries >= $this->settings->maxDeliveries() || ($capped && $windowEnds - $next < $cooldown));
+
+        return $now->addSeconds(($waits ? $windowEnds : $next) - $now->getTimestamp());
+    }
+
+    /**
      * Write the delivery's columns over the row, in one update conditional on
-     * the issuance read (and, for a resend, on its challenge still being live),
-     * and answer the code issued, or `null` when the row changed since it was
-     * read.
+     * the issuance read (and, for a resend, on its challenge still being live
+     * at the time given), and answer the code issued, or `null` when the row
+     * changed since it was read.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\OneTimeCode  $row
-     * @param  \SineMacula\Laravel\Authentication\Codes\CodeDelivery  $delivery
      * @param  array<string, mixed>  $columns
-     * @param  string  $challengeId
-     * @param  \Carbon\CarbonImmutable  $expiresAt
-     * @param  bool  $resend
+     * @param  \SineMacula\Laravel\Authentication\Codes\IssuedCode  $issued
+     * @param  ?\Carbon\CarbonImmutable  $liveAt
      * @return ?\SineMacula\Laravel\Authentication\Codes\IssuedCode
      *
      * @throws \InvalidArgumentException
      *
      * @phpstan-impure
      */
-    private function rewrite(OneTimeCode $row, CodeDelivery $delivery, array $columns, string $challengeId, CarbonImmutable $expiresAt, bool $resend = false): ?IssuedCode
+    private function rewrite(OneTimeCode $row, array $columns, IssuedCode $issued, ?CarbonImmutable $liveAt = null): ?IssuedCode
     {
         $query = CodeRows::table()->where('id', $row->id)->where('issue_id', $row->issue_id);
 
-        if ($resend) {
+        if ($liveAt !== null) {
             $query->whereNull('consumed_at')
-                ->where('expires_at', '>', $row->fromDateTime($delivery->now))
+                ->where('expires_at', '>', $row->fromDateTime($liveAt))
                 ->where('attempts', '<', $this->settings->maxAttempts());
         }
 
-        return $query->update(self::stored($row, $columns)) === 1 ? $delivery->issued($challengeId, $expiresAt) : null;
+        return $query->update(self::stored($row, $columns)) === 1 ? $issued : null;
     }
 
     /**
