@@ -679,7 +679,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
     /**
      * After a successful refresh the guard has the identity, principal, and
-     * session bound for the rest of the request.
+     * session bound for the rest of the request. The session bound is the row
+     * the exchange read again under its lock, so it is the same record rather
+     * than the same instance.
      *
      * @return void
      *
@@ -732,7 +734,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertTrue(GuardSessions::of($guard)->refresh($token)->isRefreshed());
         self::assertSame($identity, $guard->identity());
         self::assertSame($principal, $guard->principal());
-        self::assertSame($session, $guard->session());
+        self::assertTrue($session->is($guard->session()));
     }
 
     /**
