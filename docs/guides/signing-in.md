@@ -597,11 +597,13 @@ A sign-in method verifies input the client sends to your sign-in route and answe
 why it does not; the session service does everything else (the application policy, the limits, activity, the principal,
 a further factor, the session and the tokens). Use a method for input the package verifies, such as a password, a code
 your application issued, or an identity provider's signed assertion the method checks itself. Use `start()` instead when
-something outside the session service has already proven the identity, such as an SSO callback your identity provider's
-package handles: `start()` runs the same checks after the proof, but no `Attempting`, attempt limit or timebox, since
-nothing is guessed there. A method signed in through `signIn()` gets all three. `start()` refuses the machine credential
-kinds (`api_key`, `client_credentials`) as the method with an `InvalidArgumentException`, even when the application
-lists them: they authenticate requests and exchanges, never sessions.
+something outside the session service has already proven the identity, and `signInExternally()` when that something is
+an external identity provider whose result a trusted adapter hands over (see [External sign-in](#external-sign-in)):
+both run the same checks after the proof, but no `Attempting`, attempt limit or timebox, since nothing is guessed
+there. A method signed in through `signIn()` gets all three. `start()` refuses the machine credential kinds (`api_key`,
+`client_credentials`) and `external_provider` as the method with an `InvalidArgumentException`, even when the
+application lists them: the first two authenticate requests and exchanges, never sessions, and only
+`signInExternally()` records a session under the third.
 
 ```php
 use Illuminate\Contracts\Hashing\Hasher;

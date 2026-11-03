@@ -18,9 +18,9 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  *
  * Kept on the storage connection with the sessions, in the table named by
  * `authentication.proofs.provenance_table`, written once with the session and
- * never rewritten by a later reauthentication. Indexed by connection and by
- * tenant; nothing queries those indexes yet. The session model's pruning
- * deletes it with its session.
+ * never rewritten by a later reauthentication. Indexed by connection, which
+ * finds a connection's sessions to revoke, and by tenant, which nothing queries
+ * yet. The session model's pruning deletes it with its session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -28,6 +28,7 @@ inheritance:
 | Tenants named by identifier       | Implement `TenantResolver` and bind it in the container                                                          |
 | Tenant authentication policies    | Implement `TenantAuthenticationPolicy` and bind it; call `tenantPolicyChanged()` when it changes                 |
 | Judging a further factor          | Implement `RequirementCheck` and bind it in the container (a further-factor package binds one)                   |
+| Linking external results          | Implement `ExternalIdentityLinks` and bind it in the container (by default no external result is linked)         |
 | Accepting a provider's evidence   | Implement `ExternalEvidencePolicy` and bind it in the container (by default no evidence is accepted)             |
 | Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
 | Identifier normal forms           | Implement `IdentifierNormalizer`, register it by type in the config                                              |
@@ -182,7 +183,8 @@ time, and `proofs($since, $kinds, $limit)`, a bounded query over its counting pr
 `RequirementSubject::MAX_LIMIT`) and the `Requirement`, and answers a `Requirements\RequirementEvaluation` listing the
 kinds left unmet. It judges the identity-level requirement the additional-factor policy answers as well as a tenant's.
 The default, `MeetNoRequirement`, meets nothing: an identity or a tenant that requires a further factor admits no
-session until a factor package binds its check. The package never asks it with an empty requirement.
+session until a factor package binds its check. The package never asks it with an empty requirement, nor when an
+external provider's accepted evidence already meets the whole requirement (see below).
 
 Whether an external identity provider's evidence counts is `Contracts\ExternalEvidencePolicy`'s to say: `meets()` takes
 an `External\ExternalEvidence` (the provider's `amr` values, its `acr` value or SAML authentication context class
@@ -417,8 +419,9 @@ seam has a default that works alone.
   session's proofs meet a requirement: the identity-level one above and the further factor a tenant's authentication
   policy requires, at sign-in (the first factor alone, in memory: a requirement the first factor meets activates the
   session at once), at the choice, on refresh, on a switch, when a pending session is acted on and when
-  `Auth::caller()` reads a refresh credential. Without it, a non-empty requirement never activates a session: it
-  fails closed (see [Tenant authentication policies](#tenant-authentication-policies)).
+  `Auth::caller()` reads a refresh credential. Without it, a non-empty requirement never activates a session that
+  holds no accepted provider evidence meeting it: it fails closed (see [Tenant authentication
+  policies](#tenant-authentication-policies)).
 - When a requirement is unmet, the sign-in's session waits pending with `mfa` outstanding: `SignInResult::isPending()`,
   its `PendingSession` and pending credential, then `Auth::sessions()->pending($credential, $action)` to check an
   `mfa.*` action (`Sessions\Enums\PendingAction`) before the factor package acts, `satisfy()` once the factor is
@@ -576,6 +579,10 @@ $passed = $result->isVerified();   // else $result->reason
   own locks, and `auth_time` becomes the later of the session's and the provider's, under that lock. An adapter that
   must answer a locked standing first (`laravel-sso`'s re-authentication sessions) asks `externalStanding($session,
   $identity, $connectionId, $linkId)` in the same transaction; it locks the row and answers `null` or the reason.
+- When a link is removed, or its scope widened so it may act for more than its sessions were established for, the
+  adapter calls `linkRemoved($identity, $connectionId, $linkId)` or `linkScopeWidened(...)` in the same transaction (see
+  [Connections and links](sessions.md#connections-and-links)): each ends only the identity's sessions established
+  through that link. `linkScopeWidened()` is mandatory and safe to repeat; `linkRemoved()` honours its setting.
 
 ### Audit (`laravel-audit-log`)
 

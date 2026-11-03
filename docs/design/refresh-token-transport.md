@@ -65,8 +65,8 @@ a cookie application's results hand back the cookie instead of the token.
   route that sets the cookie: the browser sign-in must pass it before signing in, or a cross-site page could auto-submit
   a form with an attacker's credentials and leave the attacker's refresh cookie in the victim's browser (a browser keeps
   a `SameSite=Strict` cookie set by the response to a top-level navigation), where the victim's own scripts would then
-  pass every refresh check. The package cannot impose it on `start()`, whose external provider's callback is a
-  cross-site top-level navigation, so it stays the application's check on the routes that set the cookie.
+  pass every refresh check. The package cannot impose it on `signInExternally()`, whose external provider's callback
+  is a cross-site top-level navigation, so it stays the application's check on the routes that set the cookie.
 - The pending credential is never a cookie: a cookie application's pending results carry it in the body.
 
 ## Success Path

@@ -97,21 +97,22 @@ return [
     |---------------------------------------------------------------------------
     |
     | Every session records the proofs it was established and kept with: the
-    | first factor at sign-in, a reauthentication with it, and a further factor
-    | or a recovery code an adapter verified, each with its method, channel,
-    | factor, what was observed, the adapter's evaluation, its `amr` values,
-    | its time and its binding, in `table`. A reauthentication at the external
-    | provider the session began with is a reserved kind: nothing records it
-    | yet. A session an external provider established also records how it
-    | began (the connection and its tenant, the provider's authentication time
-    | and session deadline, the policy version checked, and the provider's
-    | evidence once the bound `ExternalEvidencePolicy` accepted it, which by
-    | default it never does) in `provenance_table`. Both live on the storage
-    | connection, are read from the write connection, and are pruned with
-    | their sessions by the session model's `model:prune`. A code proof's
-    | destination is personal data, kept no longer than its session. Each table
-    | name may be up to 47 characters, as the migrations name their indexes
-    | after it.
+    | first factor at sign-in, a reauthentication with it, a reauthentication at
+    | the external provider the session began with (through the link that
+    | established it), and a further factor or a recovery code an adapter
+    | verified, each with its method, channel, factor, what was observed, the
+    | adapter's evaluation, its `amr` values, its time, its binding and, for an
+    | external provider's proof, the evidence the provider asserted once the
+    | bound `ExternalEvidencePolicy` accepted it (which by default it never
+    | does), in `table`. A session an external provider established also records
+    | how it began (the connection and its tenant, the provider's authentication
+    | time and session deadline, the policy version checked, the id of the link
+    | it came through, and the accepted evidence) in `provenance_table`. Both
+    | live on the storage connection, are read from the write connection, and
+    | are pruned with their sessions by the session model's `model:prune`. A
+    | code proof's destination is personal data, kept no longer than its
+    | session. Each table name may be up to 47 characters, as the migrations
+    | name their indexes after it.
     |
     */
 

@@ -332,7 +332,8 @@ final readonly class SessionActivation
      * its windows, for the guard's sign-in flow, the identifier type and the IP
      * address the session records (neither the identifier nor the account,
      * which it does not keep), so the limiter gives back exactly the slots
-     * taken. None for a sign-in that reserved nothing (one `start()` began).
+     * taken. None for a sign-in that reserved nothing (one `start()` or
+     * `signInExternally()` began).
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return list<\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation>

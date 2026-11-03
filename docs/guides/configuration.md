@@ -329,11 +329,11 @@ The session layer asks the application before it issues anything: a sign-in with
 `method_not_allowed`, at sign-in and again on every refresh, so a valid credential for one application cannot open or
 keep a session in another. With `require_verified_identifier`, a sign-in that used an identifier (an email address for
 the password method) fails with `identifier_unverified` unless the identity reports that identifier verified (see
-[Identifier verification](identity-models.md#identifier-verification)); sign-ins that used no identifier, such as SSO
-through `start()`, and refreshes are not gated, since the external provider or the existing session vouches for them.
-The check is made before any principal is resolved, so an unverified identifier gets `identifier_unverified` whether or
-not the identity has a principal yet, and the answer cannot tell whether it has been invited anywhere. A switch is
-held to the identifier type its session's sign-in used, which the session records.
+[Identifier verification](identity-models.md#identifier-verification)); sign-ins that used no identifier, such as an
+external sign-in through `signInExternally()`, and refreshes are not gated, since the external provider or the existing
+session vouches for them. The check is made before any principal is resolved, so an unverified identifier gets
+`identifier_unverified` whether or not the identity has a principal yet, and the answer cannot tell whether it has been
+invited anywhere. A switch is held to the identifier type its session's sign-in used, which the session records.
 
 A guard key that is present wins, `null` included; a guard `application` entry of `null` means no overrides. Nothing
 falls back to a literal: a key missing from both blocks, a value of the wrong shape (`null` or a map for `methods`, or a

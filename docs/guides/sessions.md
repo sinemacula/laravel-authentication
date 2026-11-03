@@ -5,13 +5,13 @@
 Every session records the proofs it was established and kept with, each a timestamped row in `proofs.table` (see
 [Proofs](configuration.md#proofs)), kept apart by kind:
 
-| Kind                            | Recorded by                                                                                                                                                                     |
-|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `first_factor`                  | every sign-in: what the sign-in method verified (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)), or the external provider's result `start()` was given |
-| `first_factor_reauthentication` | a reauthentication with the first factor on an active session                                                                                                                   |
-| `additional_factor`             | a further factor an adapter verified: at sign-in, with `satisfy()`, or as a step-up                                                                                             |
-| `recovery_code`                 | a recovery code an adapter accepted in place of a further factor                                                                                                                |
-| `external_reauthentication`     | a reauthentication at the external provider the session began with, through the link that established it (`reauthenticateExternally()`)                                         |
+| Kind                            | Recorded by                                                                                                                                                                                |
+|---------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `first_factor`                  | every sign-in: what the sign-in method verified (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)), or the external provider's result `signInExternally()` was given |
+| `first_factor_reauthentication` | a reauthentication with the first factor on an active session                                                                                                                              |
+| `additional_factor`             | a further factor an adapter verified: at sign-in, with `satisfy()`, or as a step-up                                                                                                        |
+| `recovery_code`                 | a recovery code an adapter accepted in place of a further factor                                                                                                                           |
+| `external_reauthentication`     | a reauthentication at the external provider the session began with, through the link that established it (`reauthenticateExternally()`)                                                    |
 
 Each holds its method, its channel (`password`, `sms`, `email`, `authenticator_app`, `passkey`, `external_provider` or
 `unknown`, with the destination or credential reference: a code's address or number in its normal form, a passkey's own
@@ -122,12 +122,13 @@ passkey takes the `challenge` and `credential` of a ceremony begun with `Auth::p
 [Using passkeys](signing-in.md#using-passkeys)). Whichever the method, the identity it verifies must be the session's
 owner.
 
-The method must be one the guard's application allows (`method_not_allowed`, nothing counted) and not a machine
-credential's (an `InvalidArgumentException`). The session must still be the one given, as stored (a session put under
-its key since, of the same owner or not, records another generation and is `session_unknown`), and one of the guard's
-live sessions of a person, as for a step-up. The attempt counts against the guard's `sign_in` limits, on the identifier
-and the IP address, before any transaction opens (`rate_limited`, with the wait), and the method verifies the input in
-the guard's credential timebox, its account checks counted as a sign-in's are. The identity it verifies must be the
+The method must be one the guard's application allows (`method_not_allowed`, nothing counted), and neither a machine
+credential's nor `external_provider` (an `InvalidArgumentException`; see [At the external
+provider](#at-the-external-provider)). The session must still be the one given, as stored (a session put under its key
+since, of the same owner or not, records another generation and is `session_unknown`), and one of the guard's live
+sessions of a person, as for a step-up. The attempt counts against the guard's `sign_in` limits, on the identifier and
+the IP address, before any transaction opens (`rate_limited`, with the wait), and the method verifies the input in the
+guard's credential timebox, its account checks counted as a sign-in's are. The identity it verifies must be the
 session's owner: another identity's correct credential is `invalid_credentials`, as a wrong one is, and never says whose
 it was. A concealed reason (`account_rate_limited`, an expired or exhausted code, a passkey's sign counter that did not
 advance) is answered as `invalid_credentials`, with no wait. The session is then locked, checked again (still the
@@ -830,9 +831,11 @@ request. A session that falls short:
 | `attempt()`                           | refused as `sso_required`                                                | refused as `additional_factor_required`                                  |
 | The caller of a refresh credential    | no caller (`sso_required`), nothing written                              | no caller (`additional_factor_required`), nothing written                |
 
-A further factor is met only as the bound `Contracts\RequirementCheck` judges the session's proofs (the default,
-`MeetNoRequirement`, meets nothing, so a tenant that requires a further factor admits no session until a factor package
-binds its check). A session established through a connection carries it in its provenance (`signInExternally()`). A
+A further factor is met only as the bound `Contracts\ExternalEvidencePolicy` judges an external provider's accepted
+evidence (see [Proofs and provenance](#proofs-and-provenance)) or the bound `Contracts\RequirementCheck` judges the
+session's proofs (the defaults, `InsufficientEvidence` and `MeetNoRequirement`, meet nothing, so a tenant that requires
+a further factor admits no session until the application trusts a provider's evidence or a factor package binds its
+check). A session established through a connection carries it in its provenance (`signInExternally()`). A
 session that meets the policy records the version of the answer in `tenant_policy_version`.
 
 A refresh that returns a session to pending hands out no pair: `RefreshResult::isPending()`, with `pending` (what it

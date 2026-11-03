@@ -70,7 +70,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`. The deadlines
   come from the application policy's lifetimes for the guard (`ApplicationPolicy::lifetimes($guard)`), which with the
   shipped policy are the guard's token service's (see `application-policy.md`), the absolute one capped at the
-  context's own deadline (`SignInContext::$notAfter`, into which `start()` folds a provenance's deadline); a context
+  context's own deadline (`SignInContext::$notAfter`, into which `signInExternally()` folds the provider's); a context
   whose deadline is `$now` or earlier is refused as `session_expired` before anything is written.
 - Every sign-in creates a new session (D15): a new key, a new rotation id, both deadlines from `$now`. An active
   session is written in one transaction on the session's connection: the revocation of a proven session first, then the
@@ -173,7 +173,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   guesses are bounded by the account's one count, whatever spelling of the identifier or guard the sign-ins used, held
   to the most permissive `per_identifier` limit among the guards that check the account (see `application-policy.md`);
   for a method that counts no account, only by its identifier's and the IP address's limits. A pending session from
-  `start()` holds no slots (nothing was guessed), so its external verifier bounds it.
+  `start()` or `signInExternally()` holds no slots (nothing was guessed), so its external verifier bounds it.
 - An activation runs in the acting request's client: its events and the session's last use carry that client, while
   the session keeps the client the sign-in came from as its creation.
 - Inside a caller's transaction the service's transaction is a savepoint: the lifecycle events, the bind and the
