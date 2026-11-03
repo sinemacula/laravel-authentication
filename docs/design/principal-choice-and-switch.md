@@ -191,7 +191,7 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   `testContextChangesCompareTheDestinationWithTheLoadedSession`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php` (a switch proven by the refresh cookie, its
   cross-site checks, and the rotated cookie)
-- `tests/Performance/SessionSwitchQueryBudgetTest.php` (eight reads and one write per switch, from the request
+- `tests/Performance/SessionSwitchQueryBudgetTest.php` (seven reads and one write per switch, from the request
   too; seven reads and no write per grace retry; the counters' writes alone for a refusal, and their read alone when
   rate-limited; the reads, the counters' writes and the insert of a sign-in left pending on a choice, the reads of a
   choice listed, and the reads and writes of a choice made; and a time ceiling for switches, retries and refusals)
