@@ -227,6 +227,24 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
+     * Only a string names a guard: a recorded name or a default guard that is
+     * not one leaves nothing, even where the guards configuration holds a
+     * guard of the other kind under that key.
+     *
+     * @return void
+     */
+    public function testANameThatIsNotAStringNamesNoGuard(): void
+    {
+        $this->configure(['auth.guards' => [7 => ['driver' => 'jwt']], 'auth.defaults.guard' => 7]);
+
+        $request = Request::create('/');
+
+        $request->attributes->set(BearerForms::ROUTE_GUARDS, [7, ['api'], null]);
+
+        self::assertFalse(BearerForms::defersTo(BearerForms::API_KEY, $request, self::JWT));
+    }
+
+    /**
      * The class holds no state and cannot be instantiated: its constructor is
      * private. Reflection invokes it so the line is covered while still
      * documenting the access modifier.
