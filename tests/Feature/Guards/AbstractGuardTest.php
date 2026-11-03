@@ -15,6 +15,7 @@ use Illuminate\Support\Timebox;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
@@ -31,6 +32,7 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
@@ -1352,6 +1354,46 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertSame($principal, $guard->principal());
         self::assertNull($guard->session());
         self::assertSame([[Authenticated::class, $principal], [PrincipalAssigned::class, $principal]], $seen);
+    }
+
+    /**
+     * `setUser()` over a context a credential authenticated forgets the
+     * context the guard held for it and the kind of credential it was made
+     * with, so the next ask is built for the identity bound now, as a trusted
+     * bind with no credential.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSetUserForgetsTheCredentialAndTheContextHeldBeforeIt(): void
+    {
+        $this->events->shouldReceive('dispatch');
+
+        $guard = new StubCredentialGuard(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox);
+
+        $guard->bindCredential($this->mockIdentity(MachineIdentity::class), $this->mockPrincipal(), 'key-1', ['invoices:read']);
+
+        $before = $guard->authenticationContext();
+
+        self::assertSame(CredentialKind::API_KEY, $before?->credential);
+
+        $identity = $this->mockIdentity();
+
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(2);
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($this->mockPrincipal());
+
+        $guard->setUser($identity);
+
+        $after = $guard->authenticationContext();
+
+        self::assertNotNull($after);
+        self::assertNotSame($before, $after);
+        self::assertSame('2', $after->identityId);
+        self::assertSame(SubjectType::PERSON, $after->subjectType);
+        self::assertNull($after->credential);
+        self::assertNull($after->scopes);
     }
 
     /**
