@@ -718,10 +718,10 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The default authentication contexts, which ask the default guard, and
-     * the contributor registry are each bound as a singleton: a contributor a
-     * provider registers on one resolution of the registry is still there
-     * when a context is next built from another.
+     * The default authentication contexts, which ask the default guard, and the
+     * contributor registry are each bound as a singleton: a contributor a
+     * provider registers on one resolution of the registry is still there when
+     * a context is next built from another.
      *
      * @return void
      */

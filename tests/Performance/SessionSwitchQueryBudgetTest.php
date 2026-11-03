@@ -49,9 +49,9 @@ use Tests\Integration\Fixtures\ChoosingMembership;
  * and its owner, writes the one compare-and-swap, and then reads the session's
  * proofs for the new access token, while a switch its destination's policy
  * returns to pending reads the first factor once instead, a grace retry writes
- * nothing and a refusal writes only the counters. The event names the
- * principal switched from by the type and identifier the session recorded, so
- * it is never read again.
+ * nothing and a refusal writes only the counters. The event names the principal
+ * switched from by the type and identifier the session recorded, so it is never
+ * read again.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -228,8 +228,8 @@ final class BearerFormsTest extends TestCase
 
     /**
      * Only a string names a guard: a recorded name or a default guard that is
-     * not one leaves nothing, even where the guards configuration holds a
-     * guard of the other kind under that key.
+     * not one leaves nothing, even where the guards configuration holds a guard
+     * of the other kind under that key.
      *
      * @return void
      */

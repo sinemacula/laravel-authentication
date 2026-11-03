@@ -1357,10 +1357,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * `setUser()` over a context a credential authenticated forgets the
-     * context the guard held for it and the kind of credential it was made
-     * with, so the next ask is built for the identity bound now, as a trusted
-     * bind with no credential.
+     * `setUser()` over a context a credential authenticated forgets the context
+     * the guard held for it and the kind of credential it was made with, so the
+     * next ask is built for the identity bound now, as a trusted bind with no
+     * credential.
      *
      * @return void
      *
