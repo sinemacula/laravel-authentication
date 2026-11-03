@@ -295,6 +295,41 @@ final class SessionReauthenticationTest extends TestCase
     }
 
     /**
+     * A method the application allows but no driver is registered under names
+     * no challenge: a revoked session is refused as revoked and reported with
+     * no challenge, and a live one throws when the method is asked to verify.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAllowedMethodNoDriverIsRegisteredUnderNamesNoChallenge(): void
+    {
+        $signedIn = $this->signedIn();
+
+        config()->set('auth.guards.api.application.methods', ['password', 'badge']);
+
+        self::assertNotContains('badge', app(SignInMethodManager::class)->names());
+
+        DB::table('authentication_sessions')->where('id', $signedIn->record->getKey())->update(['revoked_at' => $this->now]);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $revoked = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
+
+        self::assertSame(
+            [FailureReason::SESSION_REVOKED, FailureReason::SESSION_REVOKED, null],
+            [$revoked->reason, $this->recordedEvent(AuthenticationFailed::class)->reason, $this->recordedEvent(AuthenticationFailed::class)->challengeId],
+        );
+
+        DB::table('authentication_sessions')->where('id', $signedIn->record->getKey())->update(['revoked_at' => null]);
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
+    }
+
+    /**
      * `external_provider` is no method a first factor reauthenticates with,
      * even on an application that allows external sign-in: it throws before
      * anything is counted or reported.
