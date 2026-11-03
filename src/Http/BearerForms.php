@@ -19,9 +19,11 @@ use Illuminate\Http\Request;
  * form, on a request whose route also lists a guard of that other kind,
  * treats the request as carrying no credential, so it parses nothing, queries
  * nothing and reports nothing, and the credential is read and reported once,
- * by the guard it belongs to. Anywhere else (a route listing one kind, no
- * `auth` middleware, a guard asked directly) each guard reads every
- * credential.
+ * by the guard it belongs to. Once a route listing both kinds has recorded its
+ * guards, that holds for every later ask in the request, a guard asked
+ * directly included. Anywhere else (a route listing one kind, a request the
+ * `auth` middleware did not record, or a guard asked before it runs) each
+ * guard reads every credential.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

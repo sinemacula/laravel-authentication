@@ -411,14 +411,14 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
-     * A guard asked directly, outside the `auth` middleware, reads every
-     * credential itself.
+     * A guard asked on a request the `auth` middleware never recorded reads
+     * every credential itself.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testAGuardAskedDirectlyReadsEveryCredential(): void
+    public function testAGuardAskedOnARequestTheMiddlewareDidNotRecordReadsEveryCredential(): void
     {
         $this->startMachineRequest($this->personToken($this->seedPerson()));
 
@@ -430,6 +430,28 @@ final class BearerFormsTest extends TestCase
 
         self::assertCount(1, $failures);
         self::assertSame(AuthenticationFlow::API_KEY, $failures[0]->flow);
+    }
+
+    /**
+     * Once a route listing both kinds has recorded its guards, a guard the
+     * route's handler asks directly still leaves a credential of the other
+     * kind's form alone: the `api_key` guard asked for a person's valid token
+     * answers no identity, reports nothing and queries no key.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAGuardAskedDirectlyAfterTheMiddlewareRecordedTheRouteLeavesTheOtherKindAlone(): void
+    {
+        Route::middleware('auth:api,machine')->get('/ask-machine', static fn (): array => ['api' => Auth::guard('api')->id(), 'machine' => Auth::guard('machine')->id()]);
+
+        $identity = $this->seedPerson();
+
+        $this->bearer('/ask-machine', $this->personToken($identity))->assertOk()->assertExactJson(['api' => $identity->getKey(), 'machine' => null]);
+
+        self::assertSame([], $this->machineEventsOf(AuthenticationFailed::class));
+        self::assertSame([], $this->keyQueries);
     }
 
     /**

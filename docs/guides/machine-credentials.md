@@ -170,10 +170,12 @@ Revocation is checked on every request either way: a key revoked between two req
 second, and so is the next request with a client credentials token whose key was revoked.
 
 The `auth` middleware (the package's, which the `auth` alias resolves to, or one of yours that extends it) records the
-guards the route lists on the request before trying them. A route listing one kind of guard, a guard asked directly
-(`Auth::guard('machine')->check()`) or asked before the middleware runs, reads every credential itself. A route
-listing two guards of one kind (`auth:api,m2m`) gets one report from each guard that refuses the credential, each naming
-its guard: they are two applications' refusals, not one.
+guards the route lists on the request before trying them, and the rule holds for every later ask in that request: on a
+route listing both kinds, a controller's `Auth::guard('machine')->user()` with a JWT answers `null` and reports nothing,
+since the JWT is not its own. A route listing one kind of guard, and a guard asked on a request the middleware did not
+record (no `auth` middleware, or asked before it runs), reads every credential itself. A route listing two guards of one
+kind (`auth:api,m2m`) gets one report from each guard that refuses the credential, each naming its guard: they are two
+applications' refusals, not one.
 
 Every other operation names the principal the key must belong to, and treats a key of another principal or guard as
 absent, even one whose guard, type or identifier the column's collation counts as equal (`alice` and `Alice` under

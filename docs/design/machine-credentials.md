@@ -54,9 +54,10 @@ authorisation package decides what they allow.
   (`BearerForms::ROUTE_GUARDS`, `null` for the default guard); a package guard reading a credential of the other kind's
   form on a route that also lists a guard of that kind (by `auth.guards.<name>.driver`) treats it as no credential,
   before any parse, query or event, so on a route listing both kinds a failed JWT is reported once (flow `bearer`) and
-  never looked up as a key, and a key once (flow `api_key`) and never parsed. Routes listing one kind, guards asked
-  directly and guards resolved before the middleware read every credential. Revocation is checked on every request
-  either way (a key by its lookup, a client token by its key's).
+  never looked up as a key, and a key once (flow `api_key`) and never parsed. Once a route listing both kinds recorded
+  its guards, that holds for every later ask in the request, a guard asked directly included. Routes listing one kind,
+  and guards asked on a request the middleware did not record (no `auth` middleware, or before it runs), read every
+  credential. Revocation is checked on every request either way (a key by its lookup, a client token by its key's).
 - Keys live on the storage connection (`Database\StorageConnection`), like every other package table, not on a
   connection the session model decides: an `api_key` guard never reads the session model, so an application whose only
   guards are `api_key` guards needs none configured. The guard fails when it is built on a storage connection setting

@@ -71,7 +71,7 @@ class Authenticate extends IlluminateAuthenticate
     protected function authenticate(mixed $request, array $guards): void
     {
         if ($request instanceof Request) {
-            $request->attributes->set(BearerForms::ROUTE_GUARDS, $guards === [] ? [null] : array_values($guards));
+            $request->attributes->set(BearerForms::ROUTE_GUARDS, $guards === [] ? [null] : $guards);
         }
 
         parent::authenticate($request, $guards);

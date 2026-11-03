@@ -119,7 +119,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - On a route whose `auth` middleware lists a `jwt` and an `api_key` guard, a bearer credential belongs to the kind its
   form says (a `.` makes it a JWT's), and a guard treats one of the other kind's form as no token at all: no parse, no
   query, no event (`Http\BearerForms`, see `machine-credentials.md`). So a failed JWT is reported once, flow `bearer`,
-  and a refused key once, flow `api_key`. A route listing one kind, and a guard asked directly, read every credential.
+  and a refused key once, flow `api_key`, and so is every later ask in the request, a guard asked directly included. A
+  route listing one kind, and a guard asked on a request the middleware did not record (no `auth` middleware, or before
+  it runs), read every credential.
 - A rejected bearer token fires only `AuthenticationFailed` (flow `bearer`), once per request, with the first reason in
   this order: `token_invalid`; `identity_unknown`, `identity_inactive`; `principal_mismatch` (the `principal` does not
   resolve to exactly that principal); `principal_inactive`, `tenant_inactive`; and for a token that names a session,
