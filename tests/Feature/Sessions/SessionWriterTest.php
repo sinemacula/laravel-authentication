@@ -179,6 +179,7 @@ final class SessionWriterTest extends TestCase
         self::assertSame(0, self::issuanceGuardWrites($session->record->getKey()));
         self::assertSame(0, self::issuanceGuardWrites($pending->getKey()));
         self::assertSame(0, $session->record->getAttribute('issuance_sequence'));
+        self::assertSame(0, $pending->getAttribute('issuance_sequence'));
     }
 
     /**

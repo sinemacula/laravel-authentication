@@ -177,6 +177,20 @@ final class SessionTest extends TestCase
     }
 
     /**
+     * The issuance guard's sequence reads back as an integer, whatever type the
+     * driver returns it as.
+     *
+     * @return void
+     */
+    public function testCastsTheIssuanceSequenceToAnInteger(): void
+    {
+        $session = new Session;
+        $session->forceFill(['issuance_sequence' => '3']);
+
+        self::assertSame(3, $session->getAttribute('issuance_sequence'));
+    }
+
+    /**
      * Only the client-described metadata is mass assignable: ownership, the
      * request-derived columns, and the session state are set with `forceFill()`
      * or by the package's own writes, so a new session keeps the status it
