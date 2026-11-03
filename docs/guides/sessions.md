@@ -422,16 +422,18 @@ result's `retryAfter`: a switch returns its refusal, as a refresh does, so answe
 token parsed for this guard, the session found, of this guard, live, and the rotation id current, or the previous one
 inside the grace window; any other id is a replay and revokes the session (`rotation_reuse`). Once a session of this
 guard is found, the switch runs in one transaction on its connection whose first statement writes its issuance guard,
-and takes its time after it (see [Issuance order](#issuance-order)), so the contracts below are asked with the session's
-row held and must only read. On every path the session's owner must still be returned by the guard's provider and be
-active; the destination principal (the target, or the one the session records for a tenant-only switch) must resolve
-through the resolver's hinted path as the very principal named, of its class, owned by that identity (read from the
-principal's own key, not trusted to the resolver), active, in an active tenant of its own, allowed the application by
-`ApplicationAccess` (`principal_ineligible`) and admitted by the application policy, also with the type of identifier
-the session's sign-in used (which the session records), so a principal your policy refuses to that identifier cannot be
-reached by switching to it; the session's sign-in method must still be allowed; and the destination tenant must be one
-`TenantAccess` lets the principal act in (`tenant_ineligible`, also for a tenant `TenantResolver` cannot find) and
-active (`tenant_inactive`).
+then reads the session again with a lock and judges only that row, and takes its time after it (see
+[Issuance order](#issuance-order)), so a session revoked, returned to pending or switched while the switch waited is
+refused for that, a retry included, and the contracts below are asked with the session's row held and must only read. On
+every path the session's owner must still be returned by the guard's provider and be active; the destination principal
+(the target, or the one the session records for a tenant-only switch) must resolve through the resolver's hinted path as
+the very principal named, of its class, owned by that identity (read from the principal's own key, not trusted to the
+resolver), active, in an active tenant of its own, allowed the application by `ApplicationAccess`
+(`principal_ineligible`) and admitted by the application policy, also with the type of identifier the session's sign-in
+used (which the session records), so a principal your policy refuses to that identifier cannot be reached by switching
+to it; the session's sign-in method must still be allowed; and the destination tenant must be one `TenantAccess` lets
+the principal act in (`tenant_ineligible`, also for a tenant `TenantResolver` cannot find) and active
+(`tenant_inactive`).
 
 Then the destination tenant's authentication policy judges the session, with the proofs and provenance it already holds:
 a policy that requires connections the session was not established through refuses the switch (`sso_required`) and

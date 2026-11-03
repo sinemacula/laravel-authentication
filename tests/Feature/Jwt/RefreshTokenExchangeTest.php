@@ -673,8 +673,9 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * A parallel refresh that rotates between this exchange's lookup and its
-     * issuance guard is judged after the guard, against the row as loaded: the
-     * swap misses, and the row judged again makes this exchange a grace retry.
+     * issuance guard is seen by the locking read that follows the guard: the
+     * row read there makes this exchange a grace retry, which gets the
+     * successor's credential without a second rotation.
      *
      * @return void
      *
@@ -720,6 +721,49 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame(FailureReason::SESSION_UNKNOWN, $failure->reason);
         self::assertSame($session->id, $failure->context->sessionId);
         self::assertNull($failure->context->identityId);
+        self::assertSame([], $this->dispatched);
+    }
+
+    /**
+     * Rows of `[the change committed before the guard, the failure]`.
+     *
+     * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     */
+    public static function provideChangesBeforeTheGuard(): iterable
+    {
+        yield 'revoked' => [['revoked_at' => '2026-04-06 11:59:59', 'revoked_reason' => 'signed_out'], FailureReason::SESSION_REVOKED];
+
+        yield 'returned to pending' => [['status' => 'pending'], FailureReason::SESSION_PENDING];
+    }
+
+    /**
+     * A grace retry whose session is revoked, or returned to pending, between
+     * the exchange's lookup and its issuance guard (as by a transaction the
+     * guard waited for) is judged on the row read after the guard: it fails as
+     * `session_revoked` or `session_pending` before its owner is loaded, and
+     * hands out no pair, although the row it found was active and the retry
+     * writes no compare-and-swap that would have missed.
+     *
+     * @param  array<string, mixed>  $change
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideChangesBeforeTheGuard')]
+    public function testAGraceRetryIsJudgedOnTheRowReadAfterTheGuard(array $change, FailureReason $reason): void
+    {
+        $session = $this->seedRotatedSession(49, rotatedSecondsAgo: 5);
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->recordEvents();
+        $this->beforeTheGuard(static fn () => DB::table('stub_sessions')->where('id', $session->id)->update($change));
+
+        $failure = $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client()));
+
+        self::assertSame($reason, $failure->reason);
+        self::assertSame($session->id, $failure->context->sessionId);
         self::assertSame([], $this->dispatched);
     }
 
@@ -1370,7 +1414,7 @@ final class RefreshTokenExchangeTest extends TestCase
     {
         $session = $this->seedRotatedSession(37, rotatedSecondsAgo: 5);
 
-        $loaded = new StubSession;
+        $loaded = new StubInjectableSession;
         $loaded->setRawAttributes(array_diff_key((array) DB::table('stub_sessions')->where('id', $session->id)->first(), ['previous_refresh_key' => true]), true);
         $loaded->exists = true;
 
@@ -1974,8 +2018,10 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * Swap the configured session model so the exchange resolves the supplied
      * in-memory session through `find()` instead of issuing a real polymorphic
-     * query. The session is reloaded first, unless told otherwise, so it
-     * carries every column, as the exchange's own lookup would.
+     * query, and through the locking read after the issuance guard too when the
+     * session is itself of the swapped model. The session is reloaded first,
+     * unless told otherwise, so it carries every column, as the exchange's own
+     * lookup would.
      *
      * @param  \Tests\Unit\Stubs\StubSession  $session
      * @param  bool  $reload
@@ -1990,6 +2036,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')
             ->atLeast()->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('lockForUpdate')
             ->andReturnSelf();
         $builder->shouldReceive('find')
             ->with($session->id)

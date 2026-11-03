@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
@@ -987,6 +988,60 @@ final class SessionSwitchTest extends TestCase
 
         self::assertTrue($ran);
         self::assertSame(IdentifierCoercion::stringify($session->record->getKey()), $failure->context->sessionId);
+    }
+
+    /**
+     * Rows of `[the change committed before the guard, the failure]`.
+     *
+     * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     */
+    public static function provideChangesBeforeTheGuard(): iterable
+    {
+        yield 'revoked' => [['revoked_at' => '2026-04-06 11:59:59', 'revoked_reason' => 'signed_out'], FailureReason::SESSION_REVOKED];
+
+        yield 'returned to pending' => [['status' => 'pending'], FailureReason::SESSION_PENDING];
+    }
+
+    /**
+     * A lost switch response retried inside the grace window, whose session is
+     * revoked or returned to pending between the switch's lookup and its
+     * issuance guard (as by a transaction the guard waited for), is judged on
+     * the row read after the guard: it fails for that reason and hands out no
+     * pair, although the row it found was active and the retry writes no
+     * compare-and-swap that would have missed.
+     *
+     * @param  array<string, mixed>  $change
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideChangesBeforeTheGuard')]
+    public function testAGraceRetryIsJudgedOnTheRowReadAfterTheGuard(array $change, FailureReason $reason): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+        $this->switched($session, $second);
+        $this->advance(5);
+
+        $ran = false;
+
+        DB::connection()->beforeExecuting(static function (string $query) use (&$ran, $change): void {
+            if ($ran || !str_contains($query, 'issuance_sequence')) {
+                return;
+            }
+
+            $ran = true;
+
+            DB::table('authentication_sessions')->update($change);
+        });
+
+        $this->assertSwitchFails($reason, $session, $second);
+
+        self::assertTrue($ran);
     }
 
     /**

@@ -348,12 +348,11 @@ final class RefreshReplayIntegrationTest extends TestCase
      * Inside a caller's REPEATABLE READ transaction, a parallel refresh that
      * commits between this refresh's read and its issuance guard (it can no
      * longer commit after the guard, which holds the row until this refresh
-     * ends) is handled as the engine allows: on MySQL the guard and the
-     * compare-and-swap see the committed rotation, the swap misses and the
-     * locking re-read makes this refresh a grace retry; PostgreSQL refuses the
-     * guard with a serialisation failure, raised inside the caller's
-     * transaction as a `DeadlockException` for the caller to retry, and nothing
-     * is revoked.
+     * ends) is handled as the engine allows: on MySQL the locking re-read that
+     * follows the guard sees the committed rotation, which makes this refresh a
+     * grace retry; PostgreSQL refuses the guard with a serialisation failure,
+     * raised inside the caller's transaction as a `DeadlockException` for the
+     * caller to retry, and nothing is revoked.
      *
      * @return void
      *

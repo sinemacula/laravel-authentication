@@ -81,6 +81,10 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * the session, or a change of its proofs, waits for it and then reads what it
  * committed, or, where its transaction reads a snapshot taken before (on
  * PostgreSQL's REPEATABLE READ), fails to serialise, for the caller to retry.
+ * The session is read again with a lock once the guard is written, and only
+ * that row is judged, so a grace retry, which writes no compare-and-swap, never
+ * hands out a pair for a session revoked, returned to pending or switched
+ * before the switch held it.
  *
  * One switch is one instance, built with the guard's context, the client and
  * the target when the switch runs.
@@ -165,8 +169,9 @@ final readonly class SessionSwitch
      * Run the switch for the parsed claims on the session they name: a session
      * of another guard (or of none) fails as `session_guard_mismatch` before
      * anything is written to it, and a session of this guard is switched in one
-     * transaction on its connection that first writes its issuance guard; one
-     * whose row is gone by then fails as `session_unknown`.
+     * transaction on its connection that first writes its issuance guard and
+     * then reads the session again with a lock, judging only the row read
+     * there; one whose row is gone by then fails as `session_unknown`.
      *
      * @param  ?array<string, mixed>  $claims
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
@@ -193,9 +198,11 @@ final readonly class SessionSwitch
         }
 
         $presented = [$rotationId, $claims[Claims::PRINCIPAL->value] ?? null];
-        $switch    = fn (): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal => IssuanceGuard::write($session)
-            ? $this->switchOn($session, $presented)
-            : $unknown();
+        $switch    = function () use ($session, $presented, $unknown): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
+            $held = IssuanceGuard::write($session) ? $this->store->reload($session) : null;
+
+            return $held === null ? $unknown() : $this->switchOn($held, $presented);
+        };
 
         return WriteConnection::during($session, static fn (): ?string => $session->getGuard()) === $this->context->name()
             ? $session->getConnection()->transaction($switch)

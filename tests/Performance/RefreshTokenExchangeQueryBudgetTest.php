@@ -67,8 +67,11 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Every refresh that finds its session then writes the session's issuance
  * guard, one `UPDATE` by key, first in the transaction the exchange runs in, so
  * the access token it issues reads the session's proofs after any issuance or
- * proof change of the session that overlaps it, and takes its time after it:
- * one write more on every path past the session lookup, whatever it decides.
+ * proof change of the session that overlaps it, and takes its time after it;
+ * then it reads the session again with a lock, one `SELECT` by key, so it
+ * judges the row as it stands once the guard holds it, never one a revocation,
+ * return to pending or switch it waited for has changed: one write and one read
+ * more on every path past the session lookup, whatever it decides.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -160,17 +163,17 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * Refresh success should read its limits, do the session lookup and
-     * authenticatable hydration and read the session's proofs for the new
-     * access token's `auth_time` and `amr`, then the issuance guard and one CAS
-     * write. The timestamp write is suppressed here by seeding `last_used_at`
-     * inside the throttle window.
+     * Refresh success should read its limits, do the session lookup, its
+     * locking re-read after the issuance guard and authenticatable hydration,
+     * and read the session's proofs for the new access token's `auth_time` and
+     * `amr`; it writes the issuance guard and one CAS. The timestamp write is
+     * suppressed here by seeding `last_used_at` inside the throttle window.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testRefreshSuccessUsesFourReadsAndTwoWrites(): void
+    public function testRefreshSuccessUsesFiveReadsAndTwoWrites(): void
     {
         $identity   = $this->seedIdentity();
         $rotationId = 'refresh-success-rotation-id';
@@ -190,7 +193,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($session, $rotationId, $identity)->reveal();
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        $result = $this->assertQueryBudget(4, 2, static fn () => GuardSessions::of($guard)->refresh($token)->session?->tokens);
+        $result = $this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refresh($token)->session?->tokens);
 
         self::assertNotNull($result);
     }
@@ -224,7 +227,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertTrue($this->assertQueryBudget(4, 2, static fn () => GuardSessions::of($guard)->refreshFromRequest())?->isRefreshed());
+        self::assertTrue($this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refreshFromRequest())?->isRefreshed());
     }
 
     /**
@@ -257,7 +260,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
 
-        $result = $this->assertQueryBudget(4, 2, static fn () => GuardSessions::of($guard)->refreshFromRequest());
+        $result = $this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refreshFromRequest());
 
         self::assertTrue($result?->isRefreshed());
         self::assertNull($result->session?->tokens->refreshToken);
@@ -351,9 +354,9 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
     /**
      * A replayed refresh token is judged from the session row alone, before the
-     * owner is loaded, and costs the session read plus the issuance guard and
-     * the one guarded revocation write, besides the limits' read and the
-     * failure's count.
+     * owner is loaded, and costs the session read, the issuance guard, the
+     * session's locking re-read and the one guarded revocation write, besides
+     * the limits' read and the failure's count.
      *
      * @return void
      *
@@ -367,12 +370,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $this->tokens()->issueRefreshToken($session, 'replayed-rotation-id')->reveal();
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertNull($this->assertQueryBudget(2, 6, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull($this->assertQueryBudget(3, 6, static fn () => GuardSessions::of($guard)->refresh($token))->session);
         self::assertSame('rotation_reuse', Session::query()->whereKey($session->getKey())->firstOrFail()->getRevokedReason());
     }
 
     /**
-     * A grace retry is answered from the limits, the session row, the owner and
+     * A grace retry is answered from the limits, the session row (read, and
+     * read again with a lock once the issuance guard is written), the owner and
      * the session's proofs, writing nothing but the issuance guard: the current
      * credential is re-issued, not rotated again.
      *
@@ -380,7 +384,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testGraceRetryUsesFourReadsAndWritesOnlyTheIssuanceGuard(): void
+    public function testGraceRetryUsesFiveReadsAndWritesOnlyTheIssuanceGuard(): void
     {
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity, [
@@ -393,21 +397,22 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $this->tokens()->issueRefreshToken($session, 'previous-rotation-id', $identity)->reveal();
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertNotNull($this->assertQueryBudget(4, 1, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNotNull($this->assertQueryBudget(5, 1, static fn () => GuardSessions::of($guard)->refresh($token))->session);
     }
 
     /**
-     * A refresh that loses its swap to a parallel refresh with the same token
-     * pays the limits, session and owner reads, the issuance guard, the proofs
-     * read of the pair it issued, the missed swap, and one locking re-read of
-     * the session, then succeeds as a grace retry, reading the proofs again for
-     * its pair.
+     * A refresh whose swap misses (the row rotated in its own transaction just
+     * before it, as a contract asked during the exchange could have done) pays
+     * the limits, session and owner reads, the issuance guard and the locking
+     * re-read after it, the proofs read of the pair it issued, the missed swap,
+     * and one more locking re-read of the session, then succeeds as a grace
+     * retry, reading the proofs again for its pair.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testLostRotationResolvedAsAGraceRetryUsesSixReadsAndTwoWrites(): void
+    public function testLostRotationResolvedAsAGraceRetryUsesSevenReadsAndTwoWrites(): void
     {
         $identity = $this->seedIdentity();
         $session  = $this->seedSession($identity, [
@@ -438,13 +443,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
                 ]);
         });
 
-        self::assertNotNull($this->assertQueryBudget(6, 2, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNotNull($this->assertQueryBudget(7, 2, static fn () => GuardSessions::of($guard)->refresh($token))->session);
     }
 
     /**
      * A refresh for a session that holds no refresh credential stops at the
-     * session lookup and writes nothing but the issuance guard and the
-     * failure's count.
+     * session lookup and its locking re-read, and writes nothing but the
+     * issuance guard and the failure's count.
      *
      * @return void
      *
@@ -459,14 +464,14 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(2, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull($this->assertQueryBudget(3, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
         self::assertSame([[FailureReason::REFRESH_KEY_MISSING, $session->getKey()]], self::failures($events));
     }
 
     /**
      * A refresh replaying a token against a session already revoked for reuse
-     * stops at the session lookup: it revokes nothing again, and writes nothing
-     * but the issuance guard and the failure's count.
+     * stops at the session lookup and its locking re-read: it revokes nothing
+     * again, and writes nothing but the issuance guard and the failure's count.
      *
      * @return void
      *
@@ -486,7 +491,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(2, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull($this->assertQueryBudget(3, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
         self::assertSame([[FailureReason::SESSION_REVOKED, $session->getKey()]], self::failures($events));
     }
 
@@ -527,9 +532,9 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A refresh for a session that has ended stops at the session lookup: the
-     * deadlines are read from the loaded row, and nothing but the issuance
-     * guard and the failure's count is written.
+     * A refresh for a session that has ended stops at the session lookup and
+     * its locking re-read: the deadlines are read from the row read there, and
+     * nothing but the issuance guard and the failure's count is written.
      *
      * @return void
      *
@@ -558,7 +563,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(2, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull($this->assertQueryBudget(3, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
         self::assertSame([[FailureReason::SESSION_EXPIRED, $session->getKey()]], self::failures($events));
     }
 
@@ -599,7 +604,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard    = $this->freshJwtGuard(self::GUARD);
         $events   = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(3, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull($this->assertQueryBudget(4, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
         self::assertSame([[FailureReason::METHOD_NOT_ALLOWED, $session->getKey()]], self::failures($events));
     }
 
@@ -623,7 +628,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(3, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull($this->assertQueryBudget(4, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
         self::assertSame([[FailureReason::PRINCIPAL_INELIGIBLE, $session->getKey()]], self::failures($events));
     }
 
@@ -660,15 +665,16 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
     /**
      * Tenant-aware 3D refresh success should pay exactly the limits' read, the
-     * session read, the authenticatable read, the joined principal+tenant read,
-     * the read of the session's proofs for the new access token's `auth_time`
-     * and `amr`, and two writes: the issuance guard and the rotation.
+     * session read and its locking re-read after the issuance guard, the
+     * authenticatable read, the joined principal+tenant read, the read of the
+     * session's proofs for the new access token's `auth_time` and `amr`, and
+     * two writes: the issuance guard and the rotation.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testThreeDimensionalRefreshPathWithTenantAccessUsesFiveReadsAndTwoWrites(): void
+    public function testThreeDimensionalRefreshPathWithTenantAccessUsesSixReadsAndTwoWrites(): void
     {
         [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures();
         $rotationId             = 'refresh-tenant-aware-success';
@@ -688,7 +694,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($session, $rotationId, $principal)->reveal();
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
-        $result = $this->assertQueryBudget(5, 2, static function () use ($guard, $token): ?TokenPair {
+        $result = $this->assertQueryBudget(6, 2, static function () use ($guard, $token): ?TokenPair {
             $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
             $guard->principal()?->getIdentity();
             $guard->tenant();
@@ -701,14 +707,14 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
     /**
      * A tenant-aware refresh for a secondary tenant hint should still pay the
-     * same limits + session + identity + joined principal + proofs read budget
-     * as the primary tenant path, and the same two writes.
+     * same limits + session (and re-read) + identity + joined principal +
+     * proofs read budget as the primary tenant path, and the same two writes.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testThreeDimensionalRefreshPathWithSecondaryTenantHintUsesFiveReadsAndTwoWrites(): void
+    public function testThreeDimensionalRefreshPathWithSecondaryTenantHintUsesSixReadsAndTwoWrites(): void
     {
         [$identity, , $secondaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant();
         $rotationId                        = 'refresh-tenant-aware-secondary-success';
@@ -728,7 +734,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($session, $rotationId, $secondaryPrincipal)->reveal();
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
-        $result = $this->assertQueryBudget(5, 2, static function () use ($guard, $token): ?TokenPair {
+        $result = $this->assertQueryBudget(6, 2, static function () use ($guard, $token): ?TokenPair {
             $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
             $guard->principal()?->getIdentity();
             $guard->tenant();
@@ -792,7 +798,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $token  = $jwt->issueRefreshToken($session, $rotationId, $principal)->reveal();
         $guard  = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
-        $result = $this->assertQueryBudget(5, $writes, static fn (): RefreshResult => GuardSessions::of($guard)->refresh($token));
+        $result = $this->assertQueryBudget(6, $writes, static fn (): RefreshResult => GuardSessions::of($guard)->refresh($token));
 
         self::assertNull($result->session);
         self::assertSame($reason, $result->reason);
@@ -807,8 +813,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
      */
     public static function provideExternalEvidenceVerdicts(): iterable
     {
-        yield 'met by the accepted evidence' => [true, 7];
-        yield 'not met by it' => [false, 6];
+        yield 'met by the accepted evidence' => [true, 8];
+        yield 'not met by it' => [false, 7];
     }
 
     /**
@@ -900,7 +906,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($session, $rotationId, $principal)->reveal();
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
-        $result = $this->assertQueryBudget(4, 5, static function () use ($guard, $token): ?TokenPair {
+        $result = $this->assertQueryBudget(5, 5, static function () use ($guard, $token): ?TokenPair {
             $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
             $guard->tenant();
 

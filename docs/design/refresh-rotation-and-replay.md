@@ -18,10 +18,10 @@ other rotated token as a replay that revokes the session.
   with `RefreshTokenHasher::successor(R)`, an HMAC-SHA256 of a fixed label keyed by `R`. Successors are deterministic so
   that a retry of `R` can be handed the current id again without the server storing any id in plaintext; knowing a
   future id gives nothing away, because it is only usable inside a signed token, and the row's digests reveal no id.
-- One time, `$now`, is taken per exchange right after the token is parsed and cut to the whole second (the precision
-  every session timestamp is stored at). Every check, every value written, and both issued tokens' `iat` use it, so a
-  request that later waits on a row lock is still judged at the moment it started. Application servers are expected to
-  keep synchronised clocks.
+- One time, `$now`, is taken per exchange once its issuance guard is written, and cut to the whole second (the
+  precision every session timestamp is stored at). Every check, every value written, and both issued tokens' `iat` use
+  it, so a proof or issuance the guard waited for is never later than the exchange's `iat`. Application servers are
+  expected to keep synchronised clocks.
 - A session has an idle deadline, required, and an absolute deadline, which is `null` when the application sets no
   absolute limit and the sign-in supplied no deadline of its own. A session has ended from the second either deadline
   names, or when the idle one is missing (`SessionDeadlines::hasEnded()`, the one rule shared by refresh, the bearer
@@ -96,14 +96,17 @@ other rotated token as a replay that revokes the session.
   never taken for a replay.
 - Once a session of this guard is found, the whole exchange runs in one transaction on the session's connection (a
   savepoint inside a caller's), opened by the session's issuance guard (`SessionRecords\IssuanceGuard`, an increment of
-  `issuance_sequence`): the exchange's `$now` is taken after it, and the classification, admission, tenant policy,
+  `issuance_sequence`). The session is then read again with a lock (`RefreshRotationStore::reload()`) and only the row
+  read there is judged; the exchange's `$now` is taken after it, and the classification, admission, tenant policy,
   rotation, grace reissue, lost-rotation reload, return to pending and replay revocation all follow inside it, the
-  session's row held until it commits. A step-up, reauthentication, switch or other refresh of the session that overlaps
-  it therefore either committed first (and the pair reads its proofs, current: `SessionProofs::history($session, true)`,
-  a shared lock on MySQL and MariaDB) or waits for it; under PostgreSQL's REPEATABLE READ a snapshot older than the
-  other fails to serialise on the guard, which the package never retries. A guard that finds no row (deleted after the
-  lookup) refuses as `session_unknown`. Events stay deferred until commit, and the attempt limiter stays outside the
-  transaction.
+  session's row held until it commits. A step-up, reauthentication, switch, revocation, return to pending or other
+  refresh of the session that overlaps it therefore either committed first (and the exchange judges the row it left,
+  and the pair reads its proofs, current: `SessionProofs::history($session, true)`, a shared lock on MySQL and MariaDB)
+  or waits for it; under PostgreSQL's REPEATABLE READ a snapshot older than the other fails to serialise on the guard,
+  which the package never retries. A grace retry writes no compare-and-swap, so it is the re-read that keeps one from
+  handing out a pair for a session revoked, returned to pending or switched while the exchange waited on the guard. A
+  guard that finds no row (deleted after the lookup) refuses as `session_unknown`. Events stay deferred until commit,
+  and the attempt limiter stays outside the transaction.
 
 ## Success Path
 
@@ -113,8 +116,8 @@ other rotated token as a replay that revokes the session.
   connection (`SessionLookup::find()`).
 - Refuse a session whose `guard` is not this guard (or is `null`) with `session_guard_mismatch`, writing nothing to it:
   the guard a session records never changes.
-- Open the exchange's transaction, write the session's issuance guard (`session_unknown` when it finds no row), and take
-  `$now`.
+- Open the exchange's transaction, write the session's issuance guard (`session_unknown` when it finds no row), read
+  the session again with a lock, and take `$now`. Everything below judges the row read there.
 - Classify the session at `$now`, before any identity or principal is loaded and before any rotation id is compared:
   1. revoked: `session_revoked`;
   2. session ended (either deadline reached or missing): `session_expired`;
@@ -187,14 +190,16 @@ other rotated token as a replay that revokes the session.
   committed replacement finds the session revoked.
 - Only the immediately previous id is honoured: after `R0 -> R1 -> R2`, a delayed retry of `R0` is a replay even within
   the grace window of the first rotation, and revokes the session.
-- When the swap affects no row, the row changed between the read and the write. The exchange re-reads it once from the
-  writer with a locking read (`lockForUpdate()`, a no-op on SQLite) and classifies it again at the same `$now`:
-  - GRACE, the usual case (a parallel refresh with the same token rotated first, and its successor is this exchange's):
-    the exchange returns the current credential as above, after confirming the fresh row still belongs to the hydrated
-    identity (`identity_unknown` otherwise), still records the principal it admitted (`session_principal_mismatch`) and
-    still acts in the active tenant it admitted (`session_tenant_mismatch`), since a switch that won the swap moved it
-    to a context this exchange never judged; after a write for a session the tenant's policy found short,
-    `rotation_conflict` instead of a pair;
+- When the swap affects no row, the row changed between the read and the write. The exchange holds the row from its
+  issuance guard, so no other transaction can change it in between; only a write in the exchange's own transaction (a
+  contract it asked that writes the session) can. The exchange re-reads it once from the writer with a locking read
+  (`lockForUpdate()`, a no-op on SQLite) and classifies it again at the same `$now`:
+  - GRACE (a rotation to this exchange's successor was written in between): the exchange returns the current
+    credential as above, after confirming the fresh row still belongs to the hydrated identity (`identity_unknown`
+    otherwise), still records the principal it admitted (`session_principal_mismatch`) and still acts in the active
+    tenant it admitted (`session_tenant_mismatch`), since a switch written in between moved it to a context this
+    exchange never judged; after a write for a session the tenant's policy found short, `rotation_conflict` instead of a
+    pair;
   - a replay (for example with a grace window of 0): the session is revoked, `rotation_reuse`;
   - revoked, deleted, ended, returned to pending, or credential cleared meanwhile: `session_revoked`,
     `session_unknown`, `session_expired`, `session_pending`, or `refresh_key_missing`;
@@ -204,12 +209,14 @@ other rotated token as a replay that revokes the session.
 - One reason or two: two. Proven reuse has one revoking reason, `rotation_reuse`. The swap race is no longer a reuse
   signal; it resolves by reclassification, and the residual conflict that proves nothing gets the non-revoking
   `rotation_conflict`, because revoking for it would sign people out without cause.
-- A revocation committed while a grace retry is in flight can still let that retry return a pair, but every token of a
-  revoked session is rejected on its next use, so nothing outlives the revocation.
-- Transactions: in autocommit or READ COMMITTED, a parallel refresh inside the window resolves to GRACE. Inside a
-  caller's REPEATABLE READ transaction, MySQL's locking re-read sees the latest committed row and the outcome is the
-  same; PostgreSQL raises a serialization failure (SQLSTATE 40001) on the swap or the re-read, which propagates as a
-  server error for the caller to retry, with nothing revoked. A caller that rolls back a transaction on the session's
+- A revocation, return to pending or switch that commits while a refresh waits on the issuance guard is seen by the
+  locking re-read after it, so a grace retry never returns a pair for a session that changed before the exchange held
+  it; nothing can commit to the row after the guard until the exchange ends.
+- Transactions: in autocommit or READ COMMITTED, a parallel refresh inside the window waits on the first's issuance
+  guard and resolves to GRACE on the row it re-reads. Inside a caller's REPEATABLE READ transaction, MySQL's locking
+  re-read sees the latest committed row and the outcome is the same; PostgreSQL raises a serialisation failure (SQLSTATE
+  40001) on the issuance guard, the exchange's first write, which propagates as a server error for the caller to retry,
+  with nothing revoked. A caller that rolls back a transaction on the session's
   connection around `refresh()` also rolls back a replay revocation, and `SessionRevoked` is then never dispatched; do
   not roll back around refresh.
 - An exception while issuing the new pair propagates without an `AuthenticationFailed` event, rolling the exchange's
@@ -307,6 +314,8 @@ other rotated token as a replay that revokes the session.
   `testSessionLoadedWithoutItsPreviousDigestIsReportedNotRevoked`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testRevokingASessionIsIdempotent`
+- `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
+  `testAGraceRetryIsJudgedOnTheRowReadAfterTheGuard`, `testARotationCommittedBeforeTheGuardMakesTheExchangeAGraceRetry`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testLostRotationToAParallelRefreshIsAGraceRetry`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
@@ -442,8 +451,8 @@ other rotated token as a replay that revokes the session.
   `testRefreshesRefusedForTheirFailuresAreAnswered429ThroughTheRoute`
 - `tests/Performance/RefreshTokenExchangeQueryBudgetTest.php` (every refresh reads its limits once; a failure counts
   itself)
-  `testRefreshSuccessUsesFourReadsAndOneWrite`, `testGraceRetryUsesFourReadsAndNoWrites`,
-  `testLostRotationResolvedAsAGraceRetryUsesSixReadsAndOneWrite`,
+  `testRefreshSuccessUsesFiveReadsAndTwoWrites`, `testGraceRetryUsesFiveReadsAndWritesOnlyTheIssuanceGuard`,
+  `testLostRotationResolvedAsAGraceRetryUsesSevenReadsAndTwoWrites`,
   `testReplayRevocationReadsTheSessionAndRevokesItInOneWrite`, `testMissingRefreshCredentialStopsAtTheSessionLookup`,
   `testEndedSessionRefreshFailureStopsAtTheSessionLookup`, `testMalformedSessionIdRefreshFailureSkipsTheSessionLookup`,
   `testGraceAndReplayCostNoMoreThanARotation`

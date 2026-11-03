@@ -55,6 +55,11 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 - A switch is proven by the session's refresh token, never an access token, and judged by `RefreshJudgment::classify()`
   as a refresh is: the refresh limits (counted against the token's session and the client's IP address), the guard, a
   live session, and the rotation id. A replayed id revokes the session as `rotation_reuse`.
+- Once a session of this guard is found, the switch runs in one transaction on its connection (a savepoint inside a
+  caller's) opened by the session's issuance guard, then reads the session again with a lock
+  (`RefreshRotationStore::reload()`) and judges only that row, taking its time after it: a revocation, return to
+  pending or switch that committed while it waited on the guard is seen, the retry (which writes no compare-and-swap)
+  included, and nothing commits to the row after the guard until the switch ends.
 - A switch names its destination with a `SwitchTarget`: another principal of the identity, in the tenant selected for it
   or its default (its own), or another tenant for the principal the session records (`SwitchTarget::tenant()`).
 - Every path of a switch, the retry included, runs every live check: the owner reloaded through the guard's provider and
@@ -72,12 +77,12 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   (`PendingTransitions::outstanding()`), so the pending session names the strictest of both.
 - With the current rotation id, the token's `principal` must be the principal the session records
   (`session_principal_mismatch`). Then the destination tenant's authentication policy judges the session against its own
-  proofs and provenance (`TenantPolicyCheck::check()`, outside any transaction): connections the session was not
-  established through refuse the switch (`sso_required`, nothing written); a further factor the session lacks returns it
-  to pending with the destination recorded (`PendingTransitions::returnToPending()`, flow `switch`), a missed
-  compare-and-swap there judged as a missed switch swap is. A return forgets a binding of the guard to the session
-  (`GuardBinding::forgetSession()`, no event), as a refresh's return does, so nothing later in the request acts in the
-  context it left.
+  proofs and provenance (`TenantPolicyCheck::check()`, inside the switch's transaction, with the session's row held
+  after its issuance guard): connections the session was not established through refuse the switch (`sso_required`,
+  nothing written); a further factor the session lacks returns it to pending with the destination recorded
+  (`PendingTransitions::returnToPending()`, flow `switch`), a missed compare-and-swap there judged as a missed switch
+  swap is. A return forgets a binding of the guard to the session (`GuardBinding::forgetSession()`, no event), as a
+  refresh's return does, so nothing later in the request acts in the context it left.
 - The absolute deadline stays the session's, held to `signed_in_at` plus the guard's absolute lifetime
   (`session_expired` when that has passed), so a lifetime shortened or set since the sign-in applies and a switch never
   extends the session or lifts its deadline; a session with no absolute deadline under a guard with no absolute limit
@@ -175,8 +180,8 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a switch read
   from the request and the transport's refusals, a switch screen's listing, a tenant-only switch and one of both,
   switching back to a tenant, two switches in one second, the destination tenant's refusals, the proofs kept, the
-  identity-level factor policy not asked by a switch the destination lets through, and its requirement named by one
-  the destination returns to pending)
+  identity-level factor policy not asked by a switch the destination lets through, its requirement named by one the
+  destination returns to pending, and a retry judged on the row read after the issuance guard)
 - `tests/Integration/Sessions/SessionSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch, a
   different switch, a deadline change, a tenant or policy version change, a deletion and an owner change, and a swap
   lost to a refresh with no grace window or to two refreshes, which revokes the session)
