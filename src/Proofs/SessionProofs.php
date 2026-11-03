@@ -82,9 +82,13 @@ final class SessionProofs
      * the time given: of a kind it takes, made within its maximum age (from the
      * proof's own second until, and not including, the second the age after it,
      * so a proof made after now never meets it), and multifactor or phishing
-     * resistant when it asks for either; `null` when none does. With a factor
-     * excluded, a proof made with that factor (its factor reference, compared
-     * byte for byte) never meets it.
+     * resistant when it asks for either; `null` when none does. A proof that
+     * carries an external provider's evidence never meets one that asks for
+     * multifactor authentication: the evidence was accepted as of any age, and
+     * the proof is timed when the provider authenticated the identity, not when
+     * that evidence is from, so freshness takes no provider's evidence. With a
+     * factor excluded, a proof made with that factor (its factor reference,
+     * compared byte for byte) never meets it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
@@ -105,7 +109,7 @@ final class SessionProofs
             ))
             ->where('authenticated_at', '>', $model->fromDateTime($now->subSeconds($requirement->maxAgeSeconds)))
             ->where('authenticated_at', '<=', $model->fromDateTime($now))
-            ->when($requirement->multifactor, static fn (Builder $query): Builder => $query->where('multifactor', true))
+            ->when($requirement->multifactor, static fn (Builder $query): Builder => $query->where('multifactor', true)->whereNull('evidence'))
             ->when($requirement->phishingResistant, static fn (Builder $query): Builder => $query->where('phishing_resistant', true))
             ->orderByDesc('authenticated_at')
             ->orderByDesc('id')

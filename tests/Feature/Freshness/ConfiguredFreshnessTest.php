@@ -14,8 +14,11 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Session as Contract;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessSettings;
@@ -30,8 +33,11 @@ use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
@@ -53,7 +59,7 @@ use Tests\TestCase;
 #[CoversClass(SessionProofs::class)]
 final class ConfiguredFreshnessTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -232,6 +238,45 @@ final class ConfiguredFreshnessTest extends TestCase
             ProofKind::EXTERNAL_REAUTHENTICATION,
             $policy->freshProof($record, 'sso.reauthenticate', new FreshnessRequirement(600, [ProofKind::EXTERNAL_REAUTHENTICATION]))?->kind,
         );
+    }
+
+    /**
+     * Freshness takes no external provider's evidence: a provider's proof whose
+     * evidence was accepted as multifactor, three days old, never meets a
+     * requirement that asks for multifactor authentication, whether it is the
+     * sign-in's or a reauthentication's, though it still meets one that does
+     * not ask for it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAProvidersEvidenceNeverMakesTheSessionFreshForMultifactor(): void
+    {
+        app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]));
+
+        $identity  = $this->seedIdentity();
+        $evidence  = new ExternalEvidence(['mfa'], null, $this->now->subDays(3));
+        $record    = $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', evidence: $evidence))->session?->record;
+        $policy    = self::policy();
+        $proofs    = [ProofKind::FIRST_FACTOR, ProofKind::EXTERNAL_REAUTHENTICATION];
+        $mfa       = new FreshnessRequirement(300, $proofs, true);
+        $plain     = new FreshnessRequirement(300, $proofs);
+        $operation = 'sso.reauthenticate';
+
+        self::assertInstanceOf(Session::class, $record);
+        self::assertSame(1, DB::table('authentication_proofs')->where('multifactor', true)->whereNotNull('evidence')->count());
+        self::assertNull($policy->freshProof($record, $operation, $mfa));
+        self::assertSame(ProofKind::FIRST_FACTOR, $policy->freshProof($record, $operation, $plain)?->kind);
+
+        $this->clockAt($this->now->addMinute());
+
+        $result = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->now->addMinute(), evidence: $evidence);
+
+        self::assertTrue($this->sessions()->reauthenticateExternally($record, $result)->isIssued());
+        self::assertSame(2, DB::table('authentication_proofs')->where('multifactor', true)->whereNotNull('evidence')->count());
+        self::assertNull($policy->freshProof($record, $operation, $mfa));
+        self::assertSame(ProofKind::EXTERNAL_REAUTHENTICATION, $policy->freshProof($record, $operation, new FreshnessRequirement(300, $proofs))?->kind);
     }
 
     /**

@@ -20,7 +20,12 @@ use Carbon\CarbonInterface;
  * itself (a redeemed handoff, say), never from what a client sent: the session
  * service takes it as proof the provider authenticated whoever the link
  * contract maps the connection, issuer and subject to. The connection, issuer
- * and subject are kept exactly as given, and times to the whole second.
+ * and subject are kept exactly as given, and times to the whole second. The
+ * provider's time is when the result says it authenticated the identity, and
+ * times the proof; the evidence's own time is what its acceptance and any
+ * requirement judged on it age. Evidence is never for a later authentication
+ * than the result's: evidence dated after the provider's time, when the result
+ * gives one, is refused.
  *
  * @api
  *
@@ -95,6 +100,10 @@ final readonly class ExternalResult
 
         $this->authenticatedAt = $authenticatedAt === null ? null : CarbonImmutable::instance($authenticatedAt)->startOfSecond();
         $this->sessionNotAfter = $sessionNotAfter === null ? null : CarbonImmutable::instance($sessionNotAfter)->startOfSecond();
+
+        if ($evidence !== null && $this->authenticatedAt !== null && $evidence->authenticatedAt->greaterThan($this->authenticatedAt)) {
+            throw new \InvalidArgumentException('An external result\'s evidence may not be dated after the provider authenticated the identity.');
+        }
     }
 
     /**

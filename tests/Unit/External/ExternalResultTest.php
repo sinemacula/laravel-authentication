@@ -52,6 +52,33 @@ final class ExternalResultTest extends TestCase
     }
 
     /**
+     * Evidence may be dated at the provider's time, before it, or with a result
+     * that gives no time; dated after it, even within the same second once both
+     * are cut to it, it is refused.
+     *
+     * @return void
+     */
+    public function testRefusesEvidenceDatedAfterTheProvidersTime(): void
+    {
+        $at = CarbonImmutable::parse('2026-04-06 11:58:00.7');
+
+        foreach ([$at->subSecond(), $at, $at->addMillisecond()] as $time) {
+            $evidence = new ExternalEvidence(['mfa'], null, $time);
+
+            self::assertSame($evidence, (new ExternalResult('c', 'i', 's', authenticatedAt: $at, evidence: $evidence))->evidence);
+        }
+
+        $later = new ExternalEvidence(['mfa'], null, $at->addSecond());
+
+        self::assertSame($later, (new ExternalResult('c', 'i', 's', evidence: $later))->evidence);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('An external result\'s evidence may not be dated after the provider authenticated the identity.');
+
+        new ExternalResult('c', 'i', 's', authenticatedAt: $at, evidence: $later);
+    }
+
+    /**
      * Each value fits up to its length in characters, not bytes.
      *
      * @return void

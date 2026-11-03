@@ -61,7 +61,12 @@ session holds; the token's claims and every freshness answer are worked out from
   and an `external_reauthentication`'s) and, at sign-in, the provenance's `accepted_evidence`, dated no later than the
   time it was judged at (`EvidenceAcceptance::asOf()`), and the proof carries the acceptance as its evaluation
   (multifactor when it met multifactor authentication). Evidence that is not accepted is recorded nowhere and counts for
-  nothing; there is no partial acceptance.
+  nothing; there is no partial acceptance. A result's evidence is never dated after the provider's time the result
+  gives (`ExternalResult` refuses it): the provider's time times the proof, the evidence's own time is what its
+  acceptance and any requirement judged on it age.
+- Freshness takes no provider's evidence: a proof that carries accepted evidence never meets a freshness requirement
+  that asks for multifactor authentication (`SessionProofs::newestMeeting()`), since the evidence was accepted as of any
+  age and the proof is timed at the provider's time, not the evidence's. It still meets one that does not, on its time.
 - The identity-level requirement and a tenant's further factor have one judge (`Requirements\RequirementJudge`). For a
   session an external provider established (its first factor's channel is `external_provider`) that holds accepted
   evidence, it asks the evidence policy first whether the newest accepted evidence, by the evidence's own time, meets
@@ -174,7 +179,8 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   minimum assurance level, phishing resistance, each with an optional maximum age), and whether a session meets it is
   the accepted evidence's (`Contracts\ExternalEvidencePolicy`) or its proofs' (`Contracts\RequirementCheck`) answer,
   each meeting nothing by default; the identity-level factor policy answers a `Requirement` too, judged the same way
-  (`RequirementJudge`). Freshness uses neither, and so no provider's evidence. The factor-change gate
+  (`RequirementJudge`). Freshness uses neither, and so no provider's evidence: a proof carrying accepted evidence never
+  meets a multifactor freshness requirement. The factor-change gate
   (`SessionService::factorChange()`) asks freshness for `factor_change`, or `first_additional_factor` for an identity's
   first additional factor, excluding the factor a replacement or removal names. A sibling that needs more rebinds
   `FreshnessPolicy` until the value is extended.
@@ -219,7 +225,7 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   `ConcurrentExternalReauthenticationAndWideningTest.php`: the byte-exact link, the adapter's transaction, and the
   races on the session's row lock.
 - `tests/Unit/Freshness/*`, `tests/Feature/Freshness/ConfiguredFreshnessTest.php`: requirements, the stricter rule,
-  configuration and its failures, the newest meeting proof.
+  configuration and its failures, the newest meeting proof, and no provider's evidence meeting multifactor freshness.
 - `tests/Feature/IdentifierChanges/RecentAuthenticationTest.php`: the identifier change's freshness.
 - `tests/Feature/IdentifierChanges/ReboundFreshnessPolicyTest.php`: a policy the application binds is the one asked,
   and the locked row is judged live whatever it answers.
@@ -238,7 +244,8 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
 - Storing `auth_time` or `amr` instead of deriving them, or reading proofs from a replica.
 - Letting a reauthentication add `amr` values without an accepted evaluation, or working `mfa` out from the values.
 - Recording or counting a provider's evidence the evidence policy did not accept, letting it meet part of a
-  requirement, or storing an evidence time after the time it was judged at.
+  requirement, storing an evidence time after the time it was judged at, or letting freshness count it as multifactor
+  authentication.
 - Letting an external reauthentication through any link but the one the session's provenance records, or locking the
   session before the link contract is asked.
 - Judging freshness on the latest authentication time rather than the proof that meets the requirement.
