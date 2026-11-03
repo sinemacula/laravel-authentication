@@ -601,7 +601,9 @@ final class IdentifierChangeServiceTest extends TestCase
      * another challenge is `invalid`, one out of attempts `exhausted` and one
      * past its expiry `expired`, the identifier unchanged; a malformed
      * challenge is `invalid` with nothing counted, even with a well-formed
-     * code.
+     * code. Each refusal is reported once as an `identifier_change` failure
+     * with its reason and the challenge it checked, which is none for a
+     * malformed one.
      *
      * @return void
      *
@@ -616,19 +618,32 @@ final class IdentifierChangeServiceTest extends TestCase
         $challenge = self::changeChallenge($identity, 'email');
         $hits      = static fn (): int => (int) DB::table('rate_limits')->sum('hits');
         $before    = $hits();
-        $confirm   = fn (string $challenge): IdentifierChangeOutcome => $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE)->outcome;
+        $confirm   = function (string $challenge) use ($identity): IdentifierChangeOutcome {
+            $this->recordEvents([AuthenticationFailed::class]);
+
+            return $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE)->outcome;
+        };
+        $reported = function (): array {
+            $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+            return [$failed->flow, $failed->reason, $failed->challengeId];
+        };
 
         self::assertSame(IdentifierChangeOutcome::INVALID, $confirm('not-a-challenge'));
+        self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::INVALID_CREDENTIALS, null], $reported());
         self::assertSame($before, $hits());
         self::assertSame(IdentifierChangeOutcome::INVALID, $confirm(self::NO_CHALLENGE));
+        self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::INVALID_CREDENTIALS, self::NO_CHALLENGE], $reported());
 
         DB::table('one_time_codes')->update(['attempts' => 5]);
 
         self::assertSame(IdentifierChangeOutcome::EXHAUSTED, $confirm($challenge));
+        self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::CODE_EXHAUSTED, $challenge], $reported());
 
         DB::table('one_time_codes')->update(['attempts' => 0, 'expires_at' => '2026-04-06 12:00:00']);
 
         self::assertSame(IdentifierChangeOutcome::EXPIRED, $confirm($challenge));
+        self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::CODE_EXPIRED, $challenge], $reported());
         self::assertSame(self::EMAIL, $identity->fresh()?->email);
     }
 
