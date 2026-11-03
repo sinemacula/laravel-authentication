@@ -108,6 +108,8 @@ permission: a policy that reads the context is the application's.
 - A context first built inside a transaction after a step-up or reauthentication in it holds proofs that have not
   committed; if the transaction rolls back (at any level, a nested one that had committed into it included), the guard
   forgets it, so the rest of the request is judged on the proofs as they stand, never on one that was rolled back.
+  `ProofIssuance` registers the forgetting before it writes the proof, so a context the tenant policy built from the
+  proof is forgotten too when that policy then refuses the reauthentication or throws.
 - A guard built outside `auth.guards` is never asked to forget a context after a proof change; it forgets it on its next
   bind or request like any other.
 
@@ -146,8 +148,8 @@ permission: a policy that reads the context is the application's.
 - `tests/Feature/Guards/HoldsAuthenticationContextTest.php`: built once and held, forgotten by every change to the bound
   state, the forgetting scoped to its session, re-entry refused, an unloadable tenant
 - `tests/Feature/Context/ContextForgettingTest.php`: a step-up, a reauthentication and an external reauthentication seen
-  by the rest of the request, only once committed, and a context built inside a transaction that made one forgotten
-  when it rolls back; `tests/Feature/Sessions/PendingSessionsTest.php`
+  by the rest of the request, only once committed, a context built inside a transaction that made one forgotten when it
+  rolls back, and a context a tenant policy built from a proof it then refused or threw on forgotten; `tests/Feature/Sessions/PendingSessionsTest.php`
   `testASatisfiedFactorIsSeenByTheContextOfAGuardBoundToTheSession`; `tests/Feature/Sessions/FactorRevocationsTest.php`
   `testAVoidedProofIsForgottenFromTheContextAtOnce`
 - `tests/Feature/Context/ContributionSubjectTest.php`: the provenance read once

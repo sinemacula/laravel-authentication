@@ -13,14 +13,22 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Context\ContextForgetting;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
 
 /**
@@ -249,6 +257,90 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
+     * A tenant policy that reads the context once an external
+     * reauthentication's proof is recorded, and then refuses it or throws,
+     * leaves no context built from that proof: the proof rolls back and the
+     * context is built again from the proofs as they stand, inside a caller's
+     * transaction too, which goes on.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAContextATenantPolicyBuiltFromARefusedProofIsForgotten(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        $result   = $this->linkedResult($member, subject: 'subject-1', authenticatedAt: $this->now);
+        $signedIn = $this->sessions('members')->signInExternally($result, self::asPrincipal($membership))->session;
+
+        self::assertNotNull($signedIn);
+
+        $guard  = $this->bearerGuard($signedIn, 'members');
+        $policy = new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart)));
+        $seen   = [];
+
+        $policy->answer = static function () use ($guard, $policy, &$seen): TenantRequirement {
+            $seen[] = self::authTimeOf($guard);
+
+            return $policy->requirement;
+        };
+
+        $this->app?->instance(TenantAuthenticationPolicy::class, $policy);
+        $this->clockAt($this->now->addMinutes(5));
+
+        $through        = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->now->addMinutes(5));
+        $reauthenticate = static fn (): AccessTokenResult => Auth::sessions('members')->reauthenticateExternally($signedIn->record->getKey(), $through);
+        $thrown         = static function () use ($reauthenticate): string {
+            try {
+                $reauthenticate();
+            } catch (\RuntimeException $exception) {
+                return $exception->getMessage();
+            }
+
+            return 'nothing thrown';
+        };
+
+        $restored = static function () use ($guard, $signedIn): array {
+            $restored = [DB::transactionLevel(), self::authTimeOf($guard)];
+
+            $guard->forgetAuthenticationContext($signedIn->record);
+
+            return $restored;
+        };
+
+        self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $reauthenticate()->reason);
+        self::assertSame([0, $this->now->getTimestamp()], $restored());
+
+        DB::beginTransaction();
+
+        self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $reauthenticate()->reason);
+        self::assertSame([1, $this->now->getTimestamp()], $restored());
+
+        DB::commit();
+
+        $policy->answer = static function () use ($guard, &$seen): never {
+            $seen[] = self::authTimeOf($guard);
+
+            throw new \RuntimeException('The tenant policy is unavailable.');
+        };
+
+        self::assertSame('The tenant policy is unavailable.', $thrown());
+        self::assertSame([0, $this->now->getTimestamp()], $restored());
+
+        DB::beginTransaction();
+
+        self::assertSame('The tenant policy is unavailable.', $thrown());
+        self::assertSame([1, $this->now->getTimestamp()], $restored());
+
+        DB::rollBack();
+
+        self::assertSame(array_fill(0, 4, $this->now->addMinutes(5)->getTimestamp()), $seen);
+        self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
+        self::assertSame($this->now->getTimestamp(), self::authTimeOf($guard));
+    }
+
+    /**
      * A guard configured under a numeric name is asked as every other is: the
      * forgetting reaches the bound guard however the configuration keys them.
      *
@@ -380,20 +472,21 @@ final class ContextForgettingTest extends TestCase
     }
 
     /**
-     * The `api` guard, the default, on a request bearing the session's access
-     * token, resolved afresh and authenticated by it.
+     * The named guard, made the default, on a request bearing the session's
+     * access token, resolved afresh and authenticated by it.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @param  string  $name
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      */
-    private function bearerGuard(SignedInSession $session): JwtGuard
+    private function bearerGuard(SignedInSession $session, string $name = 'api'): JwtGuard
     {
         app()->instance('request', Request::create('/context', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $session->tokens->accessToken->reveal()]));
 
         Auth::forgetGuards();
-        Auth::shouldUse('api');
+        Auth::shouldUse($name);
 
-        $guard = app('auth')->guard('api');
+        $guard = app('auth')->guard($name);
 
         self::assertInstanceOf(JwtGuard::class, $guard);
         self::assertTrue($guard->check());

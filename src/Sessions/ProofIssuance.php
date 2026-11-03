@@ -155,11 +155,13 @@ final readonly class ProofIssuance
             return $admitted;
         }
 
+        // Registered before the proof is written, so a context `$admits` builds
+        // from it is forgotten when `$admits` then refuses or throws.
+        ContextForgetting::onSettle($this->afterCommit, $session);
+
         ProofWriter::record($session, $this->context->name(), $proof);
 
         self::assertAdmits($admits, $admitted, $session, $now);
-
-        ContextForgetting::onSettle($this->afterCommit, $session);
 
         $token   = $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
         $expires = $this->tokens->lifetimes()->accessExpiry($now, WriteConnection::during($session, static fn (): ?CarbonImmutable => SessionDeadlines::liveEnd($session, $now)));
