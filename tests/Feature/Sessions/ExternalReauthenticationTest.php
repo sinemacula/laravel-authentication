@@ -272,6 +272,34 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
+     * A result that names a link the contract does not answer with (the
+     * session's link removed and made again since) is `link_mismatch` before
+     * anything is locked, recording nothing; one naming the session's own link
+     * reauthenticates it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResultNamingAnotherLinkIsRefusedBeforeAnyLock(): void
+    {
+        $signedIn = $this->signedInExternally();
+        $at       = CarbonImmutable::now();
+        $named    = static fn (string $linkId): ExternalResult => new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $at, linkId: $linkId);
+        $locks    = 0;
+
+        DB::listen(static function (QueryExecuted $query) use (&$locks): void {
+            $locks += (int) (stripos($query->sql, 'for update') !== false);
+        });
+
+        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $named('link-1-again'))->reason);
+        self::assertSame(0, $locks);
+        self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
+
+        self::assertTrue($this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $named('link-1'))->isIssued());
+    }
+
+    /**
      * A session no external provider established, so no link either, is never
      * reauthenticated through one.
      *

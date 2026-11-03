@@ -13,8 +13,9 @@ use Carbon\CarbonInterface;
  * asserted, the connection's tenant, when the provider authenticated the
  * identity, the provider's own deadline for its session (SAML
  * `SessionNotOnOrAfter`), the version of the enforcement or policy the adapter
- * checked, and the evidence the provider asserted of how it authenticated the
- * identity, which counts only once the evidence contract accepts it.
+ * checked, the evidence the provider asserted of how it authenticated the
+ * identity, which counts only once the evidence contract accepts it, and the id
+ * of the link the adapter redeemed the result through, when it names one.
  *
  * Only a trusted server-side adapter builds one, from a result it verified
  * itself (a redeemed handoff, say), never from what a client sent: the session
@@ -25,7 +26,11 @@ use Carbon\CarbonInterface;
  * times the proof; the evidence's own time is what its acceptance and any
  * requirement judged on it age. Evidence is never for a later authentication
  * than the result's: evidence dated after the provider's time, when the result
- * gives one, is refused.
+ * gives one, is refused. The link the session is recorded under is always the
+ * one the link contract answers; a result that names a link id is refused as
+ * `link_mismatch` unless that answer is exactly that link, so a link removed
+ * and made again for the same subject since the adapter redeemed the result
+ * never takes its place.
  *
  * @api
  *
@@ -34,7 +39,7 @@ use Carbon\CarbonInterface;
  */
 final readonly class ExternalResult
 {
-    /** @var int Longest connection or tenant id, in characters. */
+    /** @var int Longest connection, tenant or link id, in characters. */
     public const int ID_MAX_LENGTH = 255;
 
     /** @var int Longest issuer, in characters. */
@@ -63,6 +68,7 @@ final readonly class ExternalResult
      * @param  ?\Carbon\CarbonInterface  $sessionNotAfter
      * @param  ?string  $policyVersion
      * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
+     * @param  ?string  $linkId
      *
      * @throws \InvalidArgumentException
      */
@@ -91,12 +97,16 @@ final readonly class ExternalResult
 
         /** The evidence the provider asserted of how it authenticated the identity, if any. */
         public ?ExternalEvidence $evidence = null,
+
+        /** The id of the link the adapter redeemed the result through, if it names one, compared exactly. */
+        public ?string $linkId = null,
     ) {
         self::assertText($connectionId, self::ID_MAX_LENGTH, 'connection id');
         self::assertText($issuer, self::ISSUER_MAX_LENGTH, 'issuer');
         self::assertText($subject, self::SUBJECT_MAX_LENGTH, 'subject');
         self::assertText($tenantId, self::ID_MAX_LENGTH, 'tenant id');
         self::assertText($policyVersion, self::VERSION_MAX_LENGTH, 'policy version');
+        self::assertText($linkId, self::ID_MAX_LENGTH, 'link id');
 
         $this->authenticatedAt = $authenticatedAt === null ? null : CarbonImmutable::instance($authenticatedAt)->startOfSecond();
         $this->sessionNotAfter = $sessionNotAfter === null ? null : CarbonImmutable::instance($sessionNotAfter)->startOfSecond();

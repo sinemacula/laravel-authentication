@@ -36,20 +36,20 @@ revoked through it (see [Connections and links](#connections-and-links)); there 
 yet.
 
 A provider's evidence (its `amr` values, its `acr` value or SAML authentication context class reference, and the time it
-is for) counts for nothing until the application binds an `ExternalEvidencePolicy` that accepts it (see
-[Tenant authentication policies](extending.md#tenant-authentication-policies)). Evidence the policy accepts for
-multifactor authentication, an additional verification or phishing resistance is accepted: it is recorded with the proof
-that brought it, and with the provenance at sign-in; the proof's evaluation is accepted, and multifactor when it was
-accepted for multifactor authentication, so `amr` gains `mfa` (in every token of the session: the claims say how it
-authenticated, not what a tenant accepts); and the identity-level requirement and a tenant's are met when the policy
+is for) counts for nothing until the application binds an `ExternalEvidencePolicy` that accepts it (see [Tenant
+authentication policies](extending.md#tenant-authentication-policies)). Evidence the policy accepts for multifactor
+authentication, an additional verification, phishing resistance or any assurance level is accepted: it is recorded with
+the proof that brought it, and with the provenance at sign-in; the proof's evaluation is accepted, and multifactor when
+it was accepted for multifactor authentication, so `amr` gains `mfa` (in every token of the session: the claims say how
+it authenticated, not what a tenant accepts); and the identity-level requirement and a tenant's are met when the policy
 says any accepted evidence, the newest first, meets the whole of one, so newer evidence accepted for less never hides
-older evidence that still meets it. A proof that carries evidence reads back with no evaluation, so a requirement check
-never counts the acceptance itself. Evidence that is not accepted is never recorded, and a reauthentication at the
-provider without accepted evidence renews `auth_time` and nothing else. Freshness takes no provider's evidence: a
-provider's proof meets a freshness requirement on its own time, but never one that asks for multifactor authentication,
-whatever its evidence says. A result's evidence may not be dated after the provider's time the result gives (an
-`InvalidArgumentException`): that time times the proof, and the evidence's own time is what its acceptance and a
-requirement judged on it age.
+older evidence that still meets it (among the 50 newest proofs that carry evidence; older ones are not read). A proof
+that carries evidence reads back with no evaluation, so a requirement check never counts the acceptance itself. Evidence
+that is not accepted is never recorded, and a reauthentication at the provider without accepted evidence renews
+`auth_time` and nothing else. Freshness takes no provider's evidence: a provider's proof meets a freshness requirement
+on its own time, but never one that asks for multifactor authentication, whatever its evidence says. A result's evidence
+may not be dated after the provider's time the result gives (an `InvalidArgumentException`): that time times the proof,
+and the evidence's own time is what its acceptance and a requirement judged on it age.
 
 Proofs and provenance belong to the session's key, so they carry unchanged from a pending session to the active one it
 becomes, and across every refresh and switch. A sign-in that replaces a session the client proved it holds is a new
@@ -170,16 +170,17 @@ and only with the time the provider authenticated the identity (`proof_invalid` 
 session began). The result must come through the very link that established the session: the link contract must link it
 to an identity (`ExternalResultUnlinked`, then `external_result_unlinked`), that identity must own the session, and the
 session's provenance must record exactly the result's connection and the link's id, compared byte for byte
-(`link_mismatch`, as for another link of the same identity through the same connection, or a session no link
-established). The link contract is asked before anything is locked; the session's row is then locked, after every lock
-the adapter took, and judged again (still the session read before the lock, its provenance and the provider's time), so
-call it inside the adapter's transaction on the storage connection. With the proof recorded, the session must still meet
-its tenant's authentication policy, as at any redemption: a connection the tenant no longer admits is `sso_required`,
-and a further factor it now requires that none of the session's accepted evidence, this proof's included, meets is
-`additional_factor_required`; either rolls the proof back and writes nothing, so the next refresh revokes the session or
-returns it to pending. The tenant's policy and the evidence policy are asked then, under the session's row lock, so they
-must only read, or take no lock the adapter does not already hold. A database error, a serialization failure included,
-propagates for the adapter to retry the whole transaction.
+(`link_mismatch`, as for another link of the same identity through the same connection, a session no link established,
+or a result naming another link than the contract answers). The link contract is asked before anything is locked; the
+session's row is then locked, after every lock the adapter took, and judged again (still the session read before the
+lock, its provenance and the provider's time), so call it inside the adapter's transaction on the storage connection.
+With the proof recorded, the session must still meet its tenant's authentication policy, as at any redemption: a
+connection the tenant no longer admits is `sso_required`, and a further factor it now requires that none of the
+session's accepted evidence, this proof's included, meets is `additional_factor_required`; either rolls the proof back
+and writes nothing, so the next refresh revokes the session or returns it to pending. The tenant's policy and the
+evidence policy are asked then, under the session's row lock, so they must only read, or take no lock the adapter does
+not already hold. A database error, a serialization failure included, propagates for the adapter to retry the whole
+transaction.
 
 The proof is recorded as `external_reauthentication`, timed when the provider authenticated the identity (now, when that
 is after now), so the new access token's `auth_time` is the later of the session's and the provider's, decided under the

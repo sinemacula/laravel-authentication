@@ -21,7 +21,8 @@ use SineMacula\Laravel\Authentication\Proofs\SignInProof;
  * sign-in never has the link contract asked; then the link contract must link
  * the connection, issuer and subject to an identity. A result it links to none
  * dispatches `ExternalResultUnlinked` and is refused as
- * `external_result_unlinked`. A linked one is the link's identity and the
+ * `external_result_unlinked`; one that names a link id the contract's answer
+ * does not have, `link_mismatch`. A linked one is the link's identity and the
  * provider's proof: the connection as its channel, the private
  * external-provider `amr` value and the provider's time (see
  * `SignInProof::external()`), with the provenance the session records, the
@@ -81,8 +82,8 @@ final readonly class ExternalSignIn
 
         $link = $this->results->link($result, $context->client);
 
-        if ($link === null) {
-            return new Refused(FailureReason::EXTERNAL_RESULT_UNLINKED);
+        if ($link === null || !ExternalResults::isNamedLink($result, $link)) {
+            return new Refused($link === null ? FailureReason::EXTERNAL_RESULT_UNLINKED : FailureReason::LINK_MISMATCH);
         }
 
         $now = CarbonImmutable::now()->startOfSecond();

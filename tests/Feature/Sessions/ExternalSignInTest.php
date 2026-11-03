@@ -12,6 +12,7 @@ use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
@@ -36,7 +37,9 @@ use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
+use SineMacula\Laravel\Authentication\Requirements\LevelRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SignsInExternally;
@@ -486,6 +489,84 @@ final class ExternalSignInTest extends TestCase
         self::assertTrue($met->isSignedIn());
         self::assertSame([true, false], [SessionProof::query()->sole()->accepted, SessionProof::query()->sole()->multifactor]);
         self::assertNotNull(SessionProof::query()->sole()->evidence);
+    }
+
+    /**
+     * A result that names the link the adapter redeemed signs in only through
+     * exactly that link: one naming another link than the contract answers (the
+     * link removed and made again since) is refused as `link_mismatch`,
+     * reported, before its evidence is judged, writing nothing. Called outside
+     * a transaction, the sign-in asks the contract inside one of its own, which
+     * the session commits in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResultNamingItsLinkSignsInOnlyThroughThatLink(): void
+    {
+        $identity = $this->seedIdentity();
+        $linked   = $this->linkedResult($identity, linkId: 'link-2');
+        $policy   = new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]);
+        $named    = fn (string $linkId): ExternalResult => new ExternalResult(
+            $linked->connectionId,
+            $linked->issuer,
+            $linked->subject,
+            evidence: new ExternalEvidence(['mfa'], null, $this->now),
+            linkId: $linkId,
+        );
+
+        $this->app?->instance(ExternalEvidencePolicy::class, $policy);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $refused = $this->sessions()->signInExternally($named('link-1'));
+
+        self::assertSame(FailureReason::LINK_MISMATCH, $refused->reason);
+        self::assertSame([FailureReason::LINK_MISMATCH], array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->recorded));
+        self::assertSame([], $policy->asked);
+        self::assertSame(0, Session::query()->count());
+
+        $levels = [];
+
+        $this->externalLinks()->whileAsked(static function () use (&$levels): void {
+            $levels[] = DB::transactionLevel();
+        });
+
+        $signedIn = $this->sessions()->signInExternally($named('link-2'));
+
+        self::assertTrue($signedIn->isSignedIn());
+        self::assertSame([1], $levels);
+        self::assertSame('link-2', $signedIn->session === null ? null : SessionProofs::provenance($signedIn->session->record)?->linkId);
+    }
+
+    /**
+     * A tenant that requires only a minimum assurance level is met by evidence
+     * the evidence contract accepts for a level and nothing else: the evidence
+     * is accepted, recorded, not as multifactor, and judged against the level
+     * the tenant asks for, so the sign-in starts active.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEvidenceAcceptedOnlyForALevelMeetsATenantThatRequiresALevel(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        $evidence = new ExternalEvidence(['pwd'], 'urn:example:acr:silver', $this->now);
+        $required = new Requirement(minimumLevel: new LevelRequirement(AssuranceLevel::AAL2));
+        $trusting = new ScriptedEvidencePolicy([RequirementKind::MINIMUM_LEVEL]);
+
+        $this->app?->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v4', $required)));
+        $this->app?->instance(ExternalEvidencePolicy::class, $trusting);
+
+        $met    = $this->sessions('members')->signInExternally($this->linkedResult($member, evidence: $evidence), self::asPrincipal($membership));
+        $judged = array_values(array_filter($trusting->asked, static fn (array $asked): bool => !$asked['accepting']));
+
+        self::assertTrue($met->isSignedIn());
+        self::assertSame([true, false], [SessionProof::query()->sole()->accepted, SessionProof::query()->sole()->multifactor]);
+        self::assertSame($required, $judged[0]['requirement'] ?? null);
     }
 
     /**

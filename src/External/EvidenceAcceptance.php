@@ -8,6 +8,8 @@ use Illuminate\Container\Container;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
+use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
+use SineMacula\Laravel\Authentication\Requirements\LevelRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 
@@ -16,10 +18,10 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
  * whether it is recorded and counts: the bound `ExternalEvidencePolicy`'s
  * `accepts()` is asked, whatever the evidence's age, for multifactor
  * authentication, then an additional verification, then phishing resistance,
- * stopping at the first it accepts. Evidence it accepts for none (as the
- * default policy answers) is insufficient, and nothing is recorded. A minimum
- * assurance level has no level to ask for on its own, so evidence accepted for
- * a level and none of the three is not accepted.
+ * then a minimum assurance level (the lowest, AAL1, so evidence credible for
+ * any level is accepted, and the level a requirement asks for is `meets()`'s to
+ * judge), stopping at the first it accepts. Evidence it accepts for none (as
+ * the default policy answers) is insufficient, and nothing is recorded.
  *
  * Each is asked inside `WriteConnection::during()` for the identity and for no
  * tenant: acceptance is the application's, and each requirement it is later
@@ -64,9 +66,19 @@ final class EvidenceAcceptance
             return new Evaluation(true, true);
         }
 
-        return $accepts(new Requirement(additionalVerification: new RequirementPart)) || $accepts(new Requirement(phishingResistance: new RequirementPart))
-            ? new Evaluation(true, false)
-            : null;
+        $parts = [
+            new Requirement(additionalVerification: new RequirementPart),
+            new Requirement(phishingResistance: new RequirementPart),
+            new Requirement(minimumLevel: new LevelRequirement(AssuranceLevel::AAL1)),
+        ];
+
+        foreach ($parts as $part) {
+            if ($accepts($part)) {
+                return new Evaluation(true, false);
+            }
+        }
+
+        return null;
     }
 
     /**

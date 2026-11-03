@@ -57,20 +57,21 @@ session holds; the token's claims and every freshness answer are worked out from
   is judged by the evidence policy for that tenant, never on `amr`.
 - An external provider's evidence (`External\ExternalEvidence`: its `amr` values, its `acr` value or SAML authentication
   context class reference, the time it is for) is accepted only when the bound `Contracts\ExternalEvidencePolicy`'s
-  `accepts()` accepts it for multifactor authentication or, failing that, an additional verification or then phishing
-  resistance, each of any age and for no tenant, asked inside `WriteConnection::during()` for the identity
-  (`External\EvidenceAcceptance::evaluate()`). Acceptance is its own question, not the identity-level requirement's: the
-  policy accepts evidence credible to anyone it may later be judged for (the identity level, or any tenant that trusts
-  the connection), and `meets()` scopes each requirement, so a connection only one tenant trusts still has its evidence
-  accepted and meets only that tenant's requirement. The default, `InsufficientEvidence`, accepts nothing, so by default
-  no evidence is accepted. Accepted evidence is recorded with its proof (`proofs.evidence`, the first factor's at
-  sign-in and an `external_reauthentication`'s) and, at sign-in, the provenance's `accepted_evidence`, dated no later
-  than the time it was judged at (`EvidenceAcceptance::asOf()`), and the proof carries the acceptance as its evaluation
-  (multifactor when it was accepted for multifactor authentication), which `amr` reads. The proof reads back with no
-  evaluation (`SessionProofs`, `SignInProof::recorded()`), so a `RequirementCheck` never takes the application's
-  acceptance of evidence of any age for a tenant's multifactor proof; only the evidence beside it, which the evidence
-  policy judges, says what it is worth. Evidence that is not accepted is recorded nowhere and counts for nothing; there
-  is no partial acceptance. A result's evidence is never dated after the provider's time the result gives
+  `accepts()` accepts it for multifactor authentication or, failing that, an additional verification, then phishing
+  resistance, then the lowest assurance level (AAL1: evidence credible for any level is accepted, and the level a
+  requirement asks for is `meets()`'s), each of any age and for no tenant, asked inside `WriteConnection::during()` for
+  the identity (`External\EvidenceAcceptance::evaluate()`). Acceptance is its own question, not the identity-level
+  requirement's: the policy accepts evidence credible to anyone it may later be judged for (the identity level, or any
+  tenant that trusts the connection), and `meets()` scopes each requirement, so a connection only one tenant trusts
+  still has its evidence accepted and meets only that tenant's requirement. The default, `InsufficientEvidence`, accepts
+  nothing, so by default no evidence is accepted. Accepted evidence is recorded with its proof (`proofs.evidence`, the
+  first factor's at sign-in and an `external_reauthentication`'s) and, at sign-in, the provenance's `accepted_evidence`,
+  dated no later than the time it was judged at (`EvidenceAcceptance::asOf()`), and the proof carries the acceptance as
+  its evaluation (multifactor when it was accepted for multifactor authentication), which `amr` reads. The proof reads
+  back with no evaluation (`SessionProofs`, `SignInProof::recorded()`), so a `RequirementCheck` never takes the
+  application's acceptance of evidence of any age for a tenant's multifactor proof; only the evidence beside it, which
+  the evidence policy judges, says what it is worth. Evidence that is not accepted is recorded nowhere and counts for
+  nothing; there is no partial acceptance. A result's evidence is never dated after the provider's time the result gives
   (`ExternalResult` refuses it): the provider's time times the proof, the evidence's own time is what its acceptance and
   any requirement judged on it age. Evidence that is not valid UTF-8, or whose stored JSON (every character outside
   ASCII escaped, up to twelve bytes for one) would exceed `ExternalEvidence::STORED_MAX_BYTES` (65,535, a MySQL `TEXT`
@@ -80,17 +81,19 @@ session holds; the token's claims and every freshness answer are worked out from
   age and the proof is timed at the provider's time, not the evidence's. It still meets one that does not, on its time.
 - The identity-level requirement and a tenant's further factor have one judge (`Requirements\RequirementJudge`). For a
   session an external provider established (its first factor's channel is `external_provider`) that holds accepted
-  evidence, it asks the evidence policy's `meets()` first whether any accepted evidence meets the whole requirement,
-  the newest by the evidence's own time first and no further once one does: at sign-in the sign-in's own, in memory
+  evidence, it asks the evidence policy's `meets()` first whether any accepted evidence meets the whole requirement, the
+  newest by the evidence's own time first and no further once one does: at sign-in the sign-in's own, in memory
   (`SessionEvidence::$externalEvidence`); otherwise one read of at most `SessionProofs::EVIDENCE_LIMIT` of the session's
   counting proofs that carry evidence (`SessionProofs::acceptedEvidence()`), on the write connection, keeping of
   evidence that asserts the same methods and context only the newest, which an older copy can never better. Newer
   evidence accepted for less (an additional verification, say) never hides older evidence that still meets the
-  requirement on its own time. The policy is told the connection and the tenant whose requirement it judges
-  (`EvidenceSubject::$tenant`, `null` for the identity level and for acceptance), so it can refuse evidence from a
-  connection that tenant does not trust. Met, `RequirementCheck` is not asked; otherwise it
-  judges the session's proofs as it does any session's. Evidence never meets part of a requirement and leaves the rest
-  to the factor package's proofs, and a session no provider established reads nothing more.
+  requirement on its own time, among those proofs: evidence only on proofs older than the newest `EVIDENCE_LIMIT` that
+  carry evidence is not read, which fails closed (the session needs a further factor or a new reauthentication). The
+  policy is told the connection and the tenant whose requirement it judges (`EvidenceSubject::$tenant`, `null` for the
+  identity level and for acceptance), so it can refuse evidence from a connection that tenant does not trust. Met,
+  `RequirementCheck` is not asked; otherwise it judges the session's proofs as it does any session's. Evidence never
+  meets part of a requirement and leaves the rest to the factor package's proofs, and a session no provider established
+  reads nothing more.
 - An `external_reauthentication` is recorded only by `reauthenticateExternally()` (`Sessions\ExternalReauthentication`),
   through `ProofIssuance` like the others, and only through the very link that established the session: the link
   contract is asked first (before any lock of the package's, so after the adapter's own), then under the session's

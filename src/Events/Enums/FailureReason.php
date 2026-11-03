@@ -244,8 +244,9 @@ enum FailureReason: string
     case EXTERNAL_RESULT_UNLINKED = 'external_result_unlinked';
 
     // A session was not established through the connection and link an external
-    // result came through (or through any link), or the link maps to another
-    // identity than the session's
+    // result came through (or through any link), the link maps to another
+    // identity than the session's, or the result names another link than the
+    // one the link contract answers
     case LINK_MISMATCH = 'link_mismatch';
 
     /**

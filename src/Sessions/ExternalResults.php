@@ -72,6 +72,19 @@ final readonly class ExternalResults
     }
 
     /**
+     * Whether the link the link contract found is the one the result names,
+     * byte for byte; a result that names none takes the contract's answer.
+     *
+     * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
+     * @param  \SineMacula\Laravel\Authentication\External\ExternalLink  $link
+     * @return bool
+     */
+    public static function isNamedLink(ExternalResult $result, ExternalLink $link): bool
+    {
+        return $result->linkId === null || $result->linkId === $link->id;
+    }
+
+    /**
      * The acceptance of the result's evidence for the identity, as the evidence
      * contract judges it at the time given, and the evidence as it is recorded
      * (dated no later than then), or neither: a result without evidence, or

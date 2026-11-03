@@ -245,7 +245,7 @@ final readonly class ExternalReauthentication
 
         $link = $this->results->link($result, $this->context->client());
 
-        if ($link === null || !SessionOwnership::isOwner($record, $link->identity)) {
+        if ($link === null || !SessionOwnership::isOwner($record, $link->identity) || !ExternalResults::isNamedLink($result, $link)) {
             return new Refused($link === null ? FailureReason::EXTERNAL_RESULT_UNLINKED : FailureReason::LINK_MISMATCH, session: $record);
         }
 

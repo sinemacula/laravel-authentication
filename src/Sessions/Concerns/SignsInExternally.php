@@ -8,6 +8,7 @@ use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\ExternalReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\ExternalSignIn;
@@ -63,13 +64,16 @@ trait SignsInExternally
      * with it once, pending or active, and never rewritten, after the link's
      * connection guard, which a revocation of the link or the connection writes
      * too, so the two never miss each other. Call it inside the transaction the
-     * adapter takes its own locks in, on the storage connection: the session's
-     * writes are a savepoint there, the link contract is asked before them, and
-     * the reports and the guard's bind wait for the commit. A database error, a
-     * serialization failure included, and an exception from the link contract
-     * propagate, so the whole transaction can be retried. Failures are results:
-     * Laravel's `Failed` and then `AuthenticationFailed` (flow `sign_in`)
-     * report them.
+     * adapter takes its own locks in, on the storage connection: the link
+     * contract is asked and the session written in a savepoint there, and the
+     * reports and the guard's bind wait for the commit. Called outside one, it
+     * opens its own around both, so a contract that locks the link it reads
+     * holds it until the session commits; the connection guards order a sign-in
+     * against a revocation but never ask the contract again, so they add to the
+     * adapter's locks and never replace them. A database error, a serialization
+     * failure included, and an exception from the link contract propagate, so
+     * the whole transaction can be retried. Failures are results: Laravel's
+     * `Failed` and then `AuthenticationFailed` (flow `sign_in`) report them.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
@@ -82,8 +86,12 @@ trait SignsInExternally
         $method    = SignInMethodManager::EXTERNAL_METHOD;
         $transport = $this->transport();
         $context   = ($context ?? SignInContext::fromRequest($this->context->request()))->withNotAfter($result->sessionNotAfter);
-        $resolved  = $this->externalSignIns->resolve($result, $context);
-        $outcome   = $resolved instanceof Refused ? $resolved : $this->startFor($resolved[0], $context->principal, $method, $context, $resolved[1]);
+        $outcome   = SessionLookup::model()->getConnection()->transaction(function () use ($result, $context, $method): mixed {
+
+            $resolved = $this->externalSignIns->resolve($result, $context);
+
+            return $resolved instanceof Refused ? $resolved : $this->startFor($resolved[0], $context->principal, $method, $context, $resolved[1]);
+        });
 
         return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $this->bound($outcome, $transport);
     }

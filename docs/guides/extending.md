@@ -246,15 +246,15 @@ $this->app->singleton(ExternalEvidencePolicy::class, TrustedProviderEvidence::cl
 
 The package asks it in two places, inside `WriteConnection::during()` for the identity:
 
-- When a sign-in or reauthentication at a provider brings evidence, it asks `accepts()` whether the evidence is
-  credible for multifactor authentication and, if not, an additional verification and then phishing resistance, each
-  of any age and for no tenant. Evidence accepted for any of them is accepted: it is recorded with the proof (and, at
-  sign-in, with the session's provenance), the proof's evaluation is accepted, and multifactor when it was accepted for
-  multifactor authentication, so `amr` gains `mfa` in every token of the session (the claims say how the session
-  authenticated, not what a tenant accepts). Evidence accepted for none (a minimum level alone has no level to ask for,
-  so it is never asked) is not recorded and counts for nothing; a reauthentication at the provider then renews
-  `auth_time` and nothing else. Accept evidence from a connection that only one tenant trusts: `meets()` keeps it to
-  that tenant.
+- When a sign-in or reauthentication at a provider brings evidence, it asks `accepts()` whether the evidence is credible
+  for multifactor authentication and, if not, an additional verification, then phishing resistance, then the lowest
+  assurance level (AAL1, so evidence credible for any level is accepted and `meets()` judges the level), each of any age
+  and for no tenant. Evidence accepted for any of them is accepted: it is recorded with the proof (and, at sign-in, with
+  the session's provenance), the proof's evaluation is accepted, and multifactor when it was accepted for multifactor
+  authentication, so `amr` gains `mfa` in every token of the session (the claims say how the session authenticated, not
+  what a tenant accepts). Evidence accepted for none is not recorded and counts for nothing; a reauthentication at the
+  provider then renews `auth_time` and nothing else. Accept evidence from a connection that only one tenant trusts:
+  `meets()` keeps it to that tenant.
 - When the identity-level requirement or a tenant's is judged on a session an external provider established that holds
   accepted evidence, it asks `meets()` whether any of that evidence meets the whole requirement, the newest by its own
   time first and no further once one does, so newer evidence accepted for less never hides older evidence that still
@@ -588,13 +588,15 @@ $passed = $result->isVerified();   // else $result->reason
   so no external result signs anyone in until the identity package's adapter binds `laravel-sso`'s links. Linking, and
   the links, are `laravel-sso`'s; this package stores none.
 - Inside the transaction in which it redeems a handoff, after `laravel-sso`'s own locks, the adapter hands the verified
-  result to `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
+  result, naming the link it redeemed it through (`linkId`), to
+  `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
   sign-in](signing-in.md#external-sign-in)). The application must list `external_provider` in its `methods`. The
   identity is reloaded through the guard's provider, and activity, the application policy, the additional-factor policy,
   the choice of principal and the tenant's authentication policy all apply; no attempt limit or timebox does, since
   nothing is guessed. The package takes no lock before the link contract is asked, so every row of its own it locks
   (the link's connection guard, then any session the sign-in replaces) is locked after the adapter's own. A database
-  error, a PostgreSQL serialization failure included, propagates for the adapter to retry the whole transaction.
+  error, a PostgreSQL serialization failure included, propagates for the adapter to retry the whole transaction. The
+  contract must answer exactly the link the result names (`link_mismatch` otherwise).
 - A result linked to no identity dispatches `ExternalResultUnlinked` and fails as `external_result_unlinked`. The event
   is informational: `laravel-iam` provisions on `laravel-sso`'s own unlinked-result event, before any handoff is issued,
   never on this one, since provisioning on both would provision twice.

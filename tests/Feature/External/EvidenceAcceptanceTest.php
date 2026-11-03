@@ -11,6 +11,7 @@ use SineMacula\Laravel\Authentication\External\EvidenceAcceptance;
 use SineMacula\Laravel\Authentication\External\EvidenceSubject;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
+use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
@@ -21,7 +22,8 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
  * Feature tests for deciding whether an external provider's evidence is
  * accepted at all, through the evidence policy bound in the container: only
  * when the policy accepts it for multifactor authentication, an additional
- * verification or phishing resistance, and then with what it was accepted for;
+ * verification, phishing resistance or a minimum level, and then with what it
+ * was accepted for;
  * never by default.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -50,9 +52,10 @@ final class EvidenceAcceptanceTest extends TestCase
      * additional verification is accepted, not as multifactor, after it was
      * asked for multifactor first; evidence it accepts only for phishing
      * resistance is accepted, not as multifactor, after both; evidence it
-     * accepts for none (a minimum level alone) is not accepted. Each question
-     * is the policy's `accepts()`, for the one part, of any age, about the
-     * subject, with reads pinned to the write connection.
+     * accepts only for the lowest assurance level is accepted, not as
+     * multifactor, after all three; evidence it accepts for none is not
+     * accepted. Each question is the policy's `accepts()`, for the one part, of
+     * any age, about the subject, with reads pinned to the write connection.
      *
      * @return void
      */
@@ -90,10 +93,23 @@ final class EvidenceAcceptanceTest extends TestCase
         self::assertNull($resistant->asked[2]['requirement']->phishingResistance?->maxAgeSeconds);
         self::assertTrue($resistant->asked[2]['pinned']);
 
-        $none = $this->bind([RequirementKind::MINIMUM_LEVEL]);
+        $level = $this->bind([RequirementKind::MINIMUM_LEVEL]);
+
+        self::assertEquals(new Evaluation(true, false), EvidenceAcceptance::evaluate($evidence, $subject));
+        $kinds = array_map(static fn (array $asked): array => $asked['requirement']->kinds(), $level->asked);
+
+        self::assertSame(
+            [[RequirementKind::MULTIFACTOR], [RequirementKind::ADDITIONAL_VERIFICATION], [RequirementKind::PHISHING_RESISTANCE], [RequirementKind::MINIMUM_LEVEL]],
+            $kinds,
+        );
+        self::assertSame(AssuranceLevel::AAL1, $level->asked[3]['requirement']->minimumLevel?->level);
+        self::assertNull($level->asked[3]['requirement']->minimumLevel->maxAgeSeconds);
+        self::assertTrue($level->asked[3]['pinned']);
+
+        $none = $this->bind([]);
 
         self::assertNull(EvidenceAcceptance::evaluate($evidence, $subject));
-        self::assertSame([true, true, true], array_column($none->asked, 'accepting'));
+        self::assertSame([true, true, true, true], array_column($none->asked, 'accepting'));
     }
 
     /**

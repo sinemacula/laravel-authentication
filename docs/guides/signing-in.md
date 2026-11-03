@@ -221,11 +221,12 @@ The identity is the one the bound `Contracts\ExternalIdentityLinks` links the co
 link made through exactly that connection, for exactly that issuer and subject, never by email or any other attribute
 (see [Extending: single sign-on](extending.md#single-sign-on-laravel-sso)). The default, `NoExternalLinks`, links
 nothing. A result linked to no identity dispatches `ExternalResultUnlinked` (the guard, the client, the connection and
-the issuer, never the subject), informational only, and fails as `external_result_unlinked`. From the linked identity
-on, the sign-in follows `start()`'s order under the method `external_provider`: reloaded, admitted, the principal the
-context names or the only one, or a choice, the factor policy, the tenant and its authentication policy (one requiring
-another connection refuses it as `sso_required`). No `Attempting` is dispatched, and no attempt limit or timebox
-applies.
+the issuer, never the subject), informational only, and fails as `external_result_unlinked`. A result that names the
+link the adapter redeemed it through (`ExternalResult::$linkId`) fails as `link_mismatch` unless the contract answers
+exactly that link, so a link removed and made again since cannot take its place. From the linked identity on, the
+sign-in follows `start()`'s order under the method `external_provider`: reloaded, admitted, the principal the context
+names or the only one, or a choice, the factor policy, the tenant and its authentication policy (one requiring another
+connection refuses it as `sso_required`). No `Attempting` is dispatched, and no attempt limit or timebox applies.
 
 The session's first proof is the provider's: the connection as an `external_provider` channel, the private `amr` value
 `urn:sinemacula:amr:external_provider` (RFC 8176 names none for it; the provider's own values are its package's to

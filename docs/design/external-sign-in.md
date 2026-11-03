@@ -14,23 +14,30 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   `methods` (`method_not_allowed` otherwise, checked before the link contract is asked), and the default link contract,
   `External\NoExternalLinks`, links nothing, so no result signs anyone in until an application binds its own.
 - A result (`External\ExternalResult`: the connection, issuer and subject, and optionally the connection's tenant, the
-  provider's authentication time and session deadline, the policy version checked, and the provider's evidence) comes
-  only from a trusted adapter, never from a client: `external_provider` is reserved, so `SignInMethodManager::extend()`
-  refuses it, `method()` never resolves it, `signIn()` cannot reach it, and `start()` and `reauthenticate()` refuse it
-  as their method (`SessionPreconditions::assertSessionMethod()`). Only `signInExternally()` records a session under it.
+  provider's authentication time and session deadline, the policy version checked, the provider's evidence and the id of
+  the link the adapter redeemed it through) comes only from a trusted adapter, never from a client: `external_provider`
+  is reserved, so `SignInMethodManager::extend()` refuses it, `method()` never resolves it, `signIn()` cannot reach it,
+  and `start()` and `reauthenticate()` refuse it as their method (`SessionPreconditions::assertSessionMethod()`). Only
+  `signInExternally()` records a session under it.
 - The identity is the one `Contracts\ExternalIdentityLinks::find($connectionId, $issuer, $subject)` answers, through a
   link made through exactly that connection for exactly that issuer and subject, never by email or any other attribute
   the provider asserted. Its answer (`External\ExternalLink`) is the identity and the link's own opaque id. The link id
   is taken from that answer, not from the result, though the verified result an adapter redeems carries one: the
   contract reads, inside the adapter's transaction, the very link it maps the identity through, so the id recorded is
-  always that link's and can never name a link other than the one that chose the identity.
+  always that link's and can never name a link other than the one that chose the identity. A result that names the link
+  the adapter redeemed (`ExternalResult::$linkId`) must be answered with exactly that link, at sign-in and at
+  reauthentication (`link_mismatch`), so a link removed and made again for the same subject since never stands in for
+  it. Outside a caller's transaction the sign-in opens its own around the link contract and the writes; a
+  reauthentication judges the link again under the session's row lock (its provenance must still record the link, and a
+  link's removal revokes the session), so it does not. The connection guards order a sign-in against a revocation and
+  never ask the contract again, so they add to the adapter's locks and never replace them.
 - The link contract, and the evidence policy's acceptance of a result's evidence, are asked before the package takes any
   lock, so the adapter's own locks, taken inside its transaction, always come first and the package's own rows last: a
   sign-in's or a revocation's connection guards first, then the session rows (the session reauthenticated, the one a
-  sign-in supersedes, the ones a revocation ends). In a reauthentication the tenant's authentication
-  policy and the evidence policy's `meets()` are then asked under the session's row lock, with the new proof recorded;
-  both contracts' docblocks say they must only read, or take no lock the adapter does not already hold. No identity row
-  is locked on these paths.
+  sign-in supersedes, the ones a revocation ends). In a reauthentication the tenant's authentication policy and the
+  evidence policy's `meets()` are then asked under the session's row lock, with the new proof recorded; both contracts'
+  docblocks say they must only read, or take no lock the adapter does not already hold. No identity row is locked on
+  these paths.
 - Every session an external provider established records its provenance once, with the session, pending or active,
   and never rewrites it: the connection and its tenant, the provider's authentication time and deadline, the policy
   version, the id of the link (`link_id`, compared byte for byte: a binary column on MySQL and MariaDB) and the
