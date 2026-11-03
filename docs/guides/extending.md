@@ -603,7 +603,10 @@ $passed = $result->isVerified();   // else $result->reason
 - When a link is removed, or its scope widened so it may act for more than its sessions were established for, the
   adapter calls `linkRemoved($identity, $connectionId, $linkId)` or `linkScopeWidened(...)` in the same transaction (see
   [Connections and links](sessions.md#connections-and-links)): each ends only the identity's sessions established
-  through that link. `linkScopeWidened()` is mandatory and safe to repeat; `linkRemoved()` honours its setting.
+  through that link. `linkScopeWidened()` is mandatory and safe to repeat; `linkRemoved()` honours its setting. On
+  PostgreSQL run that transaction, and one that disables or deletes a connection, at READ COMMITTED: at REPEATABLE READ
+  or SERIALIZABLE no read can see a session a sign-in committed after the transaction began, so each refuses with a
+  `LogicException`.
 
 ### Audit (`laravel-audit-log`)
 

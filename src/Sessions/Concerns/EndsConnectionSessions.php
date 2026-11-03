@@ -37,13 +37,19 @@ trait EndsConnectionSessions
      * the connection, on the storage connection, so both commit or roll back
      * together; it runs as a savepoint there and, once that commits, this
      * guard, if it is bound to one of the sessions, forgets it before each is
-     * reported.
+     * reported. It finds the sessions with locking reads, so it sees one a
+     * sign-in through the connection committed while that transaction waited
+     * for its lock on the connection; on PostgreSQL, whose reads at REPEATABLE
+     * READ or SERIALIZABLE see only the transaction's first snapshot, that
+     * transaction must run at READ COMMITTED (a `LogicException` otherwise,
+     * before anything is read).
      *
      * @param  string  $connectionId
      * @return int
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
@@ -62,6 +68,7 @@ trait EndsConnectionSessions
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
@@ -78,8 +85,9 @@ trait EndsConnectionSessions
      * `false`. The identity's sessions through its other links, of this
      * connection or another, its other sessions, and other identities' are left
      * alone. Call it in the transaction that removes the link, on the storage
-     * connection; when this guard is bound to a session it ends, it forgets it
-     * once that commits.
+     * connection, at READ COMMITTED on PostgreSQL, as `connectionDisabled()`
+     * says; when this guard is bound to a session it ends, it forgets it once
+     * that commits.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
@@ -88,6 +96,7 @@ trait EndsConnectionSessions
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
@@ -102,10 +111,10 @@ trait EndsConnectionSessions
      * every live session of the identity established through that link, as
      * `linkRemoved()` finds them (`link_scope_widened`). Mandatory: no setting
      * turns it off. Call it synchronously in the transaction that widens the
-     * scope, on the storage connection, so both commit or roll back together;
-     * it runs as a savepoint there. Calling it twice for one widening is safe:
-     * the second call finds nothing live left to end, revokes nothing and
-     * reports nothing.
+     * scope, on the storage connection (at READ COMMITTED on PostgreSQL), so
+     * both commit or roll back together; it runs as a savepoint there. Calling
+     * it twice for one widening is safe: the second call finds nothing live
+     * left to end, revokes nothing and reports nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
@@ -114,6 +123,7 @@ trait EndsConnectionSessions
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */

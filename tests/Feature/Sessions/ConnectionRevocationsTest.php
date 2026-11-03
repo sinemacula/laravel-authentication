@@ -199,6 +199,44 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
+     * A link's trigger asks the provenance only about the identity's sessions
+     * an external provider established, each of which has one, never about its
+     * password sessions, which have none (on MySQL a locking read of a missing
+     * key would lock the gap it would go in, and so hold up other identities'
+     * sign-ins); a session recorded under another method is not one of the
+     * link's even with a provenance naming it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALinksTriggerAsksOnlyAboutTheIdentitysExternalSessions(): void
+    {
+        $ada        = $this->seedIdentity();
+        $external   = IdentifierCoercion::stringify($this->external($ada, 'conn-a'));
+        $password   = $this->passwordSession();
+        $statements = [];
+
+        DB::table('authentication_provenance')->insert([
+            'session_id'    => IdentifierCoercion::stringify($password),
+            'connection_id' => 'conn-a',
+            'link_id'       => 'link-1',
+        ]);
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            if (!str_contains($query->sql, 'authentication_provenance')) {
+                return;
+            }
+
+            $statements[] = $query->bindings;
+        });
+
+        self::assertSame(1, $this->sessions()->linkScopeWidened($ada, 'conn-a', 'link-1'));
+        self::assertSame([[$external, 'conn-a', 'link-1']], $statements);
+        self::assertSame([RevocationReason::LINK_SCOPE_WIDENED->value, null], $this->reasonsOf([$external, $password]));
+    }
+
+    /**
      * A pending session the connection established is a session too, and ends
      * with the rest, so its credential cannot activate it afterwards.
      *

@@ -91,10 +91,17 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   next refresh revokes the session or returns it to pending. A first-factor reauthentication asks no tenant policy.
 - A sign-in through a link racing that link's revocation is serialised by the adapter's own lock on the link, taken
   before the session's row; the package documents the order and does not enforce it. The revocation finds the link's
-  sessions and their provenance with locking reads, which see what is committed now: a plain read on MySQL's
-  REPEATABLE READ would use the snapshot the adapter's transaction opened at its first read, before it took the link's
-  lock, and miss a session the sign-in committed meanwhile. The identity's live sessions are locked in key order, as the
-  revocation then locks them, until the transaction ends.
+  sessions and their provenance (and a connection's, its provenance) with locking reads, which see what is committed
+  now on MySQL: a plain read at REPEATABLE READ would use the snapshot the adapter's transaction opened at its first
+  read, before it took the lock on the link or connection, and miss a session the sign-in committed meanwhile. The
+  identity's live sessions under `external_provider` are locked in key order, as the revocation then locks them, until
+  the transaction ends; only those are looked up in the provenance, so every key asked for exists and MySQL takes
+  record locks only, never the gap another identity's next provenance would be inserted into.
+- On PostgreSQL even a locking read at REPEATABLE READ or SERIALIZABLE sees only the snapshot the transaction's first
+  statement took, and no serialization failure follows (the sign-in changed nothing the revocation locks), so no lock
+  order on the adapter's side lets the revocation see that session. A connection's or link's revocation inside a
+  caller's transaction at either level is therefore refused with a `LogicException` before anything is read
+  (`Database\CommittedReads`): fail closed, for the adapter to run that transaction at READ COMMITTED.
 - `externalStanding()` locks the row only inside a transaction on the session model's connection; outside one it reads
   the row on the write connection, so its answer may change before the redemption, which judges it again under the
   lock. Without a link id, a session recorded with no link still never stands. On an application that does not allow
@@ -109,7 +116,7 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   `ExternalReauthentication.php`, `SessionService.php` (`startFor()`), `SessionPreconditions.php`,
   `SignInMethodManager.php` (`EXTERNAL_METHOD`).
 - `src/Sessions/Concerns/EndsConnectionSessions.php`, `src/Sessions/ConnectionRevocations.php` (`link()`),
-  `src/Sessions/RevocationSettings.php`.
+  `src/Sessions/RevocationSettings.php`, `src/Database/CommittedReads.php`.
 - `src/Proofs/Provenance.php`, `ProofWriter.php` (`provenance()`), `SessionProofs.php` (`provenance()`),
   `src/Models/SessionProvenance.php`,
   `database/migrations/2026_04_06_000009_create_authentication_provenance_table.php`.
@@ -132,7 +139,10 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   sessions read on the primary, so a session the replica has not seen reauthenticates, stands and is revoked.
 - `tests/Integration/Sessions/ConcurrentExternalReauthenticationsTest.php`,
   `ConcurrentExternalReauthenticationAndWideningTest.php`: the races on the session's row lock;
-  `ConcurrentExternalSignInAndWideningTest.php`: a widening finds a sign-in committed after its transaction first read.
+  `ConcurrentExternalSignInAndWideningTest.php`, `ConcurrentExternalSignInAndConnectionDisablingTest.php`: a widening
+  or disabling finds a sign-in committed after its transaction first read, is refused at PostgreSQL's REPEATABLE READ,
+  and a widening holds up no other identity's sign-in. `tests/Unit/Database/CommittedReadsTest.php`: the isolation
+  rule.
 - `tests/Unit/External/*`, `tests/Unit/Events/ExternalResultUnlinkedTest.php`,
   `tests/Feature/Sessions/SignInMethodManagerTest.php`, `tests/Unit/Sessions/SessionPreconditionsTest.php`.
 - `tests/Performance/SessionServiceQueryBudgetTest.php`, `ProofQueryBudgetTest.php`,
@@ -145,4 +155,6 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 - Taking any lock of the package's before the link contract is asked, or catching a database exception on these paths.
 - Letting a reauthentication through a link other than the one the provenance records, or issuing it a refresh token.
 - Letting a link's revocation end sessions through another link, or making the widening optional.
+- Finding a connection's or link's sessions with a plain read, or letting either revocation run where its reads see a
+  snapshot (PostgreSQL above READ COMMITTED).
 - Storing links, issuing or redeeming handoffs, or verifying provider responses in this package.

@@ -371,7 +371,7 @@ final class ConnectionRevocationsTest extends TestCase
             'principal_id'         => IdentifierCoercion::stringify($identity->getKey()),
             'status'               => 'active',
             'guard'                => 'api',
-            'sign_in_method'       => $connection === null ? 'password' : 'sso',
+            'sign_in_method'       => $connection === null ? 'password' : 'external_provider',
             'refresh_key'          => hash('sha256', 'refresh-' . $key),
             'signed_in_at'         => '2027-01-15 09:00:00',
             'idle_expires_at'      => '2027-02-15 09:00:00',

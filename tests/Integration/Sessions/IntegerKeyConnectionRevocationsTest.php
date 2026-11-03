@@ -295,7 +295,7 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
             'principal_id'         => $owner,
             'status'               => 'active',
             'guard'                => 'api',
-            'sign_in_method'       => 'sso',
+            'sign_in_method'       => 'external_provider',
             'refresh_key'          => hash('sha256', 'refresh-' . $key),
             'signed_in_at'         => '2027-01-15 09:00:00',
             'idle_expires_at'      => '2027-02-15 09:00:00',

@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Database\CommittedReads;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
@@ -30,32 +31,39 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * whose provenance records the connection, and for a link that very link.
  *
  * A connection's sessions are found through the provenance's connection index,
- * and a link's through the identity's own sessions, 500 at a time, whose
- * provenance is then read by key and kept only when it records the connection
- * and the link; each chunk is locked in key order and revoked by the
- * conditional revocation write, all in one transaction on the session model's
- * connection, a savepoint inside the caller's. The provenance holds each key as
- * a string, so a connection's chunks follow the keys' own order (an integer
- * key's numeric one, not its string one): the locks the whole revocation holds
- * are then taken in one key order, as every other revocation takes them, and
- * two revocations of overlapping sessions never deadlock across a chunk. A
- * connection and a link are matched byte for byte, whatever the provenance
- * columns' collation, so one connection's or link's revocation never ends the
- * sessions of another whose id differs from it only in case, accents or a
- * trailing space; a session with no link recorded is never one of a link's. A
- * link's sessions, and their provenance, are found with locking reads (the
- * identity's live sessions locked in key order, as the revocation then locks
- * them), which read what is committed now rather than a snapshot the caller's
+ * and a link's through the identity's own sessions under the method
+ * `external_provider`, 500 at a time, whose provenance is then read by key and
+ * kept only when it records the connection and the link; each chunk is locked
+ * in key order and revoked by the conditional revocation write, all in one
+ * transaction on the session model's connection, a savepoint inside the
+ * caller's. The provenance holds each key as a string, so a connection's chunks
+ * follow the keys' own order (an integer key's numeric one, not its string
+ * one): the locks the whole revocation holds are then taken in one key order,
+ * as every other revocation takes them, and two revocations of overlapping
+ * sessions never deadlock across a chunk. A connection and a link are matched
+ * byte for byte, whatever the provenance columns' collation, so one
+ * connection's or link's revocation never ends the sessions of another whose id
+ * differs from it only in case, accents or a trailing space; a session with no
+ * link recorded is never one of a link's. Both are found with locking reads (a
+ * link's sessions locked in key order, as the revocation then locks them),
+ * which read what is committed now rather than a snapshot the caller's
  * transaction opened earlier: on MySQL's REPEATABLE READ a plain read would
- * miss a session a sign-in through the link committed after the caller's first
- * read, though the caller's lock on the link made that sign-in wait for it.
- * Once that commits, the guard first forgets a binding to any session revoked,
- * so the rest of the request is not authenticated as a session it ended even
- * when a listener throws, and then `SessionRevoked` reports each one. No cutoff
- * moves: the scope is how the sessions began, not the identity. Each per-event
- * trigger can be turned off (`RevocationSettings`), and then writes nothing; a
- * link's widened scope cannot. A revocation called again finds nothing live
- * left to end, so it ends nothing and reports nothing more.
+ * miss a session a sign-in through the connection or the link committed after
+ * the caller's first read, though the caller's lock on it made that sign-in
+ * wait. Every provenance key a link's read asks for exists, since only a
+ * session under `external_provider` is asked about and its sign-in writes its
+ * provenance with it, so MySQL locks those rows and no gap another identity's
+ * sign-in would insert into. On PostgreSQL even a locking read at REPEATABLE
+ * READ or SERIALIZABLE sees only the transaction's first snapshot, so a
+ * revocation in a caller's transaction at either is refused (`CommittedReads`)
+ * before anything is read. Once the revocation commits, the guard first forgets
+ * a binding to any session revoked, so the rest of the request is not
+ * authenticated as a session it ended even when a listener throws, and then
+ * `SessionRevoked` reports each one. No cutoff moves: the scope is how the
+ * sessions began, not the identity. Each per-event trigger can be turned off
+ * (`RevocationSettings`), and then writes nothing; a link's widened scope
+ * cannot. A revocation called again finds nothing live left to end, so it ends
+ * nothing and reports nothing more.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -106,6 +114,7 @@ final readonly class ConnectionRevocations
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
@@ -119,6 +128,8 @@ final readonly class ConnectionRevocations
 
         $model   = SessionLookup::model();
         $numeric = $model->getKeyType() === 'int';
+
+        CommittedReads::assert($model->getConnection(), 'A connection\'s revocation');
 
         return $model->getConnection()->transaction(function () use ($model, $numeric, $connectionId, $reason, $now): int {
 
@@ -153,6 +164,7 @@ final readonly class ConnectionRevocations
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
@@ -166,6 +178,8 @@ final readonly class ConnectionRevocations
         }
 
         $model = SessionLookup::model();
+
+        CommittedReads::assert($model->getConnection(), 'A link\'s revocation');
 
         return $model->getConnection()->transaction(function () use ($model, $identity, $connectionId, $linkId, $reason, $now): int {
 
@@ -217,10 +231,12 @@ final readonly class ConnectionRevocations
     /**
      * The next chunk of the provenance rows of the connection, after the key
      * given, in key order, as `[session key, connection id]`, read from the
-     * provenance's connection index on the write connection. The index finds
-     * them under the column's collation; `exactly()` keeps those that name the
-     * connection byte for byte. Integer keys, held as strings, are ordered by
-     * length and then as strings, which is their numeric order.
+     * provenance's connection index on the write connection with a locking
+     * read, so a provenance committed with its session after the caller's
+     * transaction first read is seen. The index finds them under the column's
+     * collation; `exactly()` keeps those that name the connection byte for
+     * byte. Integer keys, held as strings, are ordered by length and then as
+     * strings, which is their numeric order.
      *
      * @param  string  $connectionId
      * @param  ?string  $after
@@ -237,7 +253,8 @@ final readonly class ConnectionRevocations
             ->when($after !== null && !$numeric, static fn (Builder $query): Builder => $query->where('session_id', '>', $after))
             ->when($numeric, static fn (Builder $query): Builder => $query->orderByRaw($length))
             ->orderBy('session_id')
-            ->limit(self::CHUNK);
+            ->limit(self::CHUNK)
+            ->sharedLock();
 
         return self::provenance($query);
     }
@@ -262,10 +279,12 @@ final readonly class ConnectionRevocations
     }
 
     /**
-     * The next chunk of the keys of the identity's live sessions, after the key
-     * given, in key order, read on the write connection with a locking read, so
-     * it sees every session committed by now and holds each one, in key order,
-     * until the revocation's transaction ends.
+     * The next chunk of the keys of the identity's live sessions an external
+     * provider established (the only ones with a provenance, which their
+     * sign-in writes with them), after the key given, in key order, read on the
+     * write connection with a locking read, so it sees every such session
+     * committed by now and holds each one, in key order, until the revocation's
+     * transaction ends.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
      * @param  \Illuminate\Database\Eloquent\Model  $identity
@@ -279,6 +298,7 @@ final readonly class ConnectionRevocations
         $query = self::live(WriteConnection::query($model->newQuery()), $model, $now)
             ->where($owner->getMorphType(), $identity->getMorphClass())
             ->where($owner->getForeignKeyName(), IdentifierCoercion::stringify($identity->getKey()))
+            ->where($model->getSignInMethodName(), SignInMethodManager::EXTERNAL_METHOD)
             ->when($after !== null, static fn (Builder $query): Builder => $query->where($model->getKeyName(), '>', $after))
             ->orderBy($model->getKeyName())
             ->limit(self::CHUNK)

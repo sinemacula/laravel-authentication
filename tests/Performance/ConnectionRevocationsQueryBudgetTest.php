@@ -225,7 +225,7 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
             'principal_id'         => IdentifierCoercion::stringify($identity->getKey()),
             'status'               => 'active',
             'guard'                => 'api',
-            'sign_in_method'       => 'sso',
+            'sign_in_method'       => 'external_provider',
             'refresh_key'          => hash('sha256', 'refresh-' . $key),
             'signed_in_at'         => $at,
             'idle_expires_at'      => $idle,
