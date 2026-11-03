@@ -18,18 +18,19 @@ use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
  *
  * With the package's policy a guard's application settings are validated. A
  * policy of the application's own is asked whether it allows each name a `jwt`
- * guard could use, so an exception it throws is reported for the guard; what it
- * answers is its own to decide. A `jwt` guard whose package settings list
- * nothing but `api_key`, which a `jwt` guard never accepts, gets a warning, not
- * a problem: an application may allow nothing on purpose (it issues tokens
- * itself, in access-only mode, or its sign-ins are stopped), and its access
- * tokens already issued keep working until they expire. Any other name counts,
- * registered or not, since `SessionService::start()` signs in under a name the
- * application passes, and `external_provider` allows external sign-in. A policy
- * of the application's own, one that wraps the package's included, gets no
- * warning: the names it allows are not known to the command. The checks read
- * configuration only and open no database connection, though a policy of the
- * application's own may open one when it is asked.
+ * guard could use, and whether it allows `client_secret_post`, so an exception
+ * it throws is reported for the guard; what it answers is its own to decide. A
+ * `jwt` guard whose package settings list nothing but `api_key`, which a `jwt`
+ * guard never accepts, gets a warning, not a problem: an application may allow
+ * nothing on purpose (it issues tokens itself, in access-only mode, or its
+ * sign-ins are stopped), and its access tokens already issued keep working
+ * until they expire. Any other name counts, registered or not, since
+ * `SessionService::start()` signs in under a name the application passes, and
+ * `external_provider` allows external sign-in. A policy of the application's
+ * own, one that wraps the package's included, gets no warning: the names it
+ * allows are not known to the command. The checks read configuration only and
+ * open no database connection, though a policy of the application's own may
+ * open one when it is asked.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -72,6 +73,8 @@ final readonly class ApplicationChecks
             foreach ($this->names() as $name) {
                 $policy->allowsMethod($guard, $name);
             }
+
+            $policy->allowsClientSecretPost($guard);
 
             return;
         }

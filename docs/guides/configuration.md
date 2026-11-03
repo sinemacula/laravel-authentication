@@ -38,6 +38,7 @@ JWT settings are read once and kept (see [Configuration lifetimes](operations.md
 | `jwt.audience`                                       | none (required)                                                              | `AUTHENTICATION_JWT_AUDIENCE`                              | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
 | `application.methods`                                | `[]`                                                                         |                                                            | yes       | [Applications](#applications)                                         |
 | `application.require_verified_identifier`            | `false`                                                                      |                                                            | yes       | [Applications](#applications)                                         |
+| `application.client_secret_post`                     | `false`                                                                      |                                                            | yes       | [Applications](#applications)                                         |
 | `identifiers.normalizers`                            | `['email' => EmailNormalizer::class, 'phone' => E164PhoneNormalizer::class]` |                                                            |           | [Identifiers](identity-models.md#identifiers)                         |
 | `rate_limits.table`                                  | `rate_limits`                                                                | `AUTHENTICATION_RATE_LIMITS_TABLE`                         |           | [Rate limits](#rate-limits)                                           |
 | `rate_limits.connection`                             | `null`                                                                       | `AUTHENTICATION_RATE_LIMITS_CONNECTION`                    |           | [Rate limits](#rate-limits)                                           |
@@ -308,6 +309,7 @@ and a guard overrides any key in an `application` block of its own:
 |-------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `methods`                     | `[]`    | The sign-in methods that may start the application's sessions, `external_provider` for external sign-in, and the machine credentials (`api_key`, `client_credentials`) it accepts (lower-case names) |
 | `require_verified_identifier` | `false` | Refuse a sign-in with an identifier the identity has not verified                                                                                                                                    |
+| `client_secret_post`          | `false` | Let a client credentials exchange read the client's id and secret from the request body; off, only HTTP Basic is accepted and body credentials are `invalid_client`                                  |
 
 Every feature is opt-in, so an application allows nothing until it lists it: with the default empty `methods` (or a
 guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`, `signInExternally()`), refresh, switch, one-time
@@ -335,6 +337,12 @@ external sign-in through `signInExternally()`, and refreshes are not gated, sinc
 session vouches for them. The check is made before any principal is resolved, so an unverified identifier gets
 `identifier_unverified` whether or not the identity has a principal yet, and the answer cannot tell whether it has been
 invited anywhere. A switch is held to the identifier type its session's sign-in used, which the session records.
+
+`client_secret_post` decides how a client of a `client_credentials` application may authenticate (see [Client
+credentials](machine-credentials.md#client-credentials)). HTTP Basic (`client_secret_basic`) is always accepted, as RFC
+6749 section 2.3.1 requires of every server; credentials in the form body (`client_secret_post`), which RFC 6749 does
+not recommend, are refused as `invalid_client`, before any query, unless the application sets it. A policy of your own
+answers it through `allowsClientSecretPost($guard)`, and `authentication:check` asks it of every `jwt` guard.
 
 A guard key that is present wins, `null` included; a guard `application` entry of `null` means no overrides. Nothing
 falls back to a literal: a key missing from both blocks, a value of the wrong shape (`null` or a map for `methods`, or a

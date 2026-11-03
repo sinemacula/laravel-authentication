@@ -22,7 +22,7 @@ inheritance:
 | Gating factor changes             | Call `Auth::sessions()->factorChange()` before adding, replacing or removing a factor or making recovery codes   |
 | Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
 | Passkeys registered as factors    | Bind your own `PasskeyFactorGate`; it is asked inside each passkey registration and removal                      |
-| Application decisions             | Implement `ApplicationPolicy` (methods, lifetimes, identifiers) and bind it in the container                     |
+| Application decisions             | Implement `ApplicationPolicy` (methods, body client credentials, lifetimes, identifiers) and bind it             |
 | Who may use an application        | Implement `ApplicationAccess` and bind it in the container                                                       |
 | Tenants a principal may act in    | Implement `TenantAccess` and bind it in the container                                                            |
 | Tenants named by identifier       | Implement `TenantResolver` and bind it in the container                                                          |

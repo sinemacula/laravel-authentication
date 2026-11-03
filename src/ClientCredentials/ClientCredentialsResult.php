@@ -17,10 +17,14 @@ use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
  * the server-side event carries. As a response it answers in RFC 6749's shapes
  * with `Cache-Control: no-store` and `Pragma: no-cache`: 200 with the token;
  * 400 for `invalid_request`, `unsupported_grant_type`, `unauthorized_client`
- * and `invalid_scope`; 401 for `invalid_client`, with `WWW-Authenticate: Basic`
- * when the client authenticated with HTTP Basic; and 429 with `Retry-After` for
- * `slow_down`, a registered OAuth error (RFC 8628) the package answers a client
- * past its limit with, since RFC 6749 defines no rate-limit error.
+ * and `invalid_scope`; 401 for `invalid_client`, with the
+ * `WWW-Authenticate: Basic` challenge of the realm it was given, however the
+ * client authenticated; and 429 with `Retry-After` for `slow_down`, the
+ * package's own answer to a client past its limit, outside RFC 6749, which
+ * defines no rate-limit error (the code is a registered OAuth one, from RFC
+ * 8628). An error body is `{"error": "<code>"}` alone: RFC 6749 makes
+ * `error_description` optional, and the package words nothing a client reads.
+ * No refresh token is ever issued.
  *
  * Routes are the application's: return the result from a controller, or read
  * its parts. The access token is a `Secret`: `toResponse()` reveals it into the
@@ -87,7 +91,7 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Respo
         /** Seconds until the client may try again, for `slow_down` only. */
         public ?int $retryAfter = null,
 
-        /** The realm of the `WWW-Authenticate: Basic` challenge, for a client that authenticated with HTTP Basic and failed to. */
+        /** The realm of the `WWW-Authenticate: Basic` challenge an `invalid_client` answer carries. */
         private ?string $basicRealm = null,
     ) {}
 
@@ -107,7 +111,7 @@ final readonly class ClientCredentialsResult implements \JsonSerializable, Respo
     /**
      * An exchange that failed with the reason and the error the client is
      * answered with, the wait for `slow_down`, and the realm of the Basic
-     * challenge for a client that authenticated with HTTP Basic.
+     * challenge for `invalid_client`.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  string  $error

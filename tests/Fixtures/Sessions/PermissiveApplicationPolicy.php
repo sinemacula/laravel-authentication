@@ -48,6 +48,20 @@ final readonly class PermissiveApplicationPolicy implements ApplicationPolicy
     }
 
     /**
+     * Allow body credentials on every guard.
+     *
+     * @param  string  $guard
+     * @return bool
+     */
+    #[\Override]
+    public function allowsClientSecretPost(string $guard): bool
+    {
+        unset($guard);
+
+        return true;
+    }
+
+    /**
      * Admit every identity, whatever identifier it signed in with.
      *
      * @param  string  $guard

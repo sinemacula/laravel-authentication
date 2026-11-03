@@ -15,10 +15,12 @@ attempt limits and the identifier normalisers meet that policy, since a sign-in 
 
 - The shipped `Applications\GuardApplicationPolicy` reads the guard's `application` block over the package defaults in
   `authentication.application`: a key present at guard level wins, `null` included. `methods` (default `[]`) is a list,
-  possibly empty, of method names; `require_verified_identifier` (default `false`) is a boolean. A missing, malformed or
-  unknown key (a leftover `principal_types` included), at either level, fails closed with an `InvalidArgumentException`
-  naming the guard and the key. Every call reads and checks the whole block, so a malformed key fails whichever check
-  runs first and nothing is cached past a configuration change.
+  possibly empty, of method names; `require_verified_identifier` and `client_secret_post` (each default `false`) are
+  booleans, the second answered by `allowsClientSecretPost($guard)`, which a client credentials exchange asks before it
+  reads body credentials (Basic needs no permission). A missing, malformed or unknown key (a leftover `principal_types`
+  included), at either level, fails closed with an `InvalidArgumentException` naming the guard and the key. Every call
+  reads and checks the whole block, so a malformed key fails whichever check runs first and nothing is cached past a
+  configuration change.
 - An empty `methods` list is a valid state, not a misconfiguration (decided: D21, every feature is opt-in). It allows
   nothing, through the same refusals as a method the application does not list, with no code path of its own:
   `attempt()`, `signIn()` and `start()` are refused as `method_not_allowed` before any attempt slot is reserved or the

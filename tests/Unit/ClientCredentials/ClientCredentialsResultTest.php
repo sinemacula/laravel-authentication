@@ -69,7 +69,8 @@ final class ClientCredentialsResultTest extends TestCase
     }
 
     /**
-     * Each error answers RFC 6749's body with its status, never cached.
+     * Each error answers RFC 6749's body with its status, never cached: the
+     * code alone, with no `error_description`.
      *
      * @param  string  $error
      * @param  int  $status
@@ -83,7 +84,9 @@ final class ClientCredentialsResultTest extends TestCase
 
         self::assertFalse($result->isGranted());
         self::assertSame(['error' => $error], $result->toArray());
+        self::assertSame(['error' => $error], $response->getData(true));
         self::assertSame($status, $response->getStatusCode());
+        self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
         self::assertSame('no-cache', $response->headers->get('Pragma'));
         self::assertNull($result->accessToken);
         self::assertNull($result->expiresIn);
@@ -141,8 +144,8 @@ final class ClientCredentialsResultTest extends TestCase
     }
 
     /**
-     * A wait answers `Retry-After`, and a Basic client's `invalid_client` a
-     * challenge naming the realm.
+     * A wait answers `Retry-After`, and `invalid_client` the Basic challenge
+     * naming the realm it was given.
      *
      * @return void
      */
@@ -152,9 +155,9 @@ final class ClientCredentialsResultTest extends TestCase
 
         self::assertSame('42', $slow->headers->get('Retry-After'));
 
-        $basic = ClientCredentialsResult::failed(FailureReason::CREDENTIAL_INVALID, ClientCredentialsResult::INVALID_CLIENT, null, 'm2m');
+        $challenged = ClientCredentialsResult::failed(FailureReason::CREDENTIAL_INVALID, ClientCredentialsResult::INVALID_CLIENT, null, 'm2m');
 
-        self::assertSame('Basic realm="m2m"', $basic->toResponse(Request::create('/'))->headers->get('WWW-Authenticate'));
+        self::assertSame('Basic realm="m2m"', $challenged->toResponse(Request::create('/'))->headers->get('WWW-Authenticate'));
         self::assertSame(42, ClientCredentialsResult::failed(FailureReason::RATE_LIMITED, ClientCredentialsResult::SLOW_DOWN, 42)->retryAfter);
     }
 

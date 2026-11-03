@@ -35,6 +35,11 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  * `Auth::clientCredentials($guard)`: a non-human identity's API key, presented
  * as a client id (its public part) and secret, exchanged for a short-lived
  * access token of the guard. No session is created and no refresh token issued.
+ * It is off unless the guard's application lists `client_credentials`, and a
+ * client authenticates with HTTP Basic, or in the body only where the
+ * application sets `client_secret_post`. The grant is the client's own
+ * authentication, so `invalid_grant` is never answered: a client that fails to
+ * authenticate is `invalid_client`, always 401 with a Basic challenge.
  *
  * In order: the guard's application must list `client_credentials`
  * (`unauthorized_client`); the IP address must not have used up its failures
@@ -104,16 +109,18 @@ final readonly class ClientCredentialsExchange
      */
     public function exchange(string $clientId, #[\SensitiveParameter] string $clientSecret, ?string $scope = null, ?ClientContext $client = null): ClientCredentialsResult
     {
-        return $this->exchangeFor(new PresentedClient($clientId, $clientSecret, $scope, false), $client ?? $this->context->client());
+        return $this->exchangeFor(new PresentedClient($clientId, $clientSecret, $scope), $client ?? $this->context->client());
     }
 
     /**
      * Read a token request (the guard's request by default) and exchange the
      * client it authenticates: `grant_type`, the client's authentication (HTTP
-     * Basic or `client_id` and `client_secret` in the body, never both) and
-     * `scope`, all from a form-encoded POST body. A request not in form is
-     * refused (`invalid_request`, `unsupported_grant_type`, `invalid_client`)
-     * and reported as `invalid_credentials`, without counting it.
+     * Basic, or `client_id` and `client_secret` in the body when the
+     * application allows `client_secret_post`, never both) and `scope`, all
+     * from a form-encoded POST body. A request not in form is refused
+     * (`invalid_request`, `unsupported_grant_type`, `invalid_client`) and
+     * reported as `invalid_credentials`, before any query and without counting
+     * it.
      *
      * @param  ?\Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsResult
@@ -128,15 +135,13 @@ final readonly class ClientCredentialsExchange
     {
         $request ??= $this->context->request();
         $client    = ClientContext::fromRequest($request);
-        $presented = ClientCredentialsRequest::read($request);
+        $presented = ClientCredentialsRequest::read($request, $this->applicationPolicy()->allowsClientSecretPost($this->context->name()));
 
         if ($presented instanceof PresentedClient) {
             return $this->exchangeFor($presented, $client);
         }
 
-        $basic = ClientCredentialsRequest::usesBasic($request) && $presented === ClientCredentialsResult::INVALID_CLIENT;
-
-        return $this->refuse(new EventContext($this->context->name(), $client, method: self::METHOD), FailureReason::INVALID_CREDENTIALS, $presented, null, null, $basic);
+        return $this->refuse(new EventContext($this->context->name(), $client, method: self::METHOD), FailureReason::INVALID_CREDENTIALS, $presented, null);
     }
 
     /**
@@ -282,11 +287,10 @@ final readonly class ClientCredentialsExchange
         $error   = $refused->reason === FailureReason::PRINCIPAL_INELIGIBLE ? ClientCredentialsResult::UNAUTHORIZED_CLIENT : ClientCredentialsResult::INVALID_CLIENT;
 
         $guard = $this->context->name();
-        $realm = $presented->basic && $error === ClientCredentialsResult::INVALID_CLIENT ? $guard : null;
 
         $this->context->dispatch($outcome->failure($refused, $guard, AuthenticationFlow::CLIENT_CREDENTIALS, self::METHOD, $client, $presented->reportedId()));
 
-        return ClientCredentialsResult::failed($refused->reason, $error, null, $realm);
+        return ClientCredentialsResult::failed($refused->reason, $error, null, self::realmOf($error, $guard));
     }
 
     /**
@@ -297,16 +301,30 @@ final readonly class ClientCredentialsExchange
      * @param  string  $error
      * @param  ?string  $clientId
      * @param  ?int  $retryAfter
-     * @param  bool  $basic
      * @return \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsResult
      */
-    private function refuse(EventContext $context, FailureReason $reason, string $error, ?string $clientId, ?int $retryAfter = null, bool $basic = false): ClientCredentialsResult
+    private function refuse(EventContext $context, FailureReason $reason, string $error, ?string $clientId, ?int $retryAfter = null): ClientCredentialsResult
     {
         $failure = new AuthenticationFailed($context, AuthenticationFlow::CLIENT_CREDENTIALS, $reason, $clientId, $retryAfter);
 
         $this->context->dispatch($failure);
 
-        return ClientCredentialsResult::failed($reason, $error, $retryAfter, $basic ? $this->context->name() : null);
+        return ClientCredentialsResult::failed($reason, $error, $retryAfter, self::realmOf($error, $this->context->name()));
+    }
+
+    /**
+     * The realm of the Basic challenge an error answers with: the guard's for
+     * `invalid_client`, which RFC 6749 section 5.2 answers with 401 and a 401
+     * always carries a challenge (RFC 7235 section 3.1), whichever way the
+     * client authenticated; none for any other error.
+     *
+     * @param  string  $error
+     * @param  string  $guard
+     * @return ?string
+     */
+    private static function realmOf(string $error, string $guard): ?string
+    {
+        return $error === ClientCredentialsResult::INVALID_CLIENT ? $guard : null;
     }
 
     /**

@@ -7,14 +7,16 @@ namespace SineMacula\Laravel\Authentication\ClientCredentials;
 use Illuminate\Http\Request;
 
 /**
- * Reads a client credentials token request as RFC 6749 sections 2.3.1, 3.2 and
- * 4.4.2 define it: a POST with an `application/x-www-form-urlencoded` body
+ * Reads a client credentials token request as RFC 6749 sections 2.3.1, 3.1, 3.2
+ * and 4.4.2 define it: a POST with an `application/x-www-form-urlencoded` body
  * carrying `grant_type=client_credentials`, an optional `scope`, and the client
- * authenticated either with HTTP Basic (the id and secret each
- * form-url-encoded) or with `client_id` and `client_secret` in the body, never
- * both. Every parameter comes from the body: one in the query string, given
- * more than once, or not a string is refused rather than ignored, so a
- * credential in a URL never authenticates.
+ * authenticated with HTTP Basic (`client_secret_basic`, the id and secret each
+ * form-url-encoded), which every server must accept, or, only where the
+ * application allows it, with `client_id` and `client_secret` in the body
+ * (`client_secret_post`), never both. Every parameter comes from the body: one
+ * in the query string, given more than once, or not a string is refused rather
+ * than ignored, so a credential in a URL never authenticates. A parameter sent
+ * without a value is treated as omitted.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,13 +40,15 @@ final class ClientCredentialsRequest
      * What the request presented, or the RFC 6749 error it is refused with:
      * `invalid_request` for a request that is not one in form,
      * `unsupported_grant_type` for another grant, and `invalid_client` for a
-     * request without client authentication or with malformed Basic
-     * credentials.
+     * request without client authentication, with malformed Basic credentials,
+     * or with credentials in the body when the application does not allow
+     * `client_secret_post`.
      *
      * @param  \Illuminate\Http\Request  $request
+     * @param  bool  $allowsPost
      * @return \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient|string
      */
-    public static function read(Request $request): PresentedClient|string
+    public static function read(Request $request, bool $allowsPost): PresentedClient|string
     {
         $parameters = self::parameters($request);
         $grant      = $parameters['grant_type'] ?? null;
@@ -53,18 +57,7 @@ final class ClientCredentialsRequest
             return $grant === null ? ClientCredentialsResult::INVALID_REQUEST : ClientCredentialsResult::UNSUPPORTED_GRANT_TYPE;
         }
 
-        return self::client($request, $parameters);
-    }
-
-    /**
-     * Whether the request authenticated, or tried to, with HTTP Basic.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return bool
-     */
-    public static function usesBasic(Request $request): bool
-    {
-        return self::basicCredentials($request) !== null;
+        return self::client($request, $parameters, $allowsPost);
     }
 
     /**
@@ -73,9 +66,10 @@ final class ClientCredentialsRequest
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  array<string, string>  $parameters
+     * @param  bool  $allowsPost
      * @return \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient|string
      */
-    private static function client(Request $request, #[\SensitiveParameter] array $parameters): PresentedClient|string
+    private static function client(Request $request, #[\SensitiveParameter] array $parameters, bool $allowsPost): PresentedClient|string
     {
         $basic  = self::basicCredentials($request);
         $inBody = array_key_exists('client_id', $parameters) || array_key_exists('client_secret', $parameters);
@@ -84,11 +78,15 @@ final class ClientCredentialsRequest
             return ClientCredentialsResult::INVALID_REQUEST;
         }
 
-        $credentials = $basic === null ? self::body($parameters) : self::basic($basic);
+        $credentials = match (true) {
+            $basic !== null => self::basic($basic),
+            $allowsPost     => self::body($parameters),
+            default         => null,
+        };
 
         return $credentials === null
             ? ClientCredentialsResult::INVALID_CLIENT
-            : new PresentedClient($credentials[0], $credentials[1], $parameters['scope'] ?? null, $basic !== null);
+            : new PresentedClient($credentials[0], $credentials[1], $parameters['scope'] ?? null);
     }
 
     /**
@@ -137,7 +135,9 @@ final class ClientCredentialsRequest
      * The request's parameters, read from a form-encoded POST body, or none
      * when the request is not one in form (so it names no grant): not a POST, a
      * body of another media type, a parameter in the query string, given twice,
-     * or not a string.
+     * or not a string. A parameter without a value (empty, or `null` after
+     * Laravel's `ConvertEmptyStringsToNull`) is left out, as RFC 6749 section
+     * 3.1 requires.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return array<string, string>
@@ -151,7 +151,7 @@ final class ClientCredentialsRequest
         }
 
         $names      = array_flip(self::PARAMETERS);
-        $parameters = array_filter(array_intersect_key($request->request->all(), $names), static fn (mixed $value): bool => $value !== null);
+        $parameters = array_filter(array_intersect_key($request->request->all(), $names), static fn (mixed $value): bool => $value !== null && $value !== '');
         $inQuery    = array_intersect_key($request->query->all(), $names);
 
         $strings = array_filter($parameters, is_string(...));

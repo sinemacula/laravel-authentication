@@ -296,22 +296,26 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `ApplicationPolicy` declares exactly the three questions the session
-     * layer asks an application's settings: may this method start a session,
-     * may this identity sign in with this identifier, and for how long, which
-     * depends on the guard alone. Which principals may hold a session is not
-     * among them.
+     * `ApplicationPolicy` declares exactly the four questions the package asks
+     * an application's settings: may this method start a session (or this
+     * machine credential be accepted), may a client credentials exchange read
+     * the client from the body, may this identity sign in with this identifier,
+     * and for how long; the second and the last depend on the guard alone.
+     * Which principals may hold a session is not among them.
      *
      * @return void
      */
     public function testApplicationPolicyDeclaresExactlyItsChecks(): void
     {
         $lifetimes = (new \ReflectionMethod(ApplicationPolicy::class, 'lifetimes'))->getParameters();
+        $post      = new \ReflectionMethod(ApplicationPolicy::class, 'allowsClientSecretPost');
 
-        self::assertSame(['admitIdentifier', 'allowsMethod', 'lifetimes'], self::declaredMethods(ApplicationPolicy::class));
+        self::assertSame(['admitIdentifier', 'allowsClientSecretPost', 'allowsMethod', 'lifetimes'], self::declaredMethods(ApplicationPolicy::class));
         self::assertCount(1, $lifetimes);
         self::assertSame('guard', $lifetimes[0]->getName());
         self::assertSame('string', (string) $lifetimes[0]->getType());
+        self::assertSame(['guard'], array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $post->getParameters()));
+        self::assertSame('bool', (string) $post->getReturnType());
     }
 
     /**

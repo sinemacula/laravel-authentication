@@ -727,6 +727,7 @@ final class CheckConfigurationCommandTest extends TestCase
         $policy  = \Mockery::mock(ApplicationPolicy::class);
 
         $policy->allows('allowsMethod')->andReturnUsing(static fn (string $guard, string $method): bool => in_array("{$guard}.{$method}", $allowed, true));
+        $policy->allows('allowsClientSecretPost')->andReturnFalse();
 
         $this->app?->instance(ApplicationPolicy::class, $policy);
 
@@ -791,6 +792,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
             return true;
         });
+        $policy->allows('allowsClientSecretPost')->andReturnFalse();
 
         $this->app?->instance(ApplicationPolicy::class, $policy);
 
@@ -800,6 +802,32 @@ final class CheckConfigurationCommandTest extends TestCase
         $message = $exception->getMessage();
 
         self::assertSame(["[api] {$message}", "[admin] {$message}"], array_values(array_filter($output, static fn (string $line): bool => str_ends_with($line, $message))));
+        self::assertContains('[machine] OK', $output);
+    }
+
+    /**
+     * A policy of the application's own is asked whether each `jwt` guard
+     * allows `client_secret_post` too, so one that throws then is a problem for
+     * each `jwt` guard; the `api_key` guard, never asked it, passes.
+     *
+     * @return void
+     */
+    public function testACustomPolicyIsAskedWhetherAJwtGuardAllowsClientSecretPost(): void
+    {
+        $policy = \Mockery::mock(ApplicationPolicy::class);
+
+        $policy->allows('allowsMethod')->andReturnTrue();
+        $policy->allows('allowsClientSecretPost')->andThrow(new \InvalidArgumentException('Unreadable `client_secret_post` setting.'));
+
+        $this->app?->instance(ApplicationPolicy::class, $policy);
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        self::assertSame(
+            ['[api] Unreadable `client_secret_post` setting.', '[admin] Unreadable `client_secret_post` setting.'],
+            array_values(array_filter($output, static fn (string $line): bool => str_contains($line, 'client_secret_post'))),
+        );
         self::assertContains('[machine] OK', $output);
     }
 
@@ -923,6 +951,7 @@ final class CheckConfigurationCommandTest extends TestCase
         $policy = \Mockery::mock(ApplicationPolicy::class);
 
         $policy->allows('allowsMethod')->andReturnUsing(static fn (string $guard, string $method): bool => $method === 'password' || ($method === 'api_key' && $allowsKeys));
+        $policy->allows('allowsClientSecretPost')->andReturnFalse();
 
         $this->app?->instance(ApplicationPolicy::class, $policy);
 

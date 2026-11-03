@@ -49,9 +49,11 @@ final class GuardApplicationPolicyTest extends TestCase
 
     /**
      * The shipped defaults, read from the package's own configuration file,
-     * list no method and require no verified identifier, so out of the box an
-     * application allows nothing until it lists what it uses, and admits any
-     * identity whatever identifier it signed in with.
+     * list no method, require no verified identifier and allow no client
+     * credentials in the body, so out of the box an application allows nothing
+     * until it lists what it uses, a client credentials exchange it turns on
+     * accepts HTTP Basic alone, and any identity is admitted whatever
+     * identifier it signed in with.
      *
      * @return void
      */
@@ -60,7 +62,7 @@ final class GuardApplicationPolicyTest extends TestCase
         /** @var array<string, mixed> $shipped */
         $shipped = require dirname(__DIR__, 3) . '/config/authentication.php';
 
-        self::assertSame(['methods' => [], 'require_verified_identifier' => false], $shipped['application']);
+        self::assertSame(['methods' => [], 'require_verified_identifier' => false, 'client_secret_post' => false], $shipped['application']);
 
         config()->set('authentication.application', $shipped['application']);
 
@@ -70,6 +72,27 @@ final class GuardApplicationPolicyTest extends TestCase
 
         self::assertNull($this->admitIdentifier('email'));
         self::assertNull($this->admitIdentifier(null));
+        self::assertFalse($this->policy()->allowsClientSecretPost(self::GUARD));
+    }
+
+    /**
+     * `client_secret_post` is the guard's override where it sets one, else the
+     * package's.
+     *
+     * @return void
+     */
+    public function testClientSecretPostIsTheGuardsOverrideOrThePackages(): void
+    {
+        $this->setGuardApplication(['client_secret_post' => true]);
+
+        self::assertTrue($this->policy()->allowsClientSecretPost(self::GUARD));
+        self::assertFalse($this->policy()->allowsClientSecretPost('other'));
+
+        config()->set('authentication.application.client_secret_post', true);
+        $this->setGuardApplication(['client_secret_post' => false]);
+
+        self::assertFalse($this->policy()->allowsClientSecretPost(self::GUARD));
+        self::assertTrue($this->policy()->allowsClientSecretPost('other'));
     }
 
     /**
@@ -275,6 +298,8 @@ final class GuardApplicationPolicyTest extends TestCase
             . ' set `authentication.application.methods` or the guard\'s `application.methods` override.';
         $gate = 'Application `require_verified_identifier` for guard [api] must be true or false:'
             . ' set `authentication.application.require_verified_identifier` or the guard\'s `application.require_verified_identifier` override.';
+        $post = 'Application `client_secret_post` for guard [api] must be true or false:'
+            . ' set `authentication.application.client_secret_post` or the guard\'s `application.client_secret_post` override.';
 
         yield from [
             'methods a string'           => ['methods', 'password', $methods],
@@ -290,6 +315,9 @@ final class GuardApplicationPolicyTest extends TestCase
             'gate a string'              => ['require_verified_identifier', 'yes', $gate],
             'gate an integer'            => ['require_verified_identifier', 1, $gate],
             'gate null'                  => ['require_verified_identifier', null, $gate],
+            'post a string'              => ['client_secret_post', 'true', $post],
+            'post an integer'            => ['client_secret_post', 1, $post],
+            'post null'                  => ['client_secret_post', null, $post],
         ];
     }
 
@@ -315,6 +343,7 @@ final class GuardApplicationPolicyTest extends TestCase
             return true;
         });
         $this->assertFailsClosed($message, fn (): array => $this->packagePolicy()->methods(self::GUARD));
+        $this->assertFailsClosed($message, fn (): bool => $this->policy()->allowsClientSecretPost(self::GUARD));
     }
 
     /**
@@ -367,6 +396,14 @@ final class GuardApplicationPolicyTest extends TestCase
             . ' set `authentication.application.require_verified_identifier` or the guard\'s `application.require_verified_identifier` override.',
             fn (): bool => $this->policy()->allowsMethod(self::GUARD, 'password'),
         );
+
+        config()->set('authentication.application', ['methods' => ['password'], 'require_verified_identifier' => false]);
+
+        $this->assertFailsClosed(
+            'Application `client_secret_post` for guard [api] must be set:'
+            . ' set `authentication.application.client_secret_post` or the guard\'s `application.client_secret_post` override.',
+            fn (): bool => $this->policy()->allowsClientSecretPost(self::GUARD),
+        );
     }
 
     /**
@@ -393,13 +430,15 @@ final class GuardApplicationPolicyTest extends TestCase
 
         $this->setGuardApplication(null);
 
+        $valid = ['methods' => ['password'], 'require_verified_identifier' => false, 'client_secret_post' => false];
+
         config()->set('authentication.application', null);
         $this->assertFailsClosed('Application configuration for guard [api]: `authentication.application` must be an array.', $check);
 
-        config()->set('authentication.application', ['methods' => ['password'], 'require_verified_identifier' => false, 'limits' => []]);
+        config()->set('authentication.application', [...$valid, 'limits' => []]);
         $this->assertFailsClosed('Application configuration for guard [api]: `authentication.application` has an unknown key `limits`.', $check);
 
-        config()->set('authentication.application', ['methods' => ['password'], 'require_verified_identifier' => false, 'principal_types' => ['staff']]);
+        config()->set('authentication.application', [...$valid, 'principal_types' => ['staff']]);
         $this->assertFailsClosed('Application configuration for guard [api]: `authentication.application` has an unknown key `principal_types`.', $check);
     }
 

@@ -309,7 +309,11 @@ return [
     | guard that lists nothing, or only `api_key`, which a `jwt` guard never
     | accepts. `require_verified_identifier` refuses a sign-in with an
     | identifier (an email address, say) the identity has not verified; sign-ins
-    | that use no identifier, such as SSO, are not affected. A malformed value,
+    | that use no identifier, such as SSO, are not affected.
+    | `client_secret_post` lets a client credentials exchange read the client's
+    | id and secret from the request body; off, only HTTP Basic is accepted
+    | (RFC 6749 requires every server to accept it) and body credentials are
+    | refused as `invalid_client`. A malformed value,
     | or an unknown key, fails closed with an `InvalidArgumentException` naming
     | the guard and the key when the guard's policy is first used. Which
     | principals may use an application, and which tenants they may act in, are
@@ -322,6 +326,7 @@ return [
     'application' => [
         'methods'                     => [],
         'require_verified_identifier' => false,
+        'client_secret_post'          => false,
     ],
 
     /*
