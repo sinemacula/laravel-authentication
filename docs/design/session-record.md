@@ -49,13 +49,15 @@ new session, so "the device" and "the record" are no longer one thing.
   issuance guard: `SessionRecords\IssuanceGuard::write()` increments it with one `UPDATE` by key, through the query
   builder (no model event, `updated_at` untouched, the in-memory session not mirrored), before the proofs are read in
   every transaction that issues the session an access token without writing its row otherwise, and before every change
-  of its proofs. Nothing
-  reads its value: the write is what makes two issuances of one session wait on each other or, under PostgreSQL's
-  REPEATABLE READ, fail to serialise (see `proofs-and-freshness.md` and `refresh-rotation-and-replay.md`). The session
-  row is the last row in the package's lock order (the caller's locks, then the connection guard rows, then session
-  rows, then that session's proof rows), so the guard adds no lock and no order. `IssuanceGuard::write()` returns
-  whether it wrote the row: refresh and switch refuse a `false` as `session_unknown`, and `IssuanceGuard::hold()`, used
-  under a lock and by the token service's public issue, makes it a `LogicException`.
+  of its proofs. Nothing reads its value: the write is what makes two issuances of one session wait on each other or,
+  under PostgreSQL's REPEATABLE READ, fail to serialise (see `proofs-and-freshness.md` and
+  `refresh-rotation-and-replay.md`). The session row is the last row in the package's lock order (the caller's locks,
+  then the connection guard rows, then session rows, then that session's proof rows), so the guard adds no row lock and
+  no order. The current read of the proofs that follows it takes more on MySQL and MariaDB at REPEATABLE READ: its
+  shared lock also holds the gaps on either side of the session's proofs, so a proof of another session that falls there
+  (a new session's, a neighbouring session's step-up) waits for the issuance to commit (see `proofs-and-freshness.md`).
+  `IssuanceGuard::write()` returns whether it wrote the row: refresh and switch refuse a `false` as `session_unknown`,
+  and `IssuanceGuard::hold()`, used under a lock and by the token service's public issue, makes it a `LogicException`.
 - `SignedInSession` and `SignedIn` carry no flag saying a session was created. Every sign-in creates one, so on
   `SignedIn` the flag would always be `!$refresh`, and on `SignedInSession` it would only repeat which result carries
   it; `SessionCreated` marks a creation.

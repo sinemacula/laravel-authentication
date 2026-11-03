@@ -78,14 +78,16 @@ A session's tokens never go back on each other: in the order their issuances com
 `auth_time` or fewer `amr` values than one of the same session committed before it, whatever the isolation level, except
 where a factor's removal voided the proofs that gave them, on purpose. Every issuance of an access token for a session
 (a refresh and its grace retry, a switch and its retry, a step-up, a reauthentication at either factor, an activation, a
-direct `issueAccessToken()` with a session) first writes the session's issuance guard, an increment of its
-`issuance_sequence`, or writes the session's row itself (an activation, a sign-in's insert); every change of a session's
-proofs (`satisfy()`, a step-up, a reauthentication, `factorRemoved()`) writes it before the proof. The issuance takes
-its time once it holds the row (an activation issues at its operation's time: no other token of a pending session can
-have committed meanwhile; a direct `issueAccessToken()` given an `$issuedAt` uses it as given, so take it after you lock
-the session in your transaction around the call, or the guarantee does not hold for that token), and then reads the
-proofs current, in the same transaction on the session's connection, which holds the row until it commits. So two of
-them on one session never read the proofs past each other:
+direct `issueAccessToken()` with a session) writes the session's issuance guard, an increment of its
+`issuance_sequence`, before it reads the session's proofs, unless it writes the session's row itself (an activation, a
+sign-in's insert): a refresh, a switch and a direct `issueAccessToken()` write it first, a step-up or a reauthentication
+under its lock of the row, before its proof. Every change of a session's proofs (`satisfy()`, a step-up, a
+reauthentication, `factorRemoved()`) writes it before the change. The issuance takes its time once it holds the row (an
+activation issues at its operation's time: no other token of a pending session can have committed meanwhile; a direct
+`issueAccessToken()` given an `$issuedAt` uses it as given, so take it after you lock the session in your transaction
+around the call, or the guarantee does not hold for that token), and then reads the proofs current, in the same
+transaction on the session's connection, which holds the row until it commits. So two of them on one session never read
+the proofs past each other:
 
 - At READ COMMITTED, on PostgreSQL and MySQL, and at MySQL's REPEATABLE READ, the later waits on the row the earlier
   wrote, and then reads what it committed (on MySQL with a shared lock, since its plain reads inside a REPEATABLE READ
@@ -99,14 +101,23 @@ A sign-in reads its new session's proofs as its own transaction sees them: nothi
 session that is not committed yet. Reading the authentication context of a request is not an issuance and writes
 nothing. Deadlocks, if any, propagate as every database error does.
 
-On MySQL at REPEATABLE READ, the shared lock of the current read also locks the gap after the session's last proof. For
-the newest session (keys are time-ordered) that gap is where every new session's proofs are inserted, so a sign-in that
-starts while an issuance of the newest session is in flight (a refresh, a switch, a step-up, a reauthentication, an
-activation) waits for that issuance's transaction to commit: briefly in the package's own transaction, but inside yours
-until you commit, so keep such a transaction short. The sign-in then commits; the wait never deadlocks on its own, but
-it can when your transaction, after the issuance, goes on to take a lock the waiting sign-in already holds (a sign-in
-through the same link, say), and MySQL then fails one of them as a deadlock for you to retry. At READ COMMITTED MySQL
-locks no gap, and PostgreSQL takes no shared lock, so a sign-in never waits there.
+On MySQL at REPEATABLE READ, the shared lock of the current read also locks the gaps on either side of the session's
+proofs in the proofs' session index, so a proof another transaction inserts into one of them waits for the issuance's
+transaction to commit: briefly in the package's own transaction, but inside yours until you commit, so keep such a
+transaction short. Keys are time-ordered and the index sorts a session's proofs by kind, so the proofs that wait are:
+
+- a new session's, after the newest session's proofs: a sign-in that starts while an issuance of the newest session is
+  in flight (a refresh, a switch, a step-up, a reauthentication, an activation) waits;
+- a neighbouring session's, the one whose proofs come just before or just after the issued session's, from its step-up,
+  reauthentication or `satisfy()`: a further factor, a `satisfy()` or a reauthentication at the provider of the next
+  session, and a recovery code or a reauthentication with the first factor of the previous one, wait.
+
+The waiting side then commits; the wait never deadlocks on its own, but it can when your transaction, after the
+issuance, goes on to take a lock the waiting side already holds: an external sign-in holds its link's guard row, and a
+neighbour's step-up, reauthentication or `satisfy()` holds that session's row, so signing in through the same link, or
+revoking, refreshing or switching that session (or signing its identity out everywhere) in the same transaction can
+deadlock, and MySQL then fails one of them as a deadlock for you to retry. At READ COMMITTED MySQL locks no gap, and
+PostgreSQL takes no shared lock, so nothing waits there.
 
 ## Stepping up
 

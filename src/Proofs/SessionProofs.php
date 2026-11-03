@@ -62,12 +62,17 @@ final class SessionProofs
      * snapshot holds, for an issuance that has written the session's issuance
      * guard: on MySQL and MariaDB, whose plain reads inside a REPEATABLE READ
      * transaction return the snapshot of its first read, with a shared lock on
-     * the rows read, held until the transaction ends. Every other engine reads
-     * as it does without: PostgreSQL refuses a shared lock on a grouped read,
-     * and needs none, since at READ COMMITTED each statement reads what is
-     * committed once the guard has waited for any writer of the session still
-     * in flight, and at REPEATABLE READ the guard fails to serialise when one
-     * committed after the snapshot; SQLite lets one writer in at a time.
+     * the rows read, held until the transaction ends. At REPEATABLE READ that
+     * lock also takes the gaps on either side of the session's proofs in their
+     * session index, so another transaction's proof that falls there waits for
+     * this one to end: a new session's, after the newest session's proofs, and
+     * a step-up's or a reauthentication's of the session whose proofs border
+     * these, keys being time-ordered. Every other engine reads as it does
+     * without: PostgreSQL refuses a shared lock on a grouped read, and needs
+     * none, since at READ COMMITTED each statement reads what is committed once
+     * the guard has waited for any writer of the session still in flight, and
+     * at REPEATABLE READ the guard fails to serialise when one committed after
+     * the snapshot; SQLite lets one writer in at a time.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current

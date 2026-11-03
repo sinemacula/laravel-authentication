@@ -16,12 +16,14 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithIsolationLevels;
@@ -32,21 +34,27 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Races an issuance for the newest session against a sign-in of another
- * identity, on PostgreSQL and MySQL, each side in a process with a database
- * connection of its own: the first side issues an access token for the newest
- * session (a refresh, a step-up, or the activation that completes a pending
- * sign-in) inside a caller's transaction that it holds open, at READ COMMITTED
- * or REPEATABLE READ; the second, started meanwhile, signs another identity in
- * through an external provider, so the sides share no attempt-limit row.
+ * Races an issuance for a session against a proof another identity's session
+ * records, on PostgreSQL and MySQL, each side in a process with a database
+ * connection of its own: the first side issues an access token for the session
+ * inside a caller's transaction that it holds open, at READ COMMITTED or
+ * REPEATABLE READ; the second, started meanwhile, records a proof of another
+ * identity, so the sides share no attempt-limit row. Either the issuance is for
+ * the newest session (a refresh, a step-up, or the activation that completes a
+ * pending sign-in) and the second side signs a new session in through an
+ * external provider, or the issuance is a refresh and the second side steps up
+ * the session next to it, on either side, in the proofs' session index.
  *
  * On MySQL the issuance reads the session's proofs with a shared lock, which at
- * REPEATABLE READ also locks the gap after that session's last proof. The
- * newest session's gap runs to the end of the proofs' session index, where a
- * new session's proof is inserted, so the sign-in waits until the caller's
- * transaction commits, and then commits itself: it waits, and never deadlocks.
- * At READ COMMITTED MySQL locks no gap, and PostgreSQL reads the proofs without
- * a lock at either level, so the sign-in never waits there.
+ * REPEATABLE READ also locks the gaps on either side of that session's proofs
+ * in the index (`session_id`, `kind`, `authenticated_at`), keys being
+ * time-ordered: after the newest session's proofs, where a new session's proof
+ * is inserted; before the next session's `first_factor` entry, where its
+ * further factor falls; and after the previous session's last entry, where its
+ * recovery code falls. So the second side waits until the caller's transaction
+ * commits, and then commits itself: it waits, and never deadlocks. At READ
+ * COMMITTED MySQL locks no gap, and PostgreSQL reads the proofs without a lock
+ * at either level, so the second side never waits there.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -160,57 +168,83 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     {
         $ada   = $this->seedIdentity();
         $grace = $this->seedIdentity('grace@example.test');
-        $issue = $this->issuerFor($issuer, $ada);
 
-        DB::disconnect();
+        $reported = $this->race($this->issuerFor($issuer, $ada), $level, function () use ($grace): string {
+            $session = $this->sessions()->signInExternally($this->linkedResult($grace, linkId: 'link-grace'))->session;
 
-        $pid = pcntl_fork();
+            self::assertNotNull($session);
 
-        if ($pid < 0) {
-            self::fail('The second side could not be forked.');
-        }
+            return (string) IdentifierCoercion::stringify($session->record->getKey());
+        });
 
-        if ($pid === 0) {
-            $this->runInChild(function () use ($grace): string {
-                $inserting = "{$this->outcomes}/inserting";
-
-                SessionProof::creating(static function () use ($inserting): void {
-                    touch($inserting);
-                });
-
-                $session = $this->sessions()->signInExternally($this->linkedResult($grace, linkId: 'link-grace'))->session;
-
-                self::assertNotNull($session);
-
-                return (string) IdentifierCoercion::stringify($session->record->getKey());
-            });
-        }
-
-        self::beginTransactionAt($level);
-
-        self::assertNotNull($issue());
-
-        touch("{$this->outcomes}/start");
-
-        if (!self::wasSignalled("{$this->outcomes}/inserting")) {
-            self::abandon($pid, 'The second side never reached the insert of its proof, so the two did not overlap.');
-        }
-
-        usleep(self::HOLD_MICROSECONDS);
-
-        DB::commit();
-
-        pcntl_waitpid($pid, $status);
-
-        $reported = json_decode((string) file_get_contents("{$this->outcomes}/outcome"), true, flags: JSON_THROW_ON_ERROR);
-
-        self::assertIsArray($reported);
-        self::assertArrayNotHasKey('error', $reported);
-        self::assertIsString($reported['result']);
-        self::assertSame(DB::connection()->getDriverName() === 'mysql' && $level === 'repeatable read', $reported['waited'] >= self::WAIT_THRESHOLD_SECONDS);
+        self::assertSame(self::waitsAt($level), $reported['waited'] >= self::WAIT_THRESHOLD_SECONDS);
         self::assertSame(['first_factor'], DB::table('authentication_proofs')->where('session_id', $reported['result'])->pluck('kind')->all());
         self::assertTrue(DB::table('authentication_provenance')->where('session_id', $reported['result'])->exists());
         self::assertSame(2, DB::table('authentication_sessions')->where('status', 'active')->whereNull('revoked_at')->count());
+    }
+
+    /**
+     * Rows of `[neighbour, isolation level]`: the session signed in just after
+     * the one a refresh is issued for, stepped up with a further factor, whose
+     * proof sorts before its own `first_factor` entry, and the one signed in
+     * just before it, stepped up with a recovery code, whose proof sorts after
+     * its own `first_factor` entry, each at READ COMMITTED and at REPEATABLE
+     * READ.
+     *
+     * @return iterable<string, array{0: string, 1: string}>
+     */
+    public static function provideNeighboursAndIsolationLevels(): iterable
+    {
+        foreach (['next', 'previous'] as $neighbour) {
+            foreach (self::provideIsolationLevels() as $name => [$level]) {
+                yield "the {$neighbour} session at {$name}" => [$neighbour, $level];
+            }
+        }
+    }
+
+    /**
+     * A step-up of another identity's session whose proofs border those of the
+     * session a caller's transaction holds a refresh of, on either side, waits
+     * for that transaction on MySQL at REPEATABLE READ and nowhere else, and
+     * then commits with its proof recorded; the refresh commits too, so neither
+     * side deadlocks.
+     *
+     * @param  string  $neighbour
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideNeighboursAndIsolationLevels')]
+    public function testAStepUpOfANeighbouringSessionWaitsAtMostForAnIssuance(string $neighbour, string $level): void
+    {
+        $ada   = $this->seedIdentity();
+        $grace = $this->seedIdentity('grace@example.test');
+
+        $previous = $neighbour === 'previous' ? $this->signedIn($grace) : null;
+        $session  = $this->signedIn($ada);
+        $next     = $neighbour === 'next' ? $this->signedIn($grace) : null;
+        $other    = $previous ?? $next;
+
+        self::assertNotNull($other);
+
+        $key   = (string) IdentifierCoercion::stringify($session->record->getKey());
+        $their = (string) IdentifierCoercion::stringify($other->record->getKey());
+        $kind  = $next === null ? ProofKind::RECOVERY_CODE : ProofKind::ADDITIONAL_FACTOR;
+
+        self::assertSame($next === null ? 1 : -1, strcmp($key, $their) <=> 0);
+
+        $refresh = $session->tokens->refreshToken?->reveal() ?? '';
+        $proof   = self::adapterProof($grace, 'api', $other->record->getKey(), kind: $kind);
+
+        $reported = $this->race(fn (): ?Secret => $this->sessions()->refresh($refresh)->session?->tokens->accessToken, $level, function () use ($proof, $their): string {
+            self::assertNotNull($this->sessions()->stepUp($proof)->accessToken);
+
+            return $their;
+        });
+
+        self::assertSame(self::waitsAt($level), $reported['waited'] >= self::WAIT_THRESHOLD_SECONDS);
+        self::assertContains($kind->value, DB::table('authentication_proofs')->where('session_id', $their)->pluck('kind')->all());
     }
 
     /**
@@ -311,6 +345,98 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
             }
         });
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+    }
+
+    /**
+     * Sign the identity in with its password, as a new session.
+     *
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
+     *
+     * @throws \Throwable
+     */
+    private function signedIn(IntegrationIdentity $identity): SignedInSession
+    {
+        $session = $this->sessions()->signIn('password', self::credentials($identity->email))->session;
+
+        self::assertNotNull($session);
+
+        return $session;
+    }
+
+    /**
+     * Issue here inside a caller's transaction at the isolation level, start
+     * the second side in another process once it has issued, hold the
+     * transaction open until the second side is about to insert its proof and a
+     * while after, then commit, and return what the second side reported: what
+     * it returned, and how long it took.
+     *
+     * @param  \Closure(): ?\SineMacula\Laravel\Authentication\Secrets\Secret  $issue
+     * @param  string  $level
+     * @param  \Closure(): string  $second
+     * @return array{result: string, waited: float}
+     *
+     * @throws \Throwable
+     */
+    private function race(\Closure $issue, string $level, \Closure $second): array
+    {
+        DB::disconnect();
+
+        $pid = pcntl_fork();
+
+        if ($pid < 0) {
+            self::fail('The second side could not be forked.');
+        }
+
+        if ($pid === 0) {
+            $this->runInChild(function () use ($second): string {
+                $inserting = "{$this->outcomes}/inserting";
+
+                SessionProof::creating(static function () use ($inserting): void {
+                    touch($inserting);
+                });
+
+                return $second();
+            });
+        }
+
+        self::beginTransactionAt($level);
+
+        self::assertNotNull($issue());
+
+        touch("{$this->outcomes}/start");
+
+        if (!self::wasSignalled("{$this->outcomes}/inserting")) {
+            self::abandon($pid, 'The second side never reached the insert of its proof, so the two did not overlap.');
+        }
+
+        usleep(self::HOLD_MICROSECONDS);
+
+        DB::commit();
+
+        pcntl_waitpid($pid, $status);
+
+        $reported = json_decode((string) file_get_contents("{$this->outcomes}/outcome"), true, flags: JSON_THROW_ON_ERROR);
+
+        self::assertIsArray($reported);
+        self::assertArrayNotHasKey('error', $reported);
+        self::assertIsString($reported['result']);
+        self::assertIsFloat($reported['waited']);
+
+        return ['result' => $reported['result'], 'waited' => $reported['waited']];
+    }
+
+    /**
+     * Whether the second side waits for the first at the isolation level: on
+     * MySQL at REPEATABLE READ alone, where the shared lock of the issuance's
+     * read locks the gaps around its session's proofs.
+     *
+     * @param  string  $level
+     * @return bool
+     */
+    private static function waitsAt(string $level): bool
+    {
+        return DB::connection()->getDriverName() === 'mysql' && $level === 'repeatable read';
     }
 
     /**

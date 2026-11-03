@@ -193,15 +193,23 @@ session holds; the token's claims and every freshness answer are worked out from
   instead, for the caller to retry whole. The same holds for every issuer of a session's tokens: in commit order no
   token carries an older `auth_time` or fewer `amr` values than one before it, except where a factor's removal voided
   proofs on purpose (`FactorRevocations` writes the guard before it voids).
-- On MySQL at REPEATABLE READ, the shared lock of an issuance's current read also locks the gap after the session's last
-  proof in the proofs' session index. For the newest session that gap is where every new session's proofs fall, so a
-  sign-in waits for an issuance of the newest session (a refresh, a switch, a step-up, a reauthentication, an
-  activation) until its transaction commits, inside a caller's transaction until the caller commits, and then commits:
-  the wait alone never deadlocks, but a caller's transaction that goes on to take a lock the waiting sign-in holds (a
-  sign-in through the same link's guard row) does, and MySQL fails one of them for the caller to retry. A sign-in's own
-  issuance reads plain for this reason: its session is not committed, so no other transaction can record a proof under
-  it. At READ COMMITTED MySQL locks no gap, and PostgreSQL takes no shared lock. No narrower lock gives a current read
-  there: InnoDB's REPEATABLE READ reads past its snapshot only with a locking read, which locks the range it scans.
+- On MySQL at REPEATABLE READ, the shared lock of an issuance's current read is a set of next-key locks on the proofs'
+  session index (`session_id`, `kind`, `authenticated_at`), so it also locks the gaps on either side of the session's
+  proofs, up to the neighbouring entries. Keys are time-ordered, so a proof another transaction inserts there waits
+  until the issuance's transaction commits (inside a caller's transaction, until the caller commits), and then commits:
+  after the newest session's proofs falls every new session's, so a sign-in waits for an issuance of the newest session
+  (a refresh, a switch, a step-up, a reauthentication, an activation); just before the next session's `first_factor`
+  entry falls its `additional_factor` or `external_reauthentication` proof, so a step-up, a `satisfy()` or a
+  reauthentication at the provider of the next session waits; and just after the previous session's last entry falls its
+  `first_factor_reauthentication` or `recovery_code` proof, so a reauthentication with the first factor or a recovery
+  code of the previous session waits. The wait alone never deadlocks, but a caller's transaction that goes on to take a
+  lock the waiting side holds does, and MySQL fails one of them for the caller to retry: the guard row of the link a
+  waiting external sign-in goes through, or the row of a waiting neighbour, which `ProofIssuance` and `satisfy()` lock
+  before they insert (revoking, refreshing or switching that session, or signing its identity out everywhere). A
+  sign-in's own issuance reads plain for this reason: its session is not committed, so no other transaction can record a
+  proof under it. At READ COMMITTED MySQL locks no gap, and PostgreSQL takes no shared lock. No narrower lock gives a
+  current read there: InnoDB's REPEATABLE READ reads past its snapshot only with a locking read, which locks the range
+  it scans.
 - An exception from the evidence policy or the link contract, and a database error (a serialization failure included),
   propagates and rolls back the caller's transaction, for the adapter to retry whole.
 - All the accepted evidence the session holds (within `EVIDENCE_LIMIT` proofs) is judged against a requirement, newest
@@ -282,7 +290,8 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
 - `tests/Integration/Sessions/ConcurrentFreshSignInsTest.php`: sign-ins of different identities neither wait on each
   other nor deadlock while clearing their keys.
 - `tests/Integration/Sessions/ConcurrentIssuanceAndSignInTest.php`: a sign-in waits for a caller's transaction holding
-  an issuance of the newest session only on MySQL at REPEATABLE READ, and never deadlocks.
+  an issuance of the newest session, and a step-up of the session next to it on either side for one holding an issuance
+  of that session, only on MySQL at REPEATABLE READ, and neither deadlocks.
 - `tests/Integration/Proofs/ByteDistinctBindingTest.php`: session keys that differ only in case or by a trailing space,
   and `amr` values that differ only in case, stay apart.
 - `tests/Integration/Sessions/ReplicaExternalSessionsTest.php`: the provenance and the accepted evidence read on the
