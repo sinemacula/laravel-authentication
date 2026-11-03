@@ -44,8 +44,10 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * schedules `Refreshed` and `SignedIn` (a refresh) for once the rotation is
  * committed on the session's connection, and only then binds the guard as a
  * sign-in (`Validated`, `Login` and the bind events), with the tenant and the
- * sign-in method the exchange established, so a bind listener that throws
- * cannot withhold the report of a rotation already written.
+ * sign-in method the exchange established, once the rotation commits too, as
+ * `DeferredBind` binds it: a bind listener that throws cannot withhold the
+ * report of a rotation already written, and a refresh inside a transaction that
+ * rolls back binds nothing.
  *
  * It runs on the guard's context, reading its request, dispatcher and
  * configuration when each refresh starts, and reaches the guard's bound state
@@ -69,6 +71,7 @@ final readonly class SessionRefresh
      * @param  \SineMacula\Laravel\Authentication\Contracts\GuardBinding  $binding
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchange
      * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
+     * @param  \SineMacula\Laravel\Authentication\Sessions\DeferredBind  $binds
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @param  \SineMacula\Laravel\Authentication\Sessions\RefreshProof  $proof
      */
@@ -85,6 +88,9 @@ final readonly class SessionRefresh
 
         /** Defers the rotation's report until the rotation commits. */
         private AfterCommit $afterCommit,
+
+        /** Binds the guard to the refreshed session once the rotation commits. */
+        private DeferredBind $binds,
 
         /** Container the configuration the refresh token transport reads is resolved from. */
         private Container $container,
@@ -257,12 +263,12 @@ final readonly class SessionRefresh
     }
 
     /**
-     * Exchange the refresh token and bind the guard to the refreshed session,
-     * its pair delivered by the application's transport. A session that no
-     * longer meets its tenant's authentication policy for want of a further
-     * factor returns to pending: the result is pending, with the pending
-     * credential instead of a pair, nothing is bound, and a binding to that
-     * session is forgotten.
+     * Exchange the refresh token and bind the guard to the refreshed session
+     * once the rotation commits, its pair delivered by the application's
+     * transport at once. A session that no longer meets its tenant's
+     * authentication policy for want of a further factor returns to pending:
+     * the result is pending, with the pending credential instead of a pair,
+     * nothing is bound, and a binding to that session is forgotten.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
@@ -296,7 +302,11 @@ final readonly class SessionRefresh
 
         $tokens = $transport->deliver($outcome->tokens, $outcome->record);
 
-        $this->binding->loginVerified($outcome->identity, $outcome->principal, $outcome->record, $outcome->tenant, $outcome->method);
+        $this->binds->run(
+            $outcome->record,
+            $outcome->principal,
+            fn () => $this->binding->loginVerified($outcome->identity, $outcome->principal, $outcome->record, $outcome->tenant, $outcome->method),
+        );
 
         return RefreshResult::refreshed(new SignedInSession($outcome->identity, $outcome->principal, $outcome->record, $tokens, (string) $outcome->method));
     }

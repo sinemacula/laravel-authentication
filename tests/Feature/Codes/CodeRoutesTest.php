@@ -113,18 +113,18 @@ final class CodeRoutesTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        $this->post('/codes', ['phone' => self::PHONE])->assertAccepted()->assertJsonStructure(['expires_at']);
+        $challenge = $this->post('/codes', ['phone' => self::PHONE])->assertAccepted()->assertJsonStructure(['challenge', 'expires_at'])->json('challenge');
 
         $code = $this->sender->lastCodeFor(self::PHONE);
 
         self::assertIsString($code);
 
-        $access = $this->post('/sign-in/code', ['phone' => self::PHONE, 'code' => $code])->assertOk()->json('access_token');
+        $access = $this->post('/sign-in/code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => $code])->assertOk()->json('access_token');
 
         self::assertIsString($access);
 
         $this->bearer($access)->assertOk()->assertExactJson(['phone' => self::PHONE]);
-        $this->post('/sign-in/code', ['phone' => self::PHONE, 'code' => $code])->assertUnauthorized();
+        $this->post('/sign-in/code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => $code])->assertUnauthorized();
     }
 
     /**
@@ -158,12 +158,14 @@ final class CodeRoutesTest extends TestCase
 
         self::assertIsString($code);
 
-        $this->post('/sign-in/code', ['phone' => self::PHONE, 'code' => $code])->assertOk()->assertJsonStructure(['access_token', 'refresh_token']);
+        $this->post('/sign-in/code', ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $code])
+            ->assertOk()
+            ->assertJsonStructure(['access_token', 'refresh_token']);
     }
 
     /**
-     * A number no one has is answered exactly as a known one, and nothing is
-     * delivered.
+     * A number no one has is answered in the same shape as a known one (its own
+     * challenge id), and nothing is delivered.
      *
      * @return void
      */
@@ -174,7 +176,12 @@ final class CodeRoutesTest extends TestCase
         $known   = $this->post('/codes', ['phone' => self::PHONE])->assertAccepted()->json();
         $unknown = $this->post('/codes', ['phone' => self::UNKNOWN_PHONE])->assertAccepted()->json();
 
-        self::assertSame($known, $unknown);
+        self::assertIsArray($known);
+        self::assertIsArray($unknown);
+        self::assertSame(array_keys($known), array_keys($unknown));
+        self::assertSame($known['expires_at'], $unknown['expires_at']);
+        self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, $known['challenge']);
+        self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, $unknown['challenge']);
         self::assertNull($this->sender->lastCodeFor(self::UNKNOWN_PHONE));
         self::assertIsString($this->sender->lastCodeFor(self::PHONE));
     }
@@ -195,7 +202,7 @@ final class CodeRoutesTest extends TestCase
 
         $wrong = $this->sender->lastCodeFor(self::PHONE) === '000000' ? '111111' : '000000';
 
-        $this->post('/sign-in/code', ['phone' => self::PHONE, 'code' => $wrong])->assertUnauthorized();
+        $this->post('/sign-in/code', ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $wrong])->assertUnauthorized();
     }
 
     /**
@@ -211,7 +218,7 @@ final class CodeRoutesTest extends TestCase
 
         self::assertIsString($access);
 
-        $this->bearer($access, 'post', '/phone/verification')->assertAccepted();
+        $challenge = $this->bearer($access, 'post', '/phone/verification')->assertAccepted()->json('challenge');
 
         $code = $this->sender->lastCodeFor(self::PHONE);
 
@@ -219,8 +226,8 @@ final class CodeRoutesTest extends TestCase
 
         $wrong = $code === '000000' ? '111111' : '000000';
 
-        $this->bearer($access, 'post', '/phone/verification/confirm', ['code' => $wrong])->assertUnprocessable();
-        $this->bearer($access, 'post', '/phone/verification/confirm', ['code' => $code])->assertOk()->assertExactJson(['verified' => 'verified']);
+        $this->bearer($access, 'post', '/phone/verification/confirm', ['challenge' => $challenge, 'code' => $wrong])->assertUnprocessable();
+        $this->bearer($access, 'post', '/phone/verification/confirm', ['challenge' => $challenge, 'code' => $code])->assertOk()->assertExactJson(['verified' => 'verified']);
 
         self::assertTrue($identity->fresh()?->hasVerifiedIdentifier('phone'));
     }
@@ -259,10 +266,13 @@ final class CodeRoutesTest extends TestCase
         $result = Auth::codes('mobile')->send('phone_code', ['phone' => $input['phone']]);
 
         return match ($result->status) {
-            CodeRequestStatus::RATE_LIMITED       => response()->json(['message' => 'Too Many Attempts.'], 429, ['Retry-After' => (string) $result->retryAfter]),
-            CodeRequestStatus::IDENTIFIER_INVALID => response()->json(['message' => 'Enter a number in international format.'], 422),
-            CodeRequestStatus::METHOD_NOT_ALLOWED => abort(403),
-            CodeRequestStatus::SENT               => response()->json(['expires_at' => $result->expiresAt?->toIso8601String()], 202),
+            CodeRequestStatus::RATE_LIMITED,
+            CodeRequestStatus::DELIVERIES_EXHAUSTED => response()->json(['message' => 'Too Many Attempts.'], 429, ['Retry-After' => (string) $result->retryAfter]),
+            CodeRequestStatus::IDENTIFIER_INVALID   => response()->json(['message' => 'Enter a number in international format.'], 422),
+            CodeRequestStatus::METHOD_NOT_ALLOWED,
+            CodeRequestStatus::LOCKED,
+            CodeRequestStatus::REFUSED => abort(403),
+            CodeRequestStatus::SENT    => response()->json(['challenge' => $result->challengeId, 'expires_at' => $result->expiresAt?->toIso8601String()], 202),
         };
     }
 
@@ -277,9 +287,10 @@ final class CodeRoutesTest extends TestCase
      */
     private static function signInWithCode(Request $request): array
     {
-        $input = $request->validate(['phone' => ['required', 'string'], 'code' => ['required', 'string']]); // @phpstan-ignore staticMethod.dynamicCall
+        $rules = ['phone' => ['required', 'string'], 'challenge' => ['required', 'string'], 'code' => ['required', 'string']];
+        $input = $request->validate($rules); // @phpstan-ignore staticMethod.dynamicCall
 
-        $result = Auth::sessions('mobile')->signIn('phone_code', ['phone' => $input['phone'], 'code' => $input['code']]);
+        $result = Auth::sessions('mobile')->signIn('phone_code', ['phone' => $input['phone'], 'challenge' => $input['challenge'], 'code' => $input['code']]);
 
         abort_unless($result->isSignedIn(), 401);
 
@@ -305,7 +316,7 @@ final class CodeRoutesTest extends TestCase
 
         $result = Auth::codes('mobile')->sendVerification($identity, 'phone');
 
-        return response()->json(['status' => $result->status->value], $result->isSent() ? 202 : 429);
+        return response()->json(['status' => $result->status->value, 'challenge' => $result->challengeId], $result->isSent() ? 202 : 429);
     }
 
     /**
@@ -317,12 +328,12 @@ final class CodeRoutesTest extends TestCase
      */
     private static function confirmVerification(Request $request): array
     {
-        $input    = $request->validate(['code' => ['required', 'string']]); // @phpstan-ignore staticMethod.dynamicCall
+        $input    = $request->validate(['challenge' => ['required', 'string'], 'code' => ['required', 'string']]); // @phpstan-ignore staticMethod.dynamicCall
         $identity = Auth::identity();
 
         abort_unless($identity instanceof Identity, 401);
 
-        $outcome = Auth::codes('mobile')->verify($identity, 'phone', $input['code']);
+        $outcome = Auth::codes('mobile')->verify($identity, 'phone', $input['challenge'], $input['code'])->outcome;
 
         abort_unless(in_array($outcome, [VerificationOutcome::VERIFIED, VerificationOutcome::ALREADY_VERIFIED], true), 422);
 

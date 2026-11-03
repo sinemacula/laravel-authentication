@@ -18,8 +18,10 @@ inheritance:
 | Custom auth manager               | Extend `AuthManager` and bind it to `auth` in a `register()`; the package keeps it                               |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                |
 | Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
-| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
+| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy`; call `factorRemoved()` or `factorReset()` when factors are removed       |
+| Gating factor changes             | Call `Auth::sessions()->factorChange()` before adding, replacing or removing a factor or making recovery codes   |
 | Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
+| Passkeys registered as factors    | Bind your own `PasskeyFactorGate`; it is asked inside each passkey registration and removal                      |
 | Application decisions             | Implement `ApplicationPolicy` (methods, lifetimes, identifiers) and bind it in the container                     |
 | Who may use an application        | Implement `ApplicationAccess` and bind it in the container                                                       |
 | Tenants a principal may act in    | Implement `TenantAccess` and bind it in the container                                                            |
@@ -29,6 +31,7 @@ inheritance:
 | Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
 | Identifier normal forms           | Implement `IdentifierNormalizer`, register it by type in the config                                              |
 | One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
+| Further-factor code counts        | Implement `FactorCodeCounters` and bind it in the container (a further-factor package binds one)                 |
 | Breached-password checks          | Implement `BreachedPasswordChecker` and bind it in the container                                                 |
 | Password reset links              | Implement `PasswordResetLinkSender` and bind it in the container                                                 |
 | Identifier change notices         | Implement `IdentifierChangeNotifier` and bind it in the container                                                |
@@ -176,7 +179,8 @@ Whether a session's proofs meet a further factor is `Contracts\RequirementCheck`
 `Requirements\RequirementSubject` (the identity, the application, the session, the first factor it signed in with, the
 time, and `proofs($since, $kinds, $limit)`, a bounded query over its counting proofs, newest first, at most
 `RequirementSubject::MAX_LIMIT`) and the `Requirement`, and answers a `Requirements\RequirementEvaluation` listing the
-kinds left unmet. The default, `MeetNoRequirement`, meets nothing: a tenant that requires a further factor admits no
+kinds left unmet. It judges the identity-level requirement the additional-factor policy answers as well as a tenant's.
+The default, `MeetNoRequirement`, meets nothing: an identity or a tenant that requires a further factor admits no
 session until a factor package binds its check. The package never asks it with an empty requirement.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
@@ -306,13 +310,16 @@ driver was registered.
 ### Binding order
 
 Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `ApplicationPolicy`,
-`AttemptLimiter`, `AdditionalFactorPolicy`, `ScopeRegistry`, `BreachedPasswordChecker`, `PasswordResetLinkSender`, and
-the `IdentifierNormalizers` and `SignInMethodManager` registries. Bind yours in a service provider's `register()`,
-before or after the package's provider: one bound before is kept, and one bound after replaces the default, so a factor
-policy is never replaced by `NeverRequireAdditionalFactor`, nor a scope registry by `AcceptAnyScope`. A `bind()` or
-`singleton()` replaces a default even once it has resolved, for every caller that resolves it afterwards; a deferred
-provider does not, as Laravel loads one only for a service that has no instance yet. Resolve none of them while
-providers register, or a deferred provider's binding of it is passed over.
+`ApplicationAccess`, `TenantAccess`, `TenantResolver`, `AttemptLimiter`, `AdditionalFactorPolicy`, `PasskeyFactorGate`,
+`TenantAuthenticationPolicy`, `RequirementCheck`, `FactorCodeCounters`, `FreshnessPolicy`, `ScopeRegistry`,
+`BreachedPasswordChecker`, `PasswordResetLinkSender`, the `IdentifierNormalizers` and `SignInMethodManager` registries,
+and the package's own `WebAuthn`, `Rehashing`, `JwtTokenServiceFactory` and the `Authenticate` middleware that stands in
+for Laravel's. Bind yours in a service provider's `register()`, before or after the package's provider: one bound before
+is kept, and one bound after replaces the default, so a factor policy is never replaced by
+`NeverRequireAdditionalFactor`, nor a scope registry by `AcceptAnyScope`. A `bind()` or `singleton()` replaces a default
+even once it has resolved, for every caller that resolves it afterwards; a deferred provider does not, as Laravel loads
+one only for a service that has no instance yet. Resolve none of them while providers register, or a deferred provider's
+binding of it is passed over.
 
 Register a sign-in method once the registry resolves, which works in either order (a registry made with `make()` before
 the package registers is not the one the package uses):
@@ -350,60 +357,126 @@ seam has a default that works alone.
 
 ### Further factors (`laravel-mfa`)
 
-- Bind `Contracts\RequirementCheck` (the default, `MeetNoRequirement`, meets nothing). It judges whether a session's
-  proofs meet the further factor a tenant's authentication policy requires, at sign-in, at the choice, on refresh, on a
-  switch, when a pending session is acted on and when `Auth::caller()` reads a refresh credential; without it, a
-  tenant that requires a further factor never activates a session (see [Tenant authentication
-  policies](#tenant-authentication-policies)).
-- Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, never asks). It is asked about
-  every admitted identity's sign-in, from `signIn()` and `start()`, before any principal is chosen, and again whenever
-  its pending session is acted on (never on a switch), with the guard, identity, method, client and the session the
-  client proved; it names no principal or tenant (see [Additional factors](signing-in.md#additional-factors)). A stored
-  accepted further factor or recovery code meets it.
-- When it asks for a factor, the sign-in's session waits pending with `mfa` outstanding: `SignInResult::isPending()`,
+- Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, asks for nothing). It answers
+  what a session's authentication must include beyond its first factor as this package's own `Requirements\Requirement`
+  (an additional verification, multifactor, a minimum assurance level, phishing resistance, each with an optional
+  maximum age). It is asked about every admitted identity's sign-in, from `signIn()` and `start()`, before any principal
+  is chosen, again whenever its pending session is acted on, and when a refresh or a switch returns the session to
+  pending under its destination tenant's policy or `factorRemoved()` judges the current session again (never on a
+  refresh or switch that tenant's policy lets through), inside `WriteConnection::during()` for the identity, with an
+  `AdditionalFactorContext`: the application, the identity, the first factor's whole recorded proof
+  (`Proofs\RecordedProof`: method, channel, observed properties, `amr` values, time), the client, and the session the
+  client proved; it names no principal or tenant (see [Additional factors](signing-in.md#additional-factors)).
+- Bind `Contracts\RequirementCheck` (the default, `MeetNoRequirement`, meets nothing). It is the one judge of whether a
+  session's proofs meet a requirement: the identity-level one above and the further factor a tenant's authentication
+  policy requires, at sign-in (the first factor alone, in memory: a requirement the first factor meets activates the
+  session at once), at the choice, on refresh, on a switch, when a pending session is acted on and when
+  `Auth::caller()` reads a refresh credential. Without it, a non-empty requirement never activates a session: it
+  fails closed (see [Tenant authentication policies](#tenant-authentication-policies)).
+- When a requirement is unmet, the sign-in's session waits pending with `mfa` outstanding: `SignInResult::isPending()`,
   its `PendingSession` and pending credential, then `Auth::sessions()->pending($credential, $action)` to check an
   `mfa.*` action (`Sessions\Enums\PendingAction`) before the factor package acts, `satisfy()` once the factor is
-  verified, or `discard()` (see [Pending sessions](signing-in.md#pending-sessions)). `attempt()` cannot wait, so it
-  fails as `additional_factor_required`.
-- A factor removed ends the identity's other sessions: `Auth::sessions()->factorRemoved($identity, Auth::session())`.
-- Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
-  report nothing: the factor's outcome is the factor package's to limit and report. `verifyFactor()` answers a
-  `PasskeyFactorResult` (see [Using passkeys](signing-in.md#using-passkeys)), never `null`.
+  verified, or `discard()` (see [Pending sessions](signing-in.md#pending-sessions)). The `PendingSession` tells the
+  factor package what it needs: `$requirement` (what its authentication still falls short of: the strictest of the
+  identity-level requirement and the destination tenant's, each only while it is unmet; empty while only the choice is
+  outstanding), `$firstFactor`, `proofs($since, $kinds, $limit)` (its counting proofs, newest first, one bounded read
+  each call) and `$expiresAt` (when the pending credential ends). `attempt()` cannot wait, so it fails as
+  `additional_factor_required` whenever the password alone does not meet the requirement.
+- A pending session's bootstrap enrolment (its first factor, enrolled while it waits) goes through its credential:
+  `pending($credential, PendingAction::START_BOOTSTRAP_ENROLLMENT)` and `CONFIRM_BOOTSTRAP_ENROLLMENT`, allowed only
+  while the factor is its first outstanding requirement and until the credential expires, then `satisfy()` with the
+  confirming factor's proof for `enrollment`. It never goes through the factor-change gate below, which refuses a
+  pending session.
+- Before it adds, replaces or removes one of an identity's further factors, or generates its recovery codes, from an
+  active session, the factor package asks the gate inside the transaction that makes the change, on the storage
+  connection, after its own identity and factor locks: `Auth::sessions()->factorChange($session, FactorChange::REMOVE,
+  $requirement, $factor)` (`Factors\Enums\FactorChange`: `mfa.add_factor`, `mfa.add_first_additional_factor`,
+  `mfa.replace_factor`, `mfa.remove_factor`, `mfa.generate_recovery_codes`). It locks the session's row until that
+  transaction ends, checks it is still the session given, one of this guard's live, active sessions, and a person's,
+  then asks the freshness policy: every change takes a fresh step-up (`factor_change`, refused as `step_up_required`),
+  except an identity's first additional factor (`ADD_FIRST`, which the factor package names, knowing the identity has
+  none), which takes a fresh reauthentication with the first factor (`first_additional_factor`, refused as
+  `reauthentication_required`): the sign-in's own first factor never counts, so whoever holds a session cannot enrol a
+  factor on it without proving the first factor again. A replacement or removal names its factor (required for those,
+  refused for the others), whose own proofs never count for its change. The answer, a `Factors\FactorChangeVerdict`,
+  carries the fresh proof and `freshUntil` (when the session stops being fresh for it, for a grant that outlives the
+  request), or the reason; it writes and reports nothing.
+- A factor removed, inside the same transaction and after the same locks: `Auth::sessions()->factorRemoved($identity,
+  $factor->reference(), Auth::session())` ends the identity's other sessions, voids the current session's proofs made
+  with that factor, and judges the current session again: it stays active, returns to pending (its
+  `Sessions\FactorRemoval` carries the pending session and credential for the client) or is revoked; a current session
+  already pending stays pending, judged without those proofs at its next action. Every factor reset:
+  `Auth::sessions()->factorReset($identity)` ends every session and, once committed, the request's authentication as the
+  identity. Both are mandatory: no setting turns them off, and they are called synchronously, never through a listener
+  (see [Sign-in factors](sessions.md#sign-in-factors)). The identity must live on the storage connection.
+- Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
+  `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
+  the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows
+  only the credential ids named; `verifyFactor()` answers a `PasskeyFactorResult` (see [Using
+  passkeys](signing-in.md#using-passkeys)), never `null`, whose `PasskeyFactorAssertion` carries the assertion's own
+  observed properties for the factor package's `ProofResult`.
+- Bind a `Contracts\PasskeyFactorGate` to take part in the passkeys' lifecycle: `registering()` is asked inside the
+  transaction that inserts a new passkey and may associate it as a factor (`PasskeyFactorAssociation`, carried in the
+  `PasskeyRegistration`'s `factor`), and `removing()` inside the one that deletes it; either may refuse by throwing,
+  which rolls the change back whole. The default, `Passkeys\NoPasskeyFactors`, associates nothing and refuses nothing.
+- A factor's one-time codes (a text message or email factor, and the confirmation of one being enrolled) are this
+  package's challenges: `Auth::codes($guard)->sendFactorCode($binding, $client)` sends one and answers a `CodeRequest`
+  with its `challengeId`, and `verifyFactorCode($binding, $challengeId, $code, $client)` checks it and answers a
+  `Codes\FactorCodeCheck`. The `Codes\FactorCodeBinding` names the `ProofBinding` (identity, this guard, the session's
+  key, and `sign_in` or `step_up` for an `mfa` challenge, `enrollment` for an enrolment's), the factor's reference, the
+  `Channel` (`sms` or `email`, with the destination in its normal form) and, for an enrolment, its grant. A code is
+  accepted only for that very binding: another session, factor, purpose or grant, and an `mfa` code as an `enrollment`
+  one or the reverse, is `invalid`. The delivery key is the destination and the identity, never the factor, so the
+  cooldown and the delivery cap hold across an enrolment restarted with a new factor and grant. Bind
+  `Contracts\FactorCodeCounters` (the default, `RefuseFactorCodes`, refuses every code): `admit()` is asked before each
+  delivery and each check, and `report($binding, $challengeId, $passed)` exactly once for each attempt a check counts,
+  both inside the package's transaction on the storage connection (a savepoint of yours, when you opened one). `admit()`
+  runs before the challenge's row is locked, so take your identity and factor locks there, on that same connection;
+  `report()` runs after the row is locked and the attempt counted, so it must take no lock that comes before the
+  challenge (it writes the counts of rows `admit()` already locked). The report's answer stands: a matching code is
+  `verified` only when it answers `admitted`. This package counts per challenge, per destination and per IP address
+  (`codes.max_attempts`, `codes.max_deliveries`, the `code_request` and `factor_code` limits); the per-factor and
+  per-identity counts and lockouts are yours. Turn a verified check into a `ProofResult` (its method, the channel, the
+  factor, the binding) and hand it to `satisfy()` or `stepUp()`, inside the same transaction when both are to commit
+  together.
 - A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see [Proofs and
   provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session service as a
   `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart), method,
   channel, factor, what it observed (`null` for anything it did not), its `Evaluation` (accepted, and multifactor as it
   judged it: `amr` carries `mfa` only from there, never counted from the values, and a proof's own values may not name
   `mfa`), its `amr` values (at most 8, each 1 to 48 printable ASCII characters other than `"` and `\`; anything else is
-  an `InvalidArgumentException`), its time and its `ProofBinding` (identity, application, session, purpose).
-  Satisfy a pending session with `satisfy($credential, $proof)`, bound to `PendingSession::$id` for `sign_in`,
-  or `enrollment` for the factor that confirms a bootstrap enrolment (see
-  [Satisfying a further factor](signing-in.md#satisfying-a-further-factor)). Nothing a factor package keeps about a
-  session survives a sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the
-  client proved (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it when the new one first
-  activates.
+  an `InvalidArgumentException`), its time and its `ProofBinding` (identity, application, session, purpose). Satisfy a
+  pending session with `satisfy($credential, $proof)`, bound to `PendingSession::$id` for `sign_in`, or `enrollment` for
+  the factor that confirms a bootstrap enrolment (see [Satisfying a further
+  factor](signing-in.md#satisfying-a-further-factor)). Called inside the factor package's own transaction, on the
+  storage connection, the activation commits with it: the guard is bound, and the sign-in's slots given back, only once
+  that transaction commits, and never when it rolls back. Nothing a factor package keeps about a session survives a
+  sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the client proved
+  (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it when the new one first activates.
 - Step a signed-in session up with a factor the factor package has just verified: `Auth::sessions()->stepUp($proof)`,
   with the `ProofResult` bound to the session's key for `step_up`. The session keeps its refresh token and deadlines,
   and every access token issued for it from then on carries the factor in `auth_time` and `amr`; the session then
   proves an identifier change, or any operation whose freshness takes a further factor (see [Stepping
   up](sessions.md#stepping-up)). A factor verified outside a session proves nothing on its own.
-- Before a sensitive operation of its own (adding or removing a factor, say), the factor package asks
-  `FreshnessPolicy::freshProof($session, 'mfa.add_factor')`, under a namespaced operation name of its own that the
+- Before a sensitive operation of its own that the gate does not cover, the factor package asks
+  `FreshnessPolicy::freshProof($session, 'mfa.some_operation')`, under a namespaced operation name of its own that the
   application configures under `freshness`, and passes a `FreshnessRequirement` of its own for a floor the
   configuration may not lower (see [Freshness](sessions.md#freshness)). A caller that means only "within so many
   seconds" passes `FreshnessRequirement::within($seconds)`, which takes every proof kind: a list of kinds of its own
-  narrows the configured kinds to those both take.
-- `factor_change` covers only this package's own factor changes, not the factor package's operation names
-  (`mfa.add_factor`, `mfa.replace_factor`, `mfa.remove_factor`, `mfa.generate_recovery_codes`). An application that
-  wants those to take only a further factor or a recovery code configures an entry for each under `freshness`, with
-  `additional_factor` and `recovery_code` as its proofs; without one, the factor package's own requirement decides.
+  narrows the configured kinds to those both take. `freshUntil()` answers until when the session stays fresh, and both
+  take an excluded factor (`$excludingFactor`), whose proofs never count: a removal's requirement is met only by the
+  session's other proofs.
+- The factor package's own requirement for a change (its `mfa.add_factor`, say) is the caller's requirement the gate
+  takes as `$requirement`: the stricter of it and `factor_change` (or `first_additional_factor`) applies.
+- The active tenant the factor package acts in comes from the validated session or caller, never from an event's
+  context: `Auth::tenant()` on the request, `Auth::caller()?->tenant`, or the session's own `getTenantId()`.
 - When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
   may be lowered from 15 to 8, as NIST SP 800-63B allows (see [Password policy](passwords.md#password-policy)).
 
 `verifyFactor()` answers a result: ask it, never check it for `null` or truthiness:
 
 ```php
-$result = Auth::passkeys()->verifyFactor($identity, $challenge, $credential);
+$result = Auth::passkeys()->verifyFactor($identity, $binding, $challenge, $credential);
 $passed = $result->isVerified();   // else $result->reason
 ```
 

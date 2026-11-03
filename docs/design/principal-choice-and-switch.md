@@ -68,7 +68,8 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   none) so a principal a policy refuses to that identifier cannot be reached by switching, and the destination tenant
   admitted by `TenantAdmission::select()` (`TenantAccess` and, for a tenant other than the principal's own,
   `TenantResolver`: `tenant_ineligible`; inactive: `tenant_inactive`). The identity-level additional-factor policy is
-  not asked.
+  not asked to admit the destination; it is asked only once the destination's policy returns the session to pending
+  (`PendingTransitions::outstanding()`), so the pending session names the strictest of both.
 - With the current rotation id, the token's `principal` must be the principal the session records
   (`session_principal_mismatch`). Then the destination tenant's authentication policy judges the session against its own
   proofs and provenance (`TenantPolicyCheck::check()`, outside any transaction): connections the session was not
@@ -114,16 +115,16 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
    `principal`: `SessionPending` follows the commit, and the result `isPending()`, listing the principals.
 2. `pending($credential, PendingAction::LIST_PRINCIPALS)` lists them again; `choose($credential, $principal)` activates
    the session as it, scheduling `SessionCreated` and `SignedIn` for the session's commit before it binds the guard
-   (`Validated`, `Login` and the bind events), and the slots are given back after the commit. With no transaction open
-   on the session's connection that is `SessionCreated`, `SignedIn`, then `Login`; inside a caller's transaction the
-   bind events come first, and the pair follows its commit or is dropped on a rollback.
+   (`Validated`, `Login` and the bind events), and the slots are given back after the bind. With no transaction open
+   on the session's connection that is `SessionCreated`, `SignedIn`, then `Login`; inside a caller's transaction all
+   of it follows the commit in that order, or none of it runs on a rollback.
 3. Later, `switchFromRequest(SwitchTarget::principal($other))` (or `switchTo($refreshToken, $target)` with a token read
    by the caller) rotates the session to the other principal, in its own tenant unless one is named, or with
    `SwitchTarget::tenant()` to another tenant, and schedules `PrincipalSwitched` for the commit on the session's
    connection before it binds the guard to the destination in the destination tenant (`Authenticated`,
    `PrincipalAssigned`, `SessionAuthenticated`), so a bind listener that throws cannot withhold the report. With no
    transaction open there `PrincipalSwitched` is dispatched at once, before the bind events; inside a caller's
-   transaction the bind events come first, and it follows the commit or is dropped on a rollback. Every access token
+   transaction both follow the commit, in that order, or are dropped on a rollback. Every access token
    issued before the switch fails on the bearer path from then on.
 
 ## Failure / Edge Cases
@@ -152,7 +153,9 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   `src/Sessions/PendingSessions.php` (`choose()`) over `src/Sessions/SessionActivation.php` and then bound by the
   service.
 - `src/Sessions/PendingEvaluation.php`: `principals()`, `principal()`, `selection()`, `named()`, `destination()`,
-  `owesFactor()`.
+  `owedFactor()`, `owedFactorOn()`; `src/Sessions/PendingTransitions.php`: `firstFactorOf()` (the first factor the
+  tenant's verdict was judged on, so it is read once), `outstanding()` (what a switch that returns the session to
+  pending names: the strictest of the destination tenant's requirement and the identity's own).
 - `src/Sessions/SessionSwitch.php`: one switch, built per call; `switch()` (the limiter), `switchOn()`, `admit()`,
   `admitAsDestination()`, `isDestination()`, `switchCurrent()`, `underPolicy()`, `toPending()`, `rotateTo()`, `retry()`,
   `afterLostSwitch()`, `deadlines()`; `src/Sessions/SwitchTarget.php` and `src/Sessions/SwitchedPrincipal.php`.
@@ -170,8 +173,9 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 - `tests/Feature/Sessions/SessionSwitchTest.php` (the switch over HTTP, the old access token refused at once, A -> B ->
   A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a switch read
   from the request and the transport's refusals, a switch screen's listing, a tenant-only switch and one of both,
-  switching back to a tenant, two switches in one second, the destination tenant's refusals, the proofs kept, and the
-  identity-level factor policy not asked)
+  switching back to a tenant, two switches in one second, the destination tenant's refusals, the proofs kept, the
+  identity-level factor policy not asked by a switch the destination lets through, and its requirement named by one
+  the destination returns to pending)
 - `tests/Integration/Sessions/SessionSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch, a
   different switch, a deadline change, a tenant or policy version change, a deletion and an owner change, and a swap
   lost to a refresh with no grace window or to two refreshes, which revokes the session)

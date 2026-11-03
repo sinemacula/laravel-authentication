@@ -100,6 +100,7 @@ final class EndedSessionsCancelChangesTest extends TestCase
         };
 
         $revokeAll = static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->revokeSessions($identity, RevocationReason::REVOKED);
+        $removal   = static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->factorRemoved($identity, 'factor-1')->revoked;
 
         yield from [
             'signing out everywhere'                 => [$everywhere(false)],
@@ -107,7 +108,9 @@ final class EndedSessionsCancelChangesTest extends TestCase
             'revoking every session'                 => [$revokeAll],
             'a password changed'                     => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->passwordChanged($identity)],
             'a password reset'                       => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->passwordReset($identity)],
-            'a factor removed'                       => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->factorRemoved($identity)],
+            'a credential removed'                   => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->credentialRemoved($identity)],
+            'a factor removed'                       => [$removal],
+            'the factors reset'                      => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->factorReset($identity)],
             'the identity deactivated'               => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->identityDeactivated($identity)],
             'Laravel\'s password reset event'        => [$listener],
         ];
@@ -146,10 +149,13 @@ final class EndedSessionsCancelChangesTest extends TestCase
 
         self::assertSame(1, self::rows('identifier_changes'));
         self::assertNull($this->changes()->pending($identity, 'email'));
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($link)));
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('admin')->confirmByCode($identity, 'phone', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($link))->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::INVALID,
+            $this->changes('admin')->confirmByCode($identity, 'phone', self::changeChallenge($identity, 'phone'), self::CODE)->outcome,
+        );
         self::assertSame([self::EMAIL, self::PHONE], [$identity->fresh()?->email, $identity->fresh()?->phone]);
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($other, 'email', '246802'));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($other, 'email', self::changeChallenge($other, 'email'), '246802')->outcome);
     }
 
     /**
@@ -194,7 +200,7 @@ final class EndedSessionsCancelChangesTest extends TestCase
         };
 
         self::assertNotNull($session->fresh()?->revoked_at);
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByLink(Request::create($link)));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByLink(Request::create($link))->outcome);
     }
 
     /**

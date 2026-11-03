@@ -28,6 +28,6 @@ final class VerificationOutcomeTest extends TestCase
      */
     public function testTheValuesAreFixed(): void
     {
-        self::assertSame(['verified', 'already_verified', 'mismatch', 'invalid', 'expired', 'exhausted'], array_column(VerificationOutcome::cases(), 'value'));
+        self::assertSame(['verified', 'already_verified', 'mismatch', 'invalid', 'expired', 'exhausted', 'rate_limited'], array_column(VerificationOutcome::cases(), 'value'));
     }
 }

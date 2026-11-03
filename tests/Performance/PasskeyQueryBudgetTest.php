@@ -71,8 +71,9 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * Registration options read the identity's passkeys once and write the
-     * challenge once; the registration reads and deletes the challenge and
-     * inserts the passkey.
+     * challenge once; the registration reads and deletes the challenge, reads
+     * whether the credential is registered already (before the factor gate,
+     * which reads nothing by default, is asked) and inserts the passkey.
      *
      * @return void
      *
@@ -86,7 +87,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
         $options = $this->assertQueryBudget(1, 1, static fn (): CeremonyOptions => $passkeys->registrationOptions($identity, self::USER_NAME));
         $answer  = $this->authenticator()->create($options->options);
 
-        self::assertTrue($this->assertQueryBudget(1, 2, static fn (): mixed => $passkeys->register($identity, $options->challengeId, $answer))->isRegistered());
+        self::assertTrue($this->assertQueryBudget(2, 2, static fn (): mixed => $passkeys->register($identity, $options->challengeId, $answer))->isRegistered());
     }
 
     /**
@@ -130,9 +131,11 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A factor ceremony reads the identity's passkeys and writes its
-     * challenge; its verification reads the challenge and the passkey, and
-     * writes the delete and the count, and nothing else.
+     * A factor ceremony reads the identity's passkeys, keeping those the factor
+     * package named, and writes its challenge; its verification reads the
+     * challenge and the passkey, checks the passkey is one the challenge
+     * allowed without a query, and writes the delete and the count, and nothing
+     * else.
      *
      * @return void
      *
@@ -145,10 +148,16 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
         $this->registerPasskey($identity);
 
         $passkeys = Auth::passkeys('api');
-        $options  = $this->assertQueryBudget(1, 1, static fn (): CeremonyOptions => $passkeys->factorOptions($identity));
-        $answer   = $this->authenticator()->get($options->options);
+        $ids      = [$this->authenticator()->lastCredentialId()];
+        $options  = $this->assertQueryBudget(1, 1, static fn (): ?CeremonyOptions => $passkeys->factorOptions($identity, self::factorBinding($identity), $ids));
 
-        self::assertTrue($this->assertQueryBudget(2, 2, static fn (): mixed => $passkeys->verifyFactor($identity, $options->challengeId, $answer))->isVerified());
+        self::assertNotNull($options);
+
+        $answer = $this->authenticator()->get($options->options);
+
+        $binding = self::factorBinding($identity);
+
+        self::assertTrue($this->assertQueryBudget(2, 2, static fn (): mixed => $passkeys->verifyFactor($identity, $binding, $options->challengeId, $answer))->isVerified());
     }
 
     /**

@@ -26,6 +26,8 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
@@ -481,6 +483,53 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
+     * A bulk revocation given a callback for its commit runs it once the
+     * revocation commits, before the session and the scope it ended are
+     * reported, and never when it rolls back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABulkRevocationRunsItsCommitCallbackBeforeItReports(): void
+    {
+        $this->seedIdentity();
+
+        $session     = $this->signIn();
+        $order       = new \ArrayObject;
+        $revocations = new RevocationWriter(app('db'), static fn (): mixed => app('db.transactions'));
+        $revoke      = static fn (): int => $revocations->revokeScopes(
+            [RevocationScope::identity($session->identity)],
+            RevocationReason::REVOKED,
+            null,
+            CarbonImmutable::now(),
+            static function () use ($order): void {
+                $order->append('session');
+            },
+            static function () use ($order): void {
+                $order->append('scope');
+            },
+            static function () use ($order): void {
+                $order->append('committed');
+            },
+        );
+
+        try {
+            DB::transaction(static function () use ($revoke): void {
+
+                $revoke();
+
+                throw new \RuntimeException('rolled back');
+            });
+        } catch (\RuntimeException) {
+            self::assertSame([], $order->getArrayCopy());
+        }
+
+        self::assertSame(1, DB::transaction($revoke));
+        self::assertSame(['committed', 'session', 'scope'], $order->getArrayCopy());
+    }
+
+    /**
      * A bulk revocation with nothing left to revoke is still reported, with a
      * count of none.
      *
@@ -703,12 +752,12 @@ final class RevocationWriterTest extends TestCase
              * Always require a further factor.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return true;
+                return new Requirement(new RequirementPart);
             }
         });
 

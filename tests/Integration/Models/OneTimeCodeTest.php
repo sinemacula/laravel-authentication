@@ -70,8 +70,9 @@ final class OneTimeCodeTest extends TestCase
     }
 
     /**
-     * The binding digest, the issuance and the code's hash never reach a
-     * serialised row, and the attempts and times are cast.
+     * The key's digest, the challenge, its transaction, the issuance and the
+     * code's hash never reach a serialised row, and the counts and times are
+     * cast.
      *
      * @return void
      */
@@ -81,57 +82,69 @@ final class OneTimeCodeTest extends TestCase
 
         $code = OneTimeCode::query()->sole();
 
-        self::assertSame(['purpose', 'guard', 'attempts', 'issued_at', 'expires_at', 'consumed_at'], array_keys($code->toArray()));
-        self::assertSame(3, $code->attempts);
+        self::assertSame(['purpose', 'guard', 'attempts', 'deliveries', 'window_started_at', 'issued_at', 'expires_at', 'consumed_at'], array_keys($code->toArray()));
+        self::assertSame([3, 2], [$code->attempts, $code->deliveries]);
 
         $code->setAttribute('attempts', '4');
+        $code->setAttribute('deliveries', '3');
 
-        self::assertSame(4, $code->attempts);
+        self::assertSame([4, 3], [$code->attempts, $code->deliveries]);
+        self::assertSame('2026-04-06 11:00:00', $code->window_started_at->format('Y-m-d H:i:s'));
         self::assertSame('2026-04-06 12:10:00', $code->expires_at->format('Y-m-d H:i:s'));
         self::assertNull($code->consumed_at);
     }
 
     /**
      * `model:prune` deletes the codes that have expired, from the second they
-     * expire, and keeps the rest; `prunable()` is the query it deletes.
+     * expire, once their delivery window has ended too, from the second it
+     * ends, and keeps the rest, so pruning never starts a window afresh;
+     * `prunable()` is the query it deletes.
      *
      * @return void
      */
-    public function testPrunesExpiredCodes(): void
+    public function testPrunesExpiredCodesWhoseWindowEnded(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-04-06 12:00:00'));
+
+        config()->set('authentication.codes.delivery_window_seconds', 3600);
 
         self::insertCode('a', '2026-04-06 11:00:00');
         self::insertCode('b', '2026-04-06 12:00:00');
         self::insertCode('c', '2026-04-06 12:00:01');
+        self::insertCode('d', '2026-04-06 11:30:00', '2026-04-06 11:00:01');
 
         self::assertSame([str_repeat('a', 64), str_repeat('b', 64)], (new OneTimeCode)->prunable()->orderBy('id')->pluck('id')->all());
 
         Artisan::call('model:prune', ['--model' => [OneTimeCode::class]]);
 
-        self::assertSame([str_repeat('c', 64)], DB::table('one_time_codes')->pluck('id')->all());
+        self::assertSame([str_repeat('c', 64), str_repeat('d', 64)], DB::table('one_time_codes')->orderBy('id')->pluck('id')->all());
     }
 
     /**
-     * Insert a code row keyed by the repeated character, expiring at the time.
+     * Insert a code row keyed by the repeated character, expiring at the time,
+     * in a delivery window that began at the time given.
      *
      * @param  string  $key
      * @param  string  $expiresAt
+     * @param  string  $windowStartedAt
      * @return void
      */
-    private static function insertCode(string $key, string $expiresAt): void
+    private static function insertCode(string $key, string $expiresAt, string $windowStartedAt = '2026-04-06 11:00:00'): void
     {
         self::assertTrue(Schema::hasTable('one_time_codes'));
 
         DB::table('one_time_codes')->insert([
-            'id'         => str_repeat($key, 64),
-            'purpose'    => 'sign_in',
-            'guard'      => 'mobile',
-            'issue_id'   => '0195f4a2-7b1c-4000-8000-00000000000' . $key,
-            'code_hash'  => str_repeat('f', 64),
-            'attempts'   => 3,
-            'issued_at'  => '2026-04-06 11:00:00',
-            'expires_at' => $expiresAt,
+            'id'                => str_repeat($key, 64),
+            'challenge_id'      => '0195f4a2-7b1c-4000-8000-00000000001' . $key,
+            'purpose'           => 'sign_in',
+            'guard'             => 'mobile',
+            'issue_id'          => '0195f4a2-7b1c-4000-8000-00000000000' . $key,
+            'code_hash'         => str_repeat('f', 64),
+            'attempts'          => 3,
+            'deliveries'        => 2,
+            'window_started_at' => $windowStartedAt,
+            'issued_at'         => '2026-04-06 11:00:00',
+            'expires_at'        => $expiresAt,
         ]);
     }
 }

@@ -26,11 +26,15 @@ final readonly class SignedInSession
     /**
      * Constructor.
      *
+     * @internal `$heldSlots` is the session service's; an application reads the
+     *     session, its tokens and how it was started
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $record
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenPair  $tokens
      * @param  string  $method
+     * @param  list<\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation>  $heldSlots
      */
     public function __construct(
 
@@ -48,5 +52,8 @@ final readonly class SignedInSession
 
         /** Name of the sign-in method that started the session. */
         public string $method,
+
+        /** The slots its pending sign-in held, which the session service gives back once it binds it. */
+        public array $heldSlots = [],
     ) {}
 }

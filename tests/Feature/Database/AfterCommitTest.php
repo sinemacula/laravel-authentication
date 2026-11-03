@@ -215,6 +215,32 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
+     * It says whether work run now would wait: only while a transaction is open
+     * on the model's own connection, and never without a transactions manager.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSaysWhetherWorkWouldWait(): void
+    {
+        $session  = $this->record();
+        $separate = new SeparateConnectionSession;
+
+        self::assertFalse($this->afterCommit()->defers($session));
+
+        DB::beginTransaction();
+
+        self::assertTrue($this->afterCommit()->defers($session));
+        self::assertFalse($this->afterCommit()->defers($separate));
+        self::assertFalse((new AfterCommit(static fn (): null => null))->defers($session));
+
+        DB::rollBack();
+
+        self::assertFalse($this->afterCommit()->defers($session));
+    }
+
+    /**
      * Without a transactions manager, nothing can be deferred, so the work runs
      * at once even inside a transaction.
      *

@@ -10,10 +10,13 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -22,7 +25,9 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMember;
@@ -35,8 +40,9 @@ use Tests\Integration\Fixtures\ChoosingMembership;
  * the choice uses it up, writes the session and gives the slots back; a switch
  * reads the refresh counters, the session, its owner, the target, its tenant
  * and its owner, writes the one compare-and-swap, and then reads the principal
- * it switched from for the event, while a grace retry writes nothing and a
- * refusal writes only the counters.
+ * it switched from for the event, while a switch its destination's policy
+ * returns to pending reads the first factor once instead, a grace retry writes
+ * nothing and a refusal writes only the counters.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -108,6 +114,30 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * A switch whose destination's tenant now asks for a further factor reads
+     * the refresh counters, the session, its owner, the target, its tenant and
+     * its owner, then the one first-factor proof the policy is judged on, which
+     * the identity's own requirement and the pending session reuse, and writes
+     * the one compare-and-swap that returns the session to pending instead of
+     * the switch.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchReturningToPendingReadsItsFirstFactorOnce(): void
+    {
+        [$session, $second] = $this->signInWithASecondMembership();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v2', new Requirement(new RequirementPart))));
+
+        $sessions = $this->sessions('members');
+        $result   = $this->assertQueryBudget(7, 1, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
+
+        self::assertTrue($result->isPending());
+    }
+
+    /**
      * A sign-in held for a choice between two memberships reads the identity,
      * its memberships and each one's tenant, and what an earlier session left
      * under the pending session's key (two reads, which find nothing), and
@@ -136,7 +166,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * Reading a pending session waiting on a choice reads the session, its
-     * identity, the memberships and each one's tenant, and writes nothing.
+     * identity, the memberships and each one's tenant, and its first factor,
+     * and writes nothing.
      *
      * @return void
      *
@@ -147,17 +178,18 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $token = $this->offerChoice();
 
         $sessions = $this->sessions('choosers');
-        $choice   = $this->assertQueryBudget(5, 0, static fn (): ?PendingSession => $sessions->pending($token));
+        $choice   = $this->assertQueryBudget(6, 0, static fn (): ?PendingSession => $sessions->pending($token));
 
         self::assertCount(2, $choice->principals ?? []);
     }
 
     /**
      * Choosing locks and reads the pending session and its identity, reads the
-     * chosen membership, its owner and its tenant, activates the session with
-     * one update, reads its proofs, and gives each of the sign-in's three
-     * attempt slots back: the session and its first proof were written when the
-     * sign-in left it pending.
+     * chosen membership, its owner and its tenant, reads its first factor (the
+     * default factor policy asks nothing, so no other proof is read), activates
+     * the session with one update, reads its proofs, and gives each of the
+     * sign-in's three attempt slots back: the session and its first proof were
+     * written when the sign-in left it pending.
      *
      * @return void
      *
@@ -169,9 +201,35 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $chosen = ChoosingMembership::query()->firstOrFail();
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(6, 4, static fn (): SignInResult => $sessions->choose($token, $chosen));
+        $result   = $this->assertQueryBudget(7, 4, static fn (): SignInResult => $sessions->choose($token, $chosen));
 
         self::assertTrue($result->isSignedIn());
+    }
+
+    /**
+     * Choosing a membership whose tenant's policy asks for a further factor
+     * keeps the session pending on it: it locks and reads the session and its
+     * identity, reads the chosen membership, its owner and its tenant, and the
+     * one first-factor proof the tenant's verdict is judged on, which the
+     * identity's own requirement and the pending session reuse, and records the
+     * choice and what it now waits on with one update.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testChoosingIntoATenantsFurtherFactorReadsItsFirstFactorOnce(): void
+    {
+        $token  = $this->offerChoice();
+        $chosen = ChoosingMembership::query()->firstOrFail();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
+
+        $sessions = $this->sessions('choosers');
+        $result   = $this->assertQueryBudget(6, 1, static fn (): SignInResult => $sessions->choose($token, $chosen));
+
+        self::assertTrue($result->isPending());
+        self::assertSame(1, $this->firstFactorReads());
     }
 
     /**
@@ -198,7 +256,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($choice);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(7, 5, static fn (): SignInResult => $sessions->choose($choice, $chosen));
+        $result   = $this->assertQueryBudget(8, 5, static fn (): SignInResult => $sessions->choose($choice, $chosen));
 
         self::assertNotSame($first->record->getKey(), $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));

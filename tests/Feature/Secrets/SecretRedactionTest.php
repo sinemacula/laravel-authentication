@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
@@ -48,6 +49,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Sessions\FailingSignIn;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
@@ -241,6 +243,7 @@ final class SecretRedactionTest extends TestCase
         $identity = $this->seedIdentity();
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         $pending = $this->sessions()->signIn('password', self::credentials());
 
@@ -395,6 +398,7 @@ final class SecretRedactionTest extends TestCase
         $choosing = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->credential?->reveal();
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         $satisfying = $this->sessions()->signIn('password', self::credentials());
         $discarding = $this->sessions()->signIn('password', self::credentials())->credential?->reveal();
@@ -444,6 +448,7 @@ final class SecretRedactionTest extends TestCase
         $this->seedIdentity();
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         /** @var \ArrayObject<string, string> $digest */
         $digest = new \ArrayObject;
@@ -481,6 +486,7 @@ final class SecretRedactionTest extends TestCase
         $events   = self::recordAuthenticationEvents();
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         $pending    = $this->sessions()->signIn('password', self::credentials());
         $credential = $pending->credential?->reveal();

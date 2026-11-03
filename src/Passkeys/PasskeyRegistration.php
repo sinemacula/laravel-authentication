@@ -8,10 +8,12 @@ use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 
 /**
  * How registering a passkey ended: registered, with the summary of the passkey
- * stored, or refused, with why.
+ * stored and the factor package's association of it as a factor, if its gate
+ * made one, or refused, with why.
  *
  * A refused registration stores and dispatches nothing. The status names every
- * outcome; `passkey` is set only for `registered`.
+ * outcome; `passkey` is set only for `registered`, and `factor` only for a
+ * registered passkey the factor gate associated.
  *
  * @api
  *
@@ -25,6 +27,7 @@ final readonly class PasskeyRegistration
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus  $status
      * @param  ?\SineMacula\Laravel\Authentication\Passkeys\PasskeySummary  $passkey
+     * @param  ?\SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssociation  $factor
      */
     private function __construct(
 
@@ -33,17 +36,22 @@ final readonly class PasskeyRegistration
 
         /** The passkey stored, for `registered` only. */
         public ?PasskeySummary $passkey = null,
+
+        /** The factor the gate associated the passkey as, if it did. */
+        public ?PasskeyFactorAssociation $factor = null,
     ) {}
 
     /**
-     * The passkey was stored for the identity.
+     * The passkey was stored for the identity, associated as the factor given,
+     * if any.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\PasskeySummary  $passkey
+     * @param  ?\SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssociation  $factor
      * @return self
      */
-    public static function registered(PasskeySummary $passkey): self
+    public static function registered(PasskeySummary $passkey, ?PasskeyFactorAssociation $factor = null): self
     {
-        return new self(PasskeyRegistrationStatus::REGISTERED, $passkey);
+        return new self(PasskeyRegistrationStatus::REGISTERED, $passkey, $factor);
     }
 
     /**

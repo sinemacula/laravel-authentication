@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Routing\UrlGenerator;
 use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
+use SineMacula\Laravel\Authentication\Codes\DeliveryRefusal;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
@@ -356,8 +357,8 @@ final readonly class ChangeRequests
         $binding = CodeBinding::identifierChange($guard, $change->type, $change->identifier, $identity, $change->requestId);
         $issued  = $link === null ? $codes->issueFirst($binding, $change->requestedAt) : null;
 
-        if (is_int($issued)) {
-            return $issued;
+        if ($issued instanceof DeliveryRefusal) {
+            return $issued->retryAfter;
         }
 
         $change   = $issued === null ? $change : $change->expiringBy($issued->expiresAt);
@@ -369,7 +370,11 @@ final readonly class ChangeRequests
 
         $this->deliver($identity, $binding, $issued, $change, $context);
 
-        return IdentifierChangeRequest::sent($change->expiresAt, $link === null ? null : (new ChangeLinks($this->container->make(UrlGenerator::class)))->sign(
+        if ($link === null) {
+            return IdentifierChangeRequest::sent($change->expiresAt, challengeId: $issued->challengeId);
+        }
+
+        return IdentifierChangeRequest::sent($change->expiresAt, (new ChangeLinks($this->container->make(UrlGenerator::class)))->sign(
             $link[0],
             $link[1],
             $guard,

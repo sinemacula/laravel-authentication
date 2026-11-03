@@ -66,6 +66,7 @@ final class CheckConfigurationCommandTest extends TestCase
         '[passkeys] OK',
         '[api_keys] OK',
         '[identifier_changes] OK',
+        '[revocation] OK',
         '[freshness] OK',
     ];
 
@@ -429,6 +430,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[passkeys] OK',
             '[api_keys] OK',
             '[identifier_changes] OK',
+            '[revocation] OK',
             '[freshness] OK',
             '[admin] OK',
             '[machine] OK',
@@ -584,6 +586,7 @@ final class CheckConfigurationCommandTest extends TestCase
             'auth.guards.admin.application'            => ['methods' => ['phone_code']],
             'authentication.delivery.queue.connection' => 'missing',
             'authentication.identifier_changes'        => ['ttl_seconds' => '299'],
+            'authentication.revocation.link_removed'   => 'yes',
         ]);
 
         [$code, $output] = $this->check();
@@ -601,6 +604,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[codes] Guards [admin] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
             '[delivery] authentication.delivery.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
             '[identifier_changes] authentication.identifier_changes.ttl_seconds must be an integer from 300 to 86400.',
+            '[revocation] authentication.revocation.link_removed must be true or false.',
             '[api] Application `methods` for guard [api] must be a list of lower-case sign-in method names:'
                 . ' set `authentication.application.methods` or the guard\'s `application.methods` override.',
         ], $output);
@@ -643,6 +647,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[passkeys] OK',
             '[api_keys] OK',
             '[identifier_changes] OK',
+            '[revocation] OK',
             '[freshness] OK',
             '[api] OK',
             '[web] Not a jwt or api_key guard.',
@@ -816,6 +821,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[passkeys] OK',
             '[api_keys] OK',
             '[identifier_changes] OK',
+            '[revocation] OK',
             '[freshness] OK',
         ];
 
@@ -882,6 +888,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[passkeys] OK',
             '[api_keys] OK',
             '[identifier_changes] OK',
+            '[revocation] OK',
             '[freshness] OK',
         ];
 

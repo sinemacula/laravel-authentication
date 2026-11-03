@@ -243,12 +243,14 @@ checked only when a session becomes pending), the password policy settings (`aut
 code settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when any guard allows a code sign-in
 method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the delivery queue
 (`authentication.delivery.queue`), the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`), the
-API key settings (`authentication.api_keys`), the identifier change settings (`authentication.identifier_changes`) and
-the freshness requirements (`authentication.freshness`). Every check runs, so one run lists every problem, each as
+API key settings (`authentication.api_keys`), the identifier change settings (`authentication.identifier_changes`), the
+freshness requirements (`authentication.freshness`) and the revocation settings (`authentication.revocation`). Every
+check runs, so one run lists every problem, each as
 `[<guard>] <message>` (`[storage]` for the connections, `[session]` for the session model, retention and pending
 lifetime, `[passwords]` for the password policy, `[codes]` for the code settings and sender, `[delivery]` for the
 delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings, `[identifier_changes]`
-for the identifier change settings, `[freshness]` for the freshness requirements), and a subject without one as
+for the identifier change settings, `[freshness]` for the freshness requirements, `[revocation]` for the revocation
+settings), and a subject without one as
 `[<guard>] OK`. Delivery on a `sync` queue connection, or on a `failover` one that can fall back to `sync`, while any
 `jwt` guard is configured (any of them may send codes, reset links and codes, or identifier change codes and notices),
 is a `[delivery]` warning that leaves the exit code alone, as is a `jwt` guard whose package application settings allow

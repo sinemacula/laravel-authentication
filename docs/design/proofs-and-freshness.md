@@ -118,25 +118,28 @@ the token's claims and every freshness answer are worked out from them, never st
 
 These parts are columns, kinds or values with nothing yet behind them; the guides say so where they describe them.
 
-- Voiding: `voided_at` is respected by every read and written by nothing. Removing a factor does not stop its proofs
-  counting, so `factorRemoved()` ends the identity's other sessions and leaves the session it excepts with its proofs
-  of that factor: its tokens keep `mfa` in `amr`, and it still meets a multifactor requirement.
+- Voiding: `voided_at` is respected by every read and written only by `factorRemoved()`, for the current session's
+  proofs made with the removed factor (`ProofWriter::void()`), whether that session is active or pending, so a pending
+  session's next action is never judged on them; the identity's other sessions end instead, so their proofs are never
+  voided. A removed first-factor credential (`credentialRemoved()`) voids nothing.
 - Evidence: `accepted_evidence` has no writer and is always `null`. Nothing decides whether a provider's evidence is
   accepted, so an external reauthentication would never count for MFA or `amr`.
 - `external_reauthentication`: a reserved kind that nothing records; there is no reauthentication handoff from the
   provider, and step-up and `satisfy()` refuse it.
-- Provenance by connection or tenant: only the indexes exist. There is no lookup, listing or revocation of the
-  sessions of a connection or of a tenant's connections.
+- Provenance by connection or tenant: the connection index finds the sessions a connection established for
+  `connectionDisabled()` and `connectionDeleted()` (`Sessions\ConnectionRevocations`); there is no lookup or listing of
+  the sessions of a connection or of a tenant's connections, and the tenant index has no reader yet.
 - The freshness requirement (proof kinds, maximum age, multifactor, phishing resistance) is what the stored proofs can
   show. A tenant's further factor is a `Requirements\Requirement` instead (additional verification, multifactor, a
   minimum assurance level, phishing resistance, each with an optional maximum age), and whether a session's proofs meet
-  it is `Contracts\RequirementCheck`'s answer, which by default meets nothing; freshness does not use either yet, and
-  the identity-level factor policy is still a yes or no. The package gates no factor change itself:
-  `factor_change` and `password_establishment` name requirements for whatever gates those operations. A sibling that
-  needs more rebinds `FreshnessPolicy` until the value is extended.
+  it is `Contracts\RequirementCheck`'s answer, which by default meets nothing; the identity-level factor policy answers
+  a `Requirement` too, judged by the same check (`RequirementJudge`). Freshness uses neither. The factor-change gate
+  (`SessionService::factorChange()`) asks freshness for `factor_change`, or `first_additional_factor` for an identity's
+  first additional factor, excluding the factor a replacement or removal names. A sibling that needs more rebinds
+  `FreshnessPolicy` until the value is extended.
 - A pending session records its first factor and provenance as any session does, when it is written; the further
-  factor `satisfy()` accepts is stored with them (`SessionProofs::hasAcceptedAdditional()` reads it for the factor
-  policy's re-run), and none counts for a token until the session activates.
+  factor `satisfy()` accepts is stored with them (the requirement check reads it when the policy is asked again), and
+  none counts for a token until the session activates.
 
 ## Implementation Anchors
 

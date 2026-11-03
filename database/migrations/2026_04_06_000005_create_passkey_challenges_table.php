@@ -43,6 +43,11 @@ return new class extends Migration {
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
 
+            // The session and purpose a factor ceremony, or a registration a
+            // factor package asked for, is bound to; none for any other.
+            $blueprint->string('session_id')->nullable();
+            $blueprint->string('binding_purpose', 32)->nullable();
+
             // The ceremony options as sent, challenge included, which the
             // response is verified against. Long text: a registration or a
             // factor lists every passkey the identity has, which can outgrow

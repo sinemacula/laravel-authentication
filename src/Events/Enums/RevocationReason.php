@@ -37,7 +37,9 @@ enum RevocationReason: string
     // The identity's password was reset: `passwordReset()`
     case PASSWORD_RESET = 'password_reset';
 
-    // A factor the identity signed in with was removed: `factorRemoved()`
+    // A sign-in factor of the identity was removed: a first-factor credential,
+    // `credentialRemoved()`, or one of the factor package's factors,
+    // `factorRemoved()`
     case FACTOR_REMOVED = 'factor_removed';
 
     // The identity was deactivated: `identityDeactivated()`
@@ -55,4 +57,22 @@ enum RevocationReason: string
     // and the session no longer meets it: `tenantPolicyChanged()`, or a refresh
     // that finds it must be established through a connection it was not
     case TENANT_POLICY_CHANGED = 'tenant_policy_changed';
+
+    // The identity established its first password: `passwordEstablished()`
+    case PASSWORD_ESTABLISHED = 'password_established';
+
+    // The identity's further factors were reset: `factorReset()`
+    case FACTOR_RESET = 'factor_reset';
+
+    // The connection the session was established through was disabled:
+    // `connectionDisabled()`
+    case CONNECTION_DISABLED = 'connection_disabled';
+
+    // The connection the session was established through was deleted:
+    // `connectionDeleted()`
+    case CONNECTION_DELETED = 'connection_deleted';
+
+    // The identity's link to the connection the session was established through
+    // was removed: `linkRemoved()`
+    case LINK_REMOVED = 'link_removed';
 }

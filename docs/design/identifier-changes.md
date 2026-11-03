@@ -87,9 +87,10 @@ outdates, and why the change stands when the notice to the old identifier fails.
    a fresh `request_id`, the change is written, the replaced change's code invalidated, the code's delivery queued.
    After commit: `IdentifierChangeRequested`, and the job sends the code to the new identifier while the code is live
    and the change still names its request and guard.
-2. `confirmByCode($identity, 'email', $code)`: in one transaction the code is accepted and used up, the change deleted,
-   no other holder found, the outdated proofs invalidated, the identifier replaced and verified. After commit:
-   `IdentifierChanged`, and the notice to `previous` is queued.
+2. `confirmByCode($identity, 'email', $challengeId, $code)` (the challenge id `requestByCode()` answered): in one
+   transaction the code is accepted and used up, the change deleted, no other holder found, the outdated proofs
+   invalidated, the identifier replaced and verified. After commit: `IdentifierChanged`, and the notice to `previous` is
+   queued.
 3. `requestByLink(...)` / `confirmByLink($request)` are the same with a signed link in place of the code: the link is
    returned for the application to send, and the confirmation checks its signature, purpose, guard, request and digest.
 
@@ -132,14 +133,15 @@ outdates, and why the change stands when the notice to the old identifier fails.
   registered normaliser and through any guard, in one `DELETE` by key inside the revocation's transaction on the storage
   connection (`PendingChanges::forget()`, from `Sessions\RevocationWriter` for the scope
   `SessionService::revokeSessions()` builds): `signOutEverywhere()`, `revokeSessions()`, `passwordChanged()`,
-  `passwordReset()`, `factorRemoved()`, `identityDeactivated()`, and so `PasswordService::set()` for a change or a
-  reset, a reset by link or code, and the listeners. A link needs no session, so a change requested from a session that
-  ended (an attacker's) would otherwise still move the account to the requester's address once its owner had signed it
-  out, reset its password or had it suspended, whether or not the identity has a password at all. The change's code
-  needs nothing: it is checked only against its pending change's binding, so without the row it confirms nothing until
-  it is pruned. Revoking one session, ending a principal's sessions and a registration leave the identity's other
-  sessions, and so its pending changes. A deactivation that only clears the identity's active flag, without
-  `identityDeactivated()`, keeps them, and the change can be confirmed once the identity is active again.
+  `passwordReset()`, `credentialRemoved()`, `factorRemoved()`, `factorReset()`, `identityDeactivated()`, and so
+  `PasswordService::set()` for a change or a reset, a reset by link or code, and the listeners. A link needs no session,
+  so a change requested from a session that ended (an attacker's) would otherwise still move the account to the
+  requester's address once its owner had signed it out, reset its password or had it suspended, whether or not the
+  identity has a password at all. The change's code needs nothing: it is checked only against its pending change's
+  binding, so without the row it confirms nothing until it is pruned. Revoking one session, ending a principal's
+  sessions and a registration leave the identity's other sessions, and so its pending changes. A deactivation that only
+  clears the identity's active flag, without `identityDeactivated()`, keeps them, and the change can be confirmed once
+  the identity is active again.
 
 ## Implementation Anchors
 

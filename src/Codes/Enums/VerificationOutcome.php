@@ -25,8 +25,9 @@ enum VerificationOutcome: string
     case MISMATCH = 'mismatch';
 
     // No live code was issued for the identity's current identifier, it was
-    // used up or replaced, the code is malformed or does not match, or the
-    // identity has no identifier of the type
+    // used up or replaced, the code or the challenge id is malformed or not the
+    // live challenge's, the code does not match, or the identity has no
+    // identifier of the type
     case INVALID = 'invalid';
 
     // The code has expired
@@ -34,4 +35,8 @@ enum VerificationOutcome: string
 
     // The code has used up its attempts
     case EXHAUSTED = 'exhausted';
+
+    // The identity or the IP address has used up its verification checks for
+    // now
+    case RATE_LIMITED = 'rate_limited';
 }

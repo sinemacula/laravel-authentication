@@ -83,8 +83,9 @@ final class PasskeyCredentialsTest extends TestCase
 
     /**
      * A registration stores the backup and verification flags as the
-     * authenticator reported them, and hands back the stored passkey as a saved
-     * model in step with its row.
+     * authenticator reported them; a drafted passkey is stored as a saved model
+     * in step with its row, and a credential registered already, under any
+     * owner, is found and never stored twice.
      *
      * @return void
      *
@@ -105,12 +106,80 @@ final class PasskeyCredentialsTest extends TestCase
 
         $record->publicKeyCredentialId = 'another credential';
 
-        $passkey = PasskeyCredentials::register($this->rp(), $this->seedIdentity('grace@example.test'), $record, null, $this->now);
+        $passkey = PasskeyCredentials::draft($this->rp(), $this->seedIdentity('grace@example.test'), $record, null, $this->now);
 
-        self::assertNotNull($passkey);
+        self::assertFalse($passkey->exists);
+        self::assertTrue(PasskeyCredentials::insert($passkey));
         self::assertTrue($passkey->exists);
         self::assertFalse($passkey->isDirty());
         self::assertSame(2, Passkey::query()->count());
+        self::assertTrue(PasskeyCredentials::isRegistered('another credential'));
+        self::assertFalse(PasskeyCredentials::insert(PasskeyCredentials::draft($this->rp(), $this->seedIdentity('alan@example.test'), $record, null, $this->now)));
+        self::assertSame(2, Passkey::query()->count());
+    }
+
+    /**
+     * Rows of `[credential id, canonical]`.
+     *
+     * @return iterable<string, array{0: string, 1: bool}>
+     */
+    public static function provideCredentialIds(): iterable
+    {
+        yield 'canonical' => ['YWJj', true];
+        yield 'canonical with the url alphabet' => ['-_-_', true];
+        yield 'canonical, two bytes' => ['YWI', true];
+        yield 'with unused bits set' => ['YWJ', false];
+        yield 'padded' => ['YWI=', false];
+        yield 'the standard alphabet' => ['+/+/', false];
+        yield 'empty' => ['', false];
+        yield 'one character' => ['Y', false];
+        yield 'with a newline' => ["YWJj\n", false];
+    }
+
+    /**
+     * A credential id is canonical only as the unpadded base64url encoding of
+     * the bytes it decodes to: no padding, the url alphabet, and no unused bits
+     * set.
+     *
+     * @param  string  $credentialId
+     * @param  bool  $canonical
+     * @return void
+     */
+    #[DataProvider('provideCredentialIds')]
+    public function testACredentialIdIsCanonicalOnlyAsItsOwnEncoding(string $credentialId, bool $canonical): void
+    {
+        self::assertSame($canonical, PasskeyCredentials::isCanonical($credentialId));
+    }
+
+    /**
+     * The owner's passkey is found by its id for the relying party, and an id
+     * that is not a UUID names none without a query; another owner finds none.
+     * Deleting it removes its row once, and a second delete removes nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnOwnedPasskeyIsFoundAndDeletedOnce(): void
+    {
+        $identity = $this->seedIdentity();
+        $passkey  = $this->registerPasskey($identity);
+        $queries  = 0;
+
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        self::assertNull(PasskeyCredentials::owned($this->rp(), $identity, 'not-a-uuid'));
+        self::assertSame(0, $queries);
+
+        $owned = PasskeyCredentials::owned($this->rp(), $identity, $passkey->id);
+
+        self::assertNotNull($owned);
+        self::assertNull(PasskeyCredentials::owned($this->rp(), $this->seedIdentity('grace@example.test'), $passkey->id));
+        self::assertTrue(PasskeyCredentials::delete($owned));
+        self::assertFalse(PasskeyCredentials::delete($owned));
+        self::assertSame(0, Passkey::query()->count());
     }
 
     /**
@@ -330,7 +399,7 @@ final class PasskeyCredentialsTest extends TestCase
 
         self::assertSame([], $passkeys->passkeys($other));
         self::assertSame([], $passkeys->registrationOptions($other, self::USER_NAME)->options['excludeCredentials']);
-        self::assertSame([], $passkeys->factorOptions($other)->options['allowCredentials']);
+        self::assertNull($passkeys->factorOptions($other, self::factorBinding($other), Passkey::query()->pluck('credential_id')->all()));
         self::assertFalse($passkeys->remove($other, $passkey->id));
         self::assertSame(1, DB::table('passkeys')->where('id', $passkey->id)->count());
 
@@ -372,7 +441,7 @@ final class PasskeyCredentialsTest extends TestCase
         self::assertNull(PasskeyCredentials::find($this->rp(), $raw));
         self::assertSame([], $passkeys->passkeys($identity));
         self::assertSame([], $passkeys->registrationOptions($identity, self::USER_NAME)->options['excludeCredentials']);
-        self::assertSame([], $passkeys->factorOptions($identity)->options['allowCredentials']);
+        self::assertNull($passkeys->factorOptions($identity, self::factorBinding($identity), Passkey::query()->pluck('credential_id')->all()));
         self::assertFalse($passkeys->remove($identity, $passkey->id));
         self::assertSame(1, DB::table('passkeys')->count());
 

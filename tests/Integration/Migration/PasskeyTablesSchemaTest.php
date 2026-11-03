@@ -149,8 +149,9 @@ final class PasskeyTablesSchemaTest extends TestCase
 
     /**
      * The challenges table holds the id, the purpose, the guard, the relying
-     * party, the owner a registration or a factor is bound to, the options, the
-     * expiry and the creation time; only the owner and the creation time may be
+     * party, the owner a registration or a factor is bound to, the session and
+     * purpose a factor ceremony is bound to, the options, the expiry and the
+     * creation time; only the owner, the binding and the creation time may be
      * missing. It is indexed on the expiry, for pruning.
      *
      * @return void
@@ -164,6 +165,7 @@ final class PasskeyTablesSchemaTest extends TestCase
         self::assertSame([
             'authenticatable_id'   => true,
             'authenticatable_type' => true,
+            'binding_purpose'      => true,
             'created_at'           => true,
             'expires_at'           => false,
             'guard'                => false,
@@ -171,6 +173,7 @@ final class PasskeyTablesSchemaTest extends TestCase
             'options'              => false,
             'purpose'              => false,
             'rp_id'                => false,
+            'session_id'           => true,
         ], $columns);
 
         $secondary = array_values(array_filter(Schema::getIndexes(self::CHALLENGES), static fn (array $index): bool => !$index['primary']));

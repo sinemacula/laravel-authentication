@@ -36,6 +36,7 @@ final readonly class IdentifierChangeRequest
      * @param  ?\Carbon\CarbonImmutable  $expiresAt
      * @param  ?int  $retryAfter
      * @param  ?string  $link
+     * @param  ?string  $challengeId
      *
      * @throws \InvalidArgumentException
      */
@@ -54,23 +55,28 @@ final readonly class IdentifierChangeRequest
         // by link.
         #[\SensitiveParameter]
         ?string $link = null,
+
+        /** The challenge the code was sent for, which `confirmByCode()` names, for a `sent` change proven by code. */
+        public ?string $challengeId = null,
     ) {
         $this->link = $link === null ? null : new Secret($link);
     }
 
     /**
-     * The change waits for its proof until the time given: a code was issued
-     * and its delivery queued, or the link given was signed.
+     * The change waits for its proof until the time given: a code was issued,
+     * for the challenge given, and its delivery queued, or the link given was
+     * signed.
      *
      * @param  \Carbon\CarbonImmutable  $expiresAt
      * @param  ?string  $link
+     * @param  ?string  $challengeId
      * @return self
      *
      * @throws \InvalidArgumentException
      */
-    public static function sent(CarbonImmutable $expiresAt, #[\SensitiveParameter] ?string $link = null): self
+    public static function sent(CarbonImmutable $expiresAt, #[\SensitiveParameter] ?string $link = null, ?string $challengeId = null): self
     {
-        return new self(IdentifierChangeRequestStatus::SENT, $expiresAt, link: $link);
+        return new self(IdentifierChangeRequestStatus::SENT, $expiresAt, link: $link, challengeId: $challengeId);
     }
 
     /**

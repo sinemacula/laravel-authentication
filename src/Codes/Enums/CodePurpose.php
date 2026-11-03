@@ -5,9 +5,11 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Codes\Enums;
 
 /**
- * What a one-time code was issued for. A code is bound to its purpose, so one
- * issued to verify an identifier never signs anyone in, one issued to sign in
- * never verifies an identifier, and neither resets a password.
+ * What a one-time code challenge was issued for. A challenge is bound to its
+ * purpose, which is part of its key and stored on it, so one issued to verify
+ * an identifier never signs anyone in, one issued to sign in never verifies an
+ * identifier, neither resets a password, and an `mfa` challenge is never
+ * accepted as an `enrollment` one, nor the reverse.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -18,7 +20,15 @@ enum CodePurpose: string
     case SIGN_IN = 'sign_in';
 
     // Verifying an identity's current identifier of a type
-    case VERIFY_IDENTIFIER = 'verify_identifier';
+    case VERIFICATION = 'verification';
+
+    // A further factor's code, for a sign-in or a step-up, sent through the
+    // factor package's seam
+    case MFA = 'mfa';
+
+    // The confirmation of a factor being enrolled, bound to the pending factor
+    // and its enrolment grant
+    case ENROLLMENT = 'enrollment';
 
     // A password reset code for an identifier
     case PASSWORD_RESET = 'password_reset';

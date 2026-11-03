@@ -3,60 +3,87 @@
 ## Purpose
 
 This note records how the package issues, delivers and checks one-time codes: the `phone_code` and `email_code` sign-in
-methods (a numeric code sent to a verified phone number or email address) and identifier verification by code. It states
-what a code is bound to, what is stored, how the attempt, cooldown and request limits hold under concurrency, why a
-request for a code looks the same whether or not anyone has the identifier, and who a code is ever delivered to.
+methods (a numeric code sent to a verified phone number or email address), identifier verification by code, and a
+factor package's further-factor (`mfa`) and enrolment (`enrollment`) codes. It states what a challenge is bound to, what
+is stored, how the attempt, cooldown, delivery and request limits hold under concurrency, why a request for a code looks
+the same whether or not anyone has the identifier, and who a code is ever delivered to.
 
 ## Invariants
 
-- A code is bound to a purpose (`sign_in`, `verify_identifier`, `password_reset`, `password_reset_link` or
-  `change_identifier`), a guard, an identifier type and the identifier in its normal form, and, for a verification, the
-  identity (`AccountAttempts::account()`; for a change, the identity and its change request). One live code exists per binding:
-  its row is keyed by `HMAC-SHA256(key', "binding\0purpose\0guard\0type\0identifier\0identity")`.
+- A challenge is bound to a purpose (`sign_in`, `verification`, `mfa`, `enrollment`, `password_reset`,
+  `password_reset_link` or `change_identifier`), a guard, an identifier type (a factor code: its channel's kind) and the
+  identifier in its normal form, and, for a verification or a factor code, the identity (`AccountAttempts::account()`;
+  for a change, the identity and its change request): its delivery key. One live challenge exists per key: its row is
+  keyed by `HMAC-SHA256(key', "binding\0purpose\0guard\0type\0identifier\0identity")`. A factor code is also bound to
+  its transaction, which the key leaves out (the session, the factor and `sign_in` or `step_up`; for an enrolment the
+  session, the pending factor and the grant), stored as `HMAC-SHA256(key''', "context\0purpose\0transaction")`, so a
+  new session, factor or grant on the same destination is a new challenge under the same cooldown and delivery cap.
+- Every challenge has a public id (`challenge_id`, a UUID): a resend keeps it, a new challenge draws another. A check
+  names it; a check whose id or transaction is not the live challenge's is `invalid` and counts nothing.
+- Deliveries belong to the key's delivery window (`window_started_at`, `deliveries`), which lasts
+  `delivery_window_seconds` from its first delivery and allows `max_deliveries`, across every challenge it holds. An
+  issue, after the cooldown since `issued_at`: starts a new window when the window has ended (or there is no row);
+  otherwise needs room in the window (else `deliveries_exhausted`, with the wait until it ends), then resends the live
+  challenge when it is live and its transaction is the one given (same id, attempts kept), or starts a new challenge in
+  the window (new id, no attempts). Either way the code and issuance are new, `deliveries + 1`, and the code expires at
+  the earlier of its own lifetime and the window's end. A code the window would leave less than the resend cooldown to
+  live is not delivered (`rate_limited`, with the wait until the window ends), since it could expire before another may
+  be asked for; a reset link's token works for its own lifetime.
 - The code is `length` digits from `random_int()`, zero-padded, stored only as `HMAC-SHA256(key'', "code\0binding
   digest\0issue id\0code")`, compared with `hash_equals()`. `key'` and `key''` are separate derivations of
   `authentication.codes.key` (at least 32 bytes) or, when it is not set, of `app.key`. The table holds no code and no
   identifier; `OneTimeCode::toArray()` hides the binding digest, the issuance and the hash.
 - A password reset link's token (`issueToken()`) is the binding's live secret in the same row: 32 random bytes,
-  base64url (43 characters), stored as the same keyed hash, under the same resend cooldown, with the lifetime the
-  caller gives. `checkToken()` counts no attempt (256 bits cannot be guessed), answers `expired` only for the right
-  token, and accepts only when its conditional consume wins. Reset codes and tokens are delivered by their own job
-  (`SendPasswordReset`, see `passwords.md`); `SendOneTimeCode` refuses any purpose but `sign_in` and
-  `verify_identifier`. `invalidate()` deletes the live secrets of a set of bindings in one statement.
+  base64url (43 characters), stored as the same keyed hash, under the same resend cooldown, with the lifetime the caller
+  gives. `checkToken()` counts no attempt (256 bits cannot be guessed), answers `expired` only for the right token, and
+  accepts only when its conditional consume wins. Reset codes and tokens are delivered by their own job
+  (`SendPasswordReset`, see `passwords.md`); `SendOneTimeCode` refuses any purpose but `sign_in`, `verification`, `mfa`
+  and `enrollment`, and delivers a factor code to the identity it was issued for, read again, never a machine identity.
+  `invalidate()` ends the challenges of a set of bindings in one statement: each unused one is used up under a new
+  `issue_id`, and its row keeps its window, deliveries, `issued_at` and `expires_at`, so ending a challenge (a password
+  write or an identifier change) never resets the delivery cap or the cooldown; pruning deletes the row as any other.
 - Every issuance has a random `issue_id`. Every attempt, use and delivery is conditional on the `issue_id` the caller
   read, so a check or a delivery job for an issuance a resend replaced never touches the replacement, even when the
   resend drew the same digits.
-- Issuing replaces the binding's code only when it was issued at least `resend_cooldown_seconds` ago (one conditional
-  `UPDATE`), and otherwise creates it with `insertOrIgnore` against the primary key; neither writing means a code was
-  issued within the cooldown, and the answer is the seconds left (at least 1). No unique violation is ever caught, so a
-  PostgreSQL transaction around a request is never aborted. `issueFirst()`, for a binding that names a request of its
-  own (an identifier change's), tries the insert before the replacement, so the request's transaction locks no gap of
-  the index (MySQL's `UPDATE` of a missing key would, and two requests inserting into it would deadlock).
-- A check reads the row on the write connection. No row or a used code is `invalid`; an expired code (`expires_at <=
+- Issuing reads the key's row with a plain read and decides from it; a missing row is created with `insertOrIgnore`
+  against the primary key, and a present one is replaced by one `UPDATE` conditional on the `issue_id` read (a resend
+  also on its challenge still being live; a resend that loses that race is written as a new challenge). Neither writing
+  means a concurrent issue got there first, and the answer is the cooldown's seconds left (at least 1). No unique
+  violation is ever caught, so a PostgreSQL transaction around a request is never aborted, and no locking read is made,
+  so a transaction issuing a first code locks no gap of the index. `issueFirst()`, for a binding that names a request of
+  its own (an identifier change's), tries the insert before the read.
+- A check reads the row on the write connection (a factor code's with `FOR UPDATE`, after the factor package's counters
+  admitted it, so the counters' locks come first and the check holds the challenge until the transaction ends). No row,
+  another challenge or transaction, or a used code is `invalid`; an expired code (`expires_at <=
   now`) is `expired`; one with `attempts >= max_attempts` is `exhausted`; none of these counts. Otherwise the attempt is
   counted before anything is compared, by `UPDATE ... SET attempts = attempts + 1 WHERE id AND issue_id AND consumed_at
   IS NULL AND expires_at > now AND attempts < max`. A check whose increment matched no row never compares: it answers
   from a fresh read (`expired` or `exhausted` when that issuance now is, otherwise `invalid`). A matching code is
   accepted only when `UPDATE ... SET consumed_at = now WHERE id AND issue_id AND consumed_at IS NULL` changed the row,
-  so of two correct submissions exactly one is accepted.
+  so of two correct submissions exactly one is accepted; a counted attempt that is not accepted is `wrong`.
+- A factor code (`CodeService::sendFactorCode()`, `verifyFactorCode()`) asks the bound `FactorCodeCounters` inside one
+  transaction on the storage connection: `admit()` before the delivery or the check (not admitted: `locked` or
+  `refused`, nothing written), and `report($binding, $challengeId, $passed)` exactly once for each counted attempt, in
+  the transaction that counts it; a check that counts nothing reports nothing. The report's answer stands: a matching
+  code is verified only when it is admitted. The default counters refuse every code.
 - Every time is a whole second; one `now` per operation; a deadline has passed from the second it names.
 - Every read that decides a code, its recipient or a verification is on the write connection.
 - A request for a sign-in code does no identity-dependent work: the method must be allowed, the identifier must be one
-  its type's normaliser accepts, the `code_request` limits (per identifier, in normal form, and per IP address) must have
-  room, taken on every request and never given back, and the cooldown must have passed. A code is then issued for any
-  identifier and its delivery queued, so the result, the statements and the time are the same for an identifier no one
-  has.
+  its type's normaliser accepts, the `code_request` limits (per identifier, in normal form, and per IP address) must
+  have room, taken on every request and never given back, and the cooldown must have passed. A code is then issued for
+  any identifier and its delivery queued, so the result, the statements and the time are the same for an identifier no
+  one has.
 - Delivery is the `SendOneTimeCode` job (`ShouldQueue`, `ShouldBeEncrypted`), dispatched through
   `Delivery\QueuedDelivery` (every delivery job the package queues goes through it, with the
   `authentication.delivery.queue` settings), which waits on `AfterCommit` for the code row's connection, so only a
-  committed code is delivered and a rolled-back one never is. It is never inline: on a
-  connection whose driver is `sync` it is dispatched with `dispatchAfterResponse()`, which runs in the application's
-  terminating callbacks. A `failover` connection that lists a `sync` one, directly or through another `failover` (a
-  connection already on the path is not followed again), runs the job during its dispatch whenever the connections
-  before it fail, so the job is pushed to it from the terminating callbacks instead (`DeliverySettings::fallsBackToSync()`):
-  a worker-backed connection still receives it, and a fall back runs it after the response. `authentication:check`
-  warns about both settings while any `jwt` guard is configured (any may send a code, a reset or an identifier change).
-  The job sets `beforeCommit()`, since the package has already waited for its own row's commit.
+  committed code is delivered and a rolled-back one never is. It is never inline: on a connection whose driver is `sync`
+  it is dispatched with `dispatchAfterResponse()`, which runs in the application's terminating callbacks. A `failover`
+  connection that lists a `sync` one, directly or through another `failover` (a connection already on the path is not
+  followed again), runs the job during its dispatch whenever the connections before it fail, so the job is pushed to it
+  from the terminating callbacks instead (`DeliverySettings::fallsBackToSync()`): a worker-backed connection still
+  receives it, and a fall back runs it after the response. `authentication:check` warns about both settings while any
+  `jwt` guard is configured (any may send a code, a reset or an identifier change). The job sets `beforeCommit()`, since
+  the package has already waited for its own row's commit.
 - The job first checks, on the write connection, that its issuance is still the binding's live, unused, unexpired code;
   otherwise it sends nothing. A sign-in code goes only to the identity the guard's provider finds by the identifier that
   is an `Identity`, not a `MachineIdentity`, active, `HasVerifiableIdentifiers`, holds exactly the bound identifier
@@ -78,24 +105,25 @@ request for a code looks the same whether or not anyone has the identifier, and 
 - Verification by code (`CodeService::sendVerification()` / `verify()`) binds the code to the identity and its current
   identifier of the type in normal form, as the identity given reports it. An accepted code hands that identifier to
   `IdentifierVerifier::verify()`, which records it only if it is still the identity's, and `verify()` answers the
-  verifier's outcome as a `VerificationOutcome` (`verified`, `already_verified`, `mismatch`); a refused check answers
-  `invalid`, `expired` or `exhausted`, unconcealed, and reports `invalid_credentials`, `code_expired` or
-  `code_exhausted` on the `identifier_verification` flow. It never signs anyone in. A machine identity is refused with
-  an `InvalidArgumentException`, an identity without `HasVerifiableIdentifiers` with a `LogicException`.
+  verifier's outcome as a `LimitedOutcome` (`verified`, `already_verified`, `mismatch`); a refused check answers
+  `invalid`, `expired` or `exhausted`, unconcealed, a limited one `rate_limited` with its wait, and reports
+  `invalid_credentials`, `code_expired` or `code_exhausted` on the `identifier_verification` flow. It never signs anyone
+  in. A machine identity is refused with an `InvalidArgumentException`, an identity without `HasVerifiableIdentifiers`
+  with a `LogicException`.
 
 ## Success Path
 
 - `Auth::codes('mobile')->send('phone_code', ['phone' => '+447700900123'])`: method resolved and allowed; identifier
   normalised; `code_request` reservation; `OneTimeCodes::issue()` (an `UPDATE`, plus an `INSERT` the first time);
-  `SendOneTimeCode` dispatched once committed; `CodeRequest::sent($expiresAt)`.
+  `SendOneTimeCode` dispatched once committed; `CodeRequest::sent($expiresAt, $challengeId)`.
 - The worker runs the job: live issuance; recipient found and eligible; `OneTimeCodeSender::send(OneTimeCodeMessage)`.
-- `Auth::sessions('mobile')->signIn('phone_code', ['phone' => ..., 'code' => ...])`: the session service's
-  `Attempting`, method check and `sign_in` reservation; `CodeSignIn::authenticate()` (lookup, account reservation,
-  `OneTimeCodes::check()`: `SELECT`, counting `UPDATE`, using `UPDATE`); admission, factor policy, session and tokens as
-  for a password, with `phone_code` recorded on the session.
-- `sendVerification($identity, 'phone')` then `verify($identity, 'phone', $code)`: the same issue, delivery and check
-  for the verification binding, then `IdentifierVerifier::verify()` and `IdentifierVerified` once committed;
-  `VerificationOutcome::VERIFIED`.
+- `Auth::sessions('mobile')->signIn('phone_code', ['phone' => ..., 'challenge' => $challengeId, 'code' => ...])`: the
+  session service's `Attempting`, method check and `sign_in` reservation; `CodeSignIn::authenticate()` (lookup, account
+  reservation, `OneTimeCodes::check()`: `SELECT`, counting `UPDATE`, using `UPDATE`); admission, factor policy, session
+  and tokens as for a password, with `phone_code` recorded on the session.
+- `sendVerification($identity, 'phone')` then `verify($identity, 'phone', $challengeId, $code)`: the same issue,
+  delivery and check for the verification binding, then `IdentifierVerifier::verify()` and `IdentifierVerified` once
+  committed; a `LimitedOutcome` whose `outcome` is `VerificationOutcome::VERIFIED`.
 
 ## Failure / Edge Cases
 
@@ -120,13 +148,15 @@ request for a code looks the same whether or not anyone has the identifier, and 
   driver that builds one names, and is delivered through, that `jwt` guard.
 - On a `sync` connection with after-response dispatching turned off (`Bus::withoutDispatchingAfterResponses()`) Laravel
   runs the job during the call; this is the documented fallback, not the package's choice.
-- Malformed settings (`length` 6 to 10, `ttl_seconds` 60 to 3600, `max_attempts` 1 to 20, `resend_cooldown_seconds` 0
-  to `ttl_seconds`, a queue connection that is not configured, a key shorter than 32 bytes, no key and no `app.key`)
-  fail closed with an `InvalidArgumentException` naming the key before anything is counted or issued, and
-  `authentication:check` reports each under `[codes]`, with a guard that allows a code method (any registered method
-  that builds as a `CodeSignIn`, the application's own included) while no `OneTimeCodeSender` is bound.
-- Expired rows are deleted by `model:prune` with `Models\OneTimeCode` (`expires_at <= now`); the cooldown, never longer
-  than the lifetime, has ended with them.
+- Malformed settings (`length` 6 to 10, `ttl_seconds` 60 to 3600, `max_attempts` 1 to 20, `resend_cooldown_seconds` 0 to
+  `ttl_seconds`, `max_deliveries` 1 to 10, `delivery_window_seconds` `ttl_seconds` to 86400, a queue connection that is
+  not configured, a key shorter than 32 bytes, no key and no `app.key`) fail closed with an `InvalidArgumentException`
+  naming the key before anything is counted or issued, and `authentication:check` reports each under `[codes]`, with a
+  guard that allows a code method (any registered method that builds as a `CodeSignIn`, the application's own included)
+  while no `OneTimeCodeSender` is bound.
+- Expired rows are deleted by `model:prune` with `Models\OneTimeCode` once their delivery window has ended too
+  (`expires_at <= now` and `window_started_at <= now - delivery_window_seconds`), so pruning never resets a delivery
+  cap; the cooldown, never longer than the lifetime, has ended with them.
 
 ## Enumeration Criteria
 

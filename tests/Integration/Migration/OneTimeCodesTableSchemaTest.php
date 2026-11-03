@@ -76,9 +76,11 @@ final class OneTimeCodesTableSchemaTest extends TestCase
     }
 
     /**
-     * The table holds the binding digest, the purpose and guard, the issuance,
-     * the code's hash, the attempts, and when the code was issued, expires and
-     * was used; only the use is nullable. No column holds an identifier or a
+     * The table holds the delivery key's digest, the challenge's id and the
+     * digest of its transaction, the purpose and guard, the issuance, the
+     * code's hash, the attempts, the deliveries in the window and when it
+     * began, and when the code was issued, expires and was used; only the
+     * transaction and the use are nullable. No column holds an identifier or a
      * code in clear.
      *
      * @return void
@@ -90,15 +92,19 @@ final class OneTimeCodesTableSchemaTest extends TestCase
         ksort($columns);
 
         self::assertSame([
-            'attempts'    => false,
-            'code_hash'   => false,
-            'consumed_at' => true,
-            'expires_at'  => false,
-            'guard'       => false,
-            'id'          => false,
-            'issue_id'    => false,
-            'issued_at'   => false,
-            'purpose'     => false,
+            'attempts'          => false,
+            'challenge_id'      => false,
+            'code_hash'         => false,
+            'consumed_at'       => true,
+            'context'           => true,
+            'deliveries'        => false,
+            'expires_at'        => false,
+            'guard'             => false,
+            'id'                => false,
+            'issue_id'          => false,
+            'issued_at'         => false,
+            'purpose'           => false,
+            'window_started_at' => false,
         ], $columns);
 
         $primary = array_values(array_filter(Schema::getIndexes(self::TABLE), static fn (array $index): bool => $index['primary']));
@@ -117,22 +123,25 @@ final class OneTimeCodesTableSchemaTest extends TestCase
     {
         $types = array_column(Schema::getColumns(self::TABLE), 'type', 'name');
 
-        foreach (['issued_at', 'expires_at', 'consumed_at'] as $column) {
+        foreach (['window_started_at', 'issued_at', 'expires_at', 'consumed_at'] as $column) {
             self::assertDoesNotMatchRegularExpression('/\([1-9]\)/', $types[$column], $column);
         }
 
         DB::table(self::TABLE)->insert([
-            'id'         => str_repeat('a', 64),
-            'purpose'    => 'verify_identifier',
-            'guard'      => 'api',
-            'issue_id'   => '0195f4a2-7b1c-4000-8000-000000000001',
-            'code_hash'  => str_repeat('b', 64),
-            'attempts'   => 20,
-            'issued_at'  => '2039-02-28 23:49:59',
-            'expires_at' => '2039-02-28 23:59:59',
+            'id'                => str_repeat('a', 64),
+            'challenge_id'      => '0195f4a2-7b1c-4000-8000-000000000002',
+            'purpose'           => 'verification',
+            'guard'             => 'api',
+            'issue_id'          => '0195f4a2-7b1c-4000-8000-000000000001',
+            'code_hash'         => str_repeat('b', 64),
+            'attempts'          => 20,
+            'deliveries'        => 10,
+            'window_started_at' => '2039-02-28 23:29:59',
+            'issued_at'         => '2039-02-28 23:49:59',
+            'expires_at'        => '2039-02-28 23:59:59',
         ]);
 
-        self::assertSame('2039-02-28 23:59:59', DB::table(self::TABLE)->value('expires_at'));
+        self::assertSame(['2039-02-28 23:29:59', '2039-02-28 23:59:59'], array_values((array) DB::table(self::TABLE)->select(['window_started_at', 'expires_at'])->sole()));
     }
 
     /**
@@ -150,6 +159,7 @@ final class OneTimeCodesTableSchemaTest extends TestCase
         $types = array_column(Schema::getColumns(self::TABLE), 'type', 'name');
 
         self::assertStringContainsString('(64)', $types['id']);
+        self::assertStringContainsString('(64)', $types['context']);
         self::assertStringContainsString('(64)', $types['code_hash']);
         self::assertStringContainsString('(32)', $types['purpose']);
     }

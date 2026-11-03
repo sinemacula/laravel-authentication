@@ -6,6 +6,7 @@ namespace Tests\Integration\Sessions;
 
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
@@ -23,6 +25,8 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
@@ -30,6 +34,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -82,14 +87,15 @@ final class SeparateCounterConnectionActivationTest extends TestCase
              * Always require a further factor.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return true;
+                return new Requirement(new RequirementPart);
             }
         });
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
     }
 
     /**
@@ -199,8 +205,9 @@ final class SeparateCounterConnectionActivationTest extends TestCase
 
     /**
      * Two activations in one transaction, the first of which cannot give its
-     * slots back: the second session is still reported and gives its own slots
-     * back, and a callback the caller queued after both still runs.
+     * slots back once it is bound: the second session is still reported, bound,
+     * and gives its own slots back, and a callback the caller queued after both
+     * still runs.
      *
      * @return void
      *
@@ -212,13 +219,13 @@ final class SeparateCounterConnectionActivationTest extends TestCase
         $first      = $this->pendingSession($identity);
         $second     = $this->pendingSession($identity, 3);
         $exceptions = Exceptions::fake([QueryException::class]);
-        $signedIn   = 0;
+        $bound      = 0;
         $callerRan  = false;
 
         $this->recordEvents([SessionCreated::class, SignedIn::class]);
 
-        Event::listen(SignedIn::class, function () use (&$signedIn): void {
-            if (++$signedIn !== 2) {
+        Event::listen(Login::class, function () use (&$bound): void {
+            if (++$bound !== 2) {
                 return;
             }
 
@@ -227,10 +234,12 @@ final class SeparateCounterConnectionActivationTest extends TestCase
 
         $this->makeCountersUnreachable();
 
-        DB::transaction(function () use ($first, $second, &$callerRan): void {
+        $sessions = $this->sessions();
 
-            self::assertTrue($this->sessions()->satisfy(...$first)->isSignedIn());
-            self::assertTrue($this->sessions()->satisfy(...$second)->isSignedIn());
+        DB::transaction(static function () use ($sessions, $first, $second, &$callerRan): void {
+
+            self::assertTrue($sessions->satisfy(...$first)->isSignedIn());
+            self::assertTrue($sessions->satisfy(...$second)->isSignedIn());
 
             DB::afterCommit(static function () use (&$callerRan): void {
                 $callerRan = true;
@@ -238,6 +247,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
         });
 
         self::assertTrue($callerRan);
+        self::assertSame(2, $bound);
         self::assertSame([SessionCreated::class, SignedIn::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame([2, 2, 2], $this->hits($identity));
         self::assertSame(2, Session::query()->where('status', SessionStatus::ACTIVE->value)->count());

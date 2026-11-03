@@ -84,10 +84,10 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A first request writes four limiter statements and the token's failed
-     * update and its insert, and reads nothing; a request after the cooldown in
-     * the same window writes the two counters and replaces the token in one
-     * update. Neither touches an identity.
+     * A first request writes four limiter statements, reads the token's row,
+     * which it finds missing, and inserts it; a request after the cooldown in
+     * the same window writes the two counters, reads the row and replaces the
+     * token in one update. Neither touches an identity.
      *
      * @return void
      *
@@ -101,11 +101,11 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
 
         $this->statements = [];
 
-        self::assertTrue($this->assertQueryBudget(0, 6, static fn (): CodeRequest => $passwords->sendResetLink(['email' => self::EMAIL]))->isSent());
+        self::assertTrue($this->assertQueryBudget(1, 5, static fn (): CodeRequest => $passwords->sendResetLink(['email' => self::EMAIL]))->isSent());
 
         CarbonImmutable::setTestNow(CarbonImmutable::instance($this->now)->addSeconds(60));
 
-        self::assertTrue($this->assertQueryBudget(0, 3, static fn (): CodeRequest => $passwords->sendResetLink(['email' => self::EMAIL]))->isSent());
+        self::assertTrue($this->assertQueryBudget(1, 3, static fn (): CodeRequest => $passwords->sendResetLink(['email' => self::EMAIL]))->isSent());
         self::assertSame([], array_filter($this->statements, static fn (string $sql): bool => str_contains($sql, 'password_identities')));
     }
 
@@ -113,9 +113,9 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
      * A reset of an identity with two sessions reads the identity, its row
      * under the lock taken before the token, the token and the sessions once
      * each, and the row it updated once more, and writes the submission's
-     * limits, the token's use, the password, one `DELETE` of every other reset
-     * link and code, the cutoff, one revocation per session, and the slots it
-     * gives back.
+     * limits, the token's use, the password, one `UPDATE` that ends every other
+     * reset link and code, the cutoff, one revocation per session, and the
+     * slots it gives back.
      *
      * @return void
      *

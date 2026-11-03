@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssociation;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
 
@@ -23,7 +24,8 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
 final class PasskeyRegistrationTest extends TestCase
 {
     /**
-     * A registered passkey carries its summary.
+     * A registered passkey carries its summary, and the factor a gate
+     * associated it as, none unless it was given.
      *
      * @return void
      */
@@ -31,11 +33,14 @@ final class PasskeyRegistrationTest extends TestCase
     {
         $createdAt    = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
         $passkey      = new PasskeySummary('0192f6b2-0000-7000-8000-000000000001', 'Laptop', ['internal'], null, true, true, $createdAt, null);
-        $registration = PasskeyRegistration::registered($passkey);
+        $factor       = new PasskeyFactorAssociation('factor-1');
+        $registration = PasskeyRegistration::registered($passkey, $factor);
 
         self::assertTrue($registration->isRegistered());
         self::assertSame(PasskeyRegistrationStatus::REGISTERED, $registration->status);
         self::assertSame($passkey, $registration->passkey);
+        self::assertSame($factor, $registration->factor);
+        self::assertNull(PasskeyRegistration::registered($passkey)->factor);
     }
 
     /**
@@ -55,6 +60,7 @@ final class PasskeyRegistrationTest extends TestCase
             self::assertFalse($registration->isRegistered());
             self::assertSame($status, $registration->status->value);
             self::assertNull($registration->passkey);
+            self::assertNull($registration->factor);
         }
     }
 

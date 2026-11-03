@@ -42,8 +42,14 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
+use SineMacula\Laravel\Authentication\Requirements\LevelRequirement;
+use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
@@ -154,14 +160,15 @@ final class PendingSessionsTest extends TestCase
              * Answer as the test does.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return $this->test->isFactorRequiredFor($context);
+                return $this->test->isFactorRequiredFor($context) ? new Requirement(new RequirementPart) : new Requirement;
             }
         });
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         Route::middleware('auth:api')->get('/me', static fn (): array => ['session' => Auth::session()?->getSessionIdentifier()]);
     }
@@ -274,6 +281,28 @@ final class PendingSessionsTest extends TestCase
         self::assertSame($this->now->addMinutes(5)->getTimestamp(), $found->expiresAt->getTimestamp());
         self::assertSame([], $this->recordedClasses());
         self::assertNotNull($this->sessions()->pending($credential));
+    }
+
+    /**
+     * A pending session whose first-factor proof was removed from under it is
+     * not described with no first factor: looking it up fails loudly.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testLookingUpAPendingSessionWithoutItsFirstFactorFailsLoudly(): void
+    {
+        $this->seedIdentity();
+
+        [$credential] = $this->pendingSignIn();
+
+        SessionProof::query()->delete();
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('A session the package wrote always records the proof of its first factor.');
+
+        $this->sessions()->pending($credential);
     }
 
     /**
@@ -869,9 +898,10 @@ final class PendingSessionsTest extends TestCase
 
     /**
      * At activation the factor policy is asked as the sign-in was: about the
-     * method, the client the sign-in came from and the name and platform it
-     * gave, as the session recorded them, never about the client acting on the
-     * pending session, whose address only becomes the session's last use.
+     * first factor's proof, the client the sign-in came from and the name and
+     * platform it gave, as the session recorded them, never about the client
+     * acting on the pending session, whose address only becomes the session's
+     * last use.
      *
      * @return void
      *
@@ -898,9 +928,11 @@ final class PendingSessionsTest extends TestCase
 
         $asked = $this->factorContexts[$before];
 
-        self::assertSame('api', $asked->guard);
+        self::assertSame('api', $asked->application);
         self::assertTrue($identity->is($asked->identity));
-        self::assertSame('password', $asked->method);
+        self::assertSame('password', $asked->firstFactor->method);
+        self::assertSame(ProofKind::FIRST_FACTOR, $asked->firstFactor->kind);
+        self::assertSame(ChannelKind::PASSWORD, $asked->firstFactor->channel->kind);
         self::assertSame('192.0.2.10', $asked->client->ip);
         self::assertSame('Origin/1.0', $asked->client->userAgent);
         self::assertSame('Work laptop', $asked->clientName);
@@ -1303,6 +1335,96 @@ final class PendingSessionsTest extends TestCase
         self::assertSame($proofs, SessionProof::query()->count());
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
         self::assertNotNull($this->sessions('members')->pending($credential));
+    }
+
+    /**
+     * A pending session names what its authentication still falls short of, the
+     * strictest of the identity's requirement and its tenant's while each is
+     * unmet, with the first factor it signed in with and its counting proofs,
+     * newest first; a factor the check does not find enough leaves it pending
+     * and short of the same, and one it finds enough activates it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePendingSessionNamesWhatItsAuthenticationStillFallsShortOf(): void
+    {
+        [$member] = $this->seedMember();
+
+        app()->instance(AdditionalFactorPolicy::class, new readonly class implements AdditionalFactorPolicy {
+            /**
+             * Ask for a further factor within five minutes.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+             */
+            #[\Override]
+            public function requirementFor(AdditionalFactorContext $context): Requirement
+            {
+                return new Requirement(new RequirementPart(300));
+            }
+        });
+        $tenantFactor = new Requirement(minimumLevel: new LevelRequirement(AssuranceLevel::AAL2));
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', $tenantFactor)));
+        app()->instance(RequirementCheck::class, new MeetNoRequirement);
+
+        $short = [RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MINIMUM_LEVEL];
+
+        [$credential, $pending] = $this->pendingSignIn('members', 'member@example.test');
+
+        self::assertSame($short, $pending->requirement->kinds());
+
+        $looked = $this->sessions('members')->pending($credential);
+        $stored = SessionProof::query()->sole();
+
+        self::assertNotNull($looked);
+        self::assertSame($short, $looked->requirement->kinds());
+        self::assertSame(300, $looked->requirement->additionalVerification?->maxAgeSeconds);
+        self::assertSame($stored->getKey(), $looked->firstFactor->id);
+        self::assertSame([$stored->getKey()], array_column($looked->proofs(), 'id'));
+        self::assertSame([], $looked->proofs(null, [ProofKind::ADDITIONAL_FACTOR]));
+
+        $this->clockAt($this->now->addMinute());
+
+        $result = $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN));
+
+        self::assertTrue($result->isPending());
+        self::assertSame($short, $result->pending?->requirement->kinds());
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], array_column($result->pending->proofs(), 'kind'));
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], array_column($result->pending->proofs($this->now), 'kind'));
+
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $this->clockAt($this->now->addMinute());
+
+        self::assertTrue($this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN))->isSignedIn());
+    }
+
+    /**
+     * While only the choice of principal is outstanding the pending session
+     * names no requirement, and looking it up asks no factor policy.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceAloneNamesNoRequirementAndAsksNoFactorPolicy(): void
+    {
+        $this->seedChooser();
+
+        $this->factorRequired = false;
+
+        [$choice] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        $asked  = count($this->factorContexts);
+        $looked = $this->sessions(self::CHOOSERS)->pending($choice);
+
+        self::assertNotNull($looked);
+        self::assertTrue($looked->requirement->isEmpty());
+        self::assertSame(ProofKind::FIRST_FACTOR, $looked->firstFactor->kind);
+        self::assertCount($asked, $this->factorContexts);
     }
 
     /**

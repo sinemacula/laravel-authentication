@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -33,6 +34,8 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
@@ -47,6 +50,7 @@ use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasswords;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\RecordsEventSequences;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChangeableIdentity;
@@ -1033,7 +1037,10 @@ final class EventSequenceTest extends TestCase
         $this->recordSequence();
 
         self::assertTrue($this->changes('changes')->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity, 'changes'))->isSent());
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes('changes')->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(
+            IdentifierChangeOutcome::CHANGED,
+            $this->changes('changes')->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome,
+        );
         self::assertSame([
             'IdentifierChangeRequested changes i1/-/-',
             'IdentifierChanged changes i1/-/-',
@@ -1243,14 +1250,15 @@ final class EventSequenceTest extends TestCase
              * Always require a further factor.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return true;
+                return new Requirement(new RequirementPart);
             }
         });
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
     }
 
     /**

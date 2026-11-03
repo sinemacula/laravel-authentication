@@ -205,7 +205,7 @@ other rotated token as a replay that revokes the session.
 - After the swap, `refresh()` schedules `Refreshed` and `SignedIn` for the rotation's commit on the session's connection
   before it binds the new context (`Validated`, `Login` and the bind events), so a listener that throws on a bind event
   cannot withhold `Refreshed`. With no transaction open there they are dispatched at once, before the bind events;
-  inside a caller's transaction the bind events come first, and they follow the commit or are dropped on a rollback.
+  inside a caller's transaction both follow the commit, in that order, or are dropped on a rollback.
   Such an exception (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, including
   the package's own last-use write, or on `Refreshed` or `SignedIn`) still propagates after the presented token has been
   rotated and the new pair is lost. A retry with the presented token inside the grace window gets the current

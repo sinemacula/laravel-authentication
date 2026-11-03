@@ -21,6 +21,15 @@ enum CodeRequestStatus: string
     // code or link was issued for the identifier within the resend cooldown
     case RATE_LIMITED = 'rate_limited';
 
+    // The destination's delivery window has had all the deliveries it allows
+    case DELIVERIES_EXHAUSTED = 'deliveries_exhausted';
+
+    // The factor package has the factor or the identity locked
+    case LOCKED = 'locked';
+
+    // The factor package refuses to have the code sent
+    case REFUSED = 'refused';
+
     // The guard does not allow the code sign-in method, or, for a reset, the
     // password method
     case METHOD_NOT_ALLOWED = 'method_not_allowed';

@@ -34,6 +34,7 @@ final class CodeCheckTest extends TestCase
         yield from [
             'accepted'  => [CodeCheck::ACCEPTED, null],
             'invalid'   => [CodeCheck::INVALID, FailureReason::INVALID_CREDENTIALS],
+            'wrong'     => [CodeCheck::WRONG, FailureReason::INVALID_CREDENTIALS],
             'expired'   => [CodeCheck::EXPIRED, FailureReason::CODE_EXPIRED],
             'exhausted' => [CodeCheck::EXHAUSTED, FailureReason::CODE_EXHAUSTED],
         ];

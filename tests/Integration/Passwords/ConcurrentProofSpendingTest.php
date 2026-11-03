@@ -20,7 +20,10 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
+use SineMacula\Laravel\Authentication\Passwords\PasswordChanges;
+use SineMacula\Laravel\Authentication\Passwords\PasswordResult;
 use SineMacula\Laravel\Authentication\Passwords\ResetSubmissions;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
@@ -35,16 +38,18 @@ use Tests\TestCase;
  * Races, on PostgreSQL and MySQL, a password write against the flows that spend
  * or take a proof bound to the same identity (an identifier change request and
  * confirmation, a password reset), a bulk revocation against a confirmation and
- * a request, and a cancellation and a replacing request against a confirmation,
- * each in a process with a database connection of its own. The first is held
- * open right after the statement that would make the two lock their rows in
- * opposite orders, or let one act on what the other is about to undo; the
- * second, started meanwhile, waits for it on the identity's row (see
- * `IdentityLock`) or the session's, so both answer a result, neither throws,
- * and the second sees what the first left.
+ * a request, a cancellation and a replacing request against a confirmation, two
+ * establishments of a first password, an establishment against a reset, and a
+ * password change against a revocation of its session, each in a process with a
+ * database connection of its own. The first is held open right after the
+ * statement that would make the two lock their rows in opposite orders, or let
+ * one act on what the other is about to undo; the second, started meanwhile,
+ * waits for it on the identity's row (see `IdentityLock`) or the session's, so
+ * both answer a result, neither throws, and the second sees what the first
+ * left.
  *
- * Skipped on SQLite, whose in-memory database each process would have to
- * itself, and where `pcntl` is not available.
+ * Skipped on SQLite, where each process would have an in-memory database of its
+ * own, and where `pcntl` is not available.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -58,6 +63,7 @@ use Tests\TestCase;
 #[CoversClass(ChangeRequests::class)]
 #[CoversClass(RecentAuthentication::class)]
 #[CoversClass(SessionLookup::class)]
+#[CoversClass(PasswordChanges::class)]
 final class ConcurrentProofSpendingTest extends TestCase
 {
     use ChangesIdentifiers, DefinesPasswordChangeRoute;
@@ -140,7 +146,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'delete from',
             'identifier_changes',
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
             static fn (): string => Auth::passwords('web')->set(self::reloaded($identity), self::NEW_PASSWORD, PasswordFlow::CHANGE)->isSet() ? 'set' : 'rejected',
         );
 
@@ -165,9 +171,9 @@ final class ConcurrentProofSpendingTest extends TestCase
         self::resetToken();
 
         [$first, $second] = $this->race(
-            'delete from',
+            'update',
             'one_time_codes',
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
             static fn (): string => Auth::passwords('web')->set(self::reloaded($identity), self::NEW_PASSWORD, PasswordFlow::CHANGE)->isSet() ? 'set' : 'rejected',
         );
 
@@ -192,7 +198,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'delete from',
             'identifier_changes',
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
             static fn (): string => Auth::passwords('web')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status->value,
         );
 
@@ -242,7 +248,7 @@ final class ConcurrentProofSpendingTest extends TestCase
             'delete from',
             'identifier_changes',
             static fn (): string => (string) Auth::sessions('web')->revokeSessions(self::reloaded($identity), RevocationReason::REVOKED),
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->value,
+            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
         );
 
         self::assertSame(['1', 'invalid'], [$first, $second['result']]);
@@ -281,7 +287,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertSame(0, DB::table('identifier_changes')->count());
         self::assertIsString($link);
-        self::assertSame('invalid', $this->changes()->confirmByLink(Request::create($link))->value);
+        self::assertSame('invalid', $this->changes()->confirmByLink(Request::create($link))->outcome->value);
         self::assertSame(self::EMAIL, self::reloaded($identity)->email);
     }
 
@@ -516,7 +522,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'update',
             'one_time_codes',
-            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::CODE)->value,
+            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome->value,
             fn (): string => $this->changes()->cancel(self::reloaded($identity), 'email') ? 'canceled' : 'none',
         );
 
@@ -546,7 +552,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'update',
             'one_time_codes',
-            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::CODE)->value,
+            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome->value,
             fn (): string => $this->changes()->requestByLink(self::reloaded($identity), 'email', 'ada@later.example.test', $proof, 'email.confirm')->status->value,
         );
 
@@ -610,6 +616,88 @@ final class ConcurrentProofSpendingTest extends TestCase
         self::assertSame(['204', 'invalid'], [$first, $second['result']]);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertTrue(Auth::guard('web')->getProvider()->validateCredentials(self::reloaded($identity), ['password' => self::NEW_PASSWORD]));
+    }
+
+    /**
+     * Of two establishments of a first password from one session, the second,
+     * started while the first is held after it wrote its password, waits for it
+     * on the identity's row, then finds a password set: only the first's
+     * stands.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnEstablishmentWaitsForAnotherAndFindsAPasswordSet(): void
+    {
+        $identity = self::seedPasswordless();
+        $session  = self::startedSession($identity);
+
+        [$first, $second] = $this->race(
+            'update',
+            'changeable_identities',
+            static fn (): string => self::outcomeOf(Auth::passwords('web')->establish($session, self::NEW_PASSWORD)),
+            static fn (): string => self::outcomeOf(Auth::passwords('web')->establish($session, 'another long passphrase')),
+        );
+
+        self::assertSame(['set', 'password_already_set'], [$first, $second['result']]);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertTrue(Auth::guard('web')->getProvider()->validateCredentials(self::reloaded($identity), ['password' => self::NEW_PASSWORD]));
+    }
+
+    /**
+     * A reset racing an establishment held after it wrote the first password
+     * waits for it on the identity's row, then finds its token outdated by it:
+     * the established password stays.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResetWaitsForAnEstablishmentAndFindsItsTokenOutdated(): void
+    {
+        $identity = self::seedPasswordless();
+        $session  = self::startedSession($identity);
+        $token    = self::resetToken();
+
+        [$first, $second] = $this->race(
+            'update',
+            'changeable_identities',
+            static fn (): string => self::outcomeOf(Auth::passwords('web')->establish($session, self::NEW_PASSWORD)),
+            static fn (): string => Auth::passwords('web')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => 'the reset passphrase'])->status->value,
+        );
+
+        self::assertSame(['set', 'invalid'], [$first, $second['result']]);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertTrue(Auth::guard('web')->getProvider()->validateCredentials(self::reloaded($identity), ['password' => self::NEW_PASSWORD]));
+    }
+
+    /**
+     * A password change from a session whose revocation is held after it wrote
+     * it waits for the revocation on the session's row, then finds the session
+     * revoked and changes nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasswordChangeWaitsForARevocationOfItsSessionAndIsRefused(): void
+    {
+        $identity = self::seedChangeable();
+        $session  = self::startedSession($identity);
+
+        [$first, $second] = $this->race(
+            'update',
+            'authentication_sessions',
+            static fn (): string => DB::transaction(
+                static fn (): bool => Auth::sessions('web')->revokeSession($identity, $session->getKey(), RevocationReason::SIGNED_OUT),
+            ) ? 'revoked' : 'kept',
+            static fn (): string => self::outcomeOf(Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)),
+        );
+
+        self::assertSame(['revoked', 'session_revoked'], [$first, $second['result']]);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertTrue(Auth::guard('web')->getProvider()->validateCredentials(self::reloaded($identity), ['password' => self::PASSWORD]));
     }
 
     /**
@@ -694,6 +782,49 @@ final class ConcurrentProofSpendingTest extends TestCase
         self::assertInstanceOf(IssuedCode::class, $issued);
 
         return $issued->code();
+    }
+
+    /**
+     * Persist an identity as `seedChangeable()` does, but with no password.
+     *
+     * @return \Tests\Integration\Fixtures\ChangeableIdentity
+     */
+    private static function seedPasswordless(): ChangeableIdentity
+    {
+        $identity = self::seedChangeable();
+
+        $identity->forceFill(['password' => null])->save();
+
+        return $identity;
+    }
+
+    /**
+     * A session of the identity on the `web` guard, started just now, so its
+     * first factor is fresh enough to establish a password.
+     *
+     * @param  \Tests\Integration\Fixtures\ChangeableIdentity  $identity
+     * @return \SineMacula\Laravel\Authentication\Models\Session
+     *
+     * @throws \Throwable
+     */
+    private static function startedSession(ChangeableIdentity $identity): Session
+    {
+        $record = Auth::sessions('web')->start($identity, null, 'password')->session?->record;
+
+        self::assertInstanceOf(Session::class, $record);
+
+        return $record;
+    }
+
+    /**
+     * A password write's outcome: `set`, or the reason it was refused.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Passwords\PasswordResult  $result
+     * @return string
+     */
+    private static function outcomeOf(PasswordResult $result): string
+    {
+        return $result->isSet() ? 'set' : (string) $result->reason?->value;
     }
 
     /**

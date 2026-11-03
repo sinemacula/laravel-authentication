@@ -100,9 +100,9 @@ final class LargePasskeyPublicKeyTest extends TestCase
 
         $this->registerPasskey($identity);
 
-        $options = Auth::passkeys('api')->factorOptions($identity);
+        $options = self::factorCeremony(Auth::passkeys('api'), $identity);
 
-        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options))->isVerified());
+        self::assertTrue(self::verifyPasskeyFactor($identity, $options->challengeId, $this->authenticator()->get($options->options))->isVerified());
         self::assertNotNull(DB::table('passkeys')->value('last_used_at'));
     }
 

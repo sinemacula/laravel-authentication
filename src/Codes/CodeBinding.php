@@ -6,13 +6,20 @@ namespace SineMacula\Laravel\Authentication\Codes;
 
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
- * What a one-time code is bound to: its purpose, its guard, the identifier's
- * type and normal form, and, for a code that verifies an identifier or proves a
- * new one, the identity it is for. One live code exists per binding, and a code
- * checked against any other binding does not match.
+ * What a one-time code challenge is bound to: its purpose, its guard, the
+ * identifier's type (or the channel's kind) and normal form, and, for a code
+ * that verifies an identifier, proves a new one or is a further factor's, the
+ * identity it is for; these form the challenge's delivery key, of which one
+ * live challenge exists. A further factor's challenge is also bound to its
+ * transaction (the session, the factor and the proof's purpose or enrolment
+ * grant), which the key leaves out, so a new transaction replaces the challenge
+ * without a new delivery window. A code checked against any other key or
+ * transaction does not match.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,6 +36,7 @@ final readonly class CodeBinding
      * @param  string  $type
      * @param  string  $identifier
      * @param  string  $identity
+     * @param  string  $transaction
      */
     private function __construct(
 
@@ -44,8 +52,11 @@ final readonly class CodeBinding
         /** The identifier, in its normal form. */
         #[\SensitiveParameter] public string $identifier,
 
-        /** The identity a verification or change code is for (see `AccountAttempts::account()`, then the change request), or empty for a sign-in or reset code. */
+        /** The identity a verification, change or factor code is for (see `AccountAttempts::account()`, then the change request), or empty for a sign-in or reset code. */
         public string $identity,
+
+        /** The transaction a factor code is bound to besides its key, or empty for every other purpose. */
+        #[\SensitiveParameter] public string $transaction = '',
     ) {}
 
     /**
@@ -74,7 +85,7 @@ final readonly class CodeBinding
      */
     public static function verification(string $guard, string $type, #[\SensitiveParameter] string $identifier, Identity $identity): self
     {
-        return new self(CodePurpose::VERIFY_IDENTIFIER, $guard, $type, $identifier, AccountAttempts::account($identity));
+        return new self(CodePurpose::VERIFICATION, $guard, $type, $identifier, AccountAttempts::account($identity));
     }
 
     /**
@@ -120,5 +131,26 @@ final readonly class CodeBinding
     public static function identifierChange(string $guard, string $type, #[\SensitiveParameter] string $identifier, Identity $identity, string $requestId): self
     {
         return new self(CodePurpose::CHANGE_IDENTIFIER, $guard, $type, $identifier, AccountAttempts::account($identity) . "\0" . $requestId);
+    }
+
+    /**
+     * The binding of a further factor's code, or of an enrolment's: the
+     * destination of its channel under the channel's kind, and the identity it
+     * is for, as its key, and the session, the factor and the proof's purpose
+     * (for an enrolment, the grant) as its transaction.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
+     * @return self
+     */
+    public static function factor(string $guard, FactorCodeBinding $binding): self
+    {
+        $proof       = $binding->binding;
+        $last        = $proof->purpose === Purpose::ENROLLMENT ? (string) $binding->grant : $proof->purpose->value;
+        $transaction = implode("\0", [(string) IdentifierCoercion::stringify($proof->sessionId), $binding->factor, $last]);
+
+        $channel = $binding->channel;
+
+        return new self($binding->purpose(), $guard, $channel->kind->value, (string) $channel->reference, AccountAttempts::account($proof->identity), $transaction);
     }
 }

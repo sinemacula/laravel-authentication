@@ -8,95 +8,106 @@ password identifier), where a key it sets wins. A value that is malformed or out
 the configuration](operations.md#checking-the-configuration)). Most settings are read each time they are used; a guard's
 JWT settings are read once and kept (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
 
-| Key                                                 | Default                                                                      | Env                                                       | Per guard | See                                                                   |
-|-----------------------------------------------------|------------------------------------------------------------------------------|-----------------------------------------------------------|-----------|-----------------------------------------------------------------------|
-| `storage.connection`                                | `null`                                                                       | `AUTHENTICATION_STORAGE_CONNECTION`                       |           | [Storage](#storage)                                                   |
-| `session.model`                                     | `Session::class`                                                             | `AUTHENTICATION_SESSION_MODEL`                            |           | [Session](#session)                                                   |
-| `session.table`                                     | `authentication_sessions`                                                    | `AUTHENTICATION_SESSION_TABLE`                            |           | [Session](#session)                                                   |
-| `session.last_used_throttle_seconds`                | `60`                                                                         | `AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS`       |           | [Session](#session)                                                   |
-| `session.prune_after_days`                          | `30`                                                                         | `AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS`                 |           | [Pruning](operations.md#pruning)                                      |
-| `session.pending_ttl_seconds`                       | `300`                                                                        | `AUTHENTICATION_SESSION_PENDING_TTL_SECONDS`              |           | [Pending sessions](#pending-sessions)                                 |
-| `session.pending_credential_field`                  | `pending_credential`                                                         | `AUTHENTICATION_SESSION_PENDING_CREDENTIAL_FIELD`         |           | [The caller of a request](sessions.md#the-caller-of-a-request)        |
-| `proofs.table`                                      | `authentication_proofs`                                                      | `AUTHENTICATION_PROOFS_TABLE`                             |           | [Proofs](#proofs)                                                     |
-| `proofs.provenance_table`                           | `authentication_provenance`                                                  | `AUTHENTICATION_PROOFS_PROVENANCE_TABLE`                  |           | [Proofs](#proofs)                                                     |
-| `sign_in.password_identifier`                       | `email`                                                                      | `AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER`              | yes       | [Sign-in](#sign-in)                                                   |
-| `timebox.credentials_microseconds`                  | `400000`                                                                     | `AUTHENTICATION_TIMEBOX_CREDENTIALS_US`                   |           | [Credential validation timing](#credential-validation-timing)         |
-| `events.redacted_credential_keys`                   | `[]`                                                                         |                                                           |           | [Events](events.md#events)                                            |
-| `jwt.keys`                                          | `['default' => env('AUTHENTICATION_JWT_KEY')]`                               |                                                           | yes       | [Key rotation](operations.md#key-rotation)                            |
-| `jwt.active_kid`                                    | `default`                                                                    | `AUTHENTICATION_JWT_ACTIVE_KID`                           | yes       | [Key rotation](operations.md#key-rotation)                            |
-| `jwt.algorithm`                                     | `HS256`                                                                      | `AUTHENTICATION_JWT_ALGORITHM`                            | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
-| `jwt.access_ttl_minutes`                            | `5`                                                                          | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`                   | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
-| `jwt.refresh_idle_ttl_minutes`                      | `129600`                                                                     | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`             | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
-| `jwt.refresh_absolute_ttl_minutes`                  | `259200`                                                                     | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES`         | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
-| `jwt.refresh_grace_seconds`                         | `30`                                                                         | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`                | yes       | [Refresh token replay](refreshing.md#refresh-token-replay)            |
-| `jwt.leeway_seconds`                                | `30`                                                                         | `AUTHENTICATION_JWT_LEEWAY_SECONDS`                       | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
-| `jwt.issuer`                                        | none (required)                                                              | `AUTHENTICATION_JWT_ISSUER`                               | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
-| `jwt.audience`                                      | none (required)                                                              | `AUTHENTICATION_JWT_AUDIENCE`                             | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
-| `application.methods`                               | `[]`                                                                         |                                                           | yes       | [Applications](#applications)                                         |
-| `application.require_verified_identifier`           | `false`                                                                      |                                                           | yes       | [Applications](#applications)                                         |
-| `identifiers.normalizers`                           | `['email' => EmailNormalizer::class, 'phone' => E164PhoneNormalizer::class]` |                                                           |           | [Identifiers](identity-models.md#identifiers)                         |
-| `rate_limits.table`                                 | `rate_limits`                                                                | `AUTHENTICATION_RATE_LIMITS_TABLE`                        |           | [Rate limits](#rate-limits)                                           |
-| `rate_limits.connection`                            | `null`                                                                       | `AUTHENTICATION_RATE_LIMITS_CONNECTION`                   |           | [Rate limits](#rate-limits)                                           |
-| `rate_limits.sign_in.per_identifier`                | 5 per 300 s                                                                  |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.sign_in.per_ip`                        | 50 per 300 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.refresh.per_identifier`                | 10 per 60 s                                                                  |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.refresh.per_ip`                        | 100 per 60 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.code_request.per_identifier`           | 5 per 3600 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.code_request.per_ip`                   | 50 per 3600 s                                                                |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.passkey_options.per_identifier`        | `null`                                                                       |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.passkey_options.per_ip`                | 100 per 300 s                                                                |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.client_credentials.per_identifier`     | `null`                                                                       |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.client_credentials.per_ip`             | 100 per 60 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.password_reset_request.per_identifier` | 5 per 3600 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.password_reset_request.per_ip`         | 50 per 3600 s                                                                |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.password_reset.per_identifier`         | 10 per 900 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.password_reset.per_ip`                 | 50 per 900 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.identifier_change.per_identifier`      | 5 per 3600 s                                                                 |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `rate_limits.identifier_change.per_ip`              | 50 per 3600 s                                                                |                                                           | yes       | [Rate limits](#rate-limits)                                           |
-| `refresh_token.transport`                           | `body`                                                                       |                                                           | yes       | [Refreshing](refreshing.md)                                           |
-| `refresh_token.body_field`                          | `refresh_token`                                                              |                                                           | yes       | [Refreshing](refreshing.md)                                           |
-| `refresh_token.header`                              | `X-Refresh-Token`                                                            |                                                           | yes       | [Refreshing](refreshing.md)                                           |
-| `refresh_token.cookie.name`                         | `null` (derived from the guard)                                              |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
-| `refresh_token.cookie.path`                         | `null`                                                                       |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
-| `refresh_token.cookie.allowed_origins`              | `[]`                                                                         |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
-| `refresh_token.cookie.csrf_header`                  | `X-Requested-With`                                                           |                                                           | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
-| `api_keys.table`                                    | `api_keys`                                                                   | `AUTHENTICATION_API_KEYS_TABLE`                           |           | [API key settings](#api-key-settings)                                 |
-| `api_keys.prefix`                                   | `ak`                                                                         | `AUTHENTICATION_API_KEYS_PREFIX`                          |           | [API key settings](#api-key-settings)                                 |
-| `api_keys.rotation_overlap_seconds`                 | `86400`                                                                      | `AUTHENTICATION_API_KEYS_ROTATION_OVERLAP_SECONDS`        |           | [API key settings](#api-key-settings)                                 |
-| `api_keys.max_rotation_overlap_seconds`             | `604800`                                                                     | `AUTHENTICATION_API_KEYS_MAX_ROTATION_OVERLAP_SECONDS`    |           | [API key settings](#api-key-settings)                                 |
-| `api_keys.last_used_throttle_seconds`               | `60`                                                                         | `AUTHENTICATION_API_KEYS_LAST_USED_THROTTLE_SECONDS`      |           | [API key settings](#api-key-settings)                                 |
-| `api_keys.prune_after_days`                         | `30`                                                                         | `AUTHENTICATION_API_KEYS_PRUNE_AFTER_DAYS`                |           | [API key settings](#api-key-settings)                                 |
-| `verification.link_ttl_minutes`                     | `60`                                                                         | `AUTHENTICATION_VERIFICATION_LINK_TTL_MINUTES`            |           | [Identifier verification](identity-models.md#identifier-verification) |
-| `passwords.min_length`                              | `15`                                                                         | `AUTHENTICATION_PASSWORDS_MIN_LENGTH`                     |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.max_length`                              | `128`                                                                        | `AUTHENTICATION_PASSWORDS_MAX_LENGTH`                     |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.letters`                                 | `false`                                                                      |                                                           |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.mixed_case`                              | `false`                                                                      |                                                           |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.numbers`                                 | `false`                                                                      |                                                           |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.symbols`                                 | `false`                                                                      |                                                           |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.breached.when_unavailable`               | `reject`                                                                     | `AUTHENTICATION_PASSWORDS_BREACHED_WHEN_UNAVAILABLE`      |           | [Password policy](passwords.md#password-policy)                       |
-| `passwords.reset.link_ttl_seconds`                  | `3600`                                                                       | `AUTHENTICATION_PASSWORDS_RESET_LINK_TTL_SECONDS`         |           | [Password reset](passwords.md#password-reset)                         |
-| `identifier_changes.table`                          | `identifier_changes`                                                         | `AUTHENTICATION_IDENTIFIER_CHANGES_TABLE`                 |           | [Changing identifiers](identifier-changes.md)                         |
-| `identifier_changes.ttl_seconds`                    | `3600`                                                                       | `AUTHENTICATION_IDENTIFIER_CHANGES_TTL_SECONDS`           |           | [Changing identifiers](identifier-changes.md)                         |
-| `freshness.identifier_change.max_age_seconds`       | `900`                                                                        | `AUTHENTICATION_FRESHNESS_IDENTIFIER_CHANGE_SECONDS`      | yes       | [Freshness](#freshness)                                               |
-| `freshness.identifier_change.proofs`                | every proof kind                                                             |                                                           | yes       | [Freshness](#freshness)                                               |
-| `freshness.password_establishment.max_age_seconds`  | `900`                                                                        | `AUTHENTICATION_FRESHNESS_PASSWORD_ESTABLISHMENT_SECONDS` | yes       | [Freshness](#freshness)                                               |
-| `freshness.password_establishment.proofs`           | every proof kind                                                             |                                                           | yes       | [Freshness](#freshness)                                               |
-| `freshness.factor_change.max_age_seconds`           | `900`                                                                        | `AUTHENTICATION_FRESHNESS_FACTOR_CHANGE_SECONDS`          | yes       | [Freshness](#freshness)                                               |
-| `freshness.factor_change.proofs`                    | `additional_factor`, `recovery_code`                                         |                                                           | yes       | [Freshness](#freshness)                                               |
-| `codes.table`                                       | `one_time_codes`                                                             | `AUTHENTICATION_CODES_TABLE`                              |           | [One-time codes](#one-time-codes)                                     |
-| `codes.key`                                         | `null`                                                                       | `AUTHENTICATION_CODES_KEY`                                |           | [One-time codes](#one-time-codes)                                     |
-| `codes.length`                                      | `6`                                                                          | `AUTHENTICATION_CODES_LENGTH`                             |           | [One-time codes](#one-time-codes)                                     |
-| `codes.ttl_seconds`                                 | `600`                                                                        | `AUTHENTICATION_CODES_TTL_SECONDS`                        |           | [One-time codes](#one-time-codes)                                     |
-| `codes.max_attempts`                                | `5`                                                                          | `AUTHENTICATION_CODES_MAX_ATTEMPTS`                       |           | [One-time codes](#one-time-codes)                                     |
-| `codes.resend_cooldown_seconds`                     | `60`                                                                         | `AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS`            |           | [One-time codes](#one-time-codes)                                     |
-| `delivery.queue.connection`                         | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE_CONNECTION`                |           | [One-time codes](#one-time-codes)                                     |
-| `delivery.queue.name`                               | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE`                           |           | [One-time codes](#one-time-codes)                                     |
-| `passkeys.table`                                    | `passkeys`                                                                   | `AUTHENTICATION_PASSKEYS_TABLE`                           |           | [Passkeys](#passkeys)                                                 |
-| `passkeys.challenges_table`                         | `passkey_challenges`                                                         | `AUTHENTICATION_PASSKEYS_CHALLENGES_TABLE`                |           | [Passkeys](#passkeys)                                                 |
-| `passkeys.challenge_ttl_seconds`                    | `300`                                                                        | `AUTHENTICATION_PASSKEYS_CHALLENGE_TTL_SECONDS`           |           | [Passkeys](#passkeys)                                                 |
-| `passkeys.relying_party.id`                         | `null`                                                                       | `AUTHENTICATION_PASSKEYS_RP_ID`                           | yes       | [Passkeys](#passkeys)                                                 |
-| `passkeys.relying_party.name`                       | `env('APP_NAME')`                                                            | `APP_NAME`                                                | yes       | [Passkeys](#passkeys)                                                 |
-| `passkeys.relying_party.origins`                    | `[]`                                                                         |                                                           | yes       | [Passkeys](#passkeys)                                                 |
+| Key                                                  | Default                                                                      | Env                                                        | Per guard | See                                                                   |
+|------------------------------------------------------|------------------------------------------------------------------------------|------------------------------------------------------------|-----------|-----------------------------------------------------------------------|
+| `storage.connection`                                 | `null`                                                                       | `AUTHENTICATION_STORAGE_CONNECTION`                        |           | [Storage](#storage)                                                   |
+| `session.model`                                      | `Session::class`                                                             | `AUTHENTICATION_SESSION_MODEL`                             |           | [Session](#session)                                                   |
+| `session.table`                                      | `authentication_sessions`                                                    | `AUTHENTICATION_SESSION_TABLE`                             |           | [Session](#session)                                                   |
+| `session.last_used_throttle_seconds`                 | `60`                                                                         | `AUTHENTICATION_SESSION_LAST_USED_THROTTLE_SECONDS`        |           | [Session](#session)                                                   |
+| `session.prune_after_days`                           | `30`                                                                         | `AUTHENTICATION_SESSION_PRUNE_AFTER_DAYS`                  |           | [Pruning](operations.md#pruning)                                      |
+| `session.pending_ttl_seconds`                        | `300`                                                                        | `AUTHENTICATION_SESSION_PENDING_TTL_SECONDS`               |           | [Pending sessions](#pending-sessions)                                 |
+| `session.pending_credential_field`                   | `pending_credential`                                                         | `AUTHENTICATION_SESSION_PENDING_CREDENTIAL_FIELD`          |           | [The caller of a request](sessions.md#the-caller-of-a-request)        |
+| `proofs.table`                                       | `authentication_proofs`                                                      | `AUTHENTICATION_PROOFS_TABLE`                              |           | [Proofs](#proofs)                                                     |
+| `proofs.provenance_table`                            | `authentication_provenance`                                                  | `AUTHENTICATION_PROOFS_PROVENANCE_TABLE`                   |           | [Proofs](#proofs)                                                     |
+| `revocation.connection_disabled`                     | `true`                                                                       |                                                            |           | [Revocation by connection](#revocation-by-connection)                 |
+| `revocation.connection_deleted`                      | `true`                                                                       |                                                            |           | [Revocation by connection](#revocation-by-connection)                 |
+| `revocation.link_removed`                            | `true`                                                                       |                                                            |           | [Revocation by connection](#revocation-by-connection)                 |
+| `sign_in.password_identifier`                        | `email`                                                                      | `AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER`               | yes       | [Sign-in](#sign-in)                                                   |
+| `timebox.credentials_microseconds`                   | `400000`                                                                     | `AUTHENTICATION_TIMEBOX_CREDENTIALS_US`                    |           | [Credential validation timing](#credential-validation-timing)         |
+| `events.redacted_credential_keys`                    | `[]`                                                                         |                                                            |           | [Events](events.md#events)                                            |
+| `jwt.keys`                                           | `['default' => env('AUTHENTICATION_JWT_KEY')]`                               |                                                            | yes       | [Key rotation](operations.md#key-rotation)                            |
+| `jwt.active_kid`                                     | `default`                                                                    | `AUTHENTICATION_JWT_ACTIVE_KID`                            | yes       | [Key rotation](operations.md#key-rotation)                            |
+| `jwt.algorithm`                                      | `HS256`                                                                      | `AUTHENTICATION_JWT_ALGORITHM`                             | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
+| `jwt.access_ttl_minutes`                             | `5`                                                                          | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`                    | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
+| `jwt.refresh_idle_ttl_minutes`                       | `129600`                                                                     | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`              | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
+| `jwt.refresh_absolute_ttl_minutes`                   | `259200`                                                                     | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES`          | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
+| `jwt.refresh_grace_seconds`                          | `30`                                                                         | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`                 | yes       | [Refresh token replay](refreshing.md#refresh-token-replay)            |
+| `jwt.leeway_seconds`                                 | `30`                                                                         | `AUTHENTICATION_JWT_LEEWAY_SECONDS`                        | yes       | [Token and session lifetimes](#token-and-session-lifetimes)           |
+| `jwt.issuer`                                         | none (required)                                                              | `AUTHENTICATION_JWT_ISSUER`                                | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
+| `jwt.audience`                                       | none (required)                                                              | `AUTHENTICATION_JWT_AUDIENCE`                              | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)           |
+| `application.methods`                                | `[]`                                                                         |                                                            | yes       | [Applications](#applications)                                         |
+| `application.require_verified_identifier`            | `false`                                                                      |                                                            | yes       | [Applications](#applications)                                         |
+| `identifiers.normalizers`                            | `['email' => EmailNormalizer::class, 'phone' => E164PhoneNormalizer::class]` |                                                            |           | [Identifiers](identity-models.md#identifiers)                         |
+| `rate_limits.table`                                  | `rate_limits`                                                                | `AUTHENTICATION_RATE_LIMITS_TABLE`                         |           | [Rate limits](#rate-limits)                                           |
+| `rate_limits.connection`                             | `null`                                                                       | `AUTHENTICATION_RATE_LIMITS_CONNECTION`                    |           | [Rate limits](#rate-limits)                                           |
+| `rate_limits.sign_in.per_identifier`                 | 5 per 300 s                                                                  |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.sign_in.per_ip`                         | 50 per 300 s                                                                 |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.refresh.per_identifier`                 | 10 per 60 s                                                                  |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.refresh.per_ip`                         | 100 per 60 s                                                                 |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.code_request.per_identifier`            | 5 per 3600 s                                                                 |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.code_request.per_ip`                    | 50 per 3600 s                                                                |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.passkey_options.per_identifier`         | `null`                                                                       |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.passkey_options.per_ip`                 | 100 per 300 s                                                                |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.client_credentials.per_identifier`      | `null`                                                                       |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.client_credentials.per_ip`              | 100 per 60 s                                                                 |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.password_reset_request.per_identifier`  | 5 per 3600 s                                                                 |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.password_reset_request.per_ip`          | 50 per 3600 s                                                                |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.password_reset.per_identifier`          | 10 per 900 s                                                                 |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.password_reset.per_ip`                  | 50 per 900 s                                                                 |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.identifier_change.per_identifier`       | 5 per 3600 s                                                                 |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.identifier_change.per_ip`               | 50 per 3600 s                                                                |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.identifier_verification.per_identifier` | 10 per 900 s                                                                 |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.identifier_verification.per_ip`         | 50 per 900 s                                                                 |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.factor_code.per_identifier`             | `null`                                                                       |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `rate_limits.factor_code.per_ip`                     | 50 per 300 s                                                                 |                                                            | yes       | [Rate limits](#rate-limits)                                           |
+| `refresh_token.transport`                            | `body`                                                                       |                                                            | yes       | [Refreshing](refreshing.md)                                           |
+| `refresh_token.body_field`                           | `refresh_token`                                                              |                                                            | yes       | [Refreshing](refreshing.md)                                           |
+| `refresh_token.header`                               | `X-Refresh-Token`                                                            |                                                            | yes       | [Refreshing](refreshing.md)                                           |
+| `refresh_token.cookie.name`                          | `null` (derived from the guard)                                              |                                                            | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
+| `refresh_token.cookie.path`                          | `null`                                                                       |                                                            | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
+| `refresh_token.cookie.allowed_origins`               | `[]`                                                                         |                                                            | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
+| `refresh_token.cookie.csrf_header`                   | `X-Requested-With`                                                           |                                                            | yes       | [Refresh token cookie](refreshing.md#refresh-token-cookie)            |
+| `api_keys.table`                                     | `api_keys`                                                                   | `AUTHENTICATION_API_KEYS_TABLE`                            |           | [API key settings](#api-key-settings)                                 |
+| `api_keys.prefix`                                    | `ak`                                                                         | `AUTHENTICATION_API_KEYS_PREFIX`                           |           | [API key settings](#api-key-settings)                                 |
+| `api_keys.rotation_overlap_seconds`                  | `86400`                                                                      | `AUTHENTICATION_API_KEYS_ROTATION_OVERLAP_SECONDS`         |           | [API key settings](#api-key-settings)                                 |
+| `api_keys.max_rotation_overlap_seconds`              | `604800`                                                                     | `AUTHENTICATION_API_KEYS_MAX_ROTATION_OVERLAP_SECONDS`     |           | [API key settings](#api-key-settings)                                 |
+| `api_keys.last_used_throttle_seconds`                | `60`                                                                         | `AUTHENTICATION_API_KEYS_LAST_USED_THROTTLE_SECONDS`       |           | [API key settings](#api-key-settings)                                 |
+| `api_keys.prune_after_days`                          | `30`                                                                         | `AUTHENTICATION_API_KEYS_PRUNE_AFTER_DAYS`                 |           | [API key settings](#api-key-settings)                                 |
+| `verification.link_ttl_minutes`                      | `60`                                                                         | `AUTHENTICATION_VERIFICATION_LINK_TTL_MINUTES`             |           | [Identifier verification](identity-models.md#identifier-verification) |
+| `passwords.min_length`                               | `15`                                                                         | `AUTHENTICATION_PASSWORDS_MIN_LENGTH`                      |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.max_length`                               | `128`                                                                        | `AUTHENTICATION_PASSWORDS_MAX_LENGTH`                      |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.letters`                                  | `false`                                                                      |                                                            |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.mixed_case`                               | `false`                                                                      |                                                            |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.numbers`                                  | `false`                                                                      |                                                            |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.symbols`                                  | `false`                                                                      |                                                            |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.breached.when_unavailable`                | `reject`                                                                     | `AUTHENTICATION_PASSWORDS_BREACHED_WHEN_UNAVAILABLE`       |           | [Password policy](passwords.md#password-policy)                       |
+| `passwords.reset.link_ttl_seconds`                   | `3600`                                                                       | `AUTHENTICATION_PASSWORDS_RESET_LINK_TTL_SECONDS`          |           | [Password reset](passwords.md#password-reset)                         |
+| `identifier_changes.table`                           | `identifier_changes`                                                         | `AUTHENTICATION_IDENTIFIER_CHANGES_TABLE`                  |           | [Changing identifiers](identifier-changes.md)                         |
+| `identifier_changes.ttl_seconds`                     | `3600`                                                                       | `AUTHENTICATION_IDENTIFIER_CHANGES_TTL_SECONDS`            |           | [Changing identifiers](identifier-changes.md)                         |
+| `freshness.identifier_change.max_age_seconds`        | `900`                                                                        | `AUTHENTICATION_FRESHNESS_IDENTIFIER_CHANGE_SECONDS`       | yes       | [Freshness](#freshness)                                               |
+| `freshness.identifier_change.proofs`                 | every proof kind                                                             |                                                            | yes       | [Freshness](#freshness)                                               |
+| `freshness.password_establishment.max_age_seconds`   | `900`                                                                        | `AUTHENTICATION_FRESHNESS_PASSWORD_ESTABLISHMENT_SECONDS`  | yes       | [Freshness](#freshness)                                               |
+| `freshness.password_establishment.proofs`            | every proof kind                                                             |                                                            | yes       | [Freshness](#freshness)                                               |
+| `freshness.factor_change.max_age_seconds`            | `900`                                                                        | `AUTHENTICATION_FRESHNESS_FACTOR_CHANGE_SECONDS`           | yes       | [Freshness](#freshness)                                               |
+| `freshness.factor_change.proofs`                     | `additional_factor`, `recovery_code`                                         |                                                            | yes       | [Freshness](#freshness)                                               |
+| `freshness.first_additional_factor.max_age_seconds`  | `900`                                                                        | `AUTHENTICATION_FRESHNESS_FIRST_ADDITIONAL_FACTOR_SECONDS` | yes       | [Freshness](#freshness)                                               |
+| `freshness.first_additional_factor.proofs`           | `first_factor_reauthentication`, `external_reauthentication`                 |                                                            | yes       | [Freshness](#freshness)                                               |
+| `codes.table`                                        | `one_time_codes`                                                             | `AUTHENTICATION_CODES_TABLE`                               |           | [One-time codes](#one-time-codes)                                     |
+| `codes.key`                                          | `null`                                                                       | `AUTHENTICATION_CODES_KEY`                                 |           | [One-time codes](#one-time-codes)                                     |
+| `codes.length`                                       | `6`                                                                          | `AUTHENTICATION_CODES_LENGTH`                              |           | [One-time codes](#one-time-codes)                                     |
+| `codes.ttl_seconds`                                  | `600`                                                                        | `AUTHENTICATION_CODES_TTL_SECONDS`                         |           | [One-time codes](#one-time-codes)                                     |
+| `codes.max_attempts`                                 | `5`                                                                          | `AUTHENTICATION_CODES_MAX_ATTEMPTS`                        |           | [One-time codes](#one-time-codes)                                     |
+| `codes.resend_cooldown_seconds`                      | `60`                                                                         | `AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS`             |           | [One-time codes](#one-time-codes)                                     |
+| `codes.max_deliveries`                               | `3`                                                                          | `AUTHENTICATION_CODES_MAX_DELIVERIES`                      |           | [One-time codes](#one-time-codes)                                     |
+| `codes.delivery_window_seconds`                      | `1800`                                                                       | `AUTHENTICATION_CODES_DELIVERY_WINDOW_SECONDS`             |           | [One-time codes](#one-time-codes)                                     |
+| `delivery.queue.connection`                          | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE_CONNECTION`                 |           | [One-time codes](#one-time-codes)                                     |
+| `delivery.queue.name`                                | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE`                            |           | [One-time codes](#one-time-codes)                                     |
+| `passkeys.table`                                     | `passkeys`                                                                   | `AUTHENTICATION_PASSKEYS_TABLE`                            |           | [Passkeys](#passkeys)                                                 |
+| `passkeys.challenges_table`                          | `passkey_challenges`                                                         | `AUTHENTICATION_PASSKEYS_CHALLENGES_TABLE`                 |           | [Passkeys](#passkeys)                                                 |
+| `passkeys.challenge_ttl_seconds`                     | `300`                                                                        | `AUTHENTICATION_PASSKEYS_CHALLENGE_TTL_SECONDS`            |           | [Passkeys](#passkeys)                                                 |
+| `passkeys.relying_party.id`                          | `null`                                                                       | `AUTHENTICATION_PASSKEYS_RP_ID`                            | yes       | [Passkeys](#passkeys)                                                 |
+| `passkeys.relying_party.name`                        | `env('APP_NAME')`                                                            | `APP_NAME`                                                 | yes       | [Passkeys](#passkeys)                                                 |
+| `passkeys.relying_party.origins`                     | `[]`                                                                         |                                                            | yes       | [Passkeys](#passkeys)                                                 |
 
 ## Storage
 
@@ -499,6 +510,21 @@ written in one transaction, and both are read from the write connection. Each na
 migrations name their indexes after it (`<table>_session_index` and so on), and PostgreSQL cuts a longer index name
 short. They are pruned with their sessions (see [Pruning](operations.md#pruning)).
 
+## Revocation by connection
+
+```php
+'revocation' => [
+    'connection_disabled' => true,
+    'connection_deleted'  => true,
+    'link_removed'        => true,
+],
+```
+
+`Auth::sessions()->connectionDisabled()`, `connectionDeleted()` and `linkRemoved()` end the sessions an external
+provider's connection established (see [Connections and links](sessions.md#connections-and-links)). Each is on unless
+its setting is `false`, when it returns `0` and writes nothing. A value that is not `true` or `false` fails closed with
+an `InvalidArgumentException` when the method is first called, and `authentication:check` reports it.
+
 ## Freshness
 
 ```php
@@ -512,6 +538,10 @@ short. They are pruned with their sessions (see [Pruning](operations.md#pruning)
         'max_age_seconds' => 900,
         'proofs'          => ['additional_factor', 'recovery_code'],
     ],
+    'first_additional_factor' => [
+        'max_age_seconds' => 900,
+        'proofs'          => ['first_factor_reauthentication', 'external_reauthentication'],
+    ],
 ],
 ```
 
@@ -522,14 +552,17 @@ authentication or that was observed to resist phishing. It is judged on that pro
 authentication time, so a recent step-up with a weak factor does not make a session fresh for an operation that asks for
 a strong one (see [Freshness](sessions.md#freshness)).
 
-The package names three operations (`Freshness\Operations`): `identifier_change`, which an identifier change checks for
-a session proof (see [Changing identifiers](identifier-changes.md)), and `password_establishment` and `factor_change`,
-which nothing in the package checks yet: they are configured for whatever gates establishing a password or changing a
-factor. Adding, replacing or removing a factor and generating recovery codes take a fresh step-up, so `factor_change`
-takes only a further factor or a recovery code: a sign-in or a reauthentication, which never renews the evidence of a
-further factor, does not make a session fresh for it. The application or another package names its own
-(`mfa.add_factor`, `sso.reauthenticate`): lower-case segments separated by dots, read as array keys, never as
-configuration paths. An operation with no entry, and no requirement passed by its caller, is never fresh.
+The package names four operations (`Freshness\Operations`): `identifier_change`, which an identifier change checks for a
+session proof (see [Changing identifiers](identifier-changes.md)), `password_establishment`, for establishing a password
+for an identity that has none, and `factor_change` and `first_additional_factor`, which the factor-change gate checks
+(see [Changing further factors](sessions.md#changing-further-factors)). Adding, replacing or removing a factor and
+generating recovery codes take a fresh step-up, so `factor_change` takes only a further factor or a recovery code: a
+sign-in or a reauthentication, which never renews the evidence of a further factor, does not make a session fresh for
+it. An identity's first additional factor has nothing to step up with, so `first_additional_factor` takes a
+reauthentication, with the first factor or at an external provider, and never the sign-in's own first factor. The
+application or another package names its own (`mfa.add_factor`, `sso.reauthenticate`): lower-case segments separated by
+dots, read as array keys, never as configuration paths. An operation with no entry, and no requirement passed by its
+caller, is never fresh.
 
 A guard overrides any operation in a `freshness` block on its `config/auth.php` entry; an entry it sets wins whole, and
 `null` removes the operation for that guard:
@@ -587,6 +620,8 @@ a password sign-in runs. A sign-in that needs a further factor or a choice of pr
     'ttl_seconds'             => 600,
     'max_attempts'            => 5,
     'resend_cooldown_seconds' => 60,
+    'max_deliveries'          => 3,
+    'delivery_window_seconds' => 1800,
 ],
 
 'delivery' => [
@@ -594,23 +629,37 @@ a password sign-in runs. A sign-in that needs a further factor or a choice of pr
 ],
 ```
 
-The `phone_code` and `email_code` sign-in methods and verification by code (see
-[Signing in with a one-time code](signing-in.md#signing-in-with-a-one-time-code)) send a code of `length` digits (6 to
-10), drawn uniformly with `random_int()`, that works once, for `ttl_seconds` (60 to 3600), and for at most
-`max_attempts` checks (1 to 20); after that it is locked until another is requested. Another code for the same number
-may be requested `resend_cooldown_seconds` (0 to `ttl_seconds`) after the last, and replaces it at once: the earlier
-code stops working. Each number is an integer, or a digit string as `env()` returns one; anything else fails closed with
-an `InvalidArgumentException` naming the key when a code is first issued, and `authentication:check` reports it. The
-settings are global, not per guard.
+The `phone_code` and `email_code` sign-in methods, verification by code (see [Signing in with a one-time
+code](signing-in.md#signing-in-with-a-one-time-code)), reset and identifier-change codes, and a factor package's
+further-factor and enrolment codes (see [Extending](extending.md)) each send a challenge: a code of `length` digits (6
+to 10), drawn uniformly with `random_int()`, that works once, for `ttl_seconds` (60 to 3600), and for at most
+`max_attempts` checks (1 to 20); after that it is locked until another is requested. Every challenge has an id, which
+the request answers and the check must name: a code naming another challenge is refused with no attempt spent. Another
+code for the same number may be requested `resend_cooldown_seconds` (0 to `ttl_seconds`) after the last: while the
+challenge lives, that is a resend of the same challenge, its id and its attempts kept, with a new code that replaces the
+earlier one at once; otherwise it is a new challenge. Deliveries to one number (for one owner, where the purpose has
+one: a verification, a factor code) are capped at `max_deliveries` (1 to 10) in each delivery window of
+`delivery_window_seconds` (`ttl_seconds` to 86400) from the window's first delivery, across every challenge the window
+holds (`deliveries_exhausted` until it ends), and no code outlives its window, so a resend never extends a challenge
+past it. Nor is a code delivered with less than `resend_cooldown_seconds` left of its window: it could expire before
+another may be asked for, so the request is answered `rate_limited` with the seconds until the window ends, after which
+the next starts a new window. A reset link's token works for its own lifetime but counts against the cap. A password
+write or an identifier change ends the codes and links it outdates but keeps their windows, so it resets neither the
+cap nor the cooldown. Each number is an integer, or a digit string as `env()` returns one; anything else fails closed
+with an `InvalidArgumentException` naming the key when a code is first issued, and `authentication:check` reports it.
+The settings are global, not per guard.
 
 Codes live in `table` (`authentication-migrations` creates `one_time_codes`), on the storage connection, one row per
-binding: the purpose (a sign-in, a verification, a password reset code or link, or an identifier change), the guard, the
-identifier's type and normal form and, for a verification or a change, the identity. The row is stored under an
-HMAC-SHA256 of that binding and holds the code only as an HMAC-SHA256 of the binding, a random id for the issuance and
-the code, each with its own key derived from `key` (at least 32 bytes) or, when `key` is not set, from `app.key`. A code
-has a few million values at most, so a plain hash of it could be reversed by anyone who reads the table (from a backup
-or a replica, say); a keyed one cannot without the key, and the table holds neither a code nor an identifier. Rotating
-the key, or `app.key` when it is the source, only invalidates the codes outstanding. A shorter `key` fails closed.
+delivery key: the purpose (a sign-in, a verification, a further factor's code, an enrolment's, a password reset code or
+link, or an identifier change), the guard, the identifier's type (or the channel's kind) and normal form and, for a
+verification, a factor code or a change, the identity. A factor code's row also holds an HMAC-SHA256 of its transaction
+(the session, the factor and the sign-in, step-up or enrolment grant), which a check must match. The row is stored under
+an HMAC-SHA256 of that binding and holds the code only as an HMAC-SHA256 of the binding, a random id for the issuance
+and the code, each with its own key derived from `key` (at least 32 bytes) or, when `key` is not set, from `app.key`. A
+code has a few million values at most, so a plain hash of it could be reversed by anyone who reads the table (from a
+backup or a replica, say); a keyed one cannot without the key, and the table holds neither a code nor an identifier.
+Rotating the key, or `app.key` when it is the source, only invalidates the codes outstanding. A shorter `key` fails
+closed.
 
 A code is delivered by a queued job, `ShouldBeEncrypted` so its payload (which carries the code and the number) is
 encrypted with `app.key` on the queue, pushed to `delivery.queue.connection` and `delivery.queue.name` (`null` for your
@@ -656,13 +705,15 @@ final class SmsCodeSender implements OneTimeCodeSender
 }
 ```
 
-The message also carries the guard, the purpose (`CodePurpose::SIGN_IN` or `VERIFY_IDENTIFIER`, to word it) and the
-recipient identity.
+The message also carries the guard, the purpose (`CodePurpose::SIGN_IN`, `VERIFICATION`, `MFA`, `ENROLLMENT`,
+`PASSWORD_RESET` or `CHANGE_IDENTIFIER`, to word it) and the recipient identity. A factor code's `type` is its channel's
+kind (`sms` or `email`).
 
 A sender that throws fails the job, and your queue's retry policy applies; a retry checks the code first, so a code
 that expired or was replaced is never sent. Requests for codes are limited by the `code_request` rate limits (see
-[Rate limits](#rate-limits)). Expired codes stay in the table until they are pruned: schedule `model:prune` with
-`Models\OneTimeCode` beside the others (see [Pruning sessions](operations.md#pruning)).
+[Rate limits](#rate-limits)). Expired codes stay in the table until they are pruned, once their delivery window has
+ended too: schedule `model:prune` with `Models\OneTimeCode` beside the others (see
+[Pruning sessions](operations.md#pruning)).
 
 ## Passkeys
 
@@ -735,23 +786,26 @@ a cache. Publish the migration with the others (`authentication-migrations` crea
 ],
 ```
 
-| Flow                     | Scope            | Default             | Counts                                                                                                         |
-|--------------------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
-| `sign_in`                | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
-| `sign_in`                | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
-| `refresh`                | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the session                                                                                |
-| `refresh`                | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
-| `code_request`           | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
-| `code_request`           | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
-| `passkey_options`        | `per_ip`         | 100 per 300 seconds | Every request for passkey sign-in options from the IP address; never given back                                |
-| `client_credentials`     | `per_identifier` | Off                 | When set: exchanges refused for the client's credentials or identity, by client id as given                    |
-| `client_credentials`     | `per_ip`         | 100 per 60 seconds  | Exchanges refused for the client's credentials or identity from the IP address                                 |
-| `password_reset_request` | `per_identifier` | 5 per 3600 seconds  | Every request for a reset link or code to the identifier, held or not; never given back                        |
-| `password_reset_request` | `per_ip`         | 50 per 3600 seconds | Every request for a reset link or code from the IP address; never given back                                   |
-| `password_reset`         | `per_identifier` | 10 per 900 seconds  | Every reset submission naming the identifier, before anything is checked; a success is given back              |
-| `password_reset`         | `per_ip`         | 50 per 900 seconds  | Every reset submission from the IP address, before anything is checked; a success is given back                |
-| `identifier_change`      | `per_identifier` | 5 per 3600 seconds  | Every change request to the new identifier or by the identity; given back only when refused under its lock     |
-| `identifier_change`      | `per_ip`         | 50 per 3600 seconds | Every change request from the IP address; given back only when refused under the identity's lock               |
+| Flow                      | Scope            | Default             | Counts                                                                                                                                                                                  |
+|---------------------------|------------------|---------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `sign_in`                 | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back                                                                          |
+| `sign_in`                 | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                                                                                              |
+| `refresh`                 | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the session                                                                                                                                                         |
+| `refresh`                 | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                                                                                                    |
+| `code_request`            | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not, and for a factor code also by the identity; never given back                                                          |
+| `code_request`            | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                                                                                                 |
+| `passkey_options`         | `per_ip`         | 100 per 300 seconds | Every request for passkey sign-in options from the IP address; never given back                                                                                                         |
+| `client_credentials`      | `per_identifier` | Off                 | When set: exchanges refused for the client's credentials or identity, by client id as given                                                                                             |
+| `client_credentials`      | `per_ip`         | 100 per 60 seconds  | Exchanges refused for the client's credentials or identity from the IP address                                                                                                          |
+| `password_reset_request`  | `per_identifier` | 5 per 3600 seconds  | Every request for a reset link or code to the identifier, held or not; never given back                                                                                                 |
+| `password_reset_request`  | `per_ip`         | 50 per 3600 seconds | Every request for a reset link or code from the IP address; never given back                                                                                                            |
+| `password_reset`          | `per_identifier` | 10 per 900 seconds  | Every reset submission naming the identifier, before anything is checked; a success is given back                                                                                       |
+| `password_reset`          | `per_ip`         | 50 per 900 seconds  | Every reset submission from the IP address, before anything is checked; a success is given back                                                                                         |
+| `identifier_change`       | `per_identifier` | 5 per 3600 seconds  | Every change request to the new identifier or by the identity, given back only when refused under its lock; every code confirmation by the identity, given back once the change is made |
+| `identifier_change`       | `per_ip`         | 50 per 3600 seconds | Every change request or code confirmation from the IP address, given back as above                                                                                                      |
+| `identifier_verification` | `per_identifier` | 10 per 900 seconds  | Every verification code check by the identity; a correct code is given back                                                                                                             |
+| `identifier_verification` | `per_ip`         | 50 per 900 seconds  | Every verification code check from the IP address; a correct code is given back                                                                                                         |
+| `factor_code`             | `per_ip`         | 50 per 300 seconds  | Every factor code check from the IP address; a verified code is given back                                                                                                              |
 
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
 `decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from

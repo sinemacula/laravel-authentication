@@ -41,6 +41,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
@@ -348,38 +349,51 @@ final readonly class SessionSwitch
         CarbonImmutable $now,
     ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
         $verdict = TenantPolicyCheck::check($this->context->name(), $destination->identity, $destination->principal, $destination->tenant, $session, $now);
+        $missed  = fn (): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal => $this->afterLostSwitch($session, $destination, $presented, $now);
 
         return match ($verdict->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => self::refused(FailureReason::SSO_REQUIRED, $this->eventContext($session, $destination)),
-            TenantPolicyStanding::FACTOR_REQUIRED => $this->toPending($session, $destination, $presented, $verdict->version, $now),
+            TenantPolicyStanding::FACTOR_REQUIRED => $this->toPending($session, $destination, $verdict, $now, $missed),
             TenantPolicyStanding::MET             => $this->rotateTo($session, $destination, $presented, [$deadlines, $verdict->version], $now),
         };
     }
 
     /**
      * Return the session to pending with the destination and the version its
-     * policy answered recorded, instead of re-issuing its pair, or, when the
-     * compare-and-swap missed, judge the presented rotation id again as after a
-     * lost switch.
+     * policy answered recorded, waiting on the further factor the policy
+     * requires, instead of re-issuing its pair, or, when the compare-and-swap
+     * missed, answer as the caller has it answered: a switch judges the
+     * presented rotation id again as after a lost switch, while a retry is a
+     * conflict and is never judged again.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
-     * @param  array{0: string, 1: mixed}  $presented
-     * @param  ?string  $policyVersion
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict  $verdict
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  \Closure(): (\SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal)  $missed
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      *
      * @throws \Throwable
      */
     private function toPending(
         EloquentSession&Model $session,
         Admitted $destination,
-        #[\SensitiveParameter] array $presented,
-        ?string $policyVersion,
+        TenantPolicyVerdict $verdict,
         CarbonImmutable $now,
+        \Closure $missed,
     ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
-        return $this->transitions->returnToPending($session, $destination, $policyVersion, AuthenticationFlow::SWITCH, $now)
-            ?? $this->afterLostSwitch($session, $destination, $presented, $now);
+        $firstFactor = PendingTransitions::firstFactorOf($session, $verdict);
+        $outstanding = $this->transitions->outstanding($session, $destination->identity, $verdict->factor, $firstFactor, $now);
+
+        return $this->transitions->returnToPending($session, $destination, $verdict->version, $outstanding, $firstFactor, AuthenticationFlow::SWITCH, $now) ?? $missed();
     }
 
     /**
@@ -461,12 +475,12 @@ final readonly class SessionSwitch
 
         $now     = CarbonImmutable::now()->startOfSecond();
         $verdict = TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
+        $missed  = fn (): AuthenticationFailed => self::refused(FailureReason::ROTATION_CONFLICT, $this->eventContext($session, $admitted));
 
         return match ($verdict->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => self::refused(FailureReason::SSO_REQUIRED, $this->eventContext($session, $admitted)),
-            TenantPolicyStanding::FACTOR_REQUIRED => $this->transitions->returnToPending($session, $admitted, $verdict->version, AuthenticationFlow::SWITCH, $now)
-                ?? self::refused(FailureReason::ROTATION_CONFLICT, $this->eventContext($session, $admitted)),
-            TenantPolicyStanding::MET => new SwitchedPrincipal(
+            TenantPolicyStanding::FACTOR_REQUIRED => $this->toPending($session, $admitted, $verdict, $now, $missed),
+            TenantPolicyStanding::MET             => new SwitchedPrincipal(
                 self::exchanged($admitted, $session, $this->issue($admitted, $session, RefreshTokenHasher::successor($presented[0]), $now)),
                 PrincipalReference::type($admitted->principal),
                 PrincipalReference::id($admitted->principal),

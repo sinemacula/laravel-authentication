@@ -46,11 +46,12 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * (`password_reset`, taken before any other work, so a flood of guesses never
  * reaches the hasher or the breached check, and given back only by a reset that
  * succeeds). Then, inside the guard's credential timebox: a malformed
- * identifier, token, code or password is `invalid`; a password the policy
- * rejects is `password_rejected`, with nothing spent; the identity is looked up
- * (see `ResetRecipient`); and, in one transaction on the codes' connection, the
- * row of an eligible one is locked and judged again as stored, then the proof
- * is checked whatever the identity, a code counting its attempt as a sign-in's
+ * identifier, token, code, challenge id (a code names the challenge it was sent
+ * for) or password is `invalid`; a password the policy rejects is
+ * `password_rejected`, with nothing spent; the identity is looked up (see
+ * `ResetRecipient`); and, in one transaction on the codes' connection, the row
+ * of an eligible one is locked and judged again as stored, then the proof is
+ * checked whatever the identity, a code counting its attempt as a sign-in's
  * does. A refused proof commits (the attempt stays counted) and is `invalid`;
  * an accepted proof for no identity, or one that may not reset, rolls back, so
  * the proof stays unspent, and is `invalid`; an accepted proof for an eligible
@@ -109,7 +110,8 @@ final readonly class ResetSubmissions
 
     /**
      * Reset with a code, the input naming the identifier under the type (which
-     * must have a registered normaliser), the `code` and the new `password`.
+     * must have a registered normaliser), the `code`, the `challenge` it was
+     * sent for and the new `password`.
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input
@@ -153,14 +155,15 @@ final readonly class ResetSubmissions
 
         // `#[\SensitiveParameter]` does not cover what a closure captures,
         // which a dump of the trace shows.
-        $proof    = new \SensitiveParameterValue(ResetInput::secret($input, $proofKey));
-        $password = new \SensitiveParameterValue(ResetInput::secret($input, ResetInput::PASSWORD_KEY));
+        $proof     = new \SensitiveParameterValue(ResetInput::secret($input, $proofKey));
+        $password  = new \SensitiveParameterValue(ResetInput::secret($input, ResetInput::PASSWORD_KEY));
+        $challenge = $purpose === CodePurpose::PASSWORD_RESET ? ResetInput::secret($input, ResetInput::CHALLENGE_KEY) : '';
 
         $client = $context->client;
 
         /** @var array{0: \SineMacula\Laravel\Authentication\Passwords\ResetResult, 1: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason} $outcome */
         $outcome = $this->context->timebox()->run(
-            fn (Timebox $timebox): array => $this->attempt($purpose, $type, $given, $proof->getValue(), $password->getValue(), $client, $timebox),
+            fn (Timebox $timebox): array => $this->attempt($purpose, $type, $given, [$challenge, $proof->getValue()], $password->getValue(), $client, $timebox),
         );
 
         [$result, $reason] = $outcome;
@@ -179,7 +182,7 @@ final readonly class ResetSubmissions
      * @param  \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose  $purpose
      * @param  string  $type
      * @param  ?string  $given
-     * @param  ?string  $proof
+     * @param  array{0: ?string, 1: ?string}  $proof
      * @param  ?string  $password
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \Illuminate\Support\Timebox  $timebox
@@ -191,14 +194,16 @@ final readonly class ResetSubmissions
         CodePurpose $purpose,
         string $type,
         ?string $given,
-        #[\SensitiveParameter] ?string $proof,
+        #[\SensitiveParameter] array $proof,
         #[\SensitiveParameter] ?string $password,
         ClientContext $client,
         Timebox $timebox,
     ): array {
         $identifier = $given === null ? null : $this->container->make(IdentifierVerifier::class)->canonical($type, $given);
 
-        $wellFormed = $proof !== null && $password !== null && $this->isWellFormed($purpose, $proof);
+        [$challenge, $secret] = $proof;
+
+        $wellFormed = $challenge !== null && $secret !== null && $password !== null && $this->isWellFormed($purpose, $challenge, $secret);
 
         if (!$wellFormed || $identifier === null || $identifier === '') {
             return [ResetResult::invalid(), FailureReason::INVALID_CREDENTIALS];
@@ -215,7 +220,7 @@ final readonly class ResetSubmissions
             ? CodeBinding::passwordResetLink($guard, $type, $identifier)
             : CodeBinding::passwordReset($guard, $type, $identifier);
         $recipient = ResetRecipient::find($guard, $this->context->provider(), $binding, $this->container);
-        $outcome   = $this->spend($binding, $proof, $recipient, $password, $client);
+        $outcome   = $this->spend($binding, [$challenge, $secret], $recipient, $password, $client);
 
         if ($outcome[0]->isReset()) {
             $timebox->returnEarly();
@@ -236,7 +241,7 @@ final readonly class ResetSubmissions
      * proof, that the identifier is held.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
-     * @param  string  $proof
+     * @param  array{0: string, 1: string}  $proof
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $recipient
      * @param  string  $password
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -246,7 +251,7 @@ final readonly class ResetSubmissions
      */
     private function spend(
         CodeBinding $binding,
-        #[\SensitiveParameter] string $proof,
+        #[\SensitiveParameter] array $proof,
         FailureReason|(Identity&Model) $recipient,
         #[\SensitiveParameter] string $password,
         ClientContext $client,
@@ -295,38 +300,44 @@ final readonly class ResetSubmissions
 
     /**
      * Check the proof against the binding's live token or code: a token without
-     * counting an attempt, a code counting one.
+     * counting an attempt, a code, for the challenge it names, counting one.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
-     * @param  string  $proof
+     * @param  array{0: string, 1: string}  $proof
      * @return \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private function checkProof(CodeBinding $binding, #[\SensitiveParameter] string $proof): CodeCheck
+    private function checkProof(CodeBinding $binding, #[\SensitiveParameter] array $proof): CodeCheck
     {
         $codes = $this->container->make(OneTimeCodes::class);
         $now   = CarbonImmutable::now()->startOfSecond();
 
-        return $binding->purpose === CodePurpose::PASSWORD_RESET_LINK ? $codes->checkToken($binding, $proof, $now) : $codes->check($binding, $proof, $now);
+        [$challenge, $secret] = $proof;
+
+        return $binding->purpose === CodePurpose::PASSWORD_RESET_LINK ? $codes->checkToken($binding, $secret, $now) : $codes->check($binding, $challenge, $secret, $now);
     }
 
     /**
-     * Whether the proof has the shape of a token or a code of the purpose.
+     * Whether the proof has the shape of a token, or of a code and the
+     * challenge id it names, of the purpose.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose  $purpose
+     * @param  string  $challenge
      * @param  string  $proof
      * @return bool
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private function isWellFormed(CodePurpose $purpose, #[\SensitiveParameter] string $proof): bool
+    private function isWellFormed(CodePurpose $purpose, string $challenge, #[\SensitiveParameter] string $proof): bool
     {
         $codes = $this->container->make(OneTimeCodes::class);
 
-        return $purpose === CodePurpose::PASSWORD_RESET_LINK ? $codes->isWellFormedToken($proof) : $codes->isWellFormed($proof);
+        return $purpose === CodePurpose::PASSWORD_RESET_LINK
+            ? $codes->isWellFormedToken($proof)
+            : $codes->isWellFormed($proof) && $codes->isWellFormedChallenge($challenge);
     }
 
     /**

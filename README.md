@@ -43,20 +43,29 @@ are caught on the server.
   detection, and a refresh transport per application: the body, or for a browser application a host-only `HttpOnly`
   cookie named after it, with CSRF checks, whose results never hand its code the plain refresh token.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
-  custom methods plug into.
+  custom methods plug into; a further-factor package can use passkeys as a factor too, with a ceremony bound to the
+  session and the credentials it names, and a gate it takes part in when a passkey is registered or removed.
+- **One-time code challenges**: every code is a challenge with an id the check names, kept across resends with its
+  attempt budget, capped in deliveries per destination, and bound to its purpose; a further-factor package's codes are
+  bound to the session and factor too, with its counters asked and told inside the transaction that checks them.
 - **Pending sessions**: a sign-in that still owes a further factor or a choice of principal waits as a pending session,
-  with a short-lived credential that allows only the actions it owes; a tenant may require a further factor or single
-  sign-on of the sessions acting in it.
+  with a short-lived credential that allows only the actions it owes; an identity's factor policy and a tenant's
+  authentication policy each answer a requirement (an additional verification, multifactor, a minimum assurance level,
+  phishing resistance), judged against the session's proofs, and a tenant may require single sign-on of the sessions
+  acting in it.
 - **Sessions**: timestamped proofs of every sign-in and an external provider's provenance on each session, step-up and
   reauthentication with `auth_time` and `amr` derived from the proofs, per-operation freshness judged on the proof that
-  meets it, list and get one, sign out (by the access token, or by the refresh credential once the access token has
-  expired), sign out everywhere, revoke on security changes, and list, get and switch to the principals an identity may
-  use, or switch its active tenant.
+  meets it, a gate for changing a further factor, list and get one, sign out (by the access token, or by the refresh
+  credential once the access token has expired), sign out everywhere, revoke on security changes (a further factor's
+  removal ends the other sessions and judges the current one again without it) and when a connection is disabled or
+  deleted or a link to it removed, and list, get and switch to the principals an identity may use, or switch its active
+  tenant.
 - **The caller of a request**: `Auth::caller()` reads who a request is from the access, refresh or pending credential
   its route authenticates with, and says whether a session, identity or principal is the caller's, so an application can
   scope its own route bindings.
 - **Machine credentials**: API keys and OAuth 2.0 client credentials for non-human identities, with scopes.
-- **Account lifecycle**: password policy, password reset, identifier verification and changing an email or phone.
+- **Account lifecycle**: password policy, changing a password with the current one or establishing a first one on a
+  fresh session, password reset, identifier verification and changing an email or phone.
 - **Per-application settings**: which sign-in methods and machine credentials each application allows (none until it
   lists them), whether identifiers must be verified, and its lifetimes.
 - **Access contracts**: whether a principal may use an application and whether it may act in a tenant, answered by your

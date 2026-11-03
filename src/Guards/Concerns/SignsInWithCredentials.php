@@ -27,6 +27,8 @@ use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Sessions\CredentialAttempt;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
@@ -226,14 +228,15 @@ trait SignsInWithCredentials
     }
 
     /**
-     * Refuse the admitted sign-in when the additional-factor policy asks it for
-     * a further factor, which `attempt()` cannot hand out. A pinned session
+     * Refuse the admitted sign-in when the additional-factor policy asks of it
+     * a requirement the password it proved does not meet alone, as the bound
+     * `RequirementCheck` judges it: `attempt()` cannot hand out a pending
+     * session to meet it with (`additional_factor_required`). A pinned session
      * proves nothing about who holds the client, so the policy is never told of
      * one. The authentication policy of the active tenant (the principal's own,
-     * or the one a pinned session records) is then judged against the password
-     * the sign-in proved: one that requires a connection refuses it as
-     * `sso_required`, and one that requires a further factor as
-     * `additional_factor_required`.
+     * or the one a pinned session records) is then judged against the same
+     * password: one that requires a connection refuses it as `sso_required`,
+     * and one that requires a further factor as `additional_factor_required`.
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -244,23 +247,18 @@ trait SignsInWithCredentials
      */
     private function refuseIfAFactorIsRequired(Admitted $admitted, ClientContext $client): Admitted|Refused
     {
-        $required = self::signInCollaborator(AdditionalFactorPolicy::class)->requiresAdditionalFactor(new AdditionalFactorContext(
-            $this->context->name(),
-            $admitted->identity,
-            PasswordSignIn::NAME,
-            $client,
-            null,
-            null,
-            null,
-        ));
+        $now      = CarbonImmutable::now()->startOfSecond();
+        $password = SignInProof::verified(PasswordSignIn::NAME, new FirstFactor($admitted->identity, new Channel(ChannelKind::PASSWORD), methods: [PasswordSignIn::AMR]), $now);
+        $evidence = SessionEvidence::of($password);
+        $factors  = self::signInCollaborator(AdditionalFactorPolicy::class);
+        $context  = new AdditionalFactorContext($this->context->name(), $admitted->identity, $evidence->firstFactor, $client, null, null, null);
+        $required = WriteConnection::during($admitted->identity, static fn (): Requirement => $factors->requirementFor($context));
 
-        if ($required) {
+        if (!RequirementJudge::isMet($this->context->name(), $admitted->identity, null, null, $now, $evidence, $required)) {
             return Refused::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted);
         }
 
-        $now      = CarbonImmutable::now()->startOfSecond();
-        $password = SignInProof::verified(PasswordSignIn::NAME, new FirstFactor($admitted->identity, new Channel(ChannelKind::PASSWORD), methods: [PasswordSignIn::AMR]), $now);
-        $policy   = TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, null, $now, SessionEvidence::of($password));
+        $policy = TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, null, $now, $evidence);
 
         return match ($policy->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => Refused::after(FailureReason::SSO_REQUIRED, $admitted),

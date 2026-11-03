@@ -35,6 +35,8 @@ use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -785,7 +787,7 @@ final class SignInPolicyEndToEndTest extends TestCase
     private static function requireAFurtherFactor(): void
     {
         $factors = \Mockery::mock(AdditionalFactorPolicy::class);
-        $factors->shouldReceive('requiresAdditionalFactor')->andReturnTrue();
+        $factors->shouldReceive('requirementFor')->andReturn(new Requirement(new RequirementPart));
 
         app()->instance(AdditionalFactorPolicy::class, $factors);
     }

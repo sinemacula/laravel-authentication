@@ -175,7 +175,9 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
     {
         yield 'a changed password' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->passwordChanged($identity)];
         yield 'a reset password' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->passwordReset($identity)];
-        yield 'a removed factor' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->factorRemoved($identity)];
+        yield 'a removed credential' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->credentialRemoved($identity)];
+        yield 'a removed factor' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->factorRemoved($identity, 'factor-1')->revoked];
+        yield 'reset factors' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->factorReset($identity)];
         yield 'a deactivated identity' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->identityDeactivated($identity)];
     }
 

@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeKeys;
 use SineMacula\Laravel\Authentication\Codes\CodeSettings;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
@@ -35,6 +36,10 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOu
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Models\IdentifierChange;
+use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 
@@ -187,14 +192,18 @@ final readonly class IdentifierChangeService
 
     /**
      * Confirm the identity's pending change of the type, requested through this
-     * guard, with the code sent to the new identifier, and make it, while the
-     * identity is active.
+     * guard, with the code sent to the new identifier for the challenge named,
+     * and make it, while the identity is active. A well-formed code and
+     * challenge id count against the identity's account and the IP address
+     * (`identifier_change`), given back once the change is made; once either is
+     * used up the confirmation is `rate_limited`, with the wait.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
+     * @param  string  $challengeId
      * @param  string  $code
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome
+     * @return \SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome<\SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome>
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
@@ -204,30 +213,50 @@ final readonly class IdentifierChangeService
      *
      * @phpstan-impure
      */
-    public function confirmByCode(Identity $identity, string $type, #[\SensitiveParameter] string $code, ?ClientContext $client = null): IdentifierChangeOutcome
+    public function confirmByCode(Identity $identity, string $type, string $challengeId, #[\SensitiveParameter] string $code, ?ClientContext $client = null): LimitedOutcome
     {
         $changeable = $this->changeable($identity, $type);
         $context    = $this->eventContext($changeable, $client);
         $codes      = $this->collaborator(OneTimeCodes::class);
 
-        if (!$codes->isWellFormed($code)) {
-            return $this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context);
+        if (!$codes->isWellFormed($code) || !$codes->isWellFormedChallenge($challengeId)) {
+            return new LimitedOutcome($this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context));
+        }
+
+        $limiter     = $this->collaborator(AttemptLimiter::class);
+        $reservation = $limiter->acquire(
+            new AttemptSubject($this->context->name(), AttemptFlow::IDENTIFIER_CHANGE, null, null, $context->client->ip, AccountAttempts::account($changeable)),
+        );
+
+        if ($reservation->retryAfter !== null) {
+            $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter));
+
+            return new LimitedOutcome(IdentifierChangeOutcome::RATE_LIMITED, $reservation->retryAfter);
         }
 
         // `#[\SensitiveParameter]` does not cover what a closure captures,
         // which a dump of the trace shows.
         $secret = new \SensitiveParameterValue($code);
 
-        return $this->confirm($changeable, $type, $context, function (IdentifierChange $change, CarbonImmutable $now) use ($changeable, $secret, $codes): ?ChangeRefused {
-            $check = $codes->check(PendingChanges::binding($change, $changeable), $secret->getValue(), $now);
+        $prove = static function (IdentifierChange $change, CarbonImmutable $now) use ($changeable, $challengeId, $secret, $codes): ?ChangeRefused {
+            $check = $codes->check(PendingChanges::binding($change, $changeable), $challengeId, $secret->getValue(), $now);
 
             return match ($check) {
                 CodeCheck::ACCEPTED  => null,
                 CodeCheck::EXPIRED   => new ChangeRefused(IdentifierChangeOutcome::EXPIRED, FailureReason::CODE_EXPIRED),
                 CodeCheck::EXHAUSTED => new ChangeRefused(IdentifierChangeOutcome::EXHAUSTED, FailureReason::CODE_EXHAUSTED),
-                CodeCheck::INVALID   => new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS),
+                CodeCheck::INVALID,
+                CodeCheck::WRONG => new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS),
             };
-        }, FailureReason::CODE_EXPIRED);
+        };
+
+        $outcome = $this->confirm($changeable, $type, $context, $prove, FailureReason::CODE_EXPIRED);
+
+        if ($outcome === IdentifierChangeOutcome::CHANGED) {
+            $limiter->release($reservation);
+        }
+
+        return new LimitedOutcome($outcome);
     }
 
     /**
@@ -239,7 +268,7 @@ final readonly class IdentifierChangeService
      * link's `GET` itself, which mail scanners and link previews fetch unasked.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return \SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome
+     * @return \SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome<\SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome>
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
@@ -249,27 +278,29 @@ final readonly class IdentifierChangeService
      *
      * @phpstan-impure
      */
-    public function confirmByLink(Request $request): IdentifierChangeOutcome
+    public function confirmByLink(Request $request): LimitedOutcome
     {
         $client  = ClientContext::fromRequest($request);
         $context = new EventContext($this->context->name(), $client);
         $link    = $this->links()->read($request);
 
         if ($link instanceof FailureReason) {
-            return $this->refuseConfirmation($link === FailureReason::LINK_EXPIRED ? IdentifierChangeOutcome::EXPIRED : IdentifierChangeOutcome::INVALID, $link, $context);
+            $outcome = $link === FailureReason::LINK_EXPIRED ? IdentifierChangeOutcome::EXPIRED : IdentifierChangeOutcome::INVALID;
+
+            return new LimitedOutcome($this->refuseConfirmation($outcome, $link, $context));
         }
 
         $identity = $link->guard === $this->context->name() ? $this->context->provider()->retrieveById($link->identity) : null;
 
         if (!$identity instanceof Identity) {
-            return $this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context);
+            return new LimitedOutcome($this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context));
         }
 
         $changeable = $this->changeable($identity, $link->type);
         $refusal    = new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS);
         $prove      = static fn (IdentifierChange $change): ?ChangeRefused => $link->names($change) ? null : $refusal;
 
-        return $this->confirm($changeable, $link->type, $this->eventContext($changeable, $client), $prove, FailureReason::LINK_EXPIRED);
+        return new LimitedOutcome($this->confirm($changeable, $link->type, $this->eventContext($changeable, $client), $prove, FailureReason::LINK_EXPIRED));
     }
 
     /**

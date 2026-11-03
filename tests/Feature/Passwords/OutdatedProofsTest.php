@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
+use SineMacula\Laravel\Authentication\Codes\DeliveryRefusal;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
@@ -62,15 +63,15 @@ final class OutdatedProofsTest extends TestCase
         self::seedResettable();
         self::seedPasswordIdentity('grace@example.test');
 
-        $web   = self::issueToken('web');
-        $admin = self::issueToken('admin');
-        $code  = self::issueCode('web', 'phone', self::PHONE);
-        $grace = self::issue(CodeBinding::passwordResetLink('web', 'email', 'grace@example.test'), true);
+        $web                = self::issueToken('web');
+        $admin              = self::issueToken('admin');
+        [$challenge, $code] = self::issueCode('web', 'phone', self::PHONE);
+        $grace              = self::issue(CodeBinding::passwordResetLink('web', 'email', 'grace@example.test'), true);
 
         self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $web, 'password' => self::NEW_PASSWORD])->status);
 
         self::assertSame(ResetStatus::INVALID, $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $admin, 'password' => self::TAKEOVER_PASSWORD])->status);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code))->status);
+        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge))->status);
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, self::storedPassword(PasswordIdentity::query()->where('email', self::EMAIL)->value('password'))));
 
         self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => 'grace@example.test', 'token' => $grace, 'password' => self::NEW_PASSWORD])->status);
@@ -89,16 +90,16 @@ final class OutdatedProofsTest extends TestCase
     {
         $identity = self::seedResettable();
 
-        $web   = self::issueToken('web');
-        $admin = self::issueToken('admin');
-        $code  = self::issueCode('admin', 'phone', self::PHONE);
+        $web                = self::issueToken('web');
+        $admin              = self::issueToken('admin');
+        [$challenge, $code] = self::issueCode('admin', 'phone', self::PHONE);
 
         self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
-        self::assertSame(0, DB::table('one_time_codes')->count());
+        self::assertSame(0, DB::table('one_time_codes')->whereNull('consumed_at')->count());
 
         self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $web, 'password' => self::TAKEOVER_PASSWORD])->status);
         self::assertSame(ResetStatus::INVALID, $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $admin, 'password' => self::TAKEOVER_PASSWORD])->status);
-        self::assertSame(ResetStatus::INVALID, $this->passwords('admin')->resetWithCode('phone', self::takeover('phone', self::PHONE, $code))->status);
+        self::assertSame(ResetStatus::INVALID, $this->passwords('admin')->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge))->status);
     }
 
     /**
@@ -130,6 +131,39 @@ final class OutdatedProofsTest extends TestCase
         self::assertTrue($this->passwords()->set($identity->fresh() ?? $identity, self::TAKEOVER_PASSWORD, PasswordFlow::CHANGE)->set);
         self::assertSame(CodeCheck::INVALID, self::check(CodeBinding::signIn('web', 'email', self::EMAIL), $email));
         self::assertSame(CodeCheck::ACCEPTED, self::check(CodeBinding::signIn('web', 'email', 'grace@example.test'), $grace));
+    }
+
+    /**
+     * A change ends the identity's sign-in codes without resetting their keys'
+     * delivery windows: a code asked for straight after it waits out the
+     * cooldown since the last delivery, and the next is refused while the
+     * window has had all its deliveries, as if no change had been made.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeKeepsTheCooldownAndDeliveryCapOfTheCodesItEnds(): void
+    {
+        $identity = self::seedResettable();
+        $binding  = CodeBinding::signIn('web', 'phone', self::PHONE);
+        $codes    = app(OneTimeCodes::class);
+        $now      = CarbonImmutable::now()->startOfSecond();
+
+        foreach ([0, 60, 120] as $second) {
+            self::assertInstanceOf(IssuedCode::class, $codes->issue($binding, $now->addSeconds($second)));
+        }
+
+        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+
+        $soon = $codes->issue($binding, $now->addSeconds(130));
+        $late = $codes->issue($binding, $now->addSeconds(180));
+
+        self::assertSame(0, DB::table('one_time_codes')->whereNull('consumed_at')->count());
+        self::assertInstanceOf(DeliveryRefusal::class, $soon);
+        self::assertSame([50, false], [$soon->retryAfter, $soon->exhausted]);
+        self::assertInstanceOf(DeliveryRefusal::class, $late);
+        self::assertSame([1620, true], [$late->retryAfter, $late->exhausted]);
     }
 
     /**
@@ -191,15 +225,15 @@ final class OutdatedProofsTest extends TestCase
      */
     public function testAModelLoadedWithSomeColumnsOutdatesEveryIdentifierOfItsRow(): void
     {
-        $seeded  = self::seedResettable();
-        $token   = self::issueToken('web');
-        $code    = self::issueCode('web', 'phone', self::PHONE);
-        $partial = PasswordIdentity::query()->select(['id', 'password'])->findOrFail($seeded->getKey());
+        $seeded             = self::seedResettable();
+        $token              = self::issueToken('web');
+        [$challenge, $code] = self::issueCode('web', 'phone', self::PHONE);
+        $partial            = PasswordIdentity::query()->select(['id', 'password'])->findOrFail($seeded->getKey());
 
         self::assertTrue($this->passwords()->set($partial, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
-        self::assertSame(0, DB::table('one_time_codes')->count());
+        self::assertSame(0, DB::table('one_time_codes')->whereNull('consumed_at')->count());
         self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::TAKEOVER_PASSWORD])->status);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code))->status);
+        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge))->status);
     }
 
     /**
@@ -232,11 +266,11 @@ final class OutdatedProofsTest extends TestCase
      */
     public function testAnIdentifierTheIdentityLacksSkipsOnlyItsType(): void
     {
-        $identity = self::seedResettable(['email' => null]);
-        $code     = self::issueCode('web', 'phone', self::PHONE);
+        $identity           = self::seedResettable(['email' => null]);
+        [$challenge, $code] = self::issueCode('web', 'phone', self::PHONE);
 
         self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code))->status);
+        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge))->status);
     }
 
     /**
@@ -332,7 +366,7 @@ final class OutdatedProofsTest extends TestCase
             $token    = self::issueToken('lookalike_plain');
 
             self::assertTrue($this->passwords('lookalike_plain')->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
-            self::assertSame(0, DB::table('one_time_codes')->count());
+            self::assertSame(0, DB::table('one_time_codes')->whereNull('consumed_at')->count());
             self::assertSame(ResetStatus::INVALID, $this->passwords('lookalike_plain')->reset(self::takeover('email', self::EMAIL, $token, 'token'))->status);
         } finally {
             $this->dropSessionTables();
@@ -389,18 +423,20 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * The input of a reset with the code, or the link's token, that would set
-     * the takeover password.
+     * The input of a reset with the code and the challenge it was sent for, or
+     * the link's token, that would set the takeover password: well formed, so
+     * only a proof that no longer works refuses it.
      *
      * @param  string  $type
      * @param  string  $identifier
      * @param  string  $proof
      * @param  string  $field
+     * @param  ?string  $challenge
      * @return array<string, string>
      */
-    private static function takeover(string $type, string $identifier, string $proof, string $field = 'code'): array
+    private static function takeover(string $type, string $identifier, string $proof, string $field = 'code', ?string $challenge = null): array
     {
-        return [$type => $identifier, $field => $proof, 'password' => self::TAKEOVER_PASSWORD];
+        return [$type => $identifier, $field => $proof, 'password' => self::TAKEOVER_PASSWORD, ...$challenge === null ? [] : ['challenge' => $challenge]];
     }
 
     /**
@@ -427,22 +463,26 @@ final class OutdatedProofsTest extends TestCase
      */
     private static function check(CodeBinding $binding, string $code): CodeCheck
     {
-        return app(OneTimeCodes::class)->check($binding, $code, CarbonImmutable::now());
+        return app(OneTimeCodes::class)->check($binding, self::challenge($binding), $code, CarbonImmutable::now());
     }
 
     /**
-     * Issue a reset code for the identifier on the guard, directly.
+     * Issue a reset code for the identifier on the guard, directly, and return
+     * the challenge it was sent for with the code.
      *
      * @param  string  $guard
      * @param  string  $type
      * @param  string  $identifier
-     * @return string
+     * @return array{0: string, 1: string}
      *
      * @throws \Throwable
      */
-    private static function issueCode(string $guard, string $type, string $identifier): string
+    private static function issueCode(string $guard, string $type, string $identifier): array
     {
-        return self::issue(CodeBinding::passwordReset($guard, $type, $identifier), false);
+        $binding = CodeBinding::passwordReset($guard, $type, $identifier);
+        $code    = self::issue($binding, false);
+
+        return [self::challenge($binding), $code];
     }
 
     /**

@@ -57,4 +57,16 @@ enum AuthenticationFlow: string
     // A reauthentication of an active session with the first factor: the
     // session service's reauthenticate()
     case REAUTHENTICATION = 'reauthentication';
+
+    // A request for, or a check of, a further factor's code or an enrolment's:
+    // the code service's sendFactorCode() and verifyFactorCode()
+    case FACTOR_CODE = 'factor_code';
+
+    // A change or an establishment of the password from a signed-in session:
+    // the password service's change() and establish()
+    case PASSWORD_CHANGE = 'password_change';
+
+    // A recheck of the current session after one of the factor package's
+    // factors was removed: the session service's factorRemoved()
+    case FACTOR_CHANGE = 'factor_change';
 }

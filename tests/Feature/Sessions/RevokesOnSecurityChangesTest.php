@@ -127,10 +127,22 @@ final class RevokesOnSecurityChangesTest extends TestCase
             false,
         ];
 
-        yield 'factor removed' => [
-            static fn (SessionService $sessions, Identity $identity, Session $record): int => $sessions->factorRemoved($identity, $record),
+        yield 'credential removed' => [
+            static fn (SessionService $sessions, Identity $identity, Session $record): int => $sessions->credentialRemoved($identity, $record),
             RevocationReason::FACTOR_REMOVED,
             true,
+        ];
+
+        yield 'factor removed' => [
+            static fn (SessionService $sessions, Identity $identity, Session $record): int => $sessions->factorRemoved($identity, 'factor-1', $record)->revoked,
+            RevocationReason::FACTOR_REMOVED,
+            true,
+        ];
+
+        yield 'factors reset' => [
+            static fn (SessionService $sessions, Identity $identity): int => $sessions->factorReset($identity),
+            RevocationReason::FACTOR_RESET,
+            false,
         ];
 
         yield 'identity deactivated' => [

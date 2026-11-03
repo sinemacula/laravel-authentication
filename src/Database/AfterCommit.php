@@ -51,12 +51,7 @@ final readonly class AfterCommit
      */
     public function run(Model $model, \Closure $callback): void
     {
-        $manager    = ($this->transactions)();
-        $connection = $model->getConnection()->getName();
-
-        $pending = $manager instanceof DatabaseTransactionsManager
-            ? $manager->callbackApplicableTransactions()->last(static fn (DatabaseTransactionRecord $transaction): bool => $transaction->connection === $connection)
-            : null;
+        $pending = $this->pending($model);
 
         if ($pending === null) {
 
@@ -66,5 +61,34 @@ final readonly class AfterCommit
         }
 
         $pending->addCallback($callback);
+    }
+
+    /**
+     * Whether work run now for the model would wait for a commit: whether its
+     * connection has a transaction open.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $model
+     * @return bool
+     */
+    public function defers(Model $model): bool
+    {
+        return $this->pending($model) !== null;
+    }
+
+    /**
+     * The innermost transaction open on the model's connection that commit
+     * callbacks apply to, or `null` for none.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $model
+     * @return ?\Illuminate\Database\DatabaseTransactionRecord
+     */
+    private function pending(Model $model): ?DatabaseTransactionRecord
+    {
+        $manager    = ($this->transactions)();
+        $connection = $model->getConnection()->getName();
+
+        return $manager instanceof DatabaseTransactionsManager
+            ? $manager->callbackApplicableTransactions()->last(static fn (DatabaseTransactionRecord $transaction): bool => $transaction->connection === $connection)
+            : null;
     }
 }

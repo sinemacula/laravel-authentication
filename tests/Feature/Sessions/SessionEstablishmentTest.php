@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -29,7 +30,10 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
@@ -45,6 +49,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Factors\FirstFactorMeetsRequirements;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -126,7 +131,6 @@ final class SessionEstablishmentTest extends TestCase
         $result = self::outcome($this->establishment($guard)->proceed(
             $identity,
             self::selected($identity),
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -161,7 +165,6 @@ final class SessionEstablishmentTest extends TestCase
         self::assertTrue(self::outcome($this->establishment($guard)->proceed(
             $identity,
             self::selected($identity),
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -194,7 +197,6 @@ final class SessionEstablishmentTest extends TestCase
         $first        = self::outcome($establishing->proceed(
             $identity,
             self::selected($identity),
-            'sso',
             null,
             $this->context(),
             SignInProof::unattested('sso', CarbonImmutable::now()),
@@ -209,7 +211,6 @@ final class SessionEstablishmentTest extends TestCase
         $replaced = self::outcome($establishing->proceed(
             $identity,
             self::selected($identity),
-            'password',
             'email',
             $this->context($first->tokens->refreshToken?->reveal()),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -256,7 +257,6 @@ final class SessionEstablishmentTest extends TestCase
         $first        = self::outcome($establishing->proceed(
             $identity,
             self::selected($identity),
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -271,7 +271,6 @@ final class SessionEstablishmentTest extends TestCase
         self::assertTrue(self::outcome($establishing->proceed(
             $identity,
             self::selected($identity),
-            'password',
             'email',
             $this->context($first->tokens->refreshToken?->reveal()),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -300,7 +299,6 @@ final class SessionEstablishmentTest extends TestCase
         $first        = self::outcome($establishing->proceed(
             $identity,
             self::selected($identity),
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -318,7 +316,6 @@ final class SessionEstablishmentTest extends TestCase
             self::outcome($establishing->proceed(
                 $identity,
                 self::selected($identity),
-                'password',
                 'email',
                 $this->context($first->tokens->refreshToken?->reveal()),
                 SignInProof::unattested('password', CarbonImmutable::now()),
@@ -351,7 +348,6 @@ final class SessionEstablishmentTest extends TestCase
         $first        = self::outcome($establishing->proceed(
             $identity,
             self::selected($identity),
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -382,10 +378,10 @@ final class SessionEstablishmentTest extends TestCase
              * Record the proven session, rotating it the first time.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
                 if ($this->asked->count() === 0) {
                     DB::table('authentication_sessions')->where('id', $this->record)->update(['refresh_key' => str_repeat('a', 64)]);
@@ -393,7 +389,7 @@ final class SessionEstablishmentTest extends TestCase
 
                 $this->asked->append($context->provenSession?->getSessionIdentifier());
 
-                return false;
+                return new Requirement;
             }
         });
 
@@ -402,7 +398,6 @@ final class SessionEstablishmentTest extends TestCase
         $session = self::outcome($establishing->proceed(
             $identity,
             self::selected($identity),
-            'password',
             'email',
             $this->context($first->tokens->refreshToken?->reveal()),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -431,7 +426,6 @@ final class SessionEstablishmentTest extends TestCase
         $first        = self::outcome($establishing->proceed(
             $identity,
             self::selected($identity),
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -449,7 +443,6 @@ final class SessionEstablishmentTest extends TestCase
             self::outcome($establishing->proceed(
                 $identity,
                 self::selected($identity),
-                'password',
                 'email',
                 $this->context($first->tokens->refreshToken?->reveal()),
                 SignInProof::unattested('password', CarbonImmutable::now()),
@@ -466,10 +459,12 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
-     * When the additional-factor policy asks for a further factor, the sign-in
-     * is written as a pending session waiting on it, carrying the slots it
-     * took and holding no token, reported by `SessionPending` once committed;
-     * no session is created or signed in and the guard is not bound.
+     * When the additional-factor policy asks for a further factor the default
+     * check never finds met, the sign-in is written as a pending session
+     * waiting on it, naming the requirement and the first factor it recorded,
+     * carrying the slots it took and holding no token, reported by
+     * `SessionPending` once committed; no session is created or signed in and
+     * the guard is not bound.
      *
      * @return void
      *
@@ -487,7 +482,6 @@ final class SessionEstablishmentTest extends TestCase
         $result = self::outcome($this->establishment($guard)->proceed(
             $identity,
             self::selected($identity),
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -497,6 +491,9 @@ final class SessionEstablishmentTest extends TestCase
         self::assertTrue($result->isPending());
         self::assertNotNull($result->pending);
         self::assertSame([PendingRequirement::MFA], $result->pending->requires);
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION], $result->pending->requirement->kinds());
+        self::assertSame(SessionProof::query()->sole()->getKey(), $result->pending->firstFactor->id);
+        self::assertSame(ProofKind::FIRST_FACTOR, $result->pending->firstFactor->kind);
         self::assertSame($identity, $result->pending->principal);
         self::assertSame(CarbonImmutable::now()->addMinutes(5)->getTimestamp(), $result->pending->expiresAt->getTimestamp());
         self::assertStringStartsWith(IdentifierCoercion::stringify($result->pending->id) . '.', (string) $result->credential?->reveal());
@@ -531,7 +528,6 @@ final class SessionEstablishmentTest extends TestCase
         $result = self::outcome($this->establishment($this->freshGuard())->proceed(
             $identity,
             [null, [$identity, $other]],
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -562,7 +558,6 @@ final class SessionEstablishmentTest extends TestCase
         $result = self::outcome($this->establishment($this->freshGuard())->proceed(
             $identity,
             [null, [$identity, $other]],
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -636,7 +631,7 @@ final class SessionEstablishmentTest extends TestCase
             CarbonImmutable::setTestNow($deadline);
 
             $proof   = SignInProof::unattested('password', CarbonImmutable::now());
-            $refused = $this->establishment($guard)->proceed($identity, $selection, 'password', 'email', $this->context(notAfter: $deadline), $proof);
+            $refused = $this->establishment($guard)->proceed($identity, $selection, 'email', $this->context(notAfter: $deadline), $proof);
 
             self::assertInstanceOf(Refused::class, $refused);
             self::assertSame(FailureReason::SESSION_EXPIRED, $refused->reason);
@@ -667,7 +662,7 @@ final class SessionEstablishmentTest extends TestCase
         $policy       = $this->bindTenantPolicy(new TenantRequirement('v1'));
         $establishing = $this->establishment($this->freshGuard('members'));
         $proof        = SignInProof::unattested('password', CarbonImmutable::now());
-        $first        = self::outcome($establishing->proceed($member, [$membership, []], 'password', 'email', $this->context(), $proof))->session;
+        $first        = self::outcome($establishing->proceed($member, [$membership, []], 'email', $this->context(), $proof))->session;
 
         self::assertNotNull($first);
 
@@ -677,7 +672,7 @@ final class SessionEstablishmentTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class, SessionPending::class, SessionCreated::class, SignedIn::class]);
 
-        $refused = $establishing->proceed($member, [$membership, []], 'password', 'email', $context, $proof);
+        $refused = $establishing->proceed($member, [$membership, []], 'email', $context, $proof);
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
@@ -709,7 +704,6 @@ final class SessionEstablishmentTest extends TestCase
         $record       = self::outcome($establishing->proceed(
             $identity,
             self::selected($identity),
-            'password',
             'email',
             $this->context(notAfter: $deadline),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -740,7 +734,6 @@ final class SessionEstablishmentTest extends TestCase
         $refused = $this->establishment($this->freshGuard('members'))->proceed(
             $member,
             [$membership, []],
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -777,7 +770,6 @@ final class SessionEstablishmentTest extends TestCase
         $result = self::outcome($this->establishment($this->freshGuard('members'))->proceed(
             $member,
             [$membership, []],
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -813,7 +805,6 @@ final class SessionEstablishmentTest extends TestCase
         $result = self::outcome($this->establishment($this->freshGuard('members'))->proceed(
             $member,
             [$membership, []],
-            'password',
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
@@ -822,6 +813,63 @@ final class SessionEstablishmentTest extends TestCase
         self::assertTrue($result->isSignedIn());
         self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
         self::assertSame('v3', Session::query()->sole()->getTenantPolicyVersion());
+    }
+
+    /**
+     * A requirement the bound check finds the first factor alone meets (an
+     * assurance level the password already reaches, say) starts the session
+     * active at sign-in, judged on the sign-in's own proof.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequirementTheFirstFactorMeetsStartsTheSessionActive(): void
+    {
+        $identity = $this->seedIdentity();
+
+        self::requireAFurtherFactor(true);
+
+        app()->instance(RequirementCheck::class, new FirstFactorMeetsRequirements);
+
+        $result = self::outcome($this->establishment($this->freshGuard())->proceed(
+            $identity,
+            self::selected($identity),
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+        ));
+
+        self::assertTrue($result->isSignedIn());
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+    }
+
+    /**
+     * A sign-in short of both the identity's requirement and its tenant's waits
+     * on the strictest of the two: every part either asks for.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSignInNamesTheStrictestOfTheIdentitysAndTheTenantsRequirements(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        self::requireAFurtherFactor(true);
+
+        $this->bindTenantPolicy(new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart(600))));
+
+        $result = self::outcome($this->establishment($this->freshGuard('members'))->proceed(
+            $member,
+            [$membership, []],
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+        ));
+
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $result->pending?->requirement->kinds());
+        self::assertSame(600, $result->pending->requirement->multifactor?->maxAgeSeconds);
     }
 
     /**
@@ -939,12 +987,12 @@ final class SessionEstablishmentTest extends TestCase
              * Give the answer.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return $this->required;
+                return $this->required ? new Requirement(new RequirementPart) : new Requirement;
             }
         });
     }

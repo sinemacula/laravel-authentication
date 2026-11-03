@@ -12,25 +12,31 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\RequestBody;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 
 /**
  * The password service of a JWT guard (`Auth::passwords($guard)`): the password
- * policy, and the one call a registration, a change or a reset makes to set a
- * password.
+ * policy, changing or establishing a signed-in identity's password, resets, and
+ * the trusted call that sets one.
  *
  * `check()` gives the policy's verdict on a new password and `rule()` the
- * Laravel validation rule for a form. `sendResetLink()` and `sendResetCode()`
+ * Laravel validation rule for a form. `change()` changes a signed-in identity's
+ * password with its current one, and `establish()` gives a passwordless one its
+ * first on the strength of a recent authentication; both keep the session they
+ * were made from and end every other. `sendResetLink()` and `sendResetCode()`
  * send a reset without saying whether anyone holds the identifier, and
- * `reset()` and `resetWithCode()` spend it with the new password. `set()` is a
- * trusted call, as `login()` is: the caller has decided the identity may have
- * the password, and chooses the flow on the server, never from input, since a
- * registration ends no session. Ask for a recent reauthentication (the current
- * password, say) before a change. It applies the policy, and only a password
- * that passes is hashed and stored (see `PasswordWriter`). The policy never
- * applies to the automatic rehash on sign-in.
+ * `reset()` and `resetWithCode()` spend it with the new password, from input
+ * read from a request's body only (`resetFromRequest()` and
+ * `resetWithCodeFromRequest()` read it so). `set()` is a trusted call, as
+ * `login()` is: the caller has decided the identity may have the password (a
+ * registration, a reset or a change the application verified itself), and
+ * chooses the flow on the server, never from input, since a registration ends
+ * no session. Each applies the policy, and only a password that passes is
+ * hashed and stored (see `PasswordWriter`). The policy never applies to the
+ * automatic rehash on sign-in.
  *
  * A non-human identity (`MachineIdentity`) has no password, so setting one is a
  * misconfiguration. The service keeps no state between calls: it reads the
@@ -104,10 +110,12 @@ final readonly class PasswordService
      *
      * The identity must be an Eloquent model, stored already for a change or a
      * reset (only a registration may insert it); a registration sets only a
-     * first password, so a stored identity it is given must have none yet; and
-     * `$except` is for a change only. The events report the client given, or
-     * the client of the request the guard is serving (pass one from a queued
-     * job or a console command).
+     * first password, so a stored identity it is given must have none yet;
+     * `$except` is for a change only; and an establishment is `establish()`'s
+     * alone. Prefer `change()`, which checks the current password, unless the
+     * application verified the change itself. The events report the client
+     * given, or the client of the request the guard is serving (pass one from a
+     * queued job or a console command).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
@@ -133,6 +141,55 @@ final readonly class PasswordService
         $writer = new PasswordWriter($this->context, $this->revocations, $this->container);
 
         return PasswordResult::set($writer->write($model, $password, $flow, $except, $client));
+    }
+
+    /**
+     * Change the password of the identity signed in with the session, which it
+     * keeps, given its current password, ending every other session it has
+     * (`password_changed`). The session, read again on the write connection,
+     * must be this guard's, live, active and a person's; the identity must have
+     * a password (`password_not_set` otherwise: `establish()` one) and live on
+     * the storage connection. The current password is checked inside the
+     * credential timebox and counted against the account and the IP address
+     * under the `sign_in` limits (`invalid_credentials`, `rate_limited` with
+     * the wait), then the policy judges the new one (`rejected`). Every refusal
+     * but a rejected password is reported by `AuthenticationFailed` (flow
+     * `password_change`); `PasswordSet` follows once the change commits.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $current
+     * @param  string  $password
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Passwords\PasswordResult
+     *
+     * @throws \Throwable
+     */
+    public function change(Session $session, #[\SensitiveParameter] string $current, #[\SensitiveParameter] string $password, ?ClientContext $client = null): PasswordResult
+    {
+        return (new PasswordChanges($this->context, $this->revocations, $this->container))->change($session, $current, $password, $client);
+    }
+
+    /**
+     * Establish a first password for the identity signed in with the session,
+     * which has none, keeping the session and ending every other it has
+     * (`password_established`). The session must be as for `change()`, the
+     * identity must have no password (`password_already_set` otherwise), and
+     * the session must hold a proof fresh enough for the
+     * `password_establishment` operation (`reauthentication_required`
+     * otherwise; see `FreshnessPolicy`). The password is written only while the
+     * row still has none, in the same statement; reported as `change()` is,
+     * `PasswordSet` carrying the flow `establishment`.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $password
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Passwords\PasswordResult
+     *
+     * @throws \Throwable
+     */
+    public function establish(Session $session, #[\SensitiveParameter] string $password, ?ClientContext $client = null): PasswordResult
+    {
+        return (new PasswordChanges($this->context, $this->revocations, $this->container))->establish($session, $password, $client);
     }
 
     /**
@@ -190,7 +247,9 @@ final readonly class PasswordService
      * under the guard's password identifier, the `token` and the new
      * `password`. The token is spent in one transaction with the new password
      * and the end of every session of the identity, or not at all (see
-     * `ResetSubmissions`).
+     * `ResetSubmissions`). Pass the request's body only, never its query
+     * string, which access logs, proxies and `Referer` headers record:
+     * `resetFromRequest()` reads it so.
      *
      * @param  array<array-key, mixed>  $input
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -205,7 +264,9 @@ final readonly class PasswordService
 
     /**
      * Reset the password with a code: the input names the identifier under the
-     * type, the `code` and the new `password`, as `reset()` does with a token.
+     * type, the `code`, the `challenge` it was sent for and the new `password`,
+     * as `reset()` does with a token. Pass the request's body only:
+     * `resetWithCodeFromRequest()` reads it so.
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input
@@ -217,6 +278,38 @@ final readonly class PasswordService
     public function resetWithCode(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client = null): ResetResult
     {
         return (new ResetSubmissions($this->context, $this->revocations, $this->container))->code($type, $input, $client);
+    }
+
+    /**
+     * Reset the password with a link's token read from the body of the request
+     * the guard is serving (its JSON or form fields, never the query string),
+     * as `reset()` does. Link to a page that carries the token in the URL's
+     * fragment, which no browser sends to a server, and have it post the token
+     * in the body.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
+     *
+     * @throws \Throwable
+     */
+    public function resetFromRequest(?ClientContext $client = null): ResetResult
+    {
+        return $this->reset(RequestBody::fields($this->context->request()), $client);
+    }
+
+    /**
+     * Reset the password with a code read from the body of the request the
+     * guard is serving, never its query string, as `resetWithCode()` does.
+     *
+     * @param  string  $type
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
+     *
+     * @throws \Throwable
+     */
+    public function resetWithCodeFromRequest(string $type, ?ClientContext $client = null): ResetResult
+    {
+        return $this->resetWithCode($type, RequestBody::fields($this->context->request()), $client);
     }
 
     /**
@@ -246,6 +339,10 @@ final readonly class PasswordService
 
         if ($except !== null && $flow !== PasswordFlow::CHANGE) {
             throw new \InvalidArgumentException(sprintf('A session to keep signed in is for a change of password, not a %s.', $flow->value));
+        }
+
+        if ($flow === PasswordFlow::ESTABLISHMENT) {
+            throw new \InvalidArgumentException('A first password is established with establish(), which needs a recent authentication on the session.');
         }
 
         return $identity;

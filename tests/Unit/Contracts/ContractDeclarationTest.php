@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierNormalizer;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
@@ -514,7 +515,18 @@ final class ContractDeclarationTest extends TestCase
      */
     public function testAdditionalFactorPolicyDeclaresOneDecision(): void
     {
-        self::assertSame(['requiresAdditionalFactor'], self::declaredMethods(AdditionalFactorPolicy::class));
+        self::assertSame(['requirementFor'], self::declaredMethods(AdditionalFactorPolicy::class));
+    }
+
+    /**
+     * The passkey factor gate is asked before a registration and a removal, and
+     * about nothing else.
+     *
+     * @return void
+     */
+    public function testPasskeyFactorGateDeclaresItsTwoChanges(): void
+    {
+        self::assertSame(['registering', 'removing'], self::declaredMethods(PasskeyFactorGate::class));
     }
 
     /**

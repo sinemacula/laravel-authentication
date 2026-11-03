@@ -29,7 +29,7 @@ use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
  */
 final class ScriptedFreshness implements FreshnessPolicy
 {
-    /** @var list<string> What the policy was asked, in order: `requirement:<application>:<operation>` or `freshProof:<operation>`. */
+    /** @var list<string> What the policy was asked, in order: `requirement:<application>:<operation>`, `freshProof:<operation>[:<excluded factor>]` or `freshUntil:<operation>`. */
     public array $asked = [];
 
     /**
@@ -73,12 +73,13 @@ final class ScriptedFreshness implements FreshnessPolicy
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  ?string  $excludingFactor
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      */
     #[\Override]
-    public function freshProof(Session $session, string $operation, ?FreshnessRequirement $requirement = null): ?RecordedProof
+    public function freshProof(Session $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?RecordedProof
     {
-        $this->asked[] = "freshProof:{$operation}";
+        $this->asked[] = $excludingFactor === null ? "freshProof:{$operation}" : "freshProof:{$operation}:{$excludingFactor}";
 
         if ($this->whenAsked !== null) {
             ($this->whenAsked)($session);
@@ -100,5 +101,22 @@ final class ScriptedFreshness implements FreshnessPolicy
             ['pwd'],
             CarbonImmutable::now()->startOfSecond(),
         );
+    }
+
+    /**
+     * A minute from now, or never, whatever the session.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $operation
+     * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  ?string  $excludingFactor
+     * @return ?\Carbon\CarbonImmutable
+     */
+    #[\Override]
+    public function freshUntil(Session $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?CarbonImmutable
+    {
+        $this->asked[] = "freshUntil:{$operation}";
+
+        return $this->fresh ? CarbonImmutable::now()->startOfSecond()->addMinute() : null;
     }
 }

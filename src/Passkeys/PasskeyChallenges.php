@@ -13,14 +13,18 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Issues and consumes the challenges of passkey ceremonies.
  *
  * A challenge is written when its options are handed out, with the options
  * themselves (which carry the challenge's 32 random bytes), the ceremony it is
- * for, the guard and relying party, and the identity it is bound to (none for a
- * usernameless sign-in). It lives
+ * for, the guard and relying party, the identity it is bound to (none for a
+ * usernameless sign-in), and the session and purpose a factor ceremony, or a
+ * registration a factor package asked for, is bound to. It lives
  * `authentication.passkeys.challenge_ttl_seconds` (30 to 600, 300 by default).
  * It is consumed by the first response to it, with one conditional delete that
  * only one response can make, before the response is verified, so a response
@@ -59,23 +63,31 @@ final readonly class PasskeyChallenges
 
     /**
      * Store a challenge for the ceremony's options, bound to the guard, the
-     * relying party and the owner (none for a sign-in), and return what the
-     * client is handed.
+     * relying party, the owner (none for a sign-in) and the binding's session
+     * and purpose, when one is given, and return what the client is handed.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose  $purpose
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|null  $owner
      * @param  array<string, mixed>  $options
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
      * @return \SineMacula\Laravel\Authentication\Passkeys\CeremonyOptions
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    public function issue(ChallengePurpose $purpose, RelyingParty $rp, (Identity&Model)|null $owner, array $options, CarbonImmutable $now): CeremonyOptions
-    {
-        [$type, $id] = $owner === null ? [null, null] : PasskeyOwner::columns($owner);
+    public function issue(
+        ChallengePurpose $purpose,
+        RelyingParty $rp,
+        (Identity&Model)|null $owner,
+        array $options,
+        CarbonImmutable $now,
+        ?ProofBinding $binding = null,
+    ): CeremonyOptions {
+        [$type, $id]          = $owner === null ? [null, null] : PasskeyOwner::columns($owner);
+        [$session, $boundFor] = self::bindingColumns($binding);
 
         $expiresAt = $now->addSeconds($this->ttlSeconds());
         $challenge = new PasskeyChallenge;
@@ -87,6 +99,8 @@ final readonly class PasskeyChallenges
             'rp_id'                => $rp->id,
             'authenticatable_type' => $type,
             'authenticatable_id'   => $id,
+            'session_id'           => $session,
+            'binding_purpose'      => $boundFor,
             'options'              => $options,
             'expires_at'           => $expiresAt,
         ])->save();
@@ -96,26 +110,35 @@ final readonly class PasskeyChallenges
 
     /**
      * Use up the live challenge of the ceremony, guard, relying party and owner
-     * (none for a sign-in) the id names, and return the options it was issued
-     * with; `null` for an id that names no such challenge, which a malformed
-     * one cannot (no query is made for it), or for a challenge that does not
-     * record exactly the ceremony, guard, relying party and owner, whatever the
-     * columns' collation counts as equal. Only one call can use a challenge up.
+     * (none for a sign-in) the id names, and, when a binding is given, of its
+     * session and purpose, and return it, with the options it was issued with
+     * and the binding it records; `null` for an id that names no such
+     * challenge, which a malformed one cannot (no query is made for it), or for
+     * a challenge that does not record exactly the ceremony, guard, relying
+     * party, owner and binding, whatever the columns' collation counts as
+     * equal. Only one call can use a challenge up.
      *
      * @param  string  $id
      * @param  \SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose  $purpose
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|null  $owner
      * @param  \Carbon\CarbonImmutable  $now
-     * @return ?array<array-key, mixed>
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
+     * @return ?\SineMacula\Laravel\Authentication\Models\PasskeyChallenge
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      *
      * @imperative
      */
-    public function consume(string $id, ChallengePurpose $purpose, RelyingParty $rp, (Identity&Model)|null $owner, CarbonImmutable $now): ?array
-    {
+    public function consume(
+        string $id,
+        ChallengePurpose $purpose,
+        RelyingParty $rp,
+        (Identity&Model)|null $owner,
+        CarbonImmutable $now,
+        ?ProofBinding $binding = null,
+    ): ?PasskeyChallenge {
         if (!Str::isUuid($id)) {
             return null;
         }
@@ -129,7 +152,9 @@ final readonly class PasskeyChallenges
 
         [$type, $key] = $owner === null ? [null, null] : PasskeyOwner::columns($owner);
 
-        if (!self::isFor($challenge, $purpose, $rp, $type, $key)) {
+        $bound = $binding === null || self::bindingColumns($binding) === [$challenge->session_id, $challenge->binding_purpose];
+
+        if (!$bound || !self::isFor($challenge, $purpose, $rp, $type, $key)) {
             return null;
         }
 
@@ -144,7 +169,24 @@ final readonly class PasskeyChallenges
             ->where('expires_at', '>', $model->fromDateTime($now))
             ->delete();
 
-        return $consumed === 1 ? $challenge->options : null;
+        return $consumed === 1 ? $challenge : null;
+    }
+
+    /**
+     * The binding the challenge records, as the identity it is bound to and the
+     * guard it was issued on name it, or `null` for a challenge that records
+     * none.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\PasskeyChallenge  $challenge
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding
+     *
+     * @throws \InvalidArgumentException
+     * @throws \ValueError
+     */
+    public static function bindingOf(PasskeyChallenge $challenge, Identity $identity): ?ProofBinding
+    {
+        return $challenge->binding_purpose === null ? null : new ProofBinding($identity, $challenge->guard, $challenge->session_id, Purpose::from($challenge->binding_purpose));
     }
 
     /**
@@ -177,5 +219,16 @@ final readonly class PasskeyChallenges
     {
         return [$challenge->purpose, $challenge->guard, $challenge->rp_id, $challenge->authenticatable_type, $challenge->authenticatable_id]
             === [$purpose->value, $rp->guard, $rp->id, $type, $key];
+    }
+
+    /**
+     * The session key and purpose a binding records, or neither for none.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
+     * @return array{0: ?string, 1: ?string}
+     */
+    private static function bindingColumns(?ProofBinding $binding): array
+    {
+        return $binding === null ? [null, null] : [IdentifierCoercion::stringify($binding->sessionId), $binding->purpose->value];
     }
 }

@@ -89,7 +89,7 @@ final class QueuedPasswordResetTest extends TestCase
 
         $result = $channel === 'link'
             ? $this->passwords()->reset(['email' => self::EMAIL, 'token' => $secret, 'password' => self::NEW_PASSWORD])
-            : $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'code' => $secret, 'password' => self::NEW_PASSWORD]);
+            : $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $secret, 'password' => self::NEW_PASSWORD]);
 
         self::assertSame(ResetStatus::RESET, $result->status);
     }

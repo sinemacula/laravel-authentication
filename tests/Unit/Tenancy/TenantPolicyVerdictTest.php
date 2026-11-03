@@ -7,6 +7,8 @@ namespace Tests\Unit\Tenancy;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 
@@ -51,6 +53,21 @@ final class TenantPolicyVerdictTest extends TestCase
         self::assertSame($standing, $verdict->standing);
         self::assertSame('v1', $verdict->version);
         self::assertNull((new TenantPolicyVerdict($standing, null))->version);
+    }
+
+    /**
+     * A verdict names the further factor the session falls short of, and none
+     * unless it was given one.
+     *
+     * @return void
+     */
+    public function testAVerdictNamesTheFactorItFallsShortOf(): void
+    {
+        $factor = new Requirement(multifactor: new RequirementPart(600));
+
+        self::assertSame($factor, (new TenantPolicyVerdict(TenantPolicyStanding::FACTOR_REQUIRED, 'v1', $factor))->factor);
+        self::assertTrue((new TenantPolicyVerdict(TenantPolicyStanding::MET, 'v1'))->factor->isEmpty());
+        self::assertNull((new TenantPolicyVerdict(TenantPolicyStanding::MET, 'v1'))->firstFactor);
     }
 
     /**

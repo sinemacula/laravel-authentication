@@ -249,12 +249,12 @@ final class ManagerServicesRequestsTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        $this->serve(self::octaneRequest('POST', '/codes/send', ['phone' => self::PHONE]))->assertExactJson(['sent' => true]);
+        $challenge = $this->serve(self::octaneRequest('POST', '/codes/send', ['phone' => self::PHONE]))->assertJsonPath('sent', true)->json('challenge');
 
         self::assertCount(1, $this->senders);
         self::assertSame(self::CODE, $this->senders[0]->lastCodeFor(self::PHONE));
 
-        $this->serve(self::octaneRequest('POST', '/codes/sign-in', ['phone' => self::PHONE, 'code' => self::CODE], ip: '203.0.113.9'))
+        $this->serve(self::octaneRequest('POST', '/codes/sign-in', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => self::CODE], ip: '203.0.113.9'))
             ->assertExactJson(['signed_in' => true]);
 
         self::assertSame([[['SignedIn', '203.0.113.9']]], $this->eventsRecordedByEachRequest());
@@ -359,14 +359,16 @@ final class ManagerServicesRequestsTest extends TestCase
         Route::post('/codes/send', function (): array {
             $this->senders[] = FakeOneTimeCodeSender::fake();
 
-            return ['sent' => Auth::codes('mobile')->send('phone_code', request()->only('phone'))->isSent()];
+            $request = Auth::codes('mobile')->send('phone_code', request()->only('phone'));
+
+            return ['sent' => $request->isSent(), 'challenge' => $request->challengeId];
         });
 
         Route::post('/codes/sign-in', function (): array {
             $sessions = Auth::sessions('mobile');
             $this->recordInThisRequest(self::LIFECYCLE);
 
-            return ['signed_in' => $sessions->signIn('phone_code', request()->only('phone', 'code'))->isSignedIn()];
+            return ['signed_in' => $sessions->signIn('phone_code', request()->only('phone', 'challenge', 'code'))->isSignedIn()];
         });
     }
 

@@ -21,9 +21,14 @@ use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessSettings;
 use SineMacula\Laravel\Authentication\Freshness\Operations;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
+use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
+use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
@@ -439,6 +444,93 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
+     * A session stays fresh until its newest qualifying proof is as old as the
+     * effective requirement's maximum age: that second is the first that is no
+     * longer fresh, and a stricter caller's age brings it forward. A session
+     * with no fresh proof is fresh until no time at all.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionIsFreshUntilItsNewestProofIsTooOld(): void
+    {
+        $record = $this->signedIn();
+
+        self::recordProof($record, ProofKind::FIRST_FACTOR_REAUTHENTICATION, $this->now->addMinutes(2), ['pwd']);
+
+        $this->clockAt($this->now->addMinutes(3));
+
+        $until = self::policy()->freshUntil($record, Operations::IDENTIFIER_CHANGE);
+
+        self::assertSame($this->now->addMinutes(2)->addSeconds(900)->getTimestamp(), $until?->getTimestamp());
+        $stricter = self::policy()->freshUntil($record, Operations::IDENTIFIER_CHANGE, FreshnessRequirement::within(120));
+
+        self::assertSame($this->now->addMinutes(2)->addSeconds(120)->getTimestamp(), $stricter?->getTimestamp());
+        self::assertNull(self::policy()->freshUntil($record, Operations::FACTOR_CHANGE));
+        self::assertNull(self::policy()->freshUntil($record, 'mfa.add_factor'));
+
+        $this->clockAt($until->subSecond());
+
+        self::assertNotNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+
+        $this->clockAt($until);
+
+        self::assertNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::policy()->freshUntil($record, Operations::IDENTIFIER_CHANGE));
+    }
+
+    /**
+     * A factor excluded from the judgement never makes the session fresh:
+     * another factor's step-up still does, and the deadline follows the proof
+     * that counts.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExcludedFactorNeverMakesTheSessionFresh(): void
+    {
+        $record = $this->signedIn();
+
+        ProofWriter::record($record, 'api', self::stepUp('factor-a', $this->now->subMinutes(2)));
+        ProofWriter::record($record, 'api', self::stepUp('factor-b', $this->now->subMinute()));
+
+        $policy = self::policy();
+
+        self::assertSame('factor-b', $policy->freshProof($record, Operations::FACTOR_CHANGE)?->factor);
+        self::assertSame('factor-a', $policy->freshProof($record, Operations::FACTOR_CHANGE, null, 'factor-b')?->factor);
+        self::assertSame($this->now->subMinutes(2)->addSeconds(900)->getTimestamp(), $policy->freshUntil($record, Operations::FACTOR_CHANGE, null, 'factor-b')?->getTimestamp());
+
+        DB::table('authentication_proofs')->where('factor_reference', 'factor-a')->delete();
+
+        self::assertNull($policy->freshProof($record, Operations::FACTOR_CHANGE, null, 'factor-b'));
+        self::assertNull($policy->freshUntil($record, Operations::FACTOR_CHANGE, null, 'factor-b'));
+        self::assertNotNull($policy->freshProof($record, Operations::FACTOR_CHANGE, null, 'factor-c'));
+    }
+
+    /**
+     * Asking until when a session stays fresh reads what asking for its fresh
+     * proof reads: the session and its freshest proof.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAskingUntilWhenReadsTwice(): void
+    {
+        $record  = $this->signedIn();
+        $queries = 0;
+
+        DB::listen(static function (QueryExecuted $query) use (&$queries): void {
+            $queries++;
+        });
+
+        self::assertNotNull(self::policy()->freshUntil($record, Operations::IDENTIFIER_CHANGE));
+        self::assertSame(2, $queries);
+    }
+
+    /**
      * Configure the session guards.
      *
      * @param  mixed  $app
@@ -494,5 +586,19 @@ final class ConfiguredFreshnessTest extends TestCase
         CarbonImmutable::setTestNow($at);
 
         JWT::$timestamp = $at->getTimestamp();
+    }
+
+    /**
+     * A step-up made with the factor at the time given, accepted.
+     *
+     * @param  string  $factor
+     * @param  \Carbon\CarbonImmutable  $at
+     * @return \SineMacula\Laravel\Authentication\Proofs\NewProof
+     */
+    private static function stepUp(string $factor, CarbonImmutable $at): NewProof
+    {
+        $channel = new Channel(ChannelKind::AUTHENTICATOR_APP);
+
+        return new NewProof(ProofKind::ADDITIONAL_FACTOR, Purpose::STEP_UP, 'totp', $channel, $factor, new ObservedProperties, new Evaluation(true, true), ['otp'], $at);
     }
 }

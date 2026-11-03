@@ -42,6 +42,7 @@ use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
@@ -49,6 +50,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
@@ -68,6 +70,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
@@ -577,20 +580,7 @@ final class SessionSwitchTest extends TestCase
     {
         [, , , $own] = $this->seedMemberships();
 
-        app()->instance(TenantAccess::class, new readonly class implements TenantAccess {
-            /**
-             * Let any principal act in any tenant, or in none.
-             *
-             * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-             * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
-             * @return bool
-             */
-            #[\Override]
-            public function mayActIn(Principal $principal, ?Tenant $tenant): bool
-            {
-                return true;
-            }
-        });
+        $this->allowEveryTenant();
 
         $session = $this->signIn();
 
@@ -1208,7 +1198,7 @@ final class SessionSwitchTest extends TestCase
         $session = $this->signIn();
 
         $factors = \Mockery::mock(AdditionalFactorPolicy::class);
-        $factors->shouldNotReceive('requiresAdditionalFactor');
+        $factors->shouldNotReceive('requirementFor');
 
         app()->instance(AdditionalFactorPolicy::class, $factors);
 
@@ -1576,6 +1566,7 @@ final class SessionSwitchTest extends TestCase
         self::assertNotNull($result->credential);
         self::assertNotNull($result->pending);
         self::assertSame([PendingRequirement::MFA], $result->pending->requires);
+        self::assertSame([RequirementKind::MULTIFACTOR], $result->pending->requirement->kinds());
         self::assertSame($second->getKey(), $result->pending->principal?->getPrincipalIdentifier());
         self::assertSame([SessionReturnedToPending::class], $this->recordedClasses());
         self::assertSame(AuthenticationFlow::SWITCH, $this->recordedEvent(SessionReturnedToPending::class)->flow);
@@ -1613,6 +1604,58 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
+     * A switch that returns the session to pending names the strictest of what
+     * the destination tenant asks and what the identity's own factor policy,
+     * tightened since the session activated, still asks of it, as a look-up of
+     * the pending session does; so does a grace retry the tenant's policy now
+     * holds pending.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReturnToPendingNamesTheIdentitysRequirementToo(): void
+    {
+        [, $second, , $own] = $this->seedMemberships();
+
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $session = $this->signIn();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $this->scriptPolicy([IdentifierCoercion::stringify($second->tenant_id) => new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart))]);
+
+        $this->advance(5);
+
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+
+        self::assertNotNull($result->credential);
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $result->pending?->requirement->kinds());
+        self::assertEquals($result->pending->requirement, $this->sessions(self::GUARD)->pending($result->credential)?->requirement);
+
+        DB::table('authentication_sessions')->delete();
+
+        app()->instance(AdditionalFactorPolicy::class, new NeverRequireAdditionalFactor);
+
+        $retried = $this->signIn();
+
+        $this->advance(5);
+
+        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($retried->tokens->refreshToken?->reveal())->session);
+
+        $this->advance(1);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $this->scriptPolicy([IdentifierCoercion::stringify($own->getKey()) ?? '' => new TenantRequirement('v2', new Requirement(phishingResistance: new RequirementPart))]);
+
+        $returned = $this->sessions(self::GUARD)->switchTo($retried->tokens->refreshToken?->reveal(), SwitchTarget::tenant(TenantSelection::principalDefault()));
+
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::PHISHING_RESISTANCE], $returned->pending?->requirement->kinds());
+    }
+
+    /**
      * A switch that returns the session to pending forgets a binding of the
      * guard to that session in the same request, with no event, so nothing
      * later in the request acts as the principal or in the tenant it left.
@@ -1642,6 +1685,74 @@ final class SessionSwitchTest extends TestCase
         self::assertNull($guard->principal());
         self::assertNull($guard->session());
         self::assertNull($guard->tenant());
+    }
+
+    /**
+     * A switch made inside the caller's transaction before the sign-in that
+     * started the session commits keeps the guard on its destination at the
+     * commit: the sign-in's deferred bind finds the session acting as another
+     * principal in another tenant and leaves the guard as the switch bound it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchBeforeTheSignInCommitsKeepsTheGuardOnItsDestination(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $guard   = $this->freshGuard(self::GUARD);
+        $service = self::sessionsOf($guard);
+
+        DB::beginTransaction();
+
+        $session = $service->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
+
+        self::assertNotNull($session);
+        self::assertFalse($guard->hasUser());
+
+        $this->advance(5);
+
+        self::assertTrue($service->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
+
+        DB::commit();
+
+        self::assertTrue($guard->principal()?->is($second)); // @phpstan-ignore method.notFound
+        self::assertSame(IdentifierCoercion::stringify($second->tenant_id), self::boundTenantId());
+    }
+
+    /**
+     * A switch of tenant alone made inside the caller's transaction before the
+     * sign-in commits keeps the guard in the destination tenant at the commit,
+     * as the same principal.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantSwitchBeforeTheSignInCommitsKeepsTheGuardInItsDestination(): void
+    {
+        [$first] = $this->seedMemberships();
+
+        $this->allowEveryTenant();
+
+        $guard   = $this->freshGuard(self::GUARD);
+        $service = self::sessionsOf($guard);
+
+        DB::beginTransaction();
+
+        $session = $service->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
+
+        self::assertNotNull($session);
+
+        $this->advance(5);
+
+        self::assertTrue($service->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::tenant(TenantSelection::none()))->isSwitched());
+
+        DB::commit();
+
+        self::assertTrue($guard->principal()?->is($first)); // @phpstan-ignore method.notFound
+        self::assertNull(self::boundTenantId());
     }
 
     /**
@@ -1770,13 +1881,14 @@ final class SessionSwitchTest extends TestCase
 
         self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
 
-        $this->scriptPolicy([$tenant => new TenantRequirement('v2', new Requirement(new RequirementPart))]);
+        $this->scriptPolicy([$tenant => new TenantRequirement('v2', new Requirement(phishingResistance: new RequirementPart))]);
 
         $this->recordEvents([SessionReturnedToPending::class, PrincipalSwitched::class]);
 
         $returned = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), $target);
 
         self::assertTrue($returned->isPending());
+        self::assertSame([RequirementKind::PHISHING_RESISTANCE], $returned->pending?->requirement->kinds());
         self::assertNull($returned->session);
         self::assertNotNull($returned->credential);
         self::assertSame([SessionReturnedToPending::class], $this->recordedClasses());
@@ -1787,8 +1899,9 @@ final class SessionSwitchTest extends TestCase
     /**
      * A bind listener that throws fails a switch after it was written, but
      * `PrincipalSwitched` was scheduled before the bind, so the switch is
-     * reported; inside a caller's transaction it waits for the commit, and a
-     * rollback withdraws it and leaves the session as it was.
+     * reported. Inside a caller's transaction both wait for the commit, so the
+     * switch itself returns, and a rollback withdraws them and leaves the
+     * session as it was and the guard unbound.
      *
      * @return void
      *
@@ -1807,14 +1920,17 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class]);
 
+        $guard = $this->freshGuard(self::GUARD);
+
         DB::beginTransaction();
 
-        self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken?->reveal(), $second));
+        self::assertTrue(self::sessionsOf($guard)->switchTo((string) $session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
         self::assertSame([], $this->recordedClasses());
 
         DB::rollBack();
 
         self::assertSame([], $this->recordedClasses());
+        self::assertFalse($guard->hasUser());
         self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
 
         self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken?->reveal(), $second));
@@ -1823,9 +1939,9 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
-     * Inside a caller's transaction that catches a switch's throwing bind
-     * listener and commits, `PrincipalSwitched` follows the commit, once, and
-     * the session stays switched.
+     * Inside a caller's transaction a switch's report and its bind follow the
+     * commit, in that order, once: a bind listener that throws then throws from
+     * the commit, after `PrincipalSwitched`, and the session stays switched.
      *
      * @return void
      *
@@ -1845,10 +1961,15 @@ final class SessionSwitchTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken?->reveal(), $second));
+        self::assertTrue($this->sessions(self::GUARD)->switchTo((string) $session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
         self::assertSame([], $this->recordedClasses());
 
-        DB::commit();
+        try {
+            DB::commit();
+            self::fail('Expected the bind listener to throw from the commit.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener failed', $exception->getMessage());
+        }
 
         self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
         self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('principal_id')));
@@ -2012,6 +2133,30 @@ final class SessionSwitchTest extends TestCase
         self::assertIsInt($expiry);
 
         return $expiry;
+    }
+
+    /**
+     * Bind a tenant access that lets any principal act in any tenant, or in
+     * none.
+     *
+     * @return void
+     */
+    private function allowEveryTenant(): void
+    {
+        app()->instance(TenantAccess::class, new readonly class implements TenantAccess {
+            /**
+             * Let any principal act in any tenant, or in none.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+             * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+             * @return bool
+             */
+            #[\Override]
+            public function mayActIn(Principal $principal, ?Tenant $tenant): bool
+            {
+                return true;
+            }
+        });
     }
 
     /**

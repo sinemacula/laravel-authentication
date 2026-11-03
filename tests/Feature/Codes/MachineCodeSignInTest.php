@@ -100,7 +100,7 @@ final class MachineCodeSignInTest extends TestCase
 
         self::assertTrue($this->codeService('machines')->send($method, [$type => $identifier])->isSent());
 
-        $result = $this->sessions('machines')->signIn($method, [$type => $identifier, 'code' => self::CODE]);
+        $result = $this->sessions('machines')->signIn($method, [$type => $identifier, 'challenge' => self::challenge(), 'code' => self::CODE]);
 
         self::assertSame(FailureReason::MACHINE_IDENTITY, $result->reason);
 

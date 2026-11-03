@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Contracts;
 
+use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 
@@ -51,10 +52,30 @@ interface FreshnessPolicy
      * caller that acts on the answer atomically locks the session first and
      * judges the locked row itself as well.
      *
+     * With a factor excluded (the factor package's reference to it), a proof
+     * made with that factor never meets the requirement: a factor's removal
+     * must be authorised by the session's other proofs.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  ?string  $excludingFactor
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      */
-    public function freshProof(Session $session, string $operation, ?FreshnessRequirement $requirement = null): ?RecordedProof;
+    public function freshProof(Session $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?RecordedProof;
+
+    /**
+     * Until when the session stays fresh for the operation: the second the
+     * proof `freshProof()` answers stops meeting the effective requirement (its
+     * time plus the requirement's maximum age; from that second on it is no
+     * longer fresh), or `null` when `freshProof()` is `null`. A grant that
+     * outlives the request takes its expiry from it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $operation
+     * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  ?string  $excludingFactor
+     * @return ?\Carbon\CarbonImmutable
+     */
+    public function freshUntil(Session $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?CarbonImmutable;
 }

@@ -107,7 +107,7 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A registration of a stored identity is one `UPDATE`, one read of the row
-     * it updated, the `DELETE` of the reset links and codes the password
+     * it updated, the `UPDATE` that ends the reset links and codes the password
      * outdates, and one hash.
      *
      * @return void
@@ -128,9 +128,9 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A change that keeps one of three sessions is the password's `UPDATE`, one
-     * read of the row it updated and one `DELETE` of the reset links and codes
-     * it outdates, the cutoff's `UPDATE`, one read of the sessions and one
-     * `UPDATE` for each of the two it revokes.
+     * read of the row it updated and one `UPDATE` that ends the reset links and
+     * codes it outdates, the cutoff's `UPDATE`, one read of the sessions and
+     * one `UPDATE` for each of the two it revokes.
      *
      * @return void
      *

@@ -6,6 +6,7 @@ namespace Tests\Unit\Passwords;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
 use SineMacula\Laravel\Authentication\Passwords\PasswordCheck;
@@ -36,8 +37,26 @@ final class PasswordResultTest extends TestCase
         $violations = [PasswordViolation::TOO_SHORT, PasswordViolation::SYMBOLS];
         $rejected   = PasswordResult::rejected($violations);
 
-        self::assertSame([true, true, [], 3], [$set->set, $set->isSet(), $set->violations, $set->revoked]);
-        self::assertSame([false, false, $violations, 0], [$rejected->set, $rejected->isSet(), $rejected->violations, $rejected->revoked]);
+        self::assertSame([true, true, [], 3, null, null], [$set->set, $set->isSet(), $set->violations, $set->revoked, $set->reason, $set->retryAfter]);
+        self::assertSame([false, false, $violations, 0, null], [$rejected->set, $rejected->isSet(), $rejected->violations, $rejected->revoked, $rejected->reason]);
+    }
+
+    /**
+     * A refused change or establishment carries why, and for a rate limit the
+     * wait, with nothing set, violated or revoked.
+     *
+     * @return void
+     */
+    public function testARefusedChangeCarriesWhy(): void
+    {
+        $refused = PasswordResult::refused(FailureReason::PASSWORD_NOT_SET);
+        $limited = PasswordResult::refused(FailureReason::RATE_LIMITED, 42);
+
+        self::assertSame(
+            [false, [], 0, FailureReason::PASSWORD_NOT_SET, null],
+            [$refused->isSet(), $refused->violations, $refused->revoked, $refused->reason, $refused->retryAfter],
+        );
+        self::assertSame([FailureReason::RATE_LIMITED, 42], [$limited->reason, $limited->retryAfter]);
     }
 
     /**
@@ -58,7 +77,7 @@ final class PasswordResultTest extends TestCase
      */
     public function testTheEnumValues(): void
     {
-        self::assertSame(['registration', 'change', 'reset'], array_map(static fn (PasswordFlow $flow): string => $flow->value, PasswordFlow::cases()));
+        self::assertSame(['registration', 'change', 'reset', 'establishment'], array_map(static fn (PasswordFlow $flow): string => $flow->value, PasswordFlow::cases()));
         self::assertSame(
             ['too_short', 'too_long', 'null_character', 'letters', 'mixed_case', 'numbers', 'symbols', 'breached', 'breach_check_unavailable'],
             array_map(static fn (PasswordViolation $violation): string => $violation->value, PasswordViolation::cases()),

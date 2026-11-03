@@ -21,6 +21,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -32,6 +33,8 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
@@ -41,6 +44,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -199,9 +203,10 @@ final class SessionRoutesTest extends TestCase
         $this->seedIdentity();
 
         $factors = \Mockery::mock(AdditionalFactorPolicy::class);
-        $factors->shouldReceive('requiresAdditionalFactor')->andReturnTrue();
+        $factors->shouldReceive('requirementFor')->andReturn(new Requirement(new RequirementPart));
 
         app()->instance(AdditionalFactorPolicy::class, $factors);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         $first = $this->send('/sign-in', self::credentials())->assertOk()->assertJsonPath('status', 'pending')->assertJsonPath('requires', ['mfa']);
 
@@ -247,9 +252,10 @@ final class SessionRoutesTest extends TestCase
         $this->seedIdentity();
 
         $factors = \Mockery::mock(AdditionalFactorPolicy::class);
-        $factors->shouldReceive('requiresAdditionalFactor')->andReturnTrue();
+        $factors->shouldReceive('requirementFor')->andReturn(new Requirement(new RequirementPart));
 
         app()->instance(AdditionalFactorPolicy::class, $factors);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
         $pending = $this->send('/sign-in', self::credentials())->assertOk()->json('pending_credential');
 

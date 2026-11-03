@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
+use SineMacula\Laravel\Authentication\Codes\FactorCodeBinding;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodeMessage;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
@@ -32,6 +33,10 @@ use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Concerns\InspectsTraces;
 use Tests\Concerns\InteractsWithCodeIdentities;
@@ -323,7 +328,7 @@ final class SendOneTimeCodeTest extends TestCase
 
         $job->handle(app());
 
-        self::assertSame(self::CODE, $this->sender->lastCodeFor(self::PHONE, CodePurpose::VERIFY_IDENTIFIER));
+        self::assertSame(self::CODE, $this->sender->lastCodeFor(self::PHONE, CodePurpose::VERIFICATION));
         self::assertTrue($identity->is($this->sender->sent()[0]->identity));
     }
 
@@ -352,7 +357,8 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
-     * A verification job carrying a machine identity, or none, sends nothing.
+     * A verification job carrying a machine identity, an identity that holds no
+     * verifiable identifiers, or none, sends nothing.
      *
      * @return void
      *
@@ -365,11 +371,40 @@ final class SendOneTimeCodeTest extends TestCase
         $machine = CodeMachineClient::query()->sole();
         $binding = CodeBinding::verification('mobile', 'phone', self::PHONE, $machine);
         $issued  = $this->issue($binding, $this->now);
+        $plain   = new PlainIdentityFixture(1);
+        $other   = CodeBinding::verification('mobile', 'phone', self::PHONE, $plain);
+
+        (new SendOneTimeCode($binding, $issued, $machine))->handle(app());
+        (new SendOneTimeCode($binding, $issued))->handle(app());
+        (new SendOneTimeCode($other, $this->issue($other, $this->now), $plain))->handle(app());
+
+        self::assertSame(0, $this->sender->count());
+    }
+
+    /**
+     * A factor code's job carrying a machine identity, or none, sends nothing,
+     * while one carrying a person delivers to it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFactorCodeGoesToNoMachineAndNoOne(): void
+    {
+        $identity = self::seedCodeIdentity();
+        $machine  = CodeMachineClient::query()->sole();
+        $proof    = new ProofBinding($identity, 'mobile', 'session-1', Purpose::STEP_UP);
+        $binding  = CodeBinding::factor('mobile', new FactorCodeBinding($proof, 'factor-1', new Channel(ChannelKind::SMS, self::PHONE)));
+        $issued   = $this->issue($binding, $this->now);
 
         (new SendOneTimeCode($binding, $issued, $machine))->handle(app());
         (new SendOneTimeCode($binding, $issued))->handle(app());
 
         self::assertSame(0, $this->sender->count());
+
+        (new SendOneTimeCode($binding, $issued, $identity))->handle(app());
+
+        self::assertSame([CodePurpose::MFA, 'sms', self::PHONE], [$this->sender->sent()[0]->purpose, $this->sender->sent()[0]->type, $this->sender->sent()[0]->identifier]);
     }
 
     /**
@@ -591,7 +626,7 @@ final class SendOneTimeCodeTest extends TestCase
             $job->handle(app());
             self::fail('The job delivered a code of another purpose.');
         } catch (\LogicException $exception) {
-            self::assertSame(SendOneTimeCode::class . " delivers only sign-in and verification codes, not [{$bound->purpose->value}] codes.", $exception->getMessage());
+            self::assertSame(SendOneTimeCode::class . " delivers only sign-in, verification and factor codes, not [{$bound->purpose->value}] codes.", $exception->getMessage());
         }
 
         self::assertSame(0, $this->sender->count());

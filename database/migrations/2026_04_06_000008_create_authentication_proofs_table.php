@@ -47,7 +47,11 @@ return new class extends Migration {
             $blueprint->string('method');
             $blueprint->string('channel_kind', 32);
             $blueprint->string('channel_reference')->nullable();
-            $blueprint->string('factor_reference')->nullable();
+
+            // The adapter's reference to the factor used, compared exactly, so
+            // a factor's removal never discounts or voids another factor's
+            // proofs that differ from it only in case or by a trailing space.
+            self::exact($schema, $blueprint, 'factor_reference')->nullable();
 
             // What was observed about the authenticator: `null` when it was not
             // observed, which is never read as true.
@@ -75,8 +79,8 @@ return new class extends Migration {
 
             $blueprint->dateTime('authenticated_at', 0);
 
-            // When the proof stopped counting, which nothing sets yet; a voided
-            // proof never counts.
+            // When the proof stopped counting, set when the factor it was made
+            // with is removed; a voided proof never counts.
             $blueprint->dateTime('voided_at', 0)->nullable();
 
             $blueprint->dateTime('created_at', 0)->nullable();
@@ -117,11 +121,12 @@ return new class extends Migration {
      * A string column that compares byte for byte: binary on MySQL and MariaDB,
      * whose default collations ignore case and accents and whose `utf8mb4_bin`
      * pads (`'abc'` equals `'abc '`), while the binary collation that does not
-     * pad has a different name on each. Two session keys, guards, owners or
-     * `amr` values that differ only in those would otherwise match, so one
-     * session would count, clear or prune another's proofs and the claims read
-     * would merge two values. PostgreSQL and SQLite already compare bytes. A
-     * binary column's length is in bytes, so it is given the four a `utf8mb4`
+     * pad has a different name on each. Two session keys, guards, owners,
+     * factor references or `amr` values that differ only in those would
+     * otherwise match, so one session would count, clear or prune another's
+     * proofs, one factor's removal would discount another's, and the claims
+     * read would merge two values. PostgreSQL and SQLite already compare bytes.
+     * A binary column's length is in bytes, so it is given the four a `utf8mb4`
      * character may take for each character the column holds elsewhere.
      *
      * @param  \Illuminate\Database\Schema\Builder  $schema

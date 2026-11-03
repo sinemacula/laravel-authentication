@@ -5,15 +5,20 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SwitchFloor;
@@ -21,10 +26,12 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 
 /**
  * Returns an active session that fell short of a further factor during a
- * request (a refresh, a switch) to pending, instead of re-issuing its pair.
+ * request (a refresh, a switch, the removal of a factor it was proved with) to
+ * pending, instead of re-issuing its pair.
  *
  * One compare-and-swap on the row, as the caller loaded it, makes it pending:
  * it waits on a further factor, holds the digest of a new pending credential,
@@ -70,32 +77,80 @@ final readonly class PendingTransitions
     ) {}
 
     /**
+     * The first factor the session signed in with, as its tenant's verdict was
+     * judged on it, or, when the verdict asked for no further factor, as the
+     * session records it, so a caller judging the session again, or returning
+     * it to pending, reads it at most once.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict  $verdict
+     * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public static function firstFactorOf(Session $session, TenantPolicyVerdict $verdict): RecordedProof
+    {
+        return $verdict->firstFactor ?? PendingEvaluation::firstFactorOf($session);
+    }
+
+    /**
+     * What an active session's authentication falls short of: the strictest of
+     * its tenant's requirement (empty when the tenant asks for none) and the
+     * identity-level one while the session still owes it, judged on the
+     * session's recorded origin, client name, platform and the first factor
+     * given (see `PendingEvaluation::owedFactorOn()`), so a session returned to
+     * pending names everything its next action is judged against. Empty when
+     * nothing is outstanding.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $tenant
+     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    public function outstanding(EloquentSession&Model $session, Identity $identity, Requirement $tenant, RecordedProof $firstFactor, CarbonImmutable $now): Requirement
+    {
+        $owed = (new PendingEvaluation($this->context, Container::getInstance()))->owedFactorOn($session, $identity, $firstFactor, null, $now);
+
+        return Requirement::strictest($owed, $tenant);
+    }
+
+    /**
      * Return the active session to pending instead of re-issuing its pair,
      * recording the destination the caller admitted (its principal and active
      * tenant) and the version of the destination's policy the caller judged it
      * against, which the destination's policy-change helper compares with its
-     * own: one compare-and-swap on the row as the caller loaded it, while it is
-     * active and unrevoked with the refresh digest, principal, active tenant,
-     * policy version and both deadlines it was loaded with. Returns `null` when
-     * the row changed since it was loaded, so the caller judges it again, as
-     * after a lost rotation.
+     * own, and answering the pending session with the requirement the caller
+     * found it falls short of: one compare-and-swap on the row as the caller
+     * loaded it, while it is active and unrevoked with the refresh digest,
+     * principal, active tenant, policy version and both deadlines it was loaded
+     * with. Returns `null` when the row changed since it was loaded, so the
+     * caller judges it again, as after a lost rotation.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
      * @param  ?string  $policyVersion
+     * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow  $flow
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending
      *
      * @throws \InvalidArgumentException
      * @throws \JsonException
-     * @throws \LogicException
      * @throws \Random\RandomException
      */
     public function returnToPending(
         EloquentSession&Model $session,
         Admitted $destination,
         ?string $policyVersion,
+        Requirement $requirement,
+        RecordedProof $firstFactor,
         AuthenticationFlow $flow,
         CarbonImmutable $now,
     ): ?ReturnedToPending {
@@ -142,6 +197,8 @@ final readonly class PendingTransitions
             (string) $session->getSignInMethod(),
             $expiry,
             $session,
+            $requirement,
+            $firstFactor,
         );
 
         $this->report($session, $pending, $flow, $loaded, $values);

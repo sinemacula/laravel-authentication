@@ -74,7 +74,7 @@ final class FakeOneTimeCodeSenderTest extends TestCase
     {
         $fake   = new FakeOneTimeCodeSender;
         $first  = self::message('+447700900123', '111111');
-        $second = self::message('ada@example.test', '222222', CodePurpose::VERIFY_IDENTIFIER);
+        $second = self::message('ada@example.test', '222222', CodePurpose::VERIFICATION);
 
         self::assertSame([], $fake->sent());
         self::assertFalse($fake->hasSent());
@@ -83,7 +83,7 @@ final class FakeOneTimeCodeSenderTest extends TestCase
         $fake->send($first);
         $fake->send($second);
 
-        $verifications = static fn (OneTimeCodeMessage $message): bool => $message->purpose === CodePurpose::VERIFY_IDENTIFIER;
+        $verifications = static fn (OneTimeCodeMessage $message): bool => $message->purpose === CodePurpose::VERIFICATION;
         $none          = static fn (OneTimeCodeMessage $message): bool => $message->guard === 'web';
 
         self::assertSame([$first, $second], $fake->sent());
@@ -111,16 +111,16 @@ final class FakeOneTimeCodeSenderTest extends TestCase
         $fake = new FakeOneTimeCodeSender;
 
         $fake->send(self::message('+447700900123', '111111'));
-        $fake->send(self::message('+447700900123', '222222', CodePurpose::VERIFY_IDENTIFIER));
+        $fake->send(self::message('+447700900123', '222222', CodePurpose::VERIFICATION));
         $fake->send(self::message('+447700900999', '333333'));
         $fake->send(self::message('+447700900123', '444444'));
 
         self::assertSame('444444', $fake->lastCodeFor('+447700900123'));
         self::assertSame('444444', $fake->lastCodeFor('+447700900123', CodePurpose::SIGN_IN));
-        self::assertSame('222222', $fake->lastCodeFor('+447700900123', CodePurpose::VERIFY_IDENTIFIER));
+        self::assertSame('222222', $fake->lastCodeFor('+447700900123', CodePurpose::VERIFICATION));
         self::assertSame('333333', $fake->lastCodeFor('+447700900999'));
         self::assertNull($fake->lastCodeFor('+447700900000'));
-        self::assertNull($fake->lastCodeFor('+447700900999', CodePurpose::VERIFY_IDENTIFIER));
+        self::assertNull($fake->lastCodeFor('+447700900999', CodePurpose::VERIFICATION));
     }
 
     /**

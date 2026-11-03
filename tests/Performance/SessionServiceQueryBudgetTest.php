@@ -7,10 +7,13 @@ namespace Tests\Performance;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
+use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -24,12 +27,17 @@ use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
+use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
+use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 
 /**
  * Query-budget and timing contracts for the session service: what a sign-in
@@ -110,6 +118,27 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
 
         self::assertTrue($this->assertQueryBudget(4, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->isSignedIn());
+    }
+
+    /**
+     * Inside a caller's transaction a sign-in costs what one alone does, and
+     * one read more at the commit: its bind, which waited for the commit, reads
+     * the session again before binding it. With no transaction open the bind
+     * runs at once and reads nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABindThatWaitsForTheCommitReadsTheSessionOnce(): void
+    {
+        $this->seedIdentity();
+
+        $sessions = $this->sessions();
+
+        $signIn = static fn (): SignInResult => $sessions->signIn('password', self::credentials());
+
+        self::assertTrue($this->assertQueryBudget(5, 11, static fn (): SignInResult => DB::transaction($signIn))->isSignedIn());
     }
 
     /**
@@ -196,14 +225,16 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A sign-in that needs a further factor reads the identity once, writes its
-     * pending session, reads what an earlier session left under its key (two
-     * reads, which find nothing) and writes its first proof, signing no token,
-     * besides its limits, whose slots it keeps (the account's as well as the
-     * identifier's and the IP address's); looking it up reads the session and
-     * its owner; and satisfying it locks and reads the session and its owner,
-     * writes the further factor's proof, checks with one `EXISTS` that the
-     * session now holds an accepted one, activates the session with one update,
+     * A sign-in that needs a further factor reads the identity once (the check
+     * judges the sign-in's own proofs in memory), writes its pending session,
+     * reads what an earlier session left under its key (two reads, which find
+     * nothing) and writes its first proof, signing no token, besides its
+     * limits, whose slots it keeps (the account's as well as the identifier's
+     * and the IP address's); looking it up reads the session, its owner, its
+     * first factor and the one page of proofs the check judges for what is
+     * still outstanding; and satisfying it locks and reads the session and its
+     * owner, writes the further factor's proof, reads its first factor and the
+     * page of proofs the check judges, activates the session with one update,
      * reads its proofs for the access token's `auth_time` and `amr`, and gives
      * the three slots back.
      *
@@ -226,12 +257,12 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $credential = $result->credential->reveal();
         $sessions   = $this->sessions();
 
-        self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?PendingSession => $sessions->pending($credential)));
+        self::assertNotNull($this->assertQueryBudget(4, 0, static fn (): ?PendingSession => $sessions->pending($credential)));
 
         $sessions = $this->sessions();
         $proof    = self::proofFor($identity, $result->pending->id);
 
-        self::assertTrue($this->assertQueryBudget(4, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
     }
 
     /**
@@ -258,12 +289,48 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $credential = $result->credential->reveal();
         $sessions   = $this->sessions('members');
 
-        self::assertNotNull($this->assertQueryBudget(5, 0, static fn (): ?PendingSession => $sessions->pending($credential)));
+        self::assertNotNull($this->assertQueryBudget(7, 0, static fn (): ?PendingSession => $sessions->pending($credential)));
 
         $sessions = $this->sessions('members');
         $proof    = self::proofFor($member, $result->pending->id, 'members');
 
-        self::assertTrue($this->assertQueryBudget(7, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(8, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+    }
+
+    /**
+     * A pending session whose tenant's policy asks for a further factor reads
+     * its first factor once to be looked up and once to be satisfied: the
+     * tenant's verdict is judged on it, and the identity's own requirement and
+     * the pending session reuse it. Otherwise it costs what a pending session
+     * recording a membership costs.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSessionUnderItsTenantsFactorReadsItsFirstFactorOnce(): void
+    {
+        [$member] = $this->seedMember();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'));
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        $credential = $result->credential->reveal();
+        $sessions   = $this->sessions('members');
+
+        self::assertNotNull($this->assertQueryBudget(7, 0, static fn (): ?PendingSession => $sessions->pending($credential)));
+        self::assertSame(1, $this->firstFactorReads());
+
+        $sessions = $this->sessions('members');
+        $proof    = self::proofFor($member, $result->pending->id, 'members');
+
+        self::assertTrue($this->assertQueryBudget(8, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+        self::assertSame(1, $this->firstFactorReads());
     }
 
     /**
@@ -294,7 +361,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $credential = $pending->credential->reveal();
         $proof      = self::proofFor($identity, $pending->pending->id);
         $sessions   = $this->sessions();
-        $result     = $this->assertQueryBudget(5, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof));
+        $result     = $this->assertQueryBudget(6, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof));
 
         self::assertSame($pending->pending->id, $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));
@@ -487,14 +554,15 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
              * Always require a further factor.
              *
              * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
              */
             #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            public function requirementFor(AdditionalFactorContext $context): Requirement
             {
-                return true;
+                return new Requirement(new RequirementPart);
             }
         });
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
     }
 
     /**

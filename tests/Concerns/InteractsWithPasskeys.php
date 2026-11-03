@@ -7,8 +7,13 @@ namespace Tests\Concerns;
 use Illuminate\Config\Repository as ConfigRepository;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\CeremonyOptions;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorResult;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Fixtures\Passkeys\VirtualAuthenticator;
 
@@ -32,6 +37,9 @@ trait InteractsWithPasskeys
 
     /** @var string The user name a registration shows. */
     protected const string USER_NAME = 'ada@example.test';
+
+    /** @var string The session a factor ceremony is bound to. */
+    protected const string FACTOR_SESSION = '0192f6b2-0000-7000-8000-00000000f00d';
 
     /** @var ?\Tests\Fixtures\Passkeys\VirtualAuthenticator The authenticator the tests use. */
     private ?VirtualAuthenticator $virtualAuthenticator = null;
@@ -113,5 +121,61 @@ trait InteractsWithPasskeys
         $credential = $this->authenticator()->get($options->options);
 
         return $this->sessions($guard)->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $tamper === null ? $credential : $tamper($credential)]);
+    }
+
+    /**
+     * The binding a factor package gives a factor ceremony for the identity: a
+     * step-up on the guard, for one session.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $guard
+     * @return \SineMacula\Laravel\Authentication\Proofs\ProofBinding
+     */
+    protected static function factorBinding(Identity $identity, string $guard = 'api'): ProofBinding
+    {
+        return new ProofBinding($identity, $guard, self::FACTOR_SESSION, Purpose::STEP_UP);
+    }
+
+    /**
+     * Hand out the options of a factor ceremony for the identity, bound as
+     * `factorBinding()` binds it, allowing every passkey stored (the service
+     * keeps to the identity's own), as a factor package that associated them
+     * all would.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Passkeys\PasskeyService  $passkeys
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $guard
+     * @return \SineMacula\Laravel\Authentication\Passkeys\CeremonyOptions
+     *
+     * @throws \Throwable
+     */
+    protected static function factorCeremony(PasskeyService $passkeys, Identity $identity, string $guard = 'api'): CeremonyOptions
+    {
+        $options = $passkeys->factorOptions($identity, self::factorBinding($identity, $guard), Passkey::query()->useWritePdo()->pluck('credential_id')->all());
+
+        self::assertNotNull($options);
+
+        return $options;
+    }
+
+    /**
+     * Verify the answer to a factor ceremony for the identity on the guard,
+     * bound as `factorBinding()` binds it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $challenge
+     * @param  array<string, mixed>|string  $credential
+     * @param  string  $guard
+     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorResult
+     *
+     * @throws \Throwable
+     */
+    protected static function verifyPasskeyFactor(
+        Identity $identity,
+        string $challenge,
+        #[\SensitiveParameter] array|string $credential,
+        string $guard = 'api',
+    ): PasskeyFactorResult {
+        return Auth::passkeys($guard)->verifyFactor($identity, self::factorBinding($identity, $guard), $challenge, $credential);
     }
 }

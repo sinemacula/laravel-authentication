@@ -28,23 +28,25 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * column (and `updated_at`, when the model keeps timestamps) on its own row,
  * without its scopes: no other attribute is saved or discarded, and no model
  * event fires, so no observer can cancel the write or revoke again behind it. A
- * registration updates the row only while it has no password (`null` or empty),
- * in the same statement, so it can never replace one, which would be a change
- * that ends no session. An identity not stored yet, which only a registration
- * may set, is inserted with `save()`. The model is given the hash only once the
- * row has it.
+ * registration and an establishment update the row only while it has no
+ * password (`null` or empty), in the same statement, so neither can replace
+ * one: a registration's would be a change that ends no session, and an
+ * establishment that finds one written meanwhile throws `PasswordAlreadySet`,
+ * rolling its transaction back. An identity not stored yet, which only a
+ * registration may set, is inserted with `save()`. The model is given the hash
+ * only once the row has it.
  *
- * A change ends every session of the identity but the one it was made from,
- * when the caller keeps that session; a reset ends every session; a
- * registration ends none (see `SessionRevocations`). Ending them also cancels
- * the identity's pending identifier changes, whose links need no session.
- * Whatever the flow, every reset link and code still waiting for the identity's
- * identifiers is invalidated in the same transaction, and a change or a reset
- * invalidates their sign-in codes too (see `OutdatedProofs`): none can take the
- * account back once its owner has set a new password. When the sessions live on
- * another connection, their revocation commits inside the identity's
- * transaction, so a failure after it leaves the sessions revoked and the
- * password as it was: more is ended, never less.
+ * A change and an establishment end every session of the identity but the one
+ * they were made from, when the caller keeps that session; a reset ends every
+ * session; a registration ends none (see `SessionRevocations`). Ending them
+ * also cancels the identity's pending identifier changes, whose links need no
+ * session. Whatever the flow, every reset link and code still waiting for the
+ * identity's identifiers is invalidated in the same transaction, and a change
+ * or a reset invalidates their sign-in codes too (see `OutdatedProofs`): none
+ * can take the account back once its owner has set a new password. When the
+ * sessions live on another connection, their revocation commits inside the
+ * identity's transaction, so a failure after it leaves the sessions revoked and
+ * the password as it was: more is ended, never less.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -110,9 +112,10 @@ final readonly class PasswordWriter
             $event = new PasswordSet(new EventContext($this->context->name(), $client, $identity, session: $except), $flow);
 
             $revoked = match ($flow) {
-                PasswordFlow::CHANGE       => $this->revocations->passwordChanged($identity, $except),
-                PasswordFlow::RESET        => $this->revocations->passwordReset($identity),
-                PasswordFlow::REGISTRATION => 0,
+                PasswordFlow::CHANGE        => $this->revocations->passwordChanged($identity, $except),
+                PasswordFlow::ESTABLISHMENT => $this->revocations->passwordEstablished($identity, $except),
+                PasswordFlow::RESET         => $this->revocations->passwordReset($identity),
+                PasswordFlow::REGISTRATION  => 0,
             };
 
             (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))
@@ -124,8 +127,8 @@ final readonly class PasswordWriter
 
     /**
      * Store the hash on the identity's row, or insert the identity when it is
-     * not stored yet, and give the model the hash. A registration stores it
-     * only on a row that has no password yet.
+     * not stored yet, and give the model the hash. A registration and an
+     * establishment store it only on a row that has no password yet.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $hash
@@ -133,6 +136,7 @@ final readonly class PasswordWriter
      * @return void
      *
      * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Passwords\PasswordAlreadySet
      */
     private function store(Identity&Model $identity, #[\SensitiveParameter] string $hash, PasswordFlow $flow): void
     {
@@ -154,22 +158,38 @@ final readonly class PasswordWriter
             $values[$updated] = $identity->fromDateTime($identity->freshTimestamp());
         }
 
-        $row          = $identity->newQueryWithoutScopes()->whereKey($identity->getKey());
-        $registration = $flow === PasswordFlow::REGISTRATION;
+        $row = $identity->newQueryWithoutScopes()->whereKey($identity->getKey());
 
-        if ($registration) {
+        if (in_array($flow, [PasswordFlow::REGISTRATION, PasswordFlow::ESTABLISHMENT], true)) {
             $row->where(static fn (Builder $query): Builder => $query->whereNull($column)->orWhere($column, ''));
         }
 
         if ($row->toBase()->update($values) !== 1) {
-
-            $message = $registration
-                ? '%s %s already has a password, or is no longer stored: a registration sets only a first password.'
-                : '%s %s is no longer stored, so no password was set.';
-
-            throw new \LogicException(sprintf($message, $identity::class, IdentifierCoercion::stringify($identity->getKey())));
+            throw self::unwritten($identity, $flow);
         }
 
         $identity->forceFill($values)->syncOriginalAttributes(array_keys($values));
+    }
+
+    /**
+     * Why the update of a stored identity's password wrote no row: an
+     * establishment's row has a password already, a registration's has one or
+     * is gone, and any other's is gone.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
+     * @return \LogicException|\SineMacula\Laravel\Authentication\Passwords\PasswordAlreadySet
+     */
+    private static function unwritten(Identity&Model $identity, PasswordFlow $flow): \LogicException|PasswordAlreadySet
+    {
+        if ($flow === PasswordFlow::ESTABLISHMENT) {
+            return new PasswordAlreadySet;
+        }
+
+        $message = $flow === PasswordFlow::REGISTRATION
+            ? '%s %s already has a password, or is no longer stored: a registration sets only a first password.'
+            : '%s %s is no longer stored, so no password was set.';
+
+        return new \LogicException(sprintf($message, $identity::class, IdentifierCoercion::stringify($identity->getKey())));
     }
 }

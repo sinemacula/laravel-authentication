@@ -22,11 +22,11 @@ use Webauthn\TrustPath\EmptyTrustPath;
  * party id.
  *
  * A credential is found by the SHA-256 digest of its raw id, since an id can be
- * longer than an index can hold. Every read is from the write connection, and
- * every write is one conditional statement: a registration inserts unless the
- * credential is already registered, a use moves the sign counter only from the
- * count it was verified against, and a removal deletes only the owner's
- * passkey.
+ * longer than an index can hold, and its id is kept as canonical unpadded
+ * base64url. Every read is from the write connection, and every write is one
+ * conditional statement: a registration inserts unless the credential is
+ * already registered, a use moves the sign counter only from the count it was
+ * verified against, and a removal deletes only the passkey it read.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -97,27 +97,36 @@ final class PasskeyCredentials
     }
 
     /**
-     * Store the credential a registration verified for the owner, unless it is
-     * already registered (for anyone, under any relying party), and return the
-     * stored passkey, or `null` when it was already registered.
+     * Whether a credential with the raw id is registered already, for anyone,
+     * under any relying party.
+     *
+     * @param  string  $credentialId
+     * @return bool
+     */
+    public static function isRegistered(#[\SensitiveParameter] string $credentialId): bool
+    {
+        return WriteConnection::query((new Passkey)->newQuery())->where('credential_id_hash', self::digest($credentialId))->exists();
+    }
+
+    /**
+     * The passkey a registration verified for the owner, under an id drawn now,
+     * not yet stored.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
      * @param  \Webauthn\CredentialRecord  $record
      * @param  ?string  $name
      * @param  \Carbon\CarbonImmutable  $now
-     * @return ?\SineMacula\Laravel\Authentication\Models\Passkey
+     * @return \SineMacula\Laravel\Authentication\Models\Passkey
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public static function register(RelyingParty $rp, Identity&Model $owner, CredentialRecord $record, ?string $name, CarbonImmutable $now): ?Passkey
+    public static function draft(RelyingParty $rp, Identity&Model $owner, CredentialRecord $record, ?string $name, CarbonImmutable $now): Passkey
     {
         [$type, $id] = PasskeyOwner::columns($owner);
 
-        $passkey = new Passkey;
-
-        $passkey->forceFill([
+        return (new Passkey)->forceFill([
             'id'                   => Str::uuid7()->toString(),
             'credential_id_hash'   => self::digest($record->publicKeyCredentialId),
             'credential_id'        => self::encode($record->publicKeyCredentialId),
@@ -136,16 +145,29 @@ final class PasskeyCredentials
             'created_at'           => $now,
             'updated_at'           => $now,
         ]);
+    }
 
-        $inserted = $passkey->newQueryWithoutScopes()->toBase()->insertOrIgnore($passkey->getAttributes());
-
-        if ($inserted !== 1) {
-            return null;
+    /**
+     * Store the drafted passkey unless its credential is registered already
+     * (for anyone, under any relying party), and return whether this call
+     * stored it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
+     * @return bool
+     *
+     * @imperative
+     */
+    public static function insert(Passkey $passkey): bool
+    {
+        if ($passkey->newQueryWithoutScopes()->toBase()->insertOrIgnore($passkey->getAttributes()) !== 1) {
+            return false;
         }
 
         $passkey->exists = true;
 
-        return $passkey->syncOriginal();
+        $passkey->syncOriginal();
+
+        return true;
     }
 
     /**
@@ -187,25 +209,22 @@ final class PasskeyCredentials
     }
 
     /**
-     * Remove the owner's passkey of the relying party with the id, once it is
-     * read and checked against the owner and the relying party exactly. Returns
-     * whether this call removed it; an id that is not a UUID removes nothing,
-     * without a query.
+     * The owner's passkey of the relying party with the id, read on the write
+     * connection and checked against the owner and the relying party exactly,
+     * or `null`; an id that is not a UUID names none, without a query.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
      * @param  string  $id
-     * @return bool
+     * @return ?\SineMacula\Laravel\Authentication\Models\Passkey
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
-     *
-     * @imperative
      */
-    public static function remove(RelyingParty $rp, Identity&Model $owner, string $id): bool
+    public static function owned(RelyingParty $rp, Identity&Model $owner, string $id): ?Passkey
     {
         if (!Str::isUuid($id)) {
-            return false;
+            return null;
         }
 
         [$type, $key] = PasskeyOwner::columns($owner);
@@ -217,10 +236,21 @@ final class PasskeyCredentials
             ->where('rp_id', $rp->id)
             ->first();
 
-        return $passkey instanceof Passkey
-            && $passkey->rp_id === $rp->id
-            && PasskeyOwner::owns($owner, $passkey)
-            && $passkey->newQueryWithoutScopes()->toBase()->where($passkey->getKeyName(), $id)->delete() === 1;
+        return $passkey instanceof Passkey && $passkey->rp_id === $rp->id && PasskeyOwner::owns($owner, $passkey) ? $passkey : null;
+    }
+
+    /**
+     * Delete the passkey's row, and return whether this call deleted it; a
+     * passkey removed meanwhile is not.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
+     * @return bool
+     *
+     * @imperative
+     */
+    public static function delete(Passkey $passkey): bool
+    {
+        return $passkey->newQueryWithoutScopes()->toBase()->where($passkey->getKeyName(), $passkey->getKey())->delete() === 1;
     }
 
     /**
@@ -268,6 +298,31 @@ final class PasskeyCredentials
     public static function descriptor(Passkey $passkey): array
     {
         return [self::decode($passkey->credential_id), $passkey->transports];
+    }
+
+    /**
+     * Whether the credential id is canonical unpadded base64url: not empty, and
+     * the very encoding of the bytes it decodes to, so no two spellings name
+     * one credential. An encoding holds only the url alphabet and no padding,
+     * so nothing else survives the round trip.
+     *
+     * @param  string  $credentialId
+     * @return bool
+     */
+    public static function isCanonical(#[\SensitiveParameter] string $credentialId): bool
+    {
+        return $credentialId !== '' && self::encode(self::decode($credentialId)) === $credentialId;
+    }
+
+    /**
+     * Encode bytes as unpadded base64url.
+     *
+     * @param  string  $bytes
+     * @return string
+     */
+    private static function encode(string $bytes): string
+    {
+        return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
     }
 
     /**
@@ -326,17 +381,6 @@ final class PasskeyCredentials
     private static function digest(#[\SensitiveParameter] string $credentialId): string
     {
         return hash('sha256', $credentialId);
-    }
-
-    /**
-     * Encode bytes as unpadded base64url.
-     *
-     * @param  string  $bytes
-     * @return string
-     */
-    private static function encode(string $bytes): string
-    {
-        return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
     }
 
     /**

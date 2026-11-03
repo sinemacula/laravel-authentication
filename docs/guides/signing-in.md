@@ -195,15 +195,19 @@ the sign-in's own deadline, if it gives one, and `null` when neither sets one), 
 sign-in verified, with the time it was verified (see [Proofs and provenance](sessions.md#proofs-and-provenance)). The
 session, its proofs and provenance are written and the pair issued in one transaction on the session's connection, so a
 failure while issuing leaves none of them behind. `SessionCreated` and `SignedIn` are then scheduled for the session's
-commit on its own connection before the guard is bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and
-`SessionAuthenticated` fire at once). Outside a transaction the session is already committed, so `SessionCreated` and
-`SignedIn` are dispatched before the bind events: a listener on them reads the event's context, not the guard. Inside
-your transaction they wait for it to commit, after the bind events, and are never dispatched when it is rolled back. Do
-not roll back around a sign-in: the guard stays bound, and unless `rate_limits.connection` names a connection of its own
-the sign-in's attempt counts are rolled back too, so it goes uncounted (see [Rate
-limits](configuration.md#rate-limits)). A listener that throws on a bind event fails the call, so the pair is lost, but
-cannot keep the session from being reported: outside a transaction `SignedIn` has already been dispatched, and inside
-one it follows your commit (a rollback discards the session with it). Keep those listeners from throwing or queue them.
+commit on its own connection, and after them the guard's bind (`Validated`, `Login`, `Authenticated`,
+`PrincipalAssigned` and `SessionAuthenticated`) and then the give-back of the sign-in's attempt slots. Outside a
+transaction the session is already committed, so all three run at once, the events before the bind: a listener on them
+reads the event's context, not the guard. Inside your transaction all three wait for it to commit, in that order, and
+none runs when it is rolled back: a sign-in you roll back never binds the guard and gives no slots back. The result
+answers at once either way, with the pair (a cookie application's refresh cookie in it, which the package never queues:
+attach it only once your transaction has committed). A bind that waited for your commit binds only while the guard
+still serves the request that signed in, and reads the session again first, binding it only while it is still that
+session, live and active, so a session your transaction revoked or returned to pending after signing it in is never
+bound. Unless `rate_limits.connection` names a connection of its own, a rollback rolls the sign-in's attempt counts back
+too, so it goes uncounted (see [Rate limits](configuration.md#rate-limits)). A listener that throws on a bind event
+fails the call (or your commit, inside a transaction), so the pair is lost, but cannot keep the session from being
+reported, which comes first, and leaves the sign-in's slots counted. Keep those listeners from throwing or queue them.
 
 Every sign-in starts a new session, with a new id and a new rotation id. A client that signs in again with its current
 refresh token in the context proves it holds its previous session, even when that has expired, and the sign-in then
@@ -292,7 +296,8 @@ verified email address: either signs in with no password, as a primary method or
 identity a normalised `phone` or `email` column with `HasVerifiableIdentifiers` (see
 [Identifiers](identity-models.md#identifiers) and [Identifier
 verification](identity-models.md#identifier-verification)). The input carries the identifier under its type's name
-(`phone`, `email`) and the code under `code`:
+(`phone`, `email`), the code under `code`, and the id of the challenge the code was sent for, which the request
+answers, under `challenge`:
 
 ```php
 'mobile' => [
@@ -315,16 +320,19 @@ Route::post('/codes', function (Request $request) {
 
     // The same answer whether or not anyone has the number.
     return match ($result->status) {
-        CodeRequestStatus::RATE_LIMITED       => response()->json(['message' => __('Too Many Attempts.')], 429, ['Retry-After' => $result->retryAfter]),
-        CodeRequestStatus::IDENTIFIER_INVALID => response()->json(['message' => 'Enter a number in international format.'], 422),
-        CodeRequestStatus::METHOD_NOT_ALLOWED => abort(403),
-        CodeRequestStatus::SENT               => response()->json(['expires_at' => $result->expiresAt->toIso8601String()], 202),
+        CodeRequestStatus::RATE_LIMITED,
+        CodeRequestStatus::DELIVERIES_EXHAUSTED => response()->json(['message' => __('Too Many Attempts.')], 429, ['Retry-After' => $result->retryAfter]),
+        CodeRequestStatus::IDENTIFIER_INVALID   => response()->json(['message' => 'Enter a number in international format.'], 422),
+        CodeRequestStatus::METHOD_NOT_ALLOWED,
+        CodeRequestStatus::LOCKED,
+        CodeRequestStatus::REFUSED              => abort(403),
+        CodeRequestStatus::SENT                 => response()->json(['challenge' => $result->challengeId, 'expires_at' => $result->expiresAt->toIso8601String()], 202),
     };
 });
 
 Route::post('/sign-in/code', function (Request $request) {
-    $input  = $request->validate(['phone' => ['required', 'string'], 'code' => ['required', 'string']]);
-    $result = Auth::sessions('mobile')->signIn('phone_code', ['phone' => $input['phone'], 'code' => $input['code']]);
+    $input  = $request->validate(['phone' => ['required', 'string'], 'challenge' => ['required', 'string'], 'code' => ['required', 'string']]);
+    $result = Auth::sessions('mobile')->signIn('phone_code', ['phone' => $input['phone'], 'challenge' => $input['challenge'], 'code' => $input['code']]);
 
     abort_unless($result->isSignedIn(), 401);
 
@@ -339,23 +347,28 @@ address the `email` normaliser rejects (blank, or not valid UTF-8) is `identifie
 
 A code request does nothing that depends on whether anyone has the number. The guard must allow the method
 (`method_not_allowed`), the number must be one the `phone` normaliser accepts (`identifier_invalid`), the number and the
-IP address must have code requests left (`rate_limited`, with the wait), and no code may have been sent to the number
-within the resend cooldown (`rate_limited`, with the seconds left); then a code is issued, for anyone's number, and its
-delivery queued. The job alone finds the recipient, when it runs: the active identity the guard's provider returns for
-the number that holds exactly that number, reports it verified and is not a machine identity. For anyone else it sends
-nothing and says nothing, so the response, the statements run and the time taken are the same for a number no one has.
-"Exactly" is decided by the package, not your database: the identity's own identifier, in its normal form, must be
-byte for byte the requested one. A lookup matches whatever the column's collation does, and MySQL's default
-`utf8mb4_unicode_ci` ignores accents, so `ben@examplé.com` (another domain, which anyone can register) finds the holder
-of `ben@example.com`; such an identity neither receives the code nor signs in with it. Each refusal is reported
-with `AuthenticationFailed` on the `code_request` flow (an invalid number as `invalid_credentials`).
+IP address must have code requests left (`rate_limited`, with the wait), no code may have been sent to the number within
+the resend cooldown (`rate_limited`, with the seconds left), and the number's delivery window must allow another
+delivery (`deliveries_exhausted`, with the wait until the window ends); then a code is issued, for anyone's number, and
+its delivery queued. The answer carries the challenge's id: a request after the cooldown, while the challenge lives, is
+a resend of the same challenge (the same id, its attempts kept, a new code that replaces the previous one at once, never
+past the window's end), and otherwise a new challenge, under the same delivery cap. The job alone finds the recipient,
+when it runs: the active identity the guard's provider returns for the number that holds exactly that number, reports it
+verified and is not a machine identity. For anyone else it sends nothing and says nothing, so the response, the
+statements run and the time taken are the same for a number no one has. "Exactly" is decided by the package, not your
+database: the identity's own identifier, in its normal form, must be byte for byte the requested one. A lookup matches
+whatever the column's collation does, and MySQL's default `utf8mb4_unicode_ci` ignores accents, so `ben@examplé.com`
+(another domain, which anyone can register) finds the holder of `ben@example.com`; such an identity neither receives the
+code nor signs in with it. Each refusal is reported with `AuthenticationFailed` on the `code_request` flow (an invalid
+number as `invalid_credentials`).
 
-Signing in, the method brings the number to its normal form and requires a code of exactly `length` digits
-(`invalid_credentials` otherwise, nothing counted), looks the identity up (an identity that does not hold exactly that
-number, as above, counts as none), counts the check against the account's limit as the password method does, and checks
-the code against the one sent to the number on this guard. It checks it whether or not anyone has the number, so a guess
-at a number no one has counts against, and locks, its code exactly as one at a known number does. A wrong code, a code
-used before, a code for another guard, purpose or number, and the right code for a number no one has are
+Signing in, the method brings the number to its normal form and requires a code of exactly `length` digits and a
+challenge id the package issues (`invalid_credentials` otherwise, nothing counted), looks the identity up (an identity
+that does not hold exactly that number, as above, counts as none), counts the check against the account's limit as the
+password method does, and checks the code against the one sent to the number on this guard. It checks it whether or not
+anyone has the number, so a guess at a number no one has counts against, and locks, its code exactly as one at a known
+number does. A code naming another challenge than the live one is `invalid_credentials` and spends no attempt. A wrong
+code, a code used before, a code for another guard, purpose or number, and the right code for a number no one has are
 `invalid_credentials`; an expired code and one that used up its attempts are refused as `code_expired` and
 `code_exhausted`, which only `AuthenticationFailed` says: the result says `invalid_credentials`. The right code for an
 identity whose number is not verified is `identifier_unverified` (the code proved the number is held, so this tells a
@@ -468,63 +481,56 @@ without a counter, so no session starts once the removal is committed. A verifie
 state and last use and dispatches `PasskeyUsed` whether or not the session service then admits its owner: the passkey
 was used.
 
-A further-factor package verifies one of an identity's passkeys through the same checks:
+A further-factor package verifies one of the passkeys it associated as an identity's factors through the same checks,
+on a ceremony bound to the session and purpose it verifies for:
 
 ```php
-// Allows only the identity's passkeys.
-$options = Auth::passkeys('api')->factorOptions($identity);
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 
-// Verified, with the passkey, or failed with the reason.
-$result = Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential);
+$binding = new ProofBinding($identity, 'api', $pending->id, Purpose::SIGN_IN);
+
+// Allows only the credentials named that the identity holds; null when it holds none of them.
+$options = Auth::passkeys('api')->factorOptions($identity, $binding, $credentialIds);
+
+$result = Auth::passkeys('api')->verifyFactor($identity, $binding, $challenge, $credential);
 
 if ($result->isFailed()) {
     // $result->reason
 }
+
+$observed = $result->assertion->observed;
 ```
 
-`verifyFactor()` answers a `PasskeyFactorResult`: verified once the identity's own passkey verified (with
-`PasskeyUsed`), its `passkey` the `PasskeySummary` as the use left it, or failed with its `reason`:
-`passkey_challenge_invalid`, `invalid_credentials` (malformed, not verified, or not the identity's) or
-`passkey_counter_regressed`, which the caller already holding the identity may see. It counts nothing and reports no
-failure: the factor's outcome is the further-factor package's to limit and report.
+`factorOptions()` takes the factor package's binding, which must name the identity, this guard and a session (an
+`InvalidArgumentException` otherwise), and the credential ids it associated, each as canonical unpadded base64url (the
+`credentialId` a registration or an assertion hands it). It allows only those of the identity's passkeys for the
+relying party, compared exactly, and answers `null`, writing nothing, when none is left: an empty list would let the
+browser offer any credential it holds. It requires user verification, or only prefers it when the factor package passes
+`false` as its last argument. Its challenge is bound to the binding's session and purpose as well as the guard, the
+relying party and the identity.
 
-Both answers changed shape, and a check written for the old ones still runs, wrongly: `verifyFactor()` answered `null`
-once verified, so a `null` or truthiness check on it now treats every answer as a failure, and `register()` answered the
-`PasskeySummary` or a `PasskeyRegistrationFailure`, so an `instanceof PasskeySummary` check is never true. Ask the
-result instead (see `docs/design/outcomes.md`):
+`verifyFactor()` answers a `PasskeyFactorResult`: verified once one of the passkeys the challenge allowed verified for
+the identity (with `PasskeyUsed`), its `assertion` a `PasskeyFactorAssertion` (`passkeyId`, `credentialId`, `observed`,
+`assertedAt` and the `passkey`'s `PasskeySummary` as the use left it), or failed with its `reason`:
+`passkey_challenge_invalid` (not a live factor challenge of this guard for the identity, the binding's session and its
+purpose), `invalid_credentials` (malformed, not verified, not one the challenge allowed, or not the identity's) or
+`passkey_counter_regressed`, which the caller already holding the identity may see. It checks the origin, the relying
+party id hash, user presence, user verification where the challenge required it, the signature and the challenge, and
+the sign counter rule above, a counter that stays at zero included. `observed` is what this assertion's authenticator
+data showed (user presence, user verification, backup eligibility and backup state; resistant to phishing; no key
+protection), never what the ceremony asked for: under preferred user verification an authenticator that did not verify
+the user is reported as unverified. It counts nothing and reports no failure: the factor's outcome is the further-factor
+package's to limit and report.
 
-```php
-// Before
-use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure;
-use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
-
-if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential) !== null) { /* refused */ }
-if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential)) { /* refused */ }
-
-$outcome = Auth::passkeys('api')->register($identity, $challenge, $credential);
-$passkey = $outcome instanceof PasskeySummary ? $outcome : null;
-
-match ($outcome) {
-    PasskeyRegistrationFailure::ALREADY_REGISTERED => 409,
-    default                                        => 422,
-};
-
-// After
-use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
-
-if (Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential)->isFailed()) { /* refused */ }
-
-$result  = Auth::passkeys('api')->register($identity, $challenge, $credential);
-$passkey = $result->passkey;
-
-match ($result->status) {
-    PasskeyRegistrationStatus::REGISTERED         => 201,
-    PasskeyRegistrationStatus::ALREADY_REGISTERED => 409,
-    default                                       => 422,
-};
-```
+A registration and a removal ask the bound `Contracts\PasskeyFactorGate`, synchronously, inside the transaction on the
+storage connection that writes or deletes the passkey's row, before it does: a gate that throws refuses the change,
+which rolls back whole, and its exception reaches the caller. The default, `Passkeys\NoPasskeyFactors`, associates
+nothing and refuses nothing. When the factor package enables passkeys as a factor, its gate associates a new passkey in
+that same change, confirmed by the registration's own observed properties, and `register()`'s `PasskeyRegistration`
+carries the association in `factor`; a registration the factor package asked for on a session passes its binding to
+`registrationOptions($identity, $userName, binding: $binding)`, and the gate gets it back. A credential registered by
+another while the gate runs rolls the whole change back, the gate's work with it, and is answered `already_registered`.
 
 `Auth::passkeys('api')->passkeys($identity)` lists the identity's passkeys for the relying party, oldest first, as
 `PasskeySummary` (id, name, transports, AAGUID, backup state, created and last used), never the credential id, public
@@ -544,7 +550,10 @@ Event::listen(PasskeyRemoved::class, RevokeSessionsOnPasskeyRemoval::class);
 ```
 
 It ends every session of the identity with `factor_removed`; to keep the current session signed in, call
-`Auth::sessions()->factorRemoved($identity, Auth::session())` yourself instead. See `docs/design/passkeys.md`.
+`Auth::sessions()->credentialRemoved($identity, Auth::session())` yourself instead. With a factor package, a passkey it
+associated as a factor is removed through `remove()` (its gate first), and the factor package then calls
+`Auth::sessions()->factorRemoved()` (see [Sign-in factors](sessions.md#sign-in-factors)); register the listener
+alongside it only if every passkey removal should end every session. See `docs/design/passkeys.md`.
 
 ## Writing a sign-in method
 
@@ -628,12 +637,12 @@ attempts); the session service refuses the sign-in then even if the method retur
 account by many spellings of its identifier, and through every guard whose provider returns it, so only the account's
 own count, held to the most permissive limit among those guards, bounds the guesses at its secret, and at a further
 factor its sign-in waits for. Reserve before each secret you check: a method that checks two (a password and a PIN, say)
-takes two slots. The slots belong to the sign-in: they are all given back when the session starts, or when its pending
-sign-in's completion commits. A completion that your transaction rolls back gives nothing back, since the pending
-sign-in it used comes back with the rollback and can be completed again. If giving them back fails after the commit,
-the error is reported to your exception handler rather than thrown: the session already stands, and a throw would stop
-the commit's later callbacks (another session's events, your own `DB::afterCommit()` work) from running. The slots not
-given back stay counted.
+takes two slots. The slots belong to the sign-in: they are all given back once its session started, or its pending
+sign-in's completion committed, and the guard is bound to it. A sign-in or a completion that your transaction rolls back
+gives nothing back, since the pending sign-in it used comes back with the rollback and can be completed again. If giving
+them back fails, the error is reported to your exception handler rather than thrown: the session already stands, and a
+throw would stop the commit's later callbacks (another session's events, your own `DB::afterCommit()` work) from
+running. The slots not given back stay counted.
 
 The request's input holds the client's secrets, so it is read through `$request->input()` and kept in a private
 `\SensitiveParameterValue`: no dump of the request, nor a trace that holds it, shows the password or code. Read what
@@ -676,7 +685,8 @@ A sign-in that still has requirements left issues no token. Its session is writt
 and the requirements it waits on in `requires`, in the order they must be met: `mfa` (a further factor), then
 `principal` (a choice of principal). The result `isPending()`; its `pending` is a `Sessions\PendingSession` (the
 session's `id`, the guard, the identity, the principal and active tenant once one is selected, `requires`, the method,
-`expiresAt`, the session record, and the `principals` to choose from while the choice comes first), and its
+`expiresAt`, the session record, the `requirement` its authentication still falls short of, its `firstFactor`, its
+counting proofs through `proofs()`, and the `principals` to choose from while the choice comes first), and its
 `credential` is the pending credential. Hand the client the id, `requires` and the credential in the response body,
 never in a URL or a cookie:
 
@@ -756,8 +766,8 @@ pending session of this guard, or whose session does not allow the action now (n
 can never activate because the gate would refuse its identity (a machine identity, an inactive one, or an identifier
 type the application no longer admits), its method, or the principal and active tenant it records (the principal
 inactive or refused by `ApplicationAccess`, its own tenant inactive, or the active tenant unresolvable, inactive or
-refused by `TenantAccess`), so no code is sent and no enrolment begun for it. The tenant it describes is the one the gate
-admitted. Whether a bootstrap enrolment applies (a factor is required and the identity has none) is the factor
+refused by `TenantAccess`), so no code is sent and no enrolment begun for it. The tenant it describes is the one the
+gate admitted. Whether a bootstrap enrolment applies (a factor is required and the identity has none) is the factor
 package's to judge.
 
 ### Satisfying a further factor
@@ -825,13 +835,19 @@ activates.
 
 ## Additional factors
 
-The additional-factor policy (`Contracts\AdditionalFactorPolicy`, by default one that never asks for a factor; an MFA
-package or the application binds its own) is asked about the identity, after its first factor is verified and before
-any principal is chosen, with the guard, the identity, the method, the client and the session the client proved it
-holds, if any; it names no principal or tenant (a tenant that asks more does so through its tenant authentication
-policy). When it requires a further factor, the session is pending with `mfa` outstanding. It is asked again each time
-the pending session is acted on, and a stored accepted further factor or recovery code meets it. `attempt()`, which
-cannot wait, refuses such a sign-in as `additional_factor_required`.
+The additional-factor policy (`Contracts\AdditionalFactorPolicy`, by default one that asks for nothing; an MFA package
+or the application binds its own) is asked about the identity, after its first factor is verified and before any
+principal is chosen, with the application, the identity, the first factor's whole proof, the client and the session the
+client proved it holds, if any; it names no principal or tenant (a tenant that asks more does so through its tenant
+authentication policy). It answers a `Requirements\Requirement`: what the session's authentication must include beyond
+its first factor. The bound `Contracts\RequirementCheck` judges whether the session's proofs meet it; the default check
+meets nothing, so a requirement no factor package judges keeps the session pending. At sign-in the check judges the
+first factor alone, so a requirement it meets (a minimum assurance level the sign-in already reaches, say) starts the
+session active. Otherwise the session is pending with `mfa` outstanding, and its `PendingSession::$requirement` names
+what it still falls short of. The policy is asked again, and the check judges again, each time the pending session is
+acted on, when a refresh or a switch returns the session to pending under its tenant's authentication policy (not when
+that policy is met), and when `factorRemoved()` judges the current session again. `attempt()`, which cannot wait,
+refuses as `additional_factor_required` a sign-in whose password alone does not meet the requirement.
 
 ## Enumeration resistance
 
@@ -841,10 +857,10 @@ yours; what the package guarantees for each method and helper, and what its test
 | Flow                      | Same outcome for an unknown identifier                                                                                                                                                              | Delivery                                          | Timing                                                                                                       |
 |---------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
 | Password sign-in          | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                                                                                                              | None                                              | Padded to the credential timebox                                                                             |
-| Code request              | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                                           | Queued job (after the response on `sync`)         | No identity work at all, so nothing to pad                                                                   |
-| Code sign-in              | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account                                                                                     | None                                              | Padded to the credential timebox                                                                             |
+| Code request              | A code is issued for any identifier: same status, a challenge id, expiry, cooldown, delivery cap, limits and statements                                                                             | Queued job (after the response on `sync`)         | No identity work at all, so nothing to pad                                                                   |
+| Code sign-in              | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, another challenge, and a locked account                                                                  | None                                              | Padded to the credential timebox                                                                             |
 | Verification by code      | Not applicable: the caller holds the identity                                                                                                                                                       | Queued job (after the response on `sync`)         | Not applicable                                                                                               |
-| Reset request             | A token or code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                                  | Queued job (after the response on `sync`)         | No identity work at all, so nothing to pad                                                                   |
+| Reset request             | A token or code is issued for any identifier: same status, a code's challenge id, expiry, cooldown, delivery cap, limits and statements                                                             | Queued job (after the response on `sync`)         | No identity work at all, so nothing to pad                                                                   |
 | Reset submission          | `invalid` for an unknown identifier and for a wrong, expired, exhausted, used or ineligible proof (an inactive, machine or unverified holder); the policy's verdict does not depend on the identity | None                                              | Padded to the credential timebox; a held address adds only the lock of its row                               |
 | Identifier change request | Not applicable: the caller holds the identity; the answer never depends on whether another identity holds the new identifier                                                                        | Queued job for a code; a link is returned to send | Not applicable                                                                                               |
 | Passkey sign-in           | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials`                         | None                                              | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |

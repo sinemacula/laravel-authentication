@@ -19,14 +19,17 @@ shared and mutable, how it is rebound, and what a flow may keep from it.
   built for the guard builds the refresh exchange on the same context with the guard's token service, so both read the
   provider, the resolver and the dispatcher the guard reads; neither keeps a copy of them, and neither has setters.
 - What a session flow may do to its guard's bound state is the internal port `Contracts\GuardBinding` (`user()`,
-  `principal()`, `session()`, `tenant()`, `login()`, `loginVerified()`, `authenticateAs()`, `forgetUser()`), which
-  `AbstractGuard` implements. Its four readers resolve the request's credential on first access, as the guard's
-  accessors do, so a sign-out given the guard reads the session the request carries. The session revocations take the
-  binding per call, only for `signOut()` and `signOutEverywhere()`, and otherwise need nothing of the guard but its
-  context. The session service takes the context and the binding at construction: `AuthManager::sessions()` builds one
-  on each call, with the guard's context, the guard as the binding and the guard's token service (`JwtGuard::tokens()`),
-  so the guard neither builds nor holds a session service, and `Sessions\SessionEstablishment`, which writes a session
-  and schedules its reports, never binds: the service binds through the binding once establishment has returned.
+  `principal()`, `session()`, `tenant()`, `login()`, `loginVerified()`, `authenticateAs()`, `forgetUser()`,
+  `forgetSession()`, `forgetIdentity()`), which `AbstractGuard` implements. `forgetSession()` forgets a binding only to
+  the session given and `forgetIdentity()` only to the identity given, neither resolving the request, so a revocation
+  that ends a session, or every session of an identity, unbinds just the guard bound to it once it commits. Its four
+  readers resolve the request's credential on first access, as the guard's accessors do, so a sign-out given the guard
+  reads the session the request carries. The session revocations take the binding per call, only for `signOut()` and
+  `signOutEverywhere()`, and otherwise need nothing of the guard but its context. The session service takes the context
+  and the binding at construction: `AuthManager::sessions()` builds one on each call, with the guard's context, the
+  guard as the binding and the guard's token service (`JwtGuard::tokens()`), so the guard neither builds nor holds a
+  session service, and `Sessions\SessionEstablishment`, which writes a session and schedules its reports, never binds:
+  the service binds through the binding once establishment has returned.
 - The code, passkey, API key, client credentials, password and identifier change services (`Codes\CodeService`,
   `Passkeys\PasskeyService`, `ApiKeys\ApiKeyService`, `ClientCredentials\ClientCredentialsExchange`,
   `Passwords\PasswordService`, `IdentifierChanges\IdentifierChangeService`) take the guard's context, not the guard, and

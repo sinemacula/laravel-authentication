@@ -90,9 +90,10 @@ final readonly class RevocationWriter
 
     /**
      * End every session of the scopes, except the given session, and return how
-     * many sessions this call revoked. Once the transaction commits, each
-     * revoked session is reported, then each scope with its count and the
-     * cutoff this call set for it.
+     * many sessions this call revoked. Once the transaction commits, the
+     * `$committed` callback given runs first, then each revoked session is
+     * reported, then each scope with its count and the cutoff this call set for
+     * it.
      *
      * @formatter:off
      *
@@ -104,6 +105,7 @@ final readonly class RevocationWriter
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \SineMacula\Laravel\Authentication\Sessions\RevocationScope): void  $sessionRevoked
      * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\RevocationScope, int, ?\Carbon\CarbonImmutable): void  $scopeEnded
+     * @param  ?\Closure(): void  $committed
      * @return int
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -113,12 +115,23 @@ final readonly class RevocationWriter
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
-    public function revokeScopes(array $scopes, RevocationReason $reason, ?Session $except, CarbonImmutable $now, \Closure $sessionRevoked, \Closure $scopeEnded): int
-    {
+    public function revokeScopes(
+        array $scopes,
+        RevocationReason $reason,
+        ?Session $except,
+        CarbonImmutable $now,
+        \Closure $sessionRevoked,
+        \Closure $scopeEnded,
+        ?\Closure $committed = null,
+    ): int {
         $cutoffs = array_map(static fn (RevocationScope $scope): ?CarbonImmutable => $scope->cutoff?->invalidateTokensIssuedBefore($now) === true ? $now : null, $scopes);
         $anchor  = SessionLookup::model();
 
-        return $anchor->getConnection()->transaction(function () use ($scopes, $cutoffs, $reason, $except, $now, $sessionRevoked, $scopeEnded, $anchor): int {
+        return $anchor->getConnection()->transaction(function () use ($scopes, $cutoffs, $reason, $except, $now, $sessionRevoked, $scopeEnded, $committed, $anchor): int {
+
+            if ($committed !== null) {
+                $this->afterCommit->run($anchor, $committed);
+            }
 
             $total = 0;
 

@@ -6,17 +6,14 @@ namespace SineMacula\Laravel\Authentication\Freshness;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
-use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
-use SineMacula\Laravel\Authentication\SessionRecords\SessionGeneration;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
-use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 
 /**
  * The package's freshness policy: the requirement each operation has on each
@@ -34,7 +31,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * revoked, not ended) before its proofs are read, two queries in all. That read
  * takes no lock, so a caller that acts on the answer atomically locks the
  * session in its transaction first, judges the locked row itself, and asks
- * inside it.
+ * inside it. A session stays fresh until its newest qualifying proof is as old
+ * as the requirement's maximum age (`freshUntil()`).
  *
  * Stateless: the configuration is read on every call.
  *
@@ -88,11 +86,13 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * `null` when the session names no application, there is no requirement,
      * the stored session is gone, records another generation or another owner
      * (or the session given is not an Eloquent session, which records neither)
-     * or is no longer live for that application, or no proof meets it.
+     * or is no longer live for that application, or no proof meets it. A proof
+     * made with the excluded factor, if one is named, never meets it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  ?string  $excludingFactor
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
      * @throws \InvalidArgumentException
@@ -100,7 +100,49 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     #[\Override]
-    public function freshProof(Session $session, string $operation, ?FreshnessRequirement $requirement = null): ?RecordedProof
+    public function freshProof(Session $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?RecordedProof
+    {
+        return $this->fresh($session, $operation, $requirement, $excludingFactor)[0] ?? null;
+    }
+
+    /**
+     * Until when the session stays fresh for the operation: the time of the
+     * proof `freshProof()` answers plus the effective requirement's maximum
+     * age, or `null` when there is no such proof.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $operation
+     * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  ?string  $excludingFactor
+     * @return ?\Carbon\CarbonImmutable
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    #[\Override]
+    public function freshUntil(Session $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?CarbonImmutable
+    {
+        $fresh = $this->fresh($session, $operation, $requirement, $excludingFactor);
+
+        return $fresh === null ? null : $fresh[0]->authenticatedAt->addSeconds($fresh[1]->maxAgeSeconds);
+    }
+
+    /**
+     * The newest proof that meets the effective requirement now, with that
+     * requirement, or `null` (see `freshProof()`).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $operation
+     * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  ?string  $excludingFactor
+     * @return ?array{0: \SineMacula\Laravel\Authentication\Proofs\RecordedProof, 1: \SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement}
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    private function fresh(Session $session, string $operation, ?FreshnessRequirement $requirement, ?string $excludingFactor): ?array
     {
         $guard     = WriteConnection::during($session, static fn (): ?string => $session->getGuard());
         $effective = $guard === null ? null : $this->requirement($guard, $operation, $requirement);
@@ -112,49 +154,10 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
         $stored = SessionLookup::find($session->getSessionIdentifier());
         $now    = CarbonImmutable::now()->startOfSecond();
 
-        return !self::isSameSession($session, $stored) || OwnedSession::refusal($stored, $guard, $now) !== null
+        $proof = !SessionOwnership::isSameSession($session, $stored) || OwnedSession::refusal($stored, $guard, $now) !== null
             ? null
-            : SessionProofs::newestMeeting($stored, $effective, $now);
-    }
+            : SessionProofs::newestMeeting($stored, $effective, $now, $excludingFactor);
 
-    /**
-     * Whether the stored session is the session given: there is one, of the
-     * same generation and the same morph type and owner key, read with no
-     * query. A session that is not an Eloquent session records neither, so it
-     * is never the stored one.
-     *
-     * @formatter:off
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $stored
-     * @return bool
-     *
-     * @phpstan-assert-if-true !null $stored
-     *
-     * @formatter:on
-     */
-    private static function isSameSession(Session $session, (EloquentSession&Model)|null $stored): bool
-    {
-        return SessionGeneration::isHeld($session, $stored) && self::owner($session) === self::owner($stored);
-    }
-
-    /**
-     * The owner's morph type and key the session records. The columns are named
-     * by the relation of a blank instance, so the recorded type is never
-     * instantiated.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
-     * @return array{0: ?string, 1: ?string}
-     */
-    private static function owner(EloquentSession&Model $session): array
-    {
-        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession $blank */
-        $blank = $session->newInstance();
-        $owner = $blank->authenticatable();
-
-        return [
-            IdentifierCoercion::stringify($session->getAttribute($owner->getMorphType())),
-            IdentifierCoercion::stringify($session->getAttribute($owner->getForeignKeyName())),
-        ];
+        return $proof === null ? null : [$proof, $effective];
     }
 }

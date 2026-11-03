@@ -9,6 +9,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -30,7 +31,8 @@ use Tests\TestCase;
  * Feature tests of the proof writer against a real database: a proof recorded
  * under the id it was judged by in memory or under a new time-ordered one,
  * bound to the session it is recorded on; provenance; a save a model event
- * cancels; and what an earlier session left under a reused key cleared.
+ * cancels; a factor's proofs on one session voided; and what an earlier session
+ * left under a reused key cleared.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -213,6 +215,45 @@ final class ProofWriterTest extends TestCase
     }
 
     /**
+     * Voiding a factor marks, in one statement, only the proofs bound to the
+     * session (its key, the guard given and its owner) made with that very
+     * factor, compared byte for byte, at the time given; a proof already voided
+     * keeps its time, so voiding again voids nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testVoidingAFactorMarksOnlyTheSessionsProofsMadeWithIt(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->newSession();
+        $other   = $this->newSession();
+        $now     = CarbonImmutable::now();
+
+        $voided = $this->recorded($session, 'api', 'factor-1');
+        $kept   = [
+            $this->recorded($session, 'api', 'Factor-1'),
+            $this->recorded($session, 'api', 'factor-1 '),
+            $this->recorded($session, 'api', 'factor-2'),
+            $this->recorded($session, 'admin', 'factor-1'),
+            $this->recorded($other, 'api', 'factor-1'),
+        ];
+
+        $foreign = $this->recorded($session, 'api', 'factor-1');
+
+        SessionProof::query()->whereKey($foreign)->update(['authenticatable_id' => '999']);
+
+        self::assertSame(1, ProofWriter::void($session, 'api', 'factor-1', $now->addMinute()));
+        self::assertSame('2026-04-06 12:01:00', CarbonImmutable::parse(SessionProof::query()->findOrFail($voided)->getRawOriginal('voided_at'))->toDateTimeString());
+        self::assertSame(0, SessionProof::query()->whereKey([...$kept, $foreign])->whereNotNull('voided_at')->count());
+
+        self::assertSame(0, ProofWriter::void($session, 'api', 'factor-1', $now->addMinutes(2)));
+        self::assertSame('2026-04-06 12:01:00', CarbonImmutable::parse(SessionProof::query()->findOrFail($voided)->getRawOriginal('voided_at'))->toDateTimeString());
+    }
+
+    /**
      * Register the session guards.
      *
      * @param  mixed  $app
@@ -245,19 +286,41 @@ final class ProofWriterTest extends TestCase
     }
 
     /**
-     * An accepted further factor for sign-in, made at the time given.
+     * Record a further factor made now with the factor given on the session,
+     * for the guard given, and return its id.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
+     * @param  string  $guard
+     * @param  string  $factor
+     * @return string
+     *
+     * @throws \Throwable
+     */
+    private function recorded(Session $session, string $guard, string $factor): string
+    {
+        $id = Str::uuid7()->toString();
+
+        ProofWriter::record($session, $guard, self::furtherFactor(CarbonImmutable::now(), $factor), $id);
+
+        return $id;
+    }
+
+    /**
+     * An accepted further factor for sign-in, made at the time given with the
+     * factor given.
      *
      * @param  \Carbon\CarbonImmutable  $at
+     * @param  string  $factor
      * @return \SineMacula\Laravel\Authentication\Proofs\NewProof
      */
-    private static function furtherFactor(CarbonImmutable $at): NewProof
+    private static function furtherFactor(CarbonImmutable $at, string $factor = 'factor-1'): NewProof
     {
         return new NewProof(
             ProofKind::ADDITIONAL_FACTOR,
             Purpose::SIGN_IN,
             'totp',
             new Channel(ChannelKind::AUTHENTICATOR_APP),
-            'factor-1',
+            $factor,
             new ObservedProperties,
             new Evaluation(true, true),
             ['otp'],

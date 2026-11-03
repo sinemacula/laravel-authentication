@@ -16,6 +16,8 @@ use SineMacula\Laravel\Authentication\Events\PasskeyUsed;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
+use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use Webauthn\PublicKeyCredential;
 
 /**
@@ -24,21 +26,25 @@ use Webauthn\PublicKeyCredential;
  * a passkey for one that fails:
  *
  * 1. the challenge is used up (unknown, expired, already answered, or another
- *    guard's, relying party's, ceremony's or identity's:
- *    `passkey_challenge_invalid`);
- * 2. the response must parse, and name a passkey of the relying party
+ *    guard's, relying party's, ceremony's, identity's, or, for a factor,
+ *    session's or purpose's: `passkey_challenge_invalid`);
+ * 2. the response must parse, and name a passkey of the relying party, one of
+ *    those the challenge allowed when it named any, compared exactly
  *    (`invalid_credentials`);
  * 3. the caller admits the passkey's owner, or answers why not (a sign-in loads
  *    it through the guard's provider and counts the check against the
  *    account; a factor requires it to be the identity verifying);
- * 4. the assertion must verify: origin, relying party id hash, user presence
- *    and verification, signature, challenge and user handle
- *    (`invalid_credentials`);
+ * 4. the assertion must verify: origin, relying party id hash, user presence,
+ *    user verification where the challenge required it, signature, challenge
+ *    and user handle (`invalid_credentials`);
  * 5. the sign counter rule (`SignCounter`) must accept the count, and the
  *    passkey's row is moved from the count it was verified against, by a
  *    compare-and-set (`passkey_counter_regressed`).
  *
- * A verified use dispatches `PasskeyUsed` once its row is committed.
+ * A verified assertion answers what its authenticator data showed (user
+ * presence and verification, backup eligibility and state), never what the
+ * ceremony asked for. A verified use dispatches `PasskeyUsed` once its row is
+ * committed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,7 +66,9 @@ final readonly class PasskeyAssertions
 
     /**
      * Verify the response to the challenge and return the passkey's owner, as
-     * the owner callback admitted it, with the passkey; or why it was refused.
+     * the owner callback admitted it, with the passkey and what the assertion
+     * showed; or why it was refused. A factor ceremony's challenge must record
+     * the binding given.
      *
      * @formatter:off
      *
@@ -73,7 +81,8 @@ final readonly class PasskeyAssertions
      * @param  mixed  $credential
      * @param  \Closure(\SineMacula\Laravel\Authentication\Models\Passkey): (\SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason)  $owner
      * @param  \Carbon\CarbonImmutable  $now
-     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Models\Passkey}|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
+     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Models\Passkey, 2: \SineMacula\Laravel\Authentication\Proofs\ObservedProperties}|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -92,16 +101,18 @@ final readonly class PasskeyAssertions
         #[\SensitiveParameter] mixed $credential,
         \Closure $owner,
         CarbonImmutable $now,
+        ?ProofBinding $binding = null,
     ): array|FailureReason {
-        $options = is_string($challenge) ? $this->challenges()->consume($challenge, $purpose, $rp, $bound, $now) : null;
+        $consumed = is_string($challenge) ? $this->challenges()->consume($challenge, $purpose, $rp, $bound, $now, $binding) : null;
 
-        if ($options === null) {
+        if ($consumed === null) {
             return FailureReason::PASSKEY_CHALLENGE_INVALID;
         }
 
-        $found = $this->find($rp, $credential);
+        $options = $consumed->options;
+        $found   = $this->find($rp, $credential);
 
-        if ($found === null) {
+        if ($found === null || !self::isAllowed($options, $found[1])) {
             return FailureReason::INVALID_CREDENTIALS;
         }
 
@@ -113,7 +124,9 @@ final readonly class PasskeyAssertions
             return $identity;
         }
 
-        return $this->assert($rp, $options, $parsed, $passkey, $bound, $now) ?? [$identity, $passkey];
+        $asserted = $this->assert($rp, $options, $parsed, $passkey, $bound, $now);
+
+        return $asserted instanceof FailureReason ? $asserted : [$identity, $passkey, $asserted];
     }
 
     /**
@@ -194,9 +207,25 @@ final readonly class PasskeyAssertions
     }
 
     /**
+     * Whether the challenge allowed the passkey: any, for a ceremony that names
+     * none (a usernameless sign-in), else one whose credential id is the
+     * passkey's, compared byte for byte.
+     *
+     * @param  array<array-key, mixed>  $options
+     * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
+     * @return bool
+     */
+    private static function isAllowed(array $options, Passkey $passkey): bool
+    {
+        $allowed = is_array($options['allowCredentials'] ?? null) ? $options['allowCredentials'] : [];
+
+        return $allowed === [] || in_array($passkey->credential_id, array_column($allowed, 'id'), true);
+    }
+
+    /**
      * Verify the assertion against the passkey (with the handle it was
      * registered under, for a ceremony bound to an identity) and move its
-     * count: `null` when both succeed, else why not.
+     * count: what the assertion showed when both succeed, else why not.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  array<array-key, mixed>  $options
@@ -204,13 +233,19 @@ final readonly class PasskeyAssertions
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|null  $bound
      * @param  \Carbon\CarbonImmutable  $now
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Proofs\ObservedProperties
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
-    private function assert(RelyingParty $rp, array $options, PublicKeyCredential $parsed, Passkey $passkey, (Identity&Model)|null $bound, CarbonImmutable $now): ?FailureReason
-    {
+    private function assert(
+        RelyingParty $rp,
+        array $options,
+        PublicKeyCredential $parsed,
+        Passkey $passkey,
+        (Identity&Model)|null $bound,
+        CarbonImmutable $now,
+    ): FailureReason|ObservedProperties {
         $handle   = $bound === null ? null : PasskeyCredentials::userHandle($passkey);
         $verified = $this->webauthn()->assert($rp, $options, $parsed, PasskeyCredentials::record($passkey), $handle);
 
@@ -218,8 +253,10 @@ final readonly class PasskeyAssertions
             return FailureReason::INVALID_CREDENTIALS;
         }
 
-        return SignCounter::accepts($passkey->sign_count, $verified->counter) && PasskeyCredentials::use($passkey, $verified, $now)
-            ? null
+        [$record, $observed] = $verified;
+
+        return SignCounter::accepts($passkey->sign_count, $record->counter) && PasskeyCredentials::use($passkey, $record, $now)
+            ? $observed
             : FailureReason::PASSKEY_COUNTER_REGRESSED;
     }
 

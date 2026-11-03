@@ -268,10 +268,12 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A confirmation by code locks the identity's row first, then reads the
-     * pending change, the code and the holder of the new identifier and the row
-     * under its lock; it counts the attempt, uses the code up, deletes the
-     * change, invalidates the outdated proofs and writes the identifier.
+     * A confirmation by code counts against the identity's account and the IP
+     * address, locks the identity's row first, then reads the pending change,
+     * the code and the holder of the new identifier and the row under its
+     * lock; it counts the attempt, uses the code up, deletes the change,
+     * invalidates the outdated proofs, writes the identifier and gives the two
+     * counts back.
      *
      * @return void
      *
@@ -284,7 +286,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
 
         $changes->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD));
 
-        $outcome = $this->assertQueryBudget(5, 5, static fn (): IdentifierChangeOutcome => $changes->confirmByCode($identity, 'email', '135790'));
+        $challenge = self::changeChallenge($identity, 'email');
+        $outcome   = $this->assertQueryBudget(5, 9, static fn (): IdentifierChangeOutcome => $changes->confirmByCode($identity, 'email', $challenge, '135790')->outcome);
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $outcome);
     }
@@ -303,7 +306,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $changes  = Auth::identifierChanges('web');
         $link     = (string) $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'confirm')->link()?->reveal();
 
-        $outcome = $this->assertQueryBudget(5, 3, static fn (): IdentifierChangeOutcome => $changes->confirmByLink(Request::create($link)));
+        $outcome = $this->assertQueryBudget(5, 3, static fn (): IdentifierChangeOutcome => $changes->confirmByLink(Request::create($link))->outcome);
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $outcome);
     }
@@ -311,8 +314,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     /**
      * A change of password of an identity whose identifiers can change, with
      * two changes pending, cancels them both in one `DELETE`, beside the
-     * password's `UPDATE`, the read of its row, the `DELETE` of the codes it
-     * outdates and the read of its sessions.
+     * password's `UPDATE`, the read of its row, the `UPDATE` that ends the
+     * codes it outdates and the read of its sessions.
      *
      * @return void
      *

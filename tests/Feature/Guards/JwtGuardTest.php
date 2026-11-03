@@ -11,6 +11,7 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -269,10 +270,10 @@ final class JwtGuardTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh with the token the request carries binds as a sign-in, with
-     * `Validated` and `Login` (not remembered) before the bind events, and
-     * reports `Refreshed` and then `SignedIn` (a refresh, on no new session)
-     * only once the session's connection commits.
+     * A refresh with the token the request carries reports `Refreshed` and then
+     * `SignedIn` (a refresh, on no new session) only once the session's
+     * connection commits, and only then binds as a sign-in, with `Validated`
+     * and `Login` (not remembered) before the bind events.
      *
      * @return void
      *
@@ -280,27 +281,30 @@ final class JwtGuardTest extends JwtGuardTestCase
      * @throws \Random\RandomException
      * @throws \Throwable
      */
-    public function testARefreshFromTheRequestBindsASignInAndReportsItOnceCommitted(): void
+    public function testARefreshFromTheRequestReportsAndBindsAsASignInOnceCommitted(): void
     {
         $dispatched = $this->recordEvents();
         $guard      = $this->makeGuard(Request::create('/auth/refresh', 'POST', ['refresh_token' => $this->liveRefreshToken('rotation')]));
         $before     = [];
+        $bound      = null;
 
-        DB::transaction(static function () use ($guard, $dispatched, &$before): void {
+        DB::transaction(static function () use ($guard, $dispatched, &$before, &$bound): void {
             self::assertTrue(GuardSessions::of($guard)->refreshFromRequest()?->isRefreshed());
 
             $before = self::classesOf($dispatched);
+            $bound  = $guard->hasUser();
         });
 
-        $bind = [Attempting::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class];
+        $bind = [Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class];
 
-        self::assertSame($bind, $before);
-        self::assertSame([...$bind, Refreshed::class, SignedIn::class], self::classesOf($dispatched));
-        self::assertInstanceOf(Login::class, $dispatched[2]);
-        self::assertFalse($dispatched[2]->remember);
-        self::assertInstanceOf(SignedIn::class, $dispatched[7]);
-        self::assertTrue($dispatched[7]->refresh);
-        self::assertSame($guard->session(), $dispatched[7]->context->session);
+        self::assertSame([Attempting::class], $before);
+        self::assertFalse($bound);
+        self::assertSame([Attempting::class, Refreshed::class, SignedIn::class, ...$bind], self::classesOf($dispatched));
+        self::assertInstanceOf(Login::class, $dispatched[4]);
+        self::assertFalse($dispatched[4]->remember);
+        self::assertInstanceOf(SignedIn::class, $dispatched[2]);
+        self::assertTrue($dispatched[2]->refresh);
+        self::assertSame($guard->session(), $dispatched[2]->context->session);
         self::assertTrue($guard->hasUser());
     }
 
@@ -430,6 +434,7 @@ final class JwtGuardTest extends JwtGuardTestCase
             ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '18',
+            'generation'           => (string) Str::uuid(),
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
         ])->save();
 

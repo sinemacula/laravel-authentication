@@ -116,7 +116,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
         $this->recordEvents([IdentifierChanged::class, IdentifierVerified::class, AuthenticationFailed::class]);
         $this->moveTo($this->now->addMinute());
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
 
         $row = (array) DB::table('changeable_identities')->first();
 
@@ -165,7 +165,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         self::assertTrue($this->changes()->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity))->isSent());
         self::assertSame([false], DB::table('identifier_changes')->pluck('previous_verified')->map(static fn (mixed $value): bool => (bool) $value)->all());
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'phone', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'phone', self::changeChallenge($identity, 'phone'), self::CODE)->outcome);
 
         $this->runQueued(SendIdentifierChangeNotice::class);
 
@@ -189,8 +189,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', '000000'));
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', '12345'));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), '000000')->outcome);
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), '12345')->outcome);
         self::assertSame(1, self::codeAttempts());
         self::assertSame(1, DB::table('identifier_changes')->count());
         self::assertSame(self::EMAIL, $identity->fresh()?->email);
@@ -199,7 +199,66 @@ final class IdentifierChangeConfirmationTest extends TestCase
             array_map(static fn (AuthenticationFailed $event): array => [$event->flow, $event->reason, $event->identifier], $this->failures()),
         );
         self::assertSame($identity, $this->failures()[0]->context->identity);
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
+    }
+
+    /**
+     * A request by code answers the challenge id its confirmation names; a
+     * malformed one is invalid and counts nothing, and another challenge's id
+     * spends no attempt on the live one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAConfirmationNamesItsChallenge(): void
+    {
+        $identity  = self::seedChangeable(self::EMAIL, self::PHONE);
+        $challenge = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->challengeId;
+
+        self::assertIsString($challenge);
+        self::assertSame($challenge, self::changeChallenge($identity, 'email'));
+
+        $hits = (int) DB::table('rate_limits')->sum('hits');
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', strtoupper($challenge), self::CODE)->outcome);
+        self::assertSame($hits, (int) DB::table('rate_limits')->sum('hits'));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::NO_CHALLENGE, self::CODE)->outcome);
+        self::assertSame(0, self::codeAttempts());
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE)->outcome);
+    }
+
+    /**
+     * A confirmation counts against the identity's account and the IP address
+     * under `identifier_change`: a refused one keeps its slots, a confirmed
+     * change gives them back, and an identity out of confirmations is answered
+     * `rate_limited`, with the wait, before its code is touched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testConfirmationsAreLimitedPerIdentityAndIp(): void
+    {
+        $identity  = $this->requestedByCode();
+        $challenge = self::changeChallenge($identity, 'email');
+        $hits      = (int) DB::table('rate_limits')->sum('hits');
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', $challenge, '000000')->outcome);
+        self::assertSame($hits + 2, (int) DB::table('rate_limits')->sum('hits'));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE)->outcome);
+        self::assertSame($hits + 2, (int) DB::table('rate_limits')->sum('hits'));
+
+        config()->set('authentication.rate_limits.identifier_change.per_identifier', ['max' => 1, 'decay_seconds' => 3600]);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(IdentifierChangeOutcome::RATE_LIMITED, $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE)->outcome);
+        self::assertSame(
+            [[AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::RATE_LIMITED]],
+            array_map(static fn (AuthenticationFailed $event): array => [$event->flow, $event->reason], $this->failures()),
+        );
+        self::assertGreaterThan(0, $this->failures()[0]->retryAfter);
     }
 
     /**
@@ -219,19 +278,19 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $this->changes()->confirmByCode($identity, 'email', '000000');
+        $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), '000000');
 
-        self::assertSame(IdentifierChangeOutcome::EXHAUSTED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::EXHAUSTED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
 
         DB::table('one_time_codes')->update(['attempts' => 0, 'expires_at' => '2026-04-06 12:00:00']);
 
-        self::assertSame(IdentifierChangeOutcome::EXPIRED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::EXPIRED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
 
         DB::table('one_time_codes')->update(['expires_at' => '2026-04-06 12:10:00']);
 
         $this->moveTo($this->now->addSeconds(600));
 
-        self::assertSame(IdentifierChangeOutcome::EXPIRED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::EXPIRED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
         self::assertSame(
             [FailureReason::INVALID_CREDENTIALS, FailureReason::CODE_EXHAUSTED, FailureReason::CODE_EXPIRED, FailureReason::CODE_EXPIRED],
             array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->failures()),
@@ -253,8 +312,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $this->changes()->requestByCode($identity, 'email', 'ada@third.example.test', self::freshSession($identity));
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::CODE));
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', '246802'));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), '246802')->outcome);
         self::assertSame('ada@third.example.test', $identity->email);
     }
 
@@ -270,9 +329,12 @@ final class IdentifierChangeConfirmationTest extends TestCase
     {
         $identity = $this->requestedByCode();
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('admin')->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(
+            IdentifierChangeOutcome::INVALID,
+            $this->changes('admin')->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome,
+        );
         self::assertSame([1, 0], [self::rows('identifier_changes'), self::codeAttempts()]);
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'phone', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'phone', self::changeChallenge($identity, 'phone'), self::CODE)->outcome);
     }
 
     /**
@@ -286,8 +348,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
     {
         $identity = $this->requestedByCode();
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
     }
 
     /**
@@ -314,7 +376,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
             DB::table('identifier_changes')->update(['request_id' => '0195f4a2-7b1c-4000-8000-000000000001']);
         });
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
         self::assertTrue($raced);
         self::assertSame(self::EMAIL, $identity->fresh()?->email);
         self::assertSame([1, null], [DB::table('identifier_changes')->count(), DB::table('one_time_codes')->value('consumed_at')]);
@@ -336,7 +398,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, IdentifierChanged::class]);
 
-        self::assertSame(IdentifierChangeOutcome::TAKEN, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::TAKEN, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(FailureReason::IDENTIFIER_TAKEN, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame([1, 0], [self::rows('identifier_changes'), self::codeAttempts()]);
@@ -346,7 +408,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         DB::table('changeable_identities')->where('id', $holder->getKey())->update(['email' => 'moved@example.test']);
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
     }
 
     /**
@@ -366,7 +428,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         self::seedChangeable(self::NEW_EMAIL);
 
-        self::assertSame(IdentifierChangeOutcome::TAKEN, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::TAKEN, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
         self::assertSame(1, DB::table('changeable_identities')->where('email', self::NEW_EMAIL)->count());
     }
 
@@ -387,7 +449,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->failures()[0]->reason);
     }
 
@@ -419,7 +481,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
         DB::beginTransaction();
 
         try {
-            self::assertSame(IdentifierChangeOutcome::TAKEN, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+            self::assertSame(IdentifierChangeOutcome::TAKEN, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
             self::assertSame(1, DB::table('identifier_changes')->count());
         } finally {
             DB::rollBack();
@@ -445,7 +507,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         DB::table('changeable_identities')->update(['email' => 'support@example.test']);
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
         self::assertSame('support@example.test', DB::table('changeable_identities')->value('email'));
         self::assertSame([1, null], [DB::table('identifier_changes')->count(), DB::table('one_time_codes')->value('consumed_at')]);
     }
@@ -466,7 +528,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
 
         DB::rollBack();
 
@@ -509,7 +571,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
             $guard->setDispatcher($swapped);
 
-            self::assertSame(IdentifierChangeOutcome::CHANGED, $changes->confirmByCode($identity, 'email', self::CODE));
+            self::assertSame(IdentifierChangeOutcome::CHANGED, $changes->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
 
             $guard->setDispatcher($last);
         });
@@ -544,7 +606,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
         $guard->setDispatcher($swapped);
         $guard->setRequest(Request::create('/', server: ['REMOTE_ADDR' => '198.51.100.7']));
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $changes->confirmByCode($identity, 'email', '000000'));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $changes->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), '000000')->outcome);
         self::assertSame([], $this->recorded);
         self::assertCount(1, $received);
         self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, '198.51.100.7'], [$received[0]->flow, $received[0]->context->client->ip]);
@@ -594,9 +656,9 @@ final class IdentifierChangeConfirmationTest extends TestCase
             $codes->issue($binding, $this->now);
         }
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
 
-        $left = DB::table('one_time_codes')->pluck('id')->all();
+        $left = DB::table('one_time_codes')->whereNull('consumed_at')->pluck('id')->all();
 
         foreach ($outdated as $binding) {
             self::assertNotContains(self::bindingDigest($binding), $left);
@@ -606,7 +668,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
             self::assertContains(self::bindingDigest($binding), $left);
         }
 
-        self::assertCount(5, $left);
+        self::assertCount(4, $left);
     }
 
     /**
@@ -644,8 +706,11 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('suspendable')->confirmByLink(Request::create($link)));
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('suspendable')->confirmByCode($identity->refresh(), 'phone', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('suspendable')->confirmByLink(Request::create($link))->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::INVALID,
+            $this->changes('suspendable')->confirmByCode($identity->refresh(), 'phone', self::changeChallenge($identity, 'phone'), self::CODE)->outcome,
+        );
         $reasons = array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->failures());
 
         self::assertSame([FailureReason::IDENTITY_INACTIVE, FailureReason::IDENTITY_INACTIVE], $reasons);
@@ -653,8 +718,11 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         DB::table('changeable_identities')->update(['is_active' => true]);
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes('suspendable')->confirmByLink(Request::create($link)));
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes('suspendable')->confirmByCode($identity->refresh(), 'phone', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes('suspendable')->confirmByLink(Request::create($link))->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::CHANGED,
+            $this->changes('suspendable')->confirmByCode($identity->refresh(), 'phone', self::changeChallenge($identity, 'phone'), self::CODE)->outcome,
+        );
     }
 
     /**
@@ -680,11 +748,11 @@ final class IdentifierChangeConfirmationTest extends TestCase
         $codes->issue($proofs[0], $this->now);
         $codes->issueToken($proofs[1], $this->now, 900);
 
-        $live = static fn (): int => DB::table('one_time_codes')->whereIn('id', array_map(self::bindingDigest(...), $proofs))->count();
+        $live = static fn (): int => DB::table('one_time_codes')->whereIn('id', array_map(self::bindingDigest(...), $proofs))->whereNull('consumed_at')->count();
 
         self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
         self::assertSame(2, $live());
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
         self::assertSame(0, $live());
     }
 
@@ -723,7 +791,10 @@ final class IdentifierChangeConfirmationTest extends TestCase
         DB::table('changeable_identities')->update(['is_active' => false]);
 
         self::assertTrue($identity->isActive());
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('suspendable')->confirmByCode($identity, 'phone', self::CODE));
+        self::assertSame(
+            IdentifierChangeOutcome::INVALID,
+            $this->changes('suspendable')->confirmByCode($identity, 'phone', self::changeChallenge($identity, 'phone'), self::CODE)->outcome,
+        );
 
         DB::table('changeable_identities')->update(['is_active' => true]);
 
@@ -739,7 +810,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
             DB::table('changeable_identities')->update(['is_active' => false]);
         });
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('suspendable')->confirmByLink(Request::create($link)));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('suspendable')->confirmByLink(Request::create($link))->outcome);
         self::assertTrue($deactivated);
 
         $reasons = array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->failures());
@@ -759,7 +830,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
      */
     public function testAFailedConfirmationLeavesTheCodeOutOfTheTrace(): void
     {
-        $identity = $this->requestedByCode();
+        $identity  = $this->requestedByCode();
+        $challenge = self::changeChallenge($identity, 'email');
 
         DB::listen(static function (QueryExecuted $query): void {
             if (str_starts_with($query->sql, 'update') && str_contains($query->sql, 'one_time_codes')) {
@@ -767,7 +839,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
             }
         });
 
-        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE)->outcome);
 
         self::assertSame('the store failed', $exception->getMessage());
         self::assertFalse(self::hasInTrace($exception, self::CODE));
@@ -791,7 +863,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
         self::assertSame([FailureReason::INVALID_CREDENTIALS], array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->failures()));
         self::assertSame([0, 1], [self::codeAttempts(), self::rows('identifier_changes')]);
     }
@@ -835,10 +907,13 @@ final class IdentifierChangeConfirmationTest extends TestCase
         self::assertTrue(Auth::passwords('web')->set($identity, 'a brand new passphrase', $flow)->set);
         self::assertSame(1, self::rows('identifier_changes'));
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($link)));
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('admin')->confirmByCode($identity, 'phone', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($link))->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::INVALID,
+            $this->changes('admin')->confirmByCode($identity, 'phone', self::changeChallenge($identity, 'phone'), self::CODE)->outcome,
+        );
         self::assertSame([self::EMAIL, self::PHONE], [$identity->fresh()?->email, $identity->fresh()?->phone]);
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($other, 'email', '246802'));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($other, 'email', self::changeChallenge($other, 'email'), '246802')->outcome);
     }
 
     /**
@@ -856,7 +931,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
         DB::table('changeable_identities')->update(['password' => null]);
 
         self::assertTrue(Auth::passwords('web')->set($identity->fresh() ?? $identity, 'a brand new passphrase', PasswordFlow::REGISTRATION)->set);
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByLink(Request::create($link)));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByLink(Request::create($link))->outcome);
     }
 
     /**
@@ -874,7 +949,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         DB::table('changeable_identities')->update(['email_verified_at' => null]);
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
         self::assertSame(VerificationLinkOutcome::INVALID, app(VerificationLinks::class)->consume(Request::create($link)));
     }
 
@@ -894,7 +969,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $this->changes()->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity));
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'phone', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'phone', self::changeChallenge($identity, 'phone'), self::CODE)->outcome);
         self::assertSame(self::NEW_PHONE, $identity->fresh()?->phone);
         self::assertNull($this->recordedEvent(IdentifierChanged::class)->previous);
         Queue::assertNotPushed(SendIdentifierChangeNotice::class);
@@ -912,7 +987,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
     {
         $identity = $this->requestedByCode();
 
-        $this->changes()->confirmByCode($identity, 'email', self::CODE);
+        $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE);
 
         app()->instance(IdentifierChangeNotifier::class, new class implements IdentifierChangeNotifier {
             /**
@@ -956,11 +1031,11 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         $request = Request::create($link, server: ['REMOTE_ADDR' => '198.51.100.4']);
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByLink($request));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByLink($request)->outcome);
         self::assertSame(self::NEW_EMAIL, DB::table('changeable_identities')->value('email'));
         self::assertSame('198.51.100.4', $this->recordedEvent(IdentifierChanged::class)->context->client->ip);
         self::assertTrue($identity->is($this->recordedEvent(IdentifierChanged::class)->context->identity));
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink($request));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink($request)->outcome);
     }
 
     /**
@@ -993,7 +1068,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         foreach ($refusals as $refused) {
-            self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($refused)), $refused);
+            self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($refused))->outcome, $refused);
         }
 
         $reasons = array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->failures());
@@ -1004,7 +1079,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
         $this->moveTo($this->now->addSeconds(3601));
 
-        self::assertSame(IdentifierChangeOutcome::EXPIRED, $this->changes()->confirmByLink(Request::create($link)));
+        self::assertSame(IdentifierChangeOutcome::EXPIRED, $this->changes()->confirmByLink(Request::create($link))->outcome);
         self::assertSame(FailureReason::LINK_EXPIRED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(self::EMAIL, $identity->fresh()?->email);
     }
@@ -1024,7 +1099,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
         $this->moveTo($this->now->addSeconds(3600));
 
-        self::assertSame(IdentifierChangeOutcome::EXPIRED, $this->changes()->confirmByLink(Request::create($link)));
+        self::assertSame(IdentifierChangeOutcome::EXPIRED, $this->changes()->confirmByLink(Request::create($link))->outcome);
         self::assertSame(FailureReason::LINK_EXPIRED, $this->recordedEvent(AuthenticationFailed::class)->reason);
     }
 
@@ -1040,11 +1115,11 @@ final class IdentifierChangeConfirmationTest extends TestCase
     {
         [$identity, $link] = $this->requestedByLink();
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('admin')->confirmByLink(Request::create($link)));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('admin')->confirmByLink(Request::create($link))->outcome);
 
         $this->changes()->requestByLink($identity, 'email', 'ada@third.example.test', self::freshSession($identity), 'email.confirm');
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($link)));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($link))->outcome);
         self::assertSame(self::EMAIL, $identity->fresh()?->email);
     }
 

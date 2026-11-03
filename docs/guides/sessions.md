@@ -19,19 +19,18 @@ row id, a provider's connection id), the factor an adapter used, what was observ
 presence and verification, backup eligibility and state, phishing resistance, key protection: each `null` when it was
 not observed, which never counts as true), the adapter's evaluation (accepted, multifactor; none for a proof the package
 verified itself), its `amr` values, its time and its binding (the identity, the application, the session and the
-purpose: `sign_in`, `reauthenticate` or `step_up`). A proof is never changed once recorded. A proof marked void never
-counts, but nothing marks one yet: removing a factor leaves its proofs counting, so after
-`factorRemoved($identity, Auth::session())` the current session keeps its step-up with that factor (its tokens' `amr`
-keep `mfa`, and it still meets a multifactor requirement). Pass no session to except when the current one must not keep
-it.
+purpose: `sign_in`, `reauthenticate` or `step_up`). A proof is never changed once recorded, except to be marked void,
+after which it never counts: when the factor package removes a factor, `factorRemoved()` voids the proofs the current
+session made with it, and the identity's other sessions end (see [Sign-in factors](#sign-in-factors)). A removed
+first-factor credential (`credentialRemoved()`) voids nothing.
 
 A session an external provider established also records its provenance, once, in `proofs.provenance_table`: the
 connection and its tenant, the provider's authentication time, no evidence (nothing yet decides whether a provider's
 evidence is accepted, so none is recorded), the provider's deadline for its session (which also caps the session's
 absolute deadline, the earlier of it and the sign-in's own winning) and the policy version the caller checked. A later
 reauthentication at the provider is a proof of its own and never rewrites how the session began. The provenance is
-indexed by connection and by tenant, for finding the sessions of a connection or of a tenant's connections, but the
-package has no lookup or revocation by connection or tenant yet: only the indexes.
+indexed by connection and by tenant: the sessions a connection established are revoked through it (see [Connections and
+links](#connections-and-links)); there is no lookup by connection or tenant yet.
 
 Proofs and provenance belong to the session's key, so they carry unchanged from a pending session to the active one it
 becomes, and across every refresh and switch. A sign-in that replaces a session the client proved it holds is a new
@@ -104,10 +103,12 @@ Route::middleware('auth:api')->post('/reauthenticate', function (Request $reques
 Any sign-in method the guard allows can reauthenticate, with the input its sign-in takes. A code method (`phone_code`,
 `email_code`) takes the identifier and a code sent for it: request one first with `Auth::codes('api')->send()`, as for a
 sign-in and counted under the same code request limits (see [Signing in with a one-time
-code](signing-in.md#signing-in-with-a-one-time-code)), then pass the identifier and the code
-(`['phone' => $phone, 'code' => $code]`); the code is used up as a sign-in's is. A passkey takes the `challenge` and
-`credential` of a ceremony begun with `Auth::passkeys('api')->signInOptions()` (see [Using
-passkeys](signing-in.md#using-passkeys)). Whichever the method, the identity it verifies must be the session's owner.
+code](signing-in.md#signing-in-with-a-one-time-code)), then pass the identifier, the challenge id the request answered
+(`CodeRequest::$challengeId`) and the code (`['phone' => $phone, 'challenge' => $challengeId, 'code' => $code]`); input
+without a well-formed challenge id is refused as `invalid_credentials`, and the code is used up as a sign-in's is. A
+passkey takes the `challenge` and `credential` of a ceremony begun with `Auth::passkeys('api')->signInOptions()` (see
+[Using passkeys](signing-in.md#using-passkeys)). Whichever the method, the identity it verifies must be the session's
+owner.
 
 The method must be one the guard's application allows (`method_not_allowed`, nothing counted) and not a machine
 credential's (an `InvalidArgumentException`). The session must still be the one given, as stored (a session put under
@@ -169,9 +170,55 @@ a transaction it may be served from a snapshot taken before the caller's lock (M
 that acts on the answer atomically locks the session in its transaction, checks the locked row is still live itself, and
 asks inside it, as an identifier change does (see [Changing identifiers](identifier-changes.md)).
 
+`freshUntil()` answers until when the session stays fresh for the operation: the second its fresh proof is as old as
+the effective requirement's maximum age, from which second on it is no longer fresh, or `null` when it is not fresh.
+Both take an excluded factor as their last argument (`freshProof($session, $operation, $requirement, $factor)`): a
+proof made with that factor never counts, so a factor's removal is authorised only by the session's other proofs.
+
 The package binds `Freshness\ConfiguredFreshness`. Rebind the contract for a requirement the stored proofs cannot show,
 such as a minimum assurance level or an additional verification of your own; an implementation keeps no state between
 calls.
+
+## Changing further factors
+
+The factor package asks the session service before it adds, replaces or removes one of an identity's further factors,
+or generates its recovery codes, from the session the change is made on. It asks inside the transaction that makes the
+change, on the storage connection, after its own locks:
+
+```php
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
+
+$verdict = Auth::sessions()->factorChange(Auth::session(), FactorChange::REMOVE, factor: $factor->reference());
+
+if (!$verdict->isAllowed()) {
+    return response()->json(['message' => 'Confirm it is you.', 'reason' => $verdict->reason?->value], 403);
+}
+```
+
+The session's row is locked until that transaction ends, so a revocation either commits first, and the change is
+refused, or waits for it. The session must still be the one given, one of this guard's live, active sessions
+(`session_unknown`, `session_guard_mismatch`, `session_revoked`, `session_pending`, `session_expired`) and a person's
+(`machine_identity`). Then it must be fresh for the change:
+
+| Change                                                | Operation                 | Default proofs (within 15 minutes)                     | Refused as                  |
+|-------------------------------------------------------|---------------------------|--------------------------------------------------------|-----------------------------|
+| `ADD`, `REPLACE`, `REMOVE`, `GENERATE_RECOVERY_CODES` | `factor_change`           | A further factor or a recovery code                    | `step_up_required`          |
+| `ADD_FIRST` (the identity's first additional factor)  | `first_additional_factor` | A reauthentication (first factor or external provider) | `reauthentication_required` |
+
+An identity with no further factor has nothing to step up with, so its first one takes a reauthentication instead, and
+never the sign-in's own first factor: whoever holds a session must prove the first factor again before enrolling a
+factor on it. Only the factor package knows whether the identity has a factor, so it names `ADD_FIRST`. A replacement or
+a removal names the factor it acts on (and only those name one: an `InvalidArgumentException` otherwise), whose own
+proofs never count. A requirement of the factor package's own is passed as the third argument, and the stricter
+applies. An allowed `FactorChangeVerdict` carries the fresh `proof` and `freshUntil`, the second the session stops being
+fresh for the change; a refused one carries the `reason`. The gate writes nothing and reports nothing: once a removal
+is made, in that same transaction, the factor package ends the sessions it affects with `factorRemoved()` (see [Sign-in
+factors](#sign-in-factors)).
+
+A pending session never goes through the gate: its first factor is enrolled through its pending credential's
+`PendingAction::START_BOOTSTRAP_ENROLLMENT` and `CONFIRM_BOOTSTRAP_ENROLLMENT` actions
+(`mfa.start_bootstrap_enrollment`, `mfa.confirm_bootstrap_enrollment`) while the factor is its first outstanding
+requirement (see [Pending sessions](signing-in.md#pending-sessions)).
 
 ## Switching principal or tenant
 
@@ -274,8 +321,9 @@ leaves the session as it was, and one that asks for a further factor the session
 with the destination recorded, instead of re-issuing its pair. The result is then `isPending()`, carrying the pending
 session (`pending`) and its credential (`credential`, only ever in the response's body); a guard the request already
 bound to the session forgets it, with no event; the session's tokens are refused until the factor is given (see [Signing
-in](signing-in.md)), and it then activates as the destination. The identity-level additional-factor policy is not asked
-on a switch.
+in](signing-in.md)), and it then activates as the destination. The identity-level additional-factor policy is asked only
+then, once the destination's policy has returned the session to pending, so the pending session names both what the
+tenant asks and what the identity still owes; a switch the destination's policy lets through never asks it.
 
 With the current rotation id, the token's principal must be the one the session records (`session_principal_mismatch`).
 The switch keeps the session's absolute deadline, or its having none while the guard sets no limit, held to the guard's
@@ -305,10 +353,13 @@ its context, the previous principal as the session recorded it (`previousPrincip
 and, when it still resolves for the identity, the principal itself (`previousPrincipal`), the previous tenant's
 identifier (`previousTenantId`) and which of the two changed (`principalChanged`, `tenantChanged`), before it binds the
 guard to the destination in the destination tenant (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`, no
-`Login`; `Auth::tenant()` is the new tenant), so a listener that throws on those cannot withhold the report. Outside a
-transaction `PrincipalSwitched` is therefore dispatched before the bind events, and a listener on it reads the event's
-context, not the guard, which still holds the previous principal; inside your transaction it follows the commit, after
-the bind events, and a rollback drops it.
+`Login`; `Auth::tenant()` is the new tenant) once the switch commits too, so a listener that throws on those cannot
+withhold the report. Outside a transaction `PrincipalSwitched` is therefore dispatched before the bind events, and a
+listener on it reads the event's context, not the guard, which still holds the previous principal; inside your
+transaction both follow the commit, in that order, and a rollback drops both, leaving the guard unbound. The result
+carries the new pair at once (a cookie application's refresh cookie in it, which the package never queues: attach it
+only once your transaction has committed). A bind that waited for your commit binds only while the guard still serves
+the request and the session, read again, still acts as the destination principal in the destination tenant.
 
 ## Signing out and revoking sessions
 
@@ -415,6 +466,19 @@ the same way: when the revocation reads that session first, it is revoked with t
 nothing and still creates its session; when the sign-in commits first, the previous session is already `superseded` (the
 bulk call skips it) and the new session is revoked by the bulk call if its read finds it.
 
+Called inside your own transaction on the storage connection, `revokeSessions()`, `revokePrincipalSessions()` and
+`signOutEverywhere()` run as a savepoint there: the revocations commit or roll back with your change, and nothing is
+reported until it commits. The cutoff moves on the identity's or principal's own connection, so it rolls back with them
+only when that model lives on the storage connection too, as it must for a password reset:
+
+```php
+DB::transaction(function () use ($user) {
+    $user->forceFill(['locked' => true])->save();
+
+    Auth::sessions()->revokeSessions($user, RevocationReason::REVOKED);
+});
+```
+
 ### Signing in again
 
 Every sign-in starts a new session; the previous session of the same client is not reused. A sign-in revokes the
@@ -481,7 +545,7 @@ the four that end an identity's sessions, cancels its pending identifier changes
 |----------------------------------------------------|-------------------------------------------------------------|-------------------------|
 | `passwordChanged($identity, ?Session $except)`     | The identity's sessions, but `$except`                      | `password_changed`      |
 | `passwordReset($identity)`                         | Every session of the identity                               | `password_reset`        |
-| `factorRemoved($identity, ?Session $except)`       | The identity's sessions, but `$except`                      | `factor_removed`        |
+| `credentialRemoved($identity, ?Session $except)`   | The identity's sessions, but `$except`                      | `factor_removed`        |
 | `identityDeactivated($identity)`                   | Every session of the identity                               | `identity_deactivated`  |
 | `principalDeactivated($principal)`                 | Every session acting as the principal                       | `principal_deactivated` |
 | `tenantDeactivated($tenant, iterable $principals)` | Every session acting as a listed principal or in the tenant | `tenant_deactivated`    |
@@ -491,18 +555,20 @@ methods end sessions and pending identifier changes only. A change or a reset se
 (see [Setting a password](passwords.md#setting-a-password)) calls them and also ends the other proofs that could take
 the account back without a session: the reset links and codes and the sign-in codes of the identity. A registration
 calls none of them and ends only the reset links and codes. A password your own flow saves another way leaves those
-proofs as they are. `factorRemoved()` is the seam a further-factor package calls when an identity removes a factor. The
-tenant's principals are yours to list, so `tenantDeactivated()` takes them from you (it also ends every session acting
-in the tenant, whatever its principal): each must act within the tenant (read on the write connection from the principal
-as stored, so a `tenant` relation you loaded does not decide and Eloquent's strict mode does not stop the read), or an
-`InvalidArgumentException` is thrown before anything is written. A `CanBeActive` tenant already deleted or soft-deleted
-still works, since a principal whose `TenantUnavailableException` names that very tenant (its class and key, as
-`ActsAsPrincipal` reports it) acts within it, so restoring the tenant later revives no session; a tenant that does not
-implement `CanBeActive` reads as no tenant once it cannot be loaded, so call `tenantDeactivated()` before deleting it; a
-principal listed twice counts once, and every principal's sessions end in one transaction on the storage connection,
-with one `SignedOutEverywhere` per principal. Deactivation already stops every token at once through the live activity
-checks (see [Active-state enforcement](identity-models.md#active-state-enforcement)); revoking makes the end outlast a
-reactivation and records why.
+proofs as they are. `credentialRemoved()` is for a first-factor credential the identity removed (a passkey, or a phone
+number or email address it signs in with); a factor of the factor package's has its own triggers (see [Sign-in
+factors](#sign-in-factors)). The tenant's principals are yours to list, so `tenantDeactivated()` takes them from you (it
+also ends every session acting in the tenant, whatever its principal): each must act within the tenant (read on the
+write connection from the principal as stored, so a `tenant` relation you loaded does not decide and Eloquent's strict
+mode does not stop the read), or an `InvalidArgumentException` is thrown before anything is written. A `CanBeActive`
+tenant already deleted or soft-deleted still works, since a principal whose `TenantUnavailableException` names that very
+tenant (its class and key, as `ActsAsPrincipal` reports it) acts within it, so restoring the tenant later revives no
+session; a tenant that does not implement `CanBeActive` reads as no tenant once it cannot be loaded, so call
+`tenantDeactivated()` before deleting it; a principal listed twice counts once, and every principal's sessions end in
+one transaction on the storage connection, with one `SignedOutEverywhere` per principal. Deactivation already stops
+every token at once through the live activity checks (see [Active-state
+enforcement](identity-models.md#active-state-enforcement)); revoking makes the end outlast a reactivation and records
+why.
 
 Three optional listeners call them for you. Registering one is the opt-in, and each revokes only once the change that
 triggered it is committed on the changed model's connection, so a change that is rolled back revokes nothing:
@@ -566,6 +632,89 @@ $this->app->when(RevokeSessionsOnPasswordChange::class)->needs('$guard')->give('
 ```
 
 With no `jwt` guard configured at all, a listener throws an `InvalidArgumentException`.
+
+### Sign-in factors
+
+A sign-in factor is anything the identity signs in with: a first-factor credential (a passkey, or a phone number or
+email address it signs in with) or one of the factor package's further factors. A removed first-factor credential is
+yours to answer, per event, with `credentialRemoved()` or `RevokeSessionsOnPasskeyRemoval` (see above). The factor
+package's two triggers are mandatory: no setting turns them off, and the factor package calls them itself, inside the
+transaction that makes its change and after its own locks, never through a listener:
+
+| Method                                                        | Ends                                                                                  | Reason           |
+|---------------------------------------------------------------|---------------------------------------------------------------------------------------|------------------|
+| `factorRemoved($identity, string $factor, ?Session $current)` | The identity's sessions, pending ones included, but `$current`, which is judged again | `factor_removed` |
+| `factorReset($identity)`                                      | Every session of the identity, the current one included                               | `factor_reset`   |
+
+```php
+DB::transaction(function () use ($user, $factor) {
+    $factor->newQuery()->whereKey($factor->getKey())->lockForUpdate()->first();
+    $factor->delete();
+
+    $removal = Auth::sessions()->factorRemoved($user, $factor->reference(), Auth::session());
+
+    if ($removal->isPending()) {
+        // Hand $removal->credential to the client in the response body.
+    }
+});
+```
+
+`$factor` is the factor package's reference to the factor, 1 to 255 characters. `$current`, the session the removal was
+made from, is judged again without the factor: the proofs it made with that factor are voided, so they never count
+again, and then:
+
+- it stays active while it still meets the identity's factor policy and its tenant's policy, with another factor say;
+- it returns to pending, waiting on a further factor (`SessionReturnedToPending`, flow `factor_change`), while that is
+  all it falls short of: its access and refresh tokens stop at once, and `FactorRemoval::$pending` and
+  `$credential` carry what a client needs to satisfy it again;
+- it is revoked (`factor_removed`) when it is no longer admitted as a refresh admits it (its identity, principal or
+  tenant inactive or ineligible) or its tenant now requires a connection: nothing it could do in place would meet it.
+
+A current session that is pending has its proofs made with the factor voided too and stays pending: its next action
+(`satisfy()`, `choose()`) is judged without them. One that was meanwhile revoked or ended is left as it is. When the
+request's guard is bound to the current session and it returned to pending or was revoked, the guard forgets it once the
+transaction commits, before anything is reported, so the rest of the request is no longer authenticated as it, even when
+a listener throws. `factorReset()`, and `factorRemoved()` given no `$current`, do the same for a guard bound to the
+identity: every session it has ends, so the rest of the request is not authenticated as any of them.
+`FactorRemoval::$revoked` counts the sessions revoked, the current one included when it was (`$currentRevoked`).
+`$current`, when given, must be a session of this guard the identity owns, and the identity must live on the storage
+connection, so its cutoff moves and its sessions end in the factor package's transaction: otherwise nothing is written
+and an `InvalidArgumentException` or a `LogicException` is thrown. Everything runs in one transaction on the storage
+connection, a savepoint in the factor package's, and is reported once that commits.
+
+A passkey the factor package associated as a factor is removed through `PasskeyService::remove()`, which asks the factor
+package first, and the factor package then calls `factorRemoved()`. `RevokeSessionsOnPasskeyRemoval` still ends every
+session on any passkey's removal, the current one included, once committed: with the factor package, register it only
+if that is what you want.
+
+### Connections and links
+
+When an external provider's connection is disabled or deleted, or an identity's link to one is removed, end the sessions
+it established from the same transaction:
+
+```php
+DB::transaction(function () use ($connection) {
+    $connection->update(['enabled' => false]);
+
+    Auth::sessions()->connectionDisabled($connection->id);
+});
+
+Auth::sessions()->connectionDeleted($connectionId);
+Auth::sessions()->linkRemoved($user, $connectionId);
+```
+
+`connectionDisabled()` and `connectionDeleted()` revoke every live session whose provenance records the connection (of
+every guard and identity, pending ones included; one already past a deadline is left for pruning), as
+`connection_disabled` or `connection_deleted`; `linkRemoved()` revokes only the identity's, as `link_removed`. Each
+returns how many it revoked. They are found through the provenance's connection index (a link's through the identity's
+sessions) 500 at a time, each chunk locked in key order, in one transaction on the storage connection, a savepoint
+inside yours. Once that commits, a request's guard bound to one of them forgets it, so the rest of the request is not
+authenticated as it even when a listener throws, and then `SessionRevoked` reports each. No cutoff moves and no
+`SignedOutEverywhere` is reported: the scope is how the sessions began, not the identity, whose other sessions stay.
+Each is on by default and turned off by its `authentication.revocation.*` setting (see [Revocation by
+connection](configuration.md#revocation-by-connection)); a connection id may not be empty. The connection is matched
+byte for byte, so revoking one never ends the sessions of another whose id differs from it only in case, accents or a
+trailing space.
 
 ### Access tokens without a session
 
@@ -643,36 +792,42 @@ DB::transaction(function () use ($tenant, $policy) {
 });
 ```
 
-It reads the tenant's live sessions (`tenant_id`, every guard, pending ones included; one already past a deadline is
-left for pruning) on the storage connection in key order, a chunk at a time, each chunk under a lock; skips a session
-recorded at the very version the policy now answers (neither `null`); revokes an active one that no longer meets it as
-`tenant_policy_changed`, and a pending one only when it would need another connection (a pending one that lacks a factor
-is judged when it activates); and records the version on an active one that meets it. It returns how many it revoked,
-and `SessionRevoked` reports each once committed. Call it inside the transaction that publishes the change, on the
-storage connection, so the two commit or roll back together (it runs as a savepoint and never commits on its own), and,
-for a strict cut-off, once more after that transaction commits: a session that entered the tenant while the first call
-ran is then judged too. Change the policy's version whenever anything its answer depends on changes, so the helper never
-skips a session it should judge.
+The helper is mandatory: no setting turns it off, and nothing calls it for you. It reads the tenant's live sessions
+(`tenant_id`, every guard, pending ones included; one already past a deadline is left for pruning) on the storage
+connection in key order, a chunk at a time, each chunk under a lock; skips a session recorded at the very version the
+policy now answers (neither `null`); revokes an active one that no longer meets it as `tenant_policy_changed`, and a
+pending one only when it would need another connection (a pending one that lacks a factor is judged when it activates);
+and records the version on an active one that meets it. It returns how many it revoked, and `SessionRevoked` reports
+each once committed. Call it inside the transaction that publishes the change, on the storage connection, so the two
+commit or roll back together (it runs as a savepoint and never commits on its own), and, for a strict cut-off, once more
+after that transaction commits: a session that entered the tenant while the first call ran is then judged too. Change
+the policy's version whenever anything its answer depends on changes, so the helper never skips a session it should
+judge.
 
 ### Revocation reasons
 
 Every revocation records one of these reasons in the session's `revoked_reason` and in `SessionRevoked::$reason`
 (`RevocationReason`); a bulk revocation reports it in `SignedOutEverywhere::$reason` as well:
 
-| Reason                  | Recorded when                                                                                                                 |
-|-------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutFromRequest()`, `signOutWith()`             |
-| `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                           |
-| `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                |
-| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch, a sign-out or the caller of a refresh credential                |
-| `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session            |
-| `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeSessionsOnPasswordChange`  |
-| `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`              |
-| `factor_removed`        | `factorRemoved()`, directly or through `RevokeSessionsOnPasskeyRemoval`                                                       |
-| `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                   |
-| `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                  |
-| `tenant_deactivated`    | `tenantDeactivated()`                                                                                                         |
-| `tenant_policy_changed` | `tenantPolicyChanged()`, or a refresh that finds the tenant now requires a connection the session was not established through |
+| Reason                  | Recorded when                                                                                                                              |
+|-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
+| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutFromRequest()`, `signOutWith()`                          |
+| `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                                        |
+| `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                             |
+| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch, a sign-out or the caller of a refresh credential                             |
+| `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session                         |
+| `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->change()` or `set()` with `CHANGE`, or through `RevokeSessionsOnPasswordChange` |
+| `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`                           |
+| `password_established`  | `Auth::passwords()->establish()`: the identity's other sessions once it established its first password                                     |
+| `factor_removed`        | `credentialRemoved()`, directly or through `RevokeSessionsOnPasskeyRemoval`, or the factor package's `factorRemoved()`                     |
+| `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                                |
+| `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                               |
+| `tenant_deactivated`    | `tenantDeactivated()`                                                                                                                      |
+| `tenant_policy_changed` | `tenantPolicyChanged()`, or a refresh that finds the tenant now requires a connection the session was not established through              |
+| `factor_reset`          | The factor package's `factorReset()`: every session of the identity                                                                        |
+| `connection_disabled`   | `connectionDisabled()`: the sessions the connection established                                                                            |
+| `connection_deleted`    | `connectionDeleted()`: the sessions the connection established                                                                             |
+| `link_removed`          | `linkRemoved()`: the identity's sessions the connection established                                                                        |
 
 `revokeSession()`, `revokeSessions()` and `revokePrincipalSessions()` take the reason as an argument (`REVOKED` in the
 examples above); the others set their own.

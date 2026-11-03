@@ -6,11 +6,9 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Container\Container;
-use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
-use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -47,13 +45,14 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * proven against, records the same owner, principal and guard, and is active
  * and not revoked (when it changed, nothing is written, and the caller judges
  * the session again without it, since a factor policy may have waived the
- * factor for it); it forgets the attempt-limit slots it held; and it is
- * reported as a sign-in (`SessionRevoked` for the session superseded, then
- * `SessionCreated` and `SignedIn`), with the slots given back once committed.
- * The activation of a session that returned to pending moves the floor for its
- * access tokens' issue time (`SwitchFloor`), so no token from before its return
- * is accepted, and is reported as `SessionActivated`. Every report waits for
- * the commit on the session's connection.
+ * factor for it); it forgets the attempt-limit slots it held, handing them up
+ * with the activated session (`SignedInSession::$heldSlots`) for the session
+ * service to give back once it has bound the session; and it is reported as a
+ * sign-in (`SessionRevoked` for the session superseded, then `SessionCreated`
+ * and `SignedIn`). The activation of a session that returned to pending moves
+ * the floor for its access tokens' issue time (`SwitchFloor`), so no token from
+ * before its return is accepted, and is reported as `SessionActivated`. Every
+ * report waits for the commit on the session's connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -78,10 +77,10 @@ final readonly class SessionActivation
         /** The guard's token service, which issues the pair. */
         private JwtTokenService $tokens,
 
-        /** Defers the reports, and the slots' give-back, until the activation commits. */
+        /** Defers the reports until the activation commits. */
         private AfterCommit $afterCommit,
 
-        /** Container the application policy, attempt limiter and exception handler are resolved from. */
+        /** Container the application policy is resolved from. */
         private Container $container,
     ) {}
 
@@ -142,10 +141,10 @@ final readonly class SessionActivation
         $context = new EventContext($this->context->name(), $client, $identity, $principal, $tenant, $session, $method);
 
         $first
-            ? $this->reportSignIn($session, $context, $superseded, $reservations)
+            ? $this->reportSignIn($session, $context, $superseded)
             : $this->afterCommit->run($session, fn () => $this->context->dispatch(new SessionActivated($context)));
 
-        return new SignedInSession($identity, $principal, $session, $tokens, $method);
+        return new SignedInSession($identity, $principal, $session, $tokens, $method, $reservations);
     }
 
     /**
@@ -299,19 +298,17 @@ final readonly class SessionActivation
     }
 
     /**
-     * Schedule the reports of a sign-in's first activation and the give-back of
-     * the slots it held, once committed on the session's connection:
-     * `SessionRevoked` (`superseded`) for the session it superseded, if any,
-     * then `SessionCreated` and `SignedIn`, in turn, so a listener that throws
-     * stops the reports after its own.
+     * Schedule the reports of a sign-in's first activation, once committed on
+     * the session's connection: `SessionRevoked` (`superseded`) for the session
+     * it superseded, if any, then `SessionCreated` and `SignedIn`, in turn, so
+     * a listener that throws stops the reports after its own.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $superseded
-     * @param  list<\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation>  $reservations
      * @return void
      */
-    private function reportSignIn(EloquentSession&Model $session, EventContext $context, (EloquentSession&Model)|null $superseded, array $reservations): void
+    private function reportSignIn(EloquentSession&Model $session, EventContext $context, (EloquentSession&Model)|null $superseded): void
     {
         $revoked = $superseded === null ? null : new SessionRevoked(
             new EventContext($this->context->name(), $context->client, $context->identity, $context->principal, $context->tenant, $superseded, $superseded->getSignInMethod()),
@@ -327,21 +324,15 @@ final readonly class SessionActivation
             $this->context->dispatch(new SessionCreated($context));
             $this->context->dispatch(new SignedIn($context, false));
         });
-
-        if ($reservations === []) {
-            return;
-        }
-
-        $this->afterCommit->run($session, fn () => $this->giveBack($reservations));
     }
 
     /**
      * The attempt-limit reservations the sign-in held, as granted reservations
-     * to give back once it activates: one for each it held, with its windows,
-     * for the guard's sign-in flow, the identifier type and the IP address the
-     * session records (neither the identifier nor the account, which it does
-     * not keep), so the limiter gives back exactly the slots taken. None for a
-     * sign-in that reserved nothing (one `start()` began).
+     * to give back once it activates and is bound: one for each it held, with
+     * its windows, for the guard's sign-in flow, the identifier type and the IP
+     * address the session records (neither the identifier nor the account,
+     * which it does not keep), so the limiter gives back exactly the slots
+     * taken. None for a sign-in that reserved nothing (one `start()` began).
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @return list<\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation>
@@ -362,31 +353,5 @@ final readonly class SessionActivation
         );
 
         return array_map(static fn (array $window): AttemptReservation => new AttemptReservation($subject, null, $window), is_array($windows) ? array_values($windows) : []);
-    }
-
-    /**
-     * Give back the attempt-limit slots a committed first activation's sign-in
-     * took.
-     *
-     * A failure is reported, not thrown: the session already stands, and
-     * Laravel runs a commit's callbacks in order without catching, so a throw
-     * here would stop the callbacks queued after this one (another session's
-     * events, the caller's own) from running. The slots not given back stay
-     * counted.
-     *
-     * @param  list<\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation>  $reservations
-     * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function giveBack(array $reservations): void
-    {
-        try {
-            foreach ($reservations as $reservation) {
-                $this->container->make(AttemptLimiter::class)->release($reservation);
-            }
-        } catch (\Throwable $exception) {
-            $this->container->make(ExceptionHandler::class)->report($exception);
-        }
     }
 }

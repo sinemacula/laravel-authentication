@@ -37,13 +37,16 @@ use SineMacula\Laravel\Authentication\Applications\AdmitAnyPrincipal;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Codes\RefuseFactorCodes;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
+use SineMacula\Laravel\Authentication\Contracts\FactorCodeCounters;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
+use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
@@ -70,6 +73,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordSessionUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
+use SineMacula\Laravel\Authentication\Passkeys\NoPasskeyFactors;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Passwords\NoBreachedPasswordCheck;
 use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
@@ -564,12 +568,15 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertTrue($app->isShared(AdditionalFactorPolicy::class));
         self::assertInstanceOf(NeverRequireAdditionalFactor::class, app(AdditionalFactorPolicy::class));
+        self::assertTrue($app->isShared(PasskeyFactorGate::class));
+        self::assertInstanceOf(NoPasskeyFactors::class, app(PasskeyFactorGate::class));
     }
 
     /**
-     * The default tenant authentication policy, which requires nothing, and the
-     * default requirement check, which meets nothing, are bound as singletons
-     * so a single sign-on or further-factor package can rebind them.
+     * The default tenant authentication policy, which requires nothing, the
+     * default requirement check, which meets nothing, and the default factor
+     * code counters, which refuse every factor code, are bound as singletons so
+     * a single sign-on or further-factor package can rebind them.
      *
      * @return void
      */
@@ -583,6 +590,8 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertInstanceOf(RequireNothingOfTenants::class, app(TenantAuthenticationPolicy::class));
         self::assertTrue($app->isShared(RequirementCheck::class));
         self::assertInstanceOf(MeetNoRequirement::class, app(RequirementCheck::class));
+        self::assertTrue($app->isShared(FactorCodeCounters::class));
+        self::assertInstanceOf(RefuseFactorCodes::class, app(FactorCodeCounters::class));
     }
 
     /**

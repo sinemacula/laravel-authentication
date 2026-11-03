@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Integration\Tenancy;
+namespace Tests\Integration\Requirements;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
@@ -13,13 +13,10 @@ use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
+use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
-use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
-use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
-use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
-use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -29,18 +26,17 @@ use Tests\Unit\Stubs\StubPrincipal;
  * against a read/write split whose replica lags behind its primary: the
  * identity's (`landlord`).
  *
- * The check finds the further factor met only when its query-builder read on
- * that connection finds a row written through the split connection, which
- * exists on the primary only: a met factor shows the read was served by the
- * writer.
+ * The check finds the requirement met only when its query-builder read on that
+ * connection finds a row written through the split connection, which exists on
+ * the primary only: a met requirement shows the read was served by the writer.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(TenantPolicyCheck::class)]
-final class TenantPolicyCheckTest extends TestCase
+#[CoversClass(RequirementJudge::class)]
+final class RequirementJudgeTest extends TestCase
 {
     use InteractsWithLaggingReplica;
 
@@ -93,7 +89,7 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * A factor recorded on the primary only is found, so the further factor is
+     * A factor recorded on the primary only is found, so the requirement is
      * met, and the identity's connection reads from its replica again
      * afterwards.
      *
@@ -105,15 +101,12 @@ final class TenantPolicyCheckTest extends TestCase
     {
         DB::connection(self::LANDLORD_CONNECTION)->table(self::FACTORS)->insert(['id' => 1]);
 
-        $verdict = $this->judgeFurtherFactor();
-
-        self::assertSame(TenantPolicyStanding::MET, $verdict->standing);
-        self::assertSame('v1', $verdict->version);
+        self::assertTrue($this->isFurtherFactorMet());
         self::assertFalse(DB::connection(self::LANDLORD_CONNECTION)->table(self::FACTORS)->exists());
     }
 
     /**
-     * With no factor on the primary either, the further factor is required.
+     * With no factor on the primary either, the requirement is not met.
      *
      * @return void
      *
@@ -121,7 +114,7 @@ final class TenantPolicyCheckTest extends TestCase
      */
     public function testWithoutAFactorTheFurtherFactorIsRequired(): void
     {
-        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, $this->judgeFurtherFactor()->standing);
+        self::assertFalse($this->isFurtherFactorMet());
     }
 
     /**
@@ -148,13 +141,13 @@ final class TenantPolicyCheckTest extends TestCase
 
     /**
      * Judge a sign-in's evidence, for an identity stored on the landlord
-     * connection, against an answer that requires a further factor.
+     * connection, against a requirement of a further factor.
      *
-     * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict
+     * @return bool
      *
      * @throws \Throwable
      */
-    private function judgeFurtherFactor(): TenantPolicyVerdict
+    private function isFurtherFactorMet(): bool
     {
         $identity = new class extends StubPrincipal {
             /** @var string|\UnitEnum|null The connection the identity is stored on. */
@@ -164,6 +157,6 @@ final class TenantPolicyCheckTest extends TestCase
         $now      = CarbonImmutable::now();
         $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
 
-        return TenantPolicyCheck::judge(new TenantRequirement('v1', new Requirement(new RequirementPart)), 'members', $identity, null, $now, $evidence);
+        return RequirementJudge::isMet('members', $identity, null, null, $now, $evidence, new Requirement(new RequirementPart));
     }
 }

@@ -19,7 +19,9 @@ use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
+use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\StubCredentialGuard;
+use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubRequestResolvingGuard;
 
 /**
@@ -679,6 +681,50 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         self::assertNull($guard->principal());
         self::assertNull($guard->session());
         self::assertNull($guard->tenant());
+        self::assertTrue($guard->guest());
+        self::assertSame(1, $guard->resolutions);
+    }
+
+    /**
+     * `forgetIdentity()` resolves nothing and leaves a request not yet resolved
+     * alone; it leaves a binding to another identity (another identifier, or
+     * the same identifier of another class) as it is, and forgets one to the
+     * identity given, whichever instance names it, with no event, keeping the
+     * guard signed out for the rest of the request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testForgetIdentityForgetsOnlyABindingToThatIdentity(): void
+    {
+        $bound  = new PlainIdentityFixture(1);
+        $events = $this->recordEvents();
+        $guard  = new StubRequestResolvingGuard(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox);
+
+        $guard->resolvable = $bound;
+
+        $guard->forgetIdentity($bound);
+
+        self::assertSame(0, $guard->resolutions);
+        self::assertSame(1, $guard->id());
+        self::assertSame(1, $guard->resolutions);
+
+        $guard->authenticateAs($bound, $this->principal, $this->session);
+        $guard->forgetIdentity(new PlainIdentityFixture(2));
+        $guard->forgetIdentity(new StubIdentity(['id' => 1]));
+
+        self::assertSame(1, $guard->id());
+        self::assertSame($this->session, $guard->session());
+
+        $events->exchangeArray([]);
+
+        $guard->forgetIdentity(new PlainIdentityFixture('1'));
+
+        self::assertSame([], $events->getArrayCopy());
+        self::assertNull($guard->user());
+        self::assertNull($guard->principal());
+        self::assertNull($guard->session());
         self::assertTrue($guard->guest());
         self::assertSame(1, $guard->resolutions);
     }

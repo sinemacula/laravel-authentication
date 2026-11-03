@@ -44,7 +44,7 @@ use Tests\Integration\Fixtures\PasswordMachine;
  */
 trait InteractsWithPasswordResets
 {
-    use InteractsWithPasswords;
+    use InteractsWithCodes, InteractsWithPasswords;
 
     /** @var string The seeded identity's email address. */
     protected const string EMAIL = 'ada@example.test';

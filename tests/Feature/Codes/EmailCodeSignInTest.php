@@ -261,10 +261,14 @@ final class EmailCodeSignInTest extends TestCase
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn(self::CODE)->reason);
         self::assertSame(0, self::storedAttempts());
 
-        $this->codeService()->send('email_code', ['email' => self::EMAIL]);
+        $email = $this->codeService()->send('email_code', ['email' => self::EMAIL])->challengeId;
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('mobile')->signIn('phone_code', ['phone' => self::PHONE, 'code' => '246802'])->reason);
-        self::assertTrue($this->signIn('246802')->isSignedIn());
+        self::assertIsString($email);
+        self::assertSame(
+            FailureReason::INVALID_CREDENTIALS,
+            $this->sessions('mobile')->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $email, 'code' => '246802'])->reason,
+        );
+        self::assertTrue($this->sessions('mobile')->signIn('email_code', ['email' => self::EMAIL, 'challenge' => $email, 'code' => '246802'])->isSignedIn());
     }
 
     /**
@@ -304,19 +308,19 @@ final class EmailCodeSignInTest extends TestCase
 
         $this->app?->terminate();
 
-        $code = $this->sender->lastCodeFor(self::EMAIL, CodePurpose::VERIFY_IDENTIFIER);
+        $code = $this->sender->lastCodeFor(self::EMAIL, CodePurpose::VERIFICATION);
 
         self::assertSame(self::CODE, $code);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn($code)->reason);
-        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'email', $code));
+        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'email', self::challenge(), $code)->outcome);
 
         $this->sender->forget();
 
-        $this->codeService()->send('email_code', ['email' => self::EMAIL]);
+        $challenge = $this->codeService()->send('email_code', ['email' => self::EMAIL])->challengeId;
         $this->app?->terminate();
 
         self::assertSame('246802', $this->sender->lastCodeFor(self::EMAIL, CodePurpose::SIGN_IN));
-        self::assertTrue($this->signIn('246802')->isSignedIn());
+        self::assertTrue($this->signIn('246802', challenge: $challenge)->isSignedIn());
     }
 
     /**
@@ -347,11 +351,11 @@ final class EmailCodeSignInTest extends TestCase
         self::assertSame(0, Session::query()->count());
         self::assertSame(0, self::counterHits('sign_in', 'per_account', AccountAttempts::account($holder)));
 
-        $this->codeService('lookalike')->send('email_code', ['email' => self::EMAIL]);
+        $challenge = $this->codeService('lookalike')->send('email_code', ['email' => self::EMAIL])->challengeId;
         $this->app?->terminate();
 
         self::assertSame('246802', $this->sender->lastCodeFor(self::EMAIL));
-        self::assertTrue($this->signIn('246802', guard: 'lookalike')->isSignedIn());
+        self::assertTrue($this->signIn('246802', guard: 'lookalike', challenge: $challenge)->isSignedIn());
     }
 
     /**
@@ -420,11 +424,15 @@ final class EmailCodeSignInTest extends TestCase
         Route::post('/codes/email', static function (Request $request): array {
             $result = Auth::codes('mobile')->send('email_code', ['email' => $request->string('email')->toString()]);
 
-            return ['status' => $result->status->value];
+            return ['status' => $result->status->value, 'challenge' => $result->challengeId];
         });
 
         Route::post('/sign-in/email', static function (Request $request): array {
-            $result = Auth::sessions('mobile')->signIn('email_code', ['email' => $request->string('email')->toString(), 'code' => $request->string('code')->toString()]);
+            $result = Auth::sessions('mobile')->signIn('email_code', [
+                'email'     => $request->string('email')->toString(),
+                'challenge' => $request->string('challenge')->toString(),
+                'code'      => $request->string('code')->toString(),
+            ]);
 
             abort_unless($result->isSignedIn(), 401);
 
@@ -437,7 +445,9 @@ final class EmailCodeSignInTest extends TestCase
             return ['email' => $identity instanceof CodeIdentity ? $identity->email : null];
         });
 
-        $this->postJson('/codes/email', ['email' => ' Ben@Example.com'])->assertExactJson(['status' => 'sent']);
+        $challenge = $this->postJson('/codes/email', ['email' => ' Ben@Example.com'])->assertJsonPath('status', 'sent')->json('challenge');
+
+        self::assertIsString($challenge);
 
         $code = $this->sender->lastCodeFor(self::EMAIL);
 
@@ -445,11 +455,11 @@ final class EmailCodeSignInTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $this->postJson('/sign-in/email', ['email' => 'BEN@example.com', 'code' => '000000'])->assertUnauthorized();
+        $this->postJson('/sign-in/email', ['email' => 'BEN@example.com', 'challenge' => $challenge, 'code' => '000000'])->assertUnauthorized();
 
         self::assertSame('BEN@example.com', $this->recordedEvent(AuthenticationFailed::class)->identifier);
 
-        $access = $this->postJson('/sign-in/email', ['email' => 'BEN@example.com', 'code' => $code])->assertOk()->json('access_token');
+        $access = $this->postJson('/sign-in/email', ['email' => 'BEN@example.com', 'challenge' => $challenge, 'code' => $code])->assertOk()->json('access_token');
 
         self::assertIsString($access);
 
@@ -477,17 +487,19 @@ final class EmailCodeSignInTest extends TestCase
     }
 
     /**
-     * Sign in to the guard with the code sent to the address.
+     * Sign in to the guard with the code sent to the address, for the challenge
+     * given or the only one stored.
      *
      * @param  string  $code
      * @param  string  $email
      * @param  string  $guard
+     * @param  ?string  $challenge
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    private function signIn(string $code, string $email = self::EMAIL, string $guard = 'mobile'): SignInResult
+    private function signIn(string $code, string $email = self::EMAIL, string $guard = 'mobile', ?string $challenge = null): SignInResult
     {
-        return $this->sessions($guard)->signIn('email_code', ['email' => $email, 'code' => $code]);
+        return $this->sessions($guard)->signIn('email_code', ['email' => $email, 'challenge' => $challenge ?? self::challenge(), 'code' => $code]);
     }
 }

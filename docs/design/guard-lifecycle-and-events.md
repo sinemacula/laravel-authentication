@@ -25,9 +25,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   that throws (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `SessionAuthenticated`) cannot withhold
   them; its exception still reaches the caller. With no transaction open on that connection they are therefore
   dispatched before the bind events, and a listener on them reads the event's context, not the guard, which is not yet
-  bound to the new session (a switch's listener would see the previous principal); inside a transaction they follow its
-  commit and the bind events come first. A lifecycle listener that throws propagates as any listener does, and with no
-  transaction open stops the bind.
+  bound to the new session (a switch's listener would see the previous principal). Inside a transaction the bind
+  (`signIn()`, `start()`, `satisfy()`, `choose()`, a refresh and a switch) waits for the commit too, after the events,
+  and never runs on a rollback. A lifecycle listener that
+  throws propagates as any listener does, and with no transaction open stops the bind.
 - A bind sets the identity, principal and session before it dispatches anything after `Login`: `Authenticated`,
   `PrincipalAssigned` and `SessionAuthenticated` all describe the whole bound context (see `event-model.md`).
 - `SessionAuthenticated` is emitted only when a non-null session is bound.
@@ -62,13 +63,13 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   It starts no session, so it never dispatches `SignedIn`, which reports the sessions the session service starts;
   Laravel's `Login` reports an `attempt()` sign-in.
 - The session service's `signIn()` emits `Attempting`, then, once the session's transaction is done, `SessionCreated`
-  and `SignedIn` when the session's connection commits (at once with no transaction open there), and binds through
-  `login()` (`Validated -> Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated`); `start()` does the
-  same without `Attempting` (see `session-service.md`). A sign-in whose session is written pending (a further factor or
-  a choice of principal outstanding) binds nothing: it emits `Attempting` (from `signIn()`) and then `SessionPending`
-  once the pending session commits. A `satisfy()` or `choose()` that activates it emits the `signIn()` sequence without
-  `Attempting`; one that leaves it pending emits nothing; a refused one emits `Failed` and then `AuthenticationFailed`;
-  `discard()` emits `SessionRevoked` (`signed_out`).
+  and `SignedIn` when the session's connection commits (at once with no transaction open there), and then, on the same
+  commit, binds through `login()` (`Validated -> Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated`)
+  while the session is still active; `start()` does the same without `Attempting` (see `session-service.md`). A sign-in
+  whose session is written pending (a further factor or a choice of principal outstanding) binds nothing: it emits
+  `Attempting` (from `signIn()`) and then `SessionPending` once the pending session commits. A `satisfy()` or `choose()`
+  that activates it emits the `signIn()` sequence without `Attempting`; one that leaves it pending emits nothing; a
+  refused one emits `Failed` and then `AuthenticationFailed`; `discard()` emits `SessionRevoked` (`signed_out`).
 - `switchTo()` is no sign-in: it dispatches `PrincipalSwitched` once the switch commits on the session's connection,
   when it changed the principal or the tenant, and binds through `authenticateAs()` with the destination tenant
   (`Authenticated -> PrincipalAssigned -> SessionAuthenticated`, no `Validated` or `Login`); one whose destination asks

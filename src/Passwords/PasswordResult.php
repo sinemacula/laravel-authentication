@@ -4,9 +4,13 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Passwords;
 
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+
 /**
- * What `set()` did: set the password, after which the sessions its flow ends
- * were revoked; or nothing, because the password breaks the policy.
+ * What `set()`, `change()` or `establish()` did: set the password, after which
+ * the sessions its flow ends were revoked; or nothing, because the password
+ * breaks the policy, or because a change or an establishment was refused before
+ * the policy judged it (with the reason, and for `rate_limited` the wait).
  *
  * @api
  *
@@ -21,6 +25,8 @@ final readonly class PasswordResult
      * @param  bool  $set
      * @param  list<\SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation>  $violations
      * @param  int  $revoked
+     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  ?int  $retryAfter
      */
     private function __construct(
 
@@ -32,6 +38,12 @@ final readonly class PasswordResult
 
         /** How many sessions the flow revoked, when it was set. */
         public int $revoked,
+
+        /** Why a change or an establishment was refused before the policy judged the password, when it was. */
+        public ?FailureReason $reason = null,
+
+        /** Seconds until the current password may be checked again, for `rate_limited` only. */
+        public ?int $retryAfter = null,
     ) {}
 
     /**
@@ -54,6 +66,20 @@ final readonly class PasswordResult
     public static function rejected(array $violations): self
     {
         return new self(false, $violations, 0);
+    }
+
+    /**
+     * A change or an establishment was refused, for the reason given (the
+     * session, the current password, the identity's password or the freshness
+     * of its authentication), so nothing was written.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  ?int  $retryAfter
+     * @return self
+     */
+    public static function refused(FailureReason $reason, ?int $retryAfter = null): self
+    {
+        return new self(false, [], 0, $reason, $retryAfter);
     }
 
     /**

@@ -83,7 +83,8 @@ every request and confirmation throws its `InvalidArgumentException` before anyt
 `authentication:check` reports it.
 
 **Requesting.** `requestByCode()` sends a code to the new identifier, delivered after commit by a queued job through
-your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one);
+your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one), and answers
+the challenge id its confirmation names;
 `requestByLink()` signs a link to your named route instead, which `link()` returns for you to send to the new identifier
 (and only there: never return it to the client). The new identifier must be one the type's normaliser accepts and not
 the current one; whether another identity holds it is not checked here, so the answer says nothing about it. Requests
@@ -120,7 +121,7 @@ Route::middleware('auth:api')->post('/email/change', function (Request $request)
     $result = Auth::identifierChanges('api')->requestByCode(Auth::identity(), 'email', $input['email'], $proof);
 
     return match ($result->status) {
-        IdentifierChangeRequestStatus::SENT                      => response()->json(['expires_at' => $result->expiresAt->toIso8601String()], 202),
+        IdentifierChangeRequestStatus::SENT                      => response()->json(['challenge' => $result->challengeId, 'expires_at' => $result->expiresAt->toIso8601String()], 202),
         IdentifierChangeRequestStatus::RATE_LIMITED              => response()->json([], 429, ['Retry-After' => $result->retryAfter]),
         IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED => response()->json(['message' => 'Confirm your password, or sign in again.'], 403),
         IdentifierChangeRequestStatus::IDENTIFIER_INVALID,
@@ -162,27 +163,35 @@ session, so one requested from a session that ended could otherwise still move t
 requester's. Revoking one session, ending a principal's sessions and a registration keep them. Prune expired changes
 with `php artisan model:prune --model="SineMacula\Laravel\Authentication\Models\IdentifierChange"`.
 
-**Confirming.** `confirmByCode($identity, $type, $code)` takes the code; `confirmByLink($request)` takes the request to
-the link's address, which needs no session (the link names the identity, signed). Each acts only on a change requested
-through the same guard. Let the link's `GET` only show a confirmation, and confirm from its form: mail scanners and link
-previews fetch links no one clicked, and a change confirmed by such a fetch (a mistyped address that reaches a
-stranger's scanned mailbox, say) would make the stranger's address the one password resets go to. The form posts back to
-the same signed address, query included, and `confirmByLink()` reads the signature from it. Neither confirms a change
-for an identity that is not active (`CanBeActive`, see
-[Active-state enforcement](identity-models.md#active-state-enforcement)): the link needs no session, so no guard has
-checked it, and an account suspended after the request keeps its identifier. The answer is `invalid`, reported as
-`identity_inactive`, before anything is counted.
+**Confirming.** `confirmByCode($identity, $type, $challengeId, $code)` takes the code and the challenge id the request
+by code answered (`IdentifierChangeRequest::$challengeId`); a malformed id is `invalid` with nothing counted, and a
+confirmation counts against the identity's account and the IP address under the `identifier_change` limits, given back
+once the change is made (out of confirmations: `rate_limited`, with the wait). `confirmByLink($request)` takes the
+request to the link's address, which needs no session (the link names the identity, signed). Each acts only on a change
+requested through the same guard. Let the link's `GET` only show a confirmation, and confirm from its form: mail
+scanners and link previews fetch links no one clicked, and a change confirmed by such a fetch (a mistyped address that
+reaches a stranger's scanned mailbox, say) would make the stranger's address the one password resets go to. The form
+posts back to the same signed address, query included, and `confirmByLink()` reads the signature from it. Neither
+confirms a change for an identity that is not active (`CanBeActive`, see [Active-state
+enforcement](identity-models.md#active-state-enforcement)): the link needs no session, so no guard has checked it, and
+an account suspended after the request keeps its identifier. The answer is `invalid`, reported as `identity_inactive`,
+before anything is counted. Each answers a `RateLimiting\LimitedOutcome`: its `outcome` (an `IdentifierChangeOutcome`;
+`is(IdentifierChangeOutcome::CHANGED)` once the change is made) and, for `rate_limited`, the `retryAfter` to answer
+with.
 
 ```php
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 
 Route::middleware('auth:api')->post('/email/change/confirm', function (Request $request) {
-    $input = $request->validate(['code' => ['required', 'string']]);
+    $input = $request->validate(['challenge' => ['required', 'string'], 'code' => ['required', 'string']]);
 
-    return match (Auth::identifierChanges('api')->confirmByCode(Auth::identity(), 'email', $input['code'])) {
-        IdentifierChangeOutcome::CHANGED => response()->noContent(),
-        IdentifierChangeOutcome::TAKEN   => response()->json(['message' => 'That address is in use.'], 409),
-        default                          => response()->json(['message' => 'That code does not work.'], 422),
+    $result = Auth::identifierChanges('api')->confirmByCode(Auth::identity(), 'email', $input['challenge'], $input['code']);
+
+    return match ($result->outcome) {
+        IdentifierChangeOutcome::CHANGED      => response()->noContent(),
+        IdentifierChangeOutcome::TAKEN        => response()->json(['message' => 'That address is in use.'], 409),
+        IdentifierChangeOutcome::RATE_LIMITED => response()->json(['message' => 'Too many attempts.'], 429)->header('Retry-After', (string) $result->retryAfter),
+        default                               => response()->json(['message' => 'That code does not work.'], 422),
     };
 });
 
@@ -192,7 +201,7 @@ Route::get('/email/change/link/confirm', function (Request $request) {
 })->name('email.change.confirm');
 
 Route::post('/email/change/link/confirm', function (Request $request) {
-    return Auth::identifierChanges('api')->confirmByLink($request) === IdentifierChangeOutcome::CHANGED
+    return Auth::identifierChanges('api')->confirmByLink($request)->is(IdentifierChangeOutcome::CHANGED)
         ? response()->noContent()
         : abort(403);
 });

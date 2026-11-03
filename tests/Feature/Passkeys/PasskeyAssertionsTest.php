@@ -193,7 +193,7 @@ final class PasskeyAssertionsTest extends TestCase
 
         $this->registerPasskey($identity);
 
-        $factor = Auth::passkeys('api')->factorOptions($identity);
+        $factor = self::factorCeremony(Auth::passkeys('api'), $identity);
         $signIn = $this->signInOptions();
 
         $withoutHandle = static function (array $credential): array {
@@ -211,6 +211,43 @@ final class PasskeyAssertionsTest extends TestCase
 
         self::assertIsArray($bound);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $loose);
+    }
+
+    /**
+     * A ceremony that names the passkeys it allows accepts only those: an
+     * answer with another of the owner's passkeys is refused as
+     * `invalid_credentials` without asking the owner callback, and one with an
+     * allowed passkey verifies.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnlyAPasskeyTheCeremonyAllowsVerifies(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->registerPasskey($identity);
+
+        $allowed = $this->authenticator()->lastCredentialId();
+
+        $this->registerPasskey($identity);
+
+        $other    = $this->authenticator()->lastCredentialId();
+        $passkeys = Auth::passkeys('api');
+        $refusing = static fn (): never => self::fail('The owner must not be asked.');
+        $verify   = function (\Closure $owner, string $answerWith) use ($passkeys, $identity, $allowed): array|FailureReason {
+            $options = $passkeys->factorOptions($identity, self::factorBinding($identity), [$allowed]);
+
+            self::assertNotNull($options);
+
+            $answer = $this->authenticator()->get($options->options, $answerWith);
+
+            return $this->assertions()->verify(self::rp(), ChallengePurpose::FACTOR, $identity, $options->challengeId, $answer, $owner, $this->now);
+        };
+
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $verify($refusing, $other));
+        self::assertIsArray($verify(static fn (): Identity => $identity, $allowed));
     }
 
     /**

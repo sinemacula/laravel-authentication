@@ -734,8 +734,10 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
      * A 3D refresh that falls short of its tenant's policy reads what a
      * rotation reads up to the principal and tenant, then the one proof or
      * provenance row the policy is judged on instead of the proofs a new access
-     * token needs, and writes one update: the return to pending, which counts
-     * no failure, or the revocation, then the refusal's count.
+     * token needs (a return to pending judges the identity's own requirement on
+     * that same first factor and names it, reading it no more), and writes one
+     * update: the return to pending, which counts no failure, or the
+     * revocation, then the refusal's count.
      *
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason

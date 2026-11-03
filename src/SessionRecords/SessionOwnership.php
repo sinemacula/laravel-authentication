@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
@@ -78,5 +79,47 @@ final class SessionOwnership
             && $identity instanceof Model
             && $identity->getMorphClass()                         === $session->getAttribute($session->authenticatable()->getMorphType())
             && IdentifierCoercion::stringify($identity->getKey()) === $ownerKey;
+    }
+
+    /**
+     * Whether the row stored under the key of the session given is that very
+     * session: of the same generation (`SessionGeneration::isHeld()`) and
+     * recording the same owner's morph type and key, read with no query. A
+     * session that is not an Eloquent session records neither, so it is never
+     * the stored one; nor is a key that holds no row.
+     *
+     * @formatter:off
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $stored
+     * @return bool
+     *
+     * @phpstan-assert-if-true !null $stored
+     *
+     * @formatter:on
+     */
+    public static function isSameSession(Session $session, (EloquentSession&Model)|null $stored): bool
+    {
+        return SessionGeneration::isHeld($session, $stored) && self::owner($session) === self::owner($stored);
+    }
+
+    /**
+     * The owner's morph type and key the session records. The columns are named
+     * by the relation of a blank instance, so the recorded type is never
+     * instantiated.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @return array{0: ?string, 1: ?string}
+     */
+    private static function owner(EloquentSession&Model $session): array
+    {
+        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession $blank */
+        $blank = $session->newInstance();
+        $owner = $blank->authenticatable();
+
+        return [
+            IdentifierCoercion::stringify($session->getAttribute($owner->getMorphType())),
+            IdentifierCoercion::stringify($session->getAttribute($owner->getForeignKeyName())),
+        ];
     }
 }

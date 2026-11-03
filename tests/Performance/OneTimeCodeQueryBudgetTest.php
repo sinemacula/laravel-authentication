@@ -15,12 +15,20 @@ use SineMacula\Laravel\Authentication\Codes\CodeRequest;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
+use SineMacula\Laravel\Authentication\Codes\FactorCodeBinding;
+use SineMacula\Laravel\Authentication\Codes\FactorCodeCheck;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Codes\SendOneTimeCode;
+use SineMacula\Laravel\Authentication\Contracts\FactorCodeCounters;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Concerns\InteractsWithCodeIdentities;
+use Tests\Fixtures\Codes\RecordingFactorCodeCounters;
 
 /**
  * Query-budget contracts for one-time codes: a code request writes its limits
@@ -91,10 +99,10 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A first code request writes four limiter statements and the code's failed
-     * update and its insert, and reads nothing; a request after the cooldown in
-     * the same window writes the two counters and replaces the code in one
-     * update. Neither touches an identity.
+     * A first code request writes four limiter statements, reads the code's
+     * row, which it finds missing, and inserts it; a request after the cooldown
+     * in the same window writes the two counters, reads the row and resends the
+     * challenge in one update. Neither touches an identity.
      *
      * @return void
      *
@@ -108,17 +116,17 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
         $this->statements = [];
 
-        self::assertTrue($this->assertQueryBudget(0, 6, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE]))->isSent());
+        self::assertTrue($this->assertQueryBudget(1, 5, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE]))->isSent());
 
         CarbonImmutable::setTestNow(CarbonImmutable::instance($this->now)->addSeconds(60));
 
-        self::assertTrue($this->assertQueryBudget(0, 3, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE]))->isSent());
+        self::assertTrue($this->assertQueryBudget(1, 3, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE]))->isSent());
         self::assertSame([], array_filter($this->statements, static fn (string $sql): bool => str_contains($sql, 'code_identities')));
     }
 
     /**
-     * A request within the cooldown writes its two counters, tries the code's
-     * update and insert, and reads the code once to say how long to wait.
+     * A request within the cooldown writes its two counters and reads the code
+     * once, which says how long to wait, writing nothing to it.
      *
      * @return void
      *
@@ -130,7 +138,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
         $codes->send('phone_code', ['phone' => self::PHONE]);
 
-        self::assertSame(60, $this->assertQueryBudget(1, 4, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE]))->retryAfter);
+        self::assertSame(60, $this->assertQueryBudget(1, 2, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE]))->retryAfter);
     }
 
     /**
@@ -148,19 +156,19 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     {
         self::seedCodeIdentity();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $challenge = $this->codeService()->send('phone_code', ['phone' => self::PHONE])->challengeId;
 
         $sessions = $this->sessions('mobile');
 
-        $signIn = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'code' => self::CODE]);
+        $signIn = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => self::CODE]);
 
         self::assertTrue($this->assertQueryBudget(5, 13, $signIn)->isSignedIn());
     }
 
     /**
      * An email code costs what a phone code does: the request writes its limits
-     * and the code and reads no identity, and the sign-in reads the identity,
-     * the code and the session's proofs once each.
+     * and the code, reads the code's row and no identity, and the sign-in reads
+     * the identity, the code and the session's proofs once each.
      *
      * @return void
      *
@@ -174,11 +182,12 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
         $this->statements = [];
 
-        self::assertTrue($this->assertQueryBudget(0, 6, static fn (): CodeRequest => $codes->send('email_code', ['email' => ' Ada@Example.test']))->isSent());
+        $challenge = $this->assertQueryBudget(1, 5, static fn (): CodeRequest => $codes->send('email_code', ['email' => ' Ada@Example.test']))->challengeId;
+
         self::assertSame([], array_filter($this->statements, static fn (string $sql): bool => str_contains($sql, 'code_identities')));
 
         $sessions = $this->sessions('mobile');
-        $signIn   = static fn (): SignInResult => $sessions->signIn('email_code', ['email' => 'ada@example.test', 'code' => self::CODE]);
+        $signIn   = static fn (): SignInResult => $sessions->signIn('email_code', ['email' => 'ada@example.test', 'challenge' => $challenge, 'code' => self::CODE]);
 
         self::assertTrue($this->assertQueryBudget(5, 13, $signIn)->isSignedIn());
     }
@@ -196,12 +205,12 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     {
         self::seedCodeIdentity();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $challenge = $this->codeService()->send('phone_code', ['phone' => self::PHONE])->challengeId;
 
         $sessions = $this->sessions('mobile');
 
-        $wrong     = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'code' => '000000']);
-        $malformed = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'code' => '0000']);
+        $wrong     = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => '000000']);
+        $malformed = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => '0000']);
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->assertQueryBudget(2, 7, $wrong)->reason);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->assertQueryBudget(0, 2, $malformed)->reason);
@@ -239,8 +248,9 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Checking a verification code reads the code once and writes its attempt
-     * and its use, then the verifier's locked read and record.
+     * Checking a verification code counts against the identity's account and
+     * the IP address, reads the code once and writes its attempt and its use,
+     * gives the two counts back, then the verifier's locked read and record.
      *
      * @return void
      *
@@ -251,9 +261,34 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
         $identity = self::seedCodeIdentity(verified: false);
         $codes    = $this->codeService();
 
-        $codes->sendVerification($identity, 'phone');
+        $challenge = (string) $codes->sendVerification($identity, 'phone')->challengeId;
 
-        self::assertSame(VerificationOutcome::VERIFIED, $this->assertQueryBudget(2, 3, static fn (): mixed => $codes->verify($identity, 'phone', self::CODE)));
+        self::assertSame(VerificationOutcome::VERIFIED, $this->assertQueryBudget(2, 9, static fn (): mixed => $codes->verify($identity, 'phone', $challenge, self::CODE)->outcome));
+    }
+
+    /**
+     * A factor code's first request writes its three `code_request` counters
+     * (destination, owner, IP address), reads the challenge's row and inserts
+     * it; its check writes the IP counter, reads the row once, locked, counts
+     * the attempt, uses the challenge up and gives the IP slot back. The factor
+     * package's counters, which run no query here, are asked and told inside
+     * that budget.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFactorCodeHasAFixedBudget(): void
+    {
+        $identity = self::seedCodeIdentity();
+        $codes    = $this->codeService();
+        $binding  = new FactorCodeBinding(new ProofBinding($identity, 'mobile', 'session-1', Purpose::SIGN_IN), 'factor-1', new Channel(ChannelKind::SMS, '+447700900555'));
+
+        $this->app?->instance(FactorCodeCounters::class, new RecordingFactorCodeCounters);
+
+        $challenge = (string) $this->assertQueryBudget(1, 7, static fn (): CodeRequest => $codes->sendFactorCode($binding))->challengeId;
+
+        self::assertTrue($this->assertQueryBudget(1, 5, static fn (): FactorCodeCheck => $codes->verifyFactorCode($binding, $challenge, self::CODE))->isVerified());
     }
 
     /**

@@ -30,7 +30,14 @@ final readonly class CodeSettings
         'ttl_seconds'             => [600, 60, 3600],
         'max_attempts'            => [5, 1, 20],
         'resend_cooldown_seconds' => [60, 0, 3600],
+        'max_deliveries'          => [3, 1, 10],
     ];
+
+    /** @var int Default length of a delivery window, in seconds. */
+    private const int DEFAULT_WINDOW_SECONDS = 1800;
+
+    /** @var int Longest a delivery window may last, in seconds. */
+    private const int MAX_WINDOW_SECONDS = 86400;
 
     /**
      * Constructor.
@@ -93,6 +100,34 @@ final readonly class CodeSettings
     }
 
     /**
+     * How many codes may be delivered to one destination (for one owner, where
+     * the purpose has one) within one delivery window, across every challenge
+     * the window holds, 1 to 10.
+     *
+     * @return int
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function maxDeliveries(): int
+    {
+        return $this->number('max_deliveries');
+    }
+
+    /**
+     * How long a delivery window lasts from its first delivery, in seconds,
+     * from the code lifetime to 86400: no challenge outlives the window it was
+     * delivered in, and a resend never extends one past it.
+     *
+     * @return int
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function deliveryWindowSeconds(): int
+    {
+        return IntegerSetting::read($this->config, self::PREFIX . 'delivery_window_seconds', self::DEFAULT_WINDOW_SECONDS, $this->ttlSeconds(), self::MAX_WINDOW_SECONDS);
+    }
+
+    /**
      * Read every setting, failing closed on the first that is malformed;
      * `authentication:check` runs it.
      *
@@ -105,6 +140,8 @@ final readonly class CodeSettings
         $this->length();
         $this->maxAttempts();
         $this->cooldownSeconds();
+        $this->maxDeliveries();
+        $this->deliveryWindowSeconds();
     }
 
     /**

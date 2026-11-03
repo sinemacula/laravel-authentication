@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Testing\FakeIdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
+use Tests\Concerns\InteractsWithCodes;
 use Tests\Concerns\InteractsWithPasswords;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\StoredIdentity;
@@ -61,7 +62,7 @@ use Tests\TestCase;
 #[CoversClass(PasswordWriter::class)]
 final class StorageConnectionProofSpendingTest extends TestCase
 {
-    use InteractsWithPasswords, InteractsWithSessionRecords;
+    use InteractsWithCodes, InteractsWithPasswords, InteractsWithSessionRecords;
 
     /** @var string The connection the identities and the package's tables live on. */
     private const string STORAGE = StoredIdentity::CONNECTION;
@@ -155,7 +156,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
         $identity = $this->seedStored();
         $code     = $this->requestChange($identity);
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', $code));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
         self::assertSame(self::NEW_EMAIL, $this->stored()->value('email'));
         self::assertSame(0, $this->storage('identifier_changes')->count());
         self::assertSame(0, $this->unspentCodes());
@@ -178,7 +179,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
 
         $this->failAfterWriting = 'stored_identities';
 
-        $this->assertFails(fn (): mixed => $this->changes()->confirmByCode($identity, 'email', $code));
+        $this->assertFails(fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
 
         self::assertSame(self::EMAIL, $this->stored()->value('email'));
         self::assertSame(1, $this->storage('identifier_changes')->count());
@@ -186,9 +187,9 @@ final class StorageConnectionProofSpendingTest extends TestCase
 
         $this->failAfterWriting = null;
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', $code));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
         self::assertSame(self::NEW_EMAIL, $this->stored()->value('email'));
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', $code));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
     }
 
     /**

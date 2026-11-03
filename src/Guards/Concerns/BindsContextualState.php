@@ -275,6 +275,27 @@ trait BindsContextualState
     }
 
     /**
+     * Forget the identity, principal and session bound to the guard, as
+     * `forgetUser()` does, when the bound identity is the one given (the same
+     * class and auth identifier); a binding to any other identity, and a
+     * request not yet resolved, are left alone.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return void
+     */
+    #[\Override]
+    public function forgetIdentity(Identity $identity): void
+    {
+        $bound = $this->identity;
+
+        if ($bound === null || $bound::class !== $identity::class || !IdentifierCoercion::matches($bound->getAuthIdentifier(), $identity->getAuthIdentifier())) {
+            return;
+        }
+
+        $this->forgetUser();
+    }
+
+    /**
      * Clear identity, principal, session and credential state without firing
      * events. The caller dispatches any events.
      *

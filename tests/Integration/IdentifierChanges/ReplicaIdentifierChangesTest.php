@@ -105,7 +105,7 @@ final class ReplicaIdentifierChangesTest extends TestCase
         self::assertSame(1, $this->runQueued(SendIdentifierChangeCode::class));
 
         self::assertSame(self::CODE, $this->sender->lastCodeFor(self::NEW_EMAIL, CodePurpose::CHANGE_IDENTIFIER));
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
     }
 
     /**

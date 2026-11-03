@@ -20,9 +20,13 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeLinks;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
+use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use Symfony\Component\Routing\Exception\RouteNotFoundException;
@@ -154,7 +158,7 @@ final class IdentifierChangeServiceTest extends TestCase
         $calls   = [
             static fn (): mixed => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof),
             static fn (): mixed => $changes->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm'),
-            static fn (): mixed => $changes->confirmByCode($identity, 'email', self::CODE),
+            static fn (): mixed => $changes->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome,
             static fn (): mixed => $changes->pending($identity, 'email'),
             static fn (): mixed => $changes->cancel($identity, 'email'),
         ];
@@ -244,7 +248,7 @@ final class IdentifierChangeServiceTest extends TestCase
 
         $this->expectException($exception);
 
-        $changes->confirmByCode($identity, $type, self::CODE);
+        $changes->confirmByCode($identity, $type, self::changeChallenge($identity, $type), self::CODE);
     }
 
     /**
@@ -380,7 +384,7 @@ final class IdentifierChangeServiceTest extends TestCase
         foreach (
             [
                 fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity)),
-                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::CODE),
+                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome,
             ] as $call
         ) {
             try {
@@ -500,7 +504,7 @@ final class IdentifierChangeServiceTest extends TestCase
         foreach (
             [
                 fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity)),
-                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::CODE),
+                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome,
             ] as $call
         ) {
             try {
@@ -513,9 +517,11 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A confirmation locks the identity's row as its transaction starts, before
-     * it reads the pending change or touches a proof, the lock order a password
-     * write follows too, so the two wait for each other rather than deadlock.
+     * A confirmation counts its limits before its transaction, and none inside
+     * it (a confirmed change gives them back once it commits); the transaction
+     * locks the identity's row as it starts, before it reads the pending change
+     * or touches a proof, the lock order a password write follows too, so the
+     * two wait for each other rather than deadlock.
      *
      * @return void
      *
@@ -527,13 +533,103 @@ final class IdentifierChangeServiceTest extends TestCase
 
         $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
 
+        $challenge  = self::changeChallenge($identity, 'email');
         $statements = self::recordStatements();
         $lock       = $identity->newModelQuery()->whereKey($identity->getKey())->lockForUpdate()->limit(1)->toSql();
 
-        $this->changes()->confirmByCode($identity, 'email', self::CODE);
+        $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE);
 
-        self::assertSame(['begin', $lock], array_slice($statements(), 0, 2));
-        self::assertStringContainsString('identifier_changes', $statements()[2]);
+        $recorded = $statements();
+        $begin    = array_search('begin', $recorded, true);
+        $counted  = static fn (string $sql): bool => str_contains($sql, 'rate_limits') && preg_match('/[`"]hits[`"] - 1/', $sql) !== 1;
+
+        self::assertIsInt($begin);
+        self::assertSame([], array_filter(array_slice($recorded, 0, $begin), static fn (string $sql): bool => !$counted($sql)));
+        self::assertNotSame([], array_slice($recorded, 0, $begin));
+        self::assertSame($lock, $recorded[$begin + 1]);
+        self::assertStringContainsString('identifier_changes', $recorded[$begin + 2]);
+        self::assertSame([], array_filter(array_slice($recorded, $begin), $counted));
+    }
+
+    /**
+     * A confirmation by code counts one slot of the identity's account and one
+     * of the IP address (`identifier_change`): a refused one keeps them, a
+     * confirmed one gives both back once it commits, and once the account's are
+     * used up the confirmation is `rate_limited`, before its code is touched,
+     * with the wait its `AuthenticationFailed` reports.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAConfirmationIsLimitedAndAConfirmedOneGivesItsSlotsBack(): void
+    {
+        $identity = self::seedChangeable();
+
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
+
+        $challenge = self::changeChallenge($identity, 'email');
+        $hits      = static fn (): int => (int) DB::table('rate_limits')->sum('hits');
+        $before    = $hits();
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', $challenge, '000000')->outcome);
+        self::assertSame($before + 2, $hits());
+
+        $statements = self::recordStatements();
+        $confirmed  = $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE);
+        $released   = array_filter($statements(), static fn (string $sql): bool => str_contains($sql, 'rate_limits') && preg_match('/hits\W* - 1/', $sql) === 1);
+
+        self::assertSame([IdentifierChangeOutcome::CHANGED, null], [$confirmed->outcome, $confirmed->retryAfter]);
+        self::assertSame($before + 2, $hits());
+        self::assertCount(2, $released);
+
+        config()->set('authentication.rate_limits.identifier_change.per_identifier', ['max' => 1, 'decay_seconds' => 3600]);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $limited = $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE);
+        $failed  = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame(IdentifierChangeOutcome::RATE_LIMITED, $limited->outcome);
+        self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::RATE_LIMITED], [$failed->flow, $failed->reason]);
+        self::assertGreaterThan(0, $limited->retryAfter);
+        self::assertSame($failed->retryAfter, $limited->retryAfter);
+    }
+
+    /**
+     * A confirmation by code answers as the check of its code does: a code for
+     * another challenge is `invalid`, one out of attempts `exhausted` and one
+     * past its expiry `expired`, the identifier unchanged; a malformed
+     * challenge is `invalid` with nothing counted, even with a well-formed
+     * code.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAConfirmationByCodeAnswersAsItsCodesCheckDoes(): void
+    {
+        $identity = self::seedChangeable();
+
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
+
+        $challenge = self::changeChallenge($identity, 'email');
+        $hits      = static fn (): int => (int) DB::table('rate_limits')->sum('hits');
+        $before    = $hits();
+        $confirm   = fn (string $challenge): IdentifierChangeOutcome => $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE)->outcome;
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $confirm('not-a-challenge'));
+        self::assertSame($before, $hits());
+        self::assertSame(IdentifierChangeOutcome::INVALID, $confirm(self::NO_CHALLENGE));
+
+        DB::table('one_time_codes')->update(['attempts' => 5]);
+
+        self::assertSame(IdentifierChangeOutcome::EXHAUSTED, $confirm($challenge));
+
+        DB::table('one_time_codes')->update(['attempts' => 0, 'expires_at' => '2026-04-06 12:00:00']);
+
+        self::assertSame(IdentifierChangeOutcome::EXPIRED, $confirm($challenge));
+        self::assertSame(self::EMAIL, $identity->fresh()?->email);
     }
 
     /**

@@ -40,13 +40,16 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * for anyone else, or no one, nothing is sent and nothing says so. A
  * verification code goes only to the identity it was issued for, read again
  * from the write connection, while its identifier of the type is still the one
- * the code is bound to, and never to a machine identity. An exception from the
- * sender fails the job, and the application's retry policy applies; an unbound
- * sender is a `BindingResolutionException`. A verification job whose identity
- * was deleted before it ran is dropped, not failed; the class attribute, rather
- * than a property, is what every supported Laravel version reads for that. A
- * code of any other purpose has a delivery job of its own, so this one refuses
- * it with a `LogicException`.
+ * the code is bound to, and never to a machine identity. A further factor's
+ * code, or an enrolment's, goes only to the identity it was issued for, read
+ * again from the write connection, never a machine identity, at the destination
+ * its factor named, which the factor package admitted before the code was
+ * issued. An exception from the sender fails the job, and the application's
+ * retry policy applies; an unbound sender is a `BindingResolutionException`. A
+ * job whose identity was deleted before it ran is dropped, not failed; the
+ * class attribute, rather than a property, is what every supported Laravel
+ * version reads for that. A code of any other purpose has a delivery job of its
+ * own, so this one refuses it with a `LogicException`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,7 +76,7 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
         /** The code, its issuance and its expiry. */
         public readonly IssuedCode $issued,
 
-        /** The identity a verification code is for; `null` for a sign-in code, whose recipient is found when the job runs. */
+        /** The identity a verification or factor code is for; `null` for a sign-in code, whose recipient is found when the job runs. */
         public readonly ?Identity $identity = null,
     ) {}
 
@@ -95,7 +98,11 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
             return;
         }
 
-        $recipient = $purpose === CodePurpose::SIGN_IN ? $this->signInRecipient($container) : $this->verificationRecipient($container);
+        $recipient = match ($purpose) {
+            CodePurpose::SIGN_IN      => $this->signInRecipient($container),
+            CodePurpose::VERIFICATION => $this->verificationRecipient($container),
+            default                   => $this->factorRecipient(),
+        };
 
         if ($recipient === null) {
             return;
@@ -113,8 +120,8 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
     }
 
     /**
-     * The purpose, when this job delivers its codes: a sign-in or a
-     * verification.
+     * The purpose, when this job delivers its codes: a sign-in, a verification,
+     * a further factor's or an enrolment's.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose  $purpose
      * @return \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose
@@ -123,8 +130,8 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
      */
     private static function deliverable(CodePurpose $purpose): CodePurpose
     {
-        if ($purpose !== CodePurpose::SIGN_IN && $purpose !== CodePurpose::VERIFY_IDENTIFIER) {
-            throw new \LogicException(sprintf('%s delivers only sign-in and verification codes, not [%s] codes.', self::class, $purpose->value));
+        if (!in_array($purpose, [CodePurpose::SIGN_IN, CodePurpose::VERIFICATION, CodePurpose::MFA, CodePurpose::ENROLLMENT], true)) {
+            throw new \LogicException(sprintf('%s delivers only sign-in, verification and factor codes, not [%s] codes.', self::class, $purpose->value));
         }
 
         return $purpose;
@@ -171,13 +178,38 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
      */
     private function verificationRecipient(Container $container): ?Identity
     {
-        $identity = $this->identity;
-        $fresh    = $identity instanceof Model ? WriteConnection::during($identity, static fn (): ?Model => $identity->fresh()) : $identity;
+        $fresh = $this->freshIdentity();
 
-        if (!$fresh instanceof HasVerifiableIdentifiers || $fresh instanceof MachineIdentity) {
+        if (!$fresh instanceof HasVerifiableIdentifiers || !$fresh instanceof Identity || $fresh instanceof MachineIdentity) {
             return null;
         }
 
         return CodeIdentifiers::isHeldBy($fresh, $this->binding, $container->make(IdentifierVerifier::class)) ? $fresh : null;
+    }
+
+    /**
+     * The identity a further factor's or an enrolment's code was issued for,
+     * read again from the write connection; never a machine identity.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     */
+    private function factorRecipient(): ?Identity
+    {
+        $fresh = $this->freshIdentity();
+
+        return $fresh instanceof Identity && !$fresh instanceof MachineIdentity ? $fresh : null;
+    }
+
+    /**
+     * The identity the code was issued for, read again from the write
+     * connection when it is a model, or as given.
+     *
+     * @return mixed
+     */
+    private function freshIdentity(): mixed
+    {
+        $identity = $this->identity;
+
+        return $identity instanceof Model ? WriteConnection::during($identity, static fn (): ?Model => $identity->fresh()) : $identity;
     }
 }

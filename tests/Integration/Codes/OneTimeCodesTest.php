@@ -10,19 +10,22 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
+use SineMacula\Laravel\Authentication\Codes\DeliveryRefusal;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use Tests\Concerns\InteractsWithCodes;
+use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
  * Integration tests for the one-time code engine against the shipped table:
- * issuing codes and reset link tokens, the resend cooldown and the replacement
- * it allows, checking codes and tokens, expiry, the attempt limit and single
- * use, each on the write connection, and what a check does when another request
- * changes the code between its read and its writes.
+ * issuing codes and reset link tokens, checking codes and tokens against their
+ * challenge, expiry, the attempt limit and single use, each on the write
+ * connection, and what a check does when another request changes the code
+ * between its read and its writes. How deliveries are written (the cooldown,
+ * resends, the delivery window and its cap) is `ChallengeDeliveriesTest`'s.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -102,131 +105,6 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Within the resend cooldown no new code is issued: the answer is the
-     * seconds until one may be, at least 1, and the live code is untouched.
-     * From the second the cooldown ends, a new code replaces it.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    public function testTheResendCooldownHoldsBackANewCode(): void
-    {
-        $binding = self::binding();
-        $first   = self::codes()->issue($binding, $this->now);
-
-        self::assertInstanceOf(IssuedCode::class, $first);
-        self::assertSame(60, self::codes()->issue($binding, $this->now));
-        self::assertSame(1, self::codes()->issue($binding, $this->now->addSeconds(59)));
-        self::assertSame($first->issueId, DB::table('one_time_codes')->value('issue_id'));
-
-        $second = self::codes()->issue($binding, $this->now->addSeconds(60));
-
-        self::assertInstanceOf(IssuedCode::class, $second);
-        self::assertNotSame($first->issueId, $second->issueId);
-        self::assertSame(1, DB::table('one_time_codes')->count());
-    }
-
-    /**
-     * A resend replaces the previous code at once: the old code no longer
-     * works, the new one does, and the new issuance starts with no attempts.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    public function testAResendInvalidatesThePreviousCode(): void
-    {
-        $binding = self::binding();
-        $codes   = self::sequence(['111111', '222222']);
-        $later   = $this->now->addSeconds(60);
-
-        $codes->issue($binding, $this->now);
-
-        self::assertSame(CodeCheck::INVALID, $codes->check($binding, '999999', $this->now));
-
-        $codes->issue($binding, $later);
-
-        self::assertSame(0, self::attempts());
-        self::assertSame(CodeCheck::INVALID, $codes->check($binding, '111111', $later));
-        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, '222222', $later));
-    }
-
-    /**
-     * `issueFirst()` writes only the insert for a binding with no code, and,
-     * for one that has a code, falls back to `issue()`'s rules once its insert
-     * is refused: within the cooldown it answers the wait, after it the code is
-     * replaced.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    public function testAFirstIssueInsertsBeforeItWouldReplace(): void
-    {
-        $binding    = self::binding();
-        $statements = [];
-
-        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
-            $statements[] = (string) strtok(strtolower($query->sql), ' ');
-        });
-
-        $recorded = static function () use (&$statements): array {
-            $taken      = $statements;
-            $statements = [];
-
-            return $taken;
-        };
-
-        $first = self::codes()->issueFirst($binding, $this->now);
-
-        self::assertInstanceOf(IssuedCode::class, $first);
-        self::assertSame(['insert'], $recorded());
-
-        self::assertSame(30, self::codes()->issueFirst($binding, $this->now->addSeconds(30)));
-        self::assertSame(['insert', 'update', 'select'], $recorded());
-
-        $replacement = self::codes()->issueFirst($binding, $this->now->addSeconds(60));
-
-        self::assertInstanceOf(IssuedCode::class, $replacement);
-        self::assertSame($replacement->issueId, DB::table('one_time_codes')->value('issue_id'));
-        self::assertSame(1, DB::table('one_time_codes')->count());
-    }
-
-    /**
-     * A code pruned between an issue's refused insert and its read leaves a
-     * wait of one second, as does a first issue that a concurrent one beat to
-     * the insert when there is no cooldown at all.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    public function testAnIssueThatLosesItsCodeMeanwhileWaitsOneSecond(): void
-    {
-        $binding = self::binding();
-
-        self::codes()->issue($binding, $this->now);
-
-        $this->onceAfter(static fn (string $sql): bool => str_starts_with($sql, 'insert'), static function (): void {
-            DB::table('one_time_codes')->delete();
-        });
-
-        self::assertSame(1, self::codes()->issue($binding, $this->now->addSeconds(30)));
-
-        config()->set('authentication.codes.resend_cooldown_seconds', 0);
-
-        $concurrent = self::sequence(['111111']);
-
-        $this->onceAfter(static fn (string $sql): bool => str_starts_with($sql, 'update'), static function () use ($concurrent, $binding): void {
-            $concurrent->issue($binding, CarbonImmutable::createStrict(2026, 4, 6, 12, 5, 0));
-        });
-
-        self::assertSame(1, self::codes()->issue($binding, $this->now->addSeconds(300)));
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, '111111', $this->now->addSeconds(300)));
-    }
-
-    /**
      * A used code stays invalid once it has expired, or the check that used it
      * took its last attempt: it is neither expired nor exhausted.
      *
@@ -241,28 +119,9 @@ final class OneTimeCodesTest extends TestCase
         $binding = self::binding();
         $issued  = self::issued($binding);
 
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->code(), $this->now));
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code(), $this->now));
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code(), $this->now->addSeconds(600)));
-    }
-
-    /**
-     * With no cooldown every request issues a new code.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    public function testNoCooldownIssuesEveryTime(): void
-    {
-        config()->set('authentication.codes.resend_cooldown_seconds', 0);
-
-        $first  = self::codes()->issue(self::binding(), $this->now);
-        $second = self::codes()->issue(self::binding(), $this->now);
-
-        self::assertInstanceOf(IssuedCode::class, $first);
-        self::assertInstanceOf(IssuedCode::class, $second);
-        self::assertSame($second->issueId, DB::table('one_time_codes')->value('issue_id'));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now->addSeconds(600)));
     }
 
     /**
@@ -285,6 +144,96 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
+     * A code issued first for a request of its own is written by the insert
+     * alone, with nothing read before it, at the configured length and
+     * lifetime; it is capped by its delivery window as `issue()`'s is.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAFirstIssueInsertsBeforeItReadsAndIsCappedByItsWindow(): void
+    {
+        config()->set('authentication.codes.length', 8);
+
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = strtolower($query->sql);
+        });
+
+        $issued = self::codes()->issueFirst(self::binding(), $this->now);
+
+        self::assertInstanceOf(IssuedCode::class, $issued);
+        self::assertMatchesRegularExpression('/^[0-9]{8}$/', $issued->code());
+        self::assertTrue($this->now->addSeconds(600)->equalTo($issued->expiresAt));
+        self::assertCount(1, $statements);
+        self::assertStringStartsWith('insert', $statements[0]);
+
+        $late = self::codes()->issueFirst(self::binding(), $this->now->addSeconds(1500));
+
+        self::assertInstanceOf(IssuedCode::class, $late);
+        self::assertTrue($this->now->addSeconds(1800)->equalTo($late->expiresAt));
+    }
+
+    /**
+     * A code never outlives the delivery window it was delivered in, while a
+     * token keeps the lifetime it was issued with, whatever is left of its
+     * window.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testOnlyACodeIsCutShortByItsDeliveryWindow(): void
+    {
+        $late = $this->now->addSeconds(1500);
+
+        $this->issued(self::binding());
+        self::assertInstanceOf(IssuedCode::class, self::codes()->issueToken(self::linkBinding(), $this->now, 900));
+
+        $code  = self::codes()->issue(self::binding(), $late);
+        $token = self::codes()->issueToken(self::linkBinding(), $late, 900);
+
+        self::assertInstanceOf(IssuedCode::class, $code);
+        self::assertInstanceOf(IssuedCode::class, $token);
+        self::assertTrue($this->now->addSeconds(1800)->equalTo($code->expiresAt));
+        self::assertTrue($late->addSeconds(900)->equalTo($token->expiresAt));
+    }
+
+    /**
+     * A check reads the challenge without a lock unless asked to lock it until
+     * the caller's transaction ends.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testACheckLocksTheChallengeOnlyWhenAsked(): void
+    {
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() === 'sqlite') {
+            $connection->setQueryGrammar(new LockMarkingSQLiteGrammar($connection));
+        }
+
+        $issued = $this->issued(self::binding(), '123456');
+        $reads  = [];
+
+        $connection->listen(static function (QueryExecuted $query) use (&$reads): void {
+            if (!str_starts_with(strtolower($query->sql), 'select')) {
+                return;
+            }
+
+            $reads[] = str_contains($query->sql, 'for update');
+        });
+
+        self::assertSame(CodeCheck::WRONG, self::codes()->check(self::binding(), $issued->challengeId, '654321', $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check(self::binding(), $issued->challengeId, '123456', $this->now, true));
+        self::assertSame([false, true], $reads);
+    }
+
+    /**
      * Codes are drawn uniformly over every digit string of their length,
      * leading zeros included: over 1,000 codes, each digit appears at each
      * position about a tenth of the time.
@@ -295,14 +244,12 @@ final class OneTimeCodesTest extends TestCase
      */
     public function testDrawsCodesUniformly(): void
     {
-        config()->set('authentication.codes.resend_cooldown_seconds', 0);
-
         $engine = self::codes();
         $counts = array_fill(0, 10, 0);
 
         for ($draw = 0; $draw < 1000; $draw++) {
 
-            $issued = $engine->issue(self::binding(), $this->now);
+            $issued = $engine->issue(self::binding(), $this->now->addSeconds($draw * 1800));
 
             self::assertInstanceOf(IssuedCode::class, $issued);
             self::assertSame(6, strlen($issued->code()));
@@ -331,11 +278,11 @@ final class OneTimeCodesTest extends TestCase
         $binding = self::binding();
         $issued  = self::issued($binding);
 
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->code(), $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
         self::assertSame('2026-04-06 12:00:00', DB::table('one_time_codes')->value('consumed_at'));
         self::assertSame(1, self::attempts());
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code(), $this->now));
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, '000000', $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, self::challenge(), '000000', $this->now));
         self::assertSame(1, self::attempts());
     }
 
@@ -356,11 +303,11 @@ final class OneTimeCodesTest extends TestCase
         $issued  = self::issued($binding, '123456');
 
         foreach (['000000', '000001', '000002'] as $attempt => $wrong) {
-            self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $wrong, $this->now));
+            self::assertSame(CodeCheck::WRONG, self::codes()->check($binding, self::challenge(), $wrong, $this->now));
             self::assertSame($attempt + 1, self::attempts());
         }
 
-        self::assertSame(CodeCheck::EXHAUSTED, self::codes()->check($binding, $issued->code(), $this->now));
+        self::assertSame(CodeCheck::EXHAUSTED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
         self::assertSame(3, self::attempts());
         self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
     }
@@ -379,8 +326,8 @@ final class OneTimeCodesTest extends TestCase
         $binding = self::binding();
         $issued  = self::issued($binding, '123456');
 
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, '654321', $this->now));
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->code(), $this->now));
+        self::assertSame(CodeCheck::WRONG, self::codes()->check($binding, self::challenge(), '654321', $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
     }
 
     /**
@@ -399,11 +346,11 @@ final class OneTimeCodesTest extends TestCase
         $binding = self::binding();
         $issued  = self::issued($binding, '123456');
 
-        self::assertSame(CodeCheck::EXPIRED, self::codes()->check($binding, $issued->code(), $this->now->addSeconds(600)));
+        self::assertSame(CodeCheck::EXPIRED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now->addSeconds(600)));
         self::assertSame(0, self::attempts());
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, '000000', $this->now->addSeconds(599)));
-        self::assertSame(CodeCheck::EXHAUSTED, self::codes()->check($binding, $issued->code(), $this->now->addSeconds(599)));
-        self::assertSame(CodeCheck::EXPIRED, self::codes()->check($binding, $issued->code(), $this->now->addSeconds(600)));
+        self::assertSame(CodeCheck::WRONG, self::codes()->check($binding, self::challenge(), '000000', $this->now->addSeconds(599)));
+        self::assertSame(CodeCheck::EXHAUSTED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now->addSeconds(599)));
+        self::assertSame(CodeCheck::EXPIRED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now->addSeconds(600)));
     }
 
     /**
@@ -436,9 +383,9 @@ final class OneTimeCodesTest extends TestCase
     {
         $issued = self::issued(self::binding());
 
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($other, $issued->code(), $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($other, self::challenge(), $issued->code(), $this->now));
         self::assertSame(0, self::attempts());
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check(self::binding(), $issued->code(), $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check(self::binding(), self::challenge(), $issued->code(), $this->now));
     }
 
     /**
@@ -464,8 +411,8 @@ final class OneTimeCodesTest extends TestCase
         self::assertNotSame(self::codeHash($binding, $first->issueId, '424242'), DB::table('one_time_codes')->value('code_hash'));
         self::assertFalse($codes->isCurrent($binding, $first->issueId, $later));
         self::assertTrue($codes->isCurrent($binding, $second->issueId, $later));
-        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, '424242', $later));
-        self::assertSame(CodeCheck::INVALID, $codes->check($binding, '424242', $later));
+        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, self::challenge(), '424242', $later));
+        self::assertSame(CodeCheck::INVALID, $codes->check($binding, self::challenge(), '424242', $later));
     }
 
     /**
@@ -485,19 +432,22 @@ final class OneTimeCodesTest extends TestCase
 
         $codes->issue($binding, $this->now);
 
+        $challenge = self::challenge();
+
         $this->afterTheCheckReads(static function () use ($codes, $binding, $later): void {
             $codes->issue($binding, $later);
         });
 
-        self::assertSame(CodeCheck::INVALID, $codes->check($binding, '424242', $later));
+        self::assertSame(CodeCheck::INVALID, $codes->check($binding, $challenge, '424242', $later));
         self::assertSame(0, self::attempts());
-        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, '424242', $later));
+        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, self::challenge(), '424242', $later));
     }
 
     /**
      * A check that counted its attempt on an issuance and then finds it
      * replaced by a resend of the same digits never uses the replacement up: it
-     * is invalid, and the new issuance stays unused and still accepts the code.
+     * is wrong, and the new issuance, which keeps the attempt the check
+     * counted, stays unused and still accepts the code.
      *
      * @return void
      *
@@ -515,10 +465,10 @@ final class OneTimeCodesTest extends TestCase
             $codes->issue($binding, $later);
         });
 
-        self::assertSame(CodeCheck::INVALID, $codes->check($binding, '424242', $later));
+        self::assertSame(CodeCheck::WRONG, $codes->check($binding, self::challenge(), '424242', $later));
         self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
-        self::assertSame(0, self::attempts());
-        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, '424242', $later));
+        self::assertSame(1, self::attempts());
+        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, self::challenge(), '424242', $later));
     }
 
     /**
@@ -555,18 +505,20 @@ final class OneTimeCodesTest extends TestCase
         $binding = self::binding();
         $issued  = self::issued($binding);
 
+        $challenge = self::challenge();
+
         $this->afterTheCheckReads(static function () use ($change): void {
             $change === [] ? DB::table('one_time_codes')->delete() : DB::table('one_time_codes')->update($change);
         });
 
-        self::assertSame($answer, self::codes()->check($binding, $issued->code(), $this->now));
+        self::assertSame($answer, self::codes()->check($binding, $challenge, $issued->code(), $this->now));
         self::assertNotSame('2026-04-06 12:00:01', DB::table('one_time_codes')->value('consumed_at'));
     }
 
     /**
      * Of two checks of the right code, only the one that uses the issuance up
      * is accepted: one that counted its attempt but finds the code used by the
-     * time it would use it is invalid.
+     * time it would use it is wrong.
      *
      * @return void
      *
@@ -581,7 +533,7 @@ final class OneTimeCodesTest extends TestCase
             DB::table('one_time_codes')->update(['consumed_at' => '2026-04-06 11:59:59']);
         });
 
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $issued->code(), $this->now));
+        self::assertSame(CodeCheck::WRONG, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
         self::assertSame('2026-04-06 11:59:59', DB::table('one_time_codes')->value('consumed_at'));
     }
 
@@ -592,7 +544,7 @@ final class OneTimeCodesTest extends TestCase
      */
     public function testABindingWithNoCodeAcceptsNothing(): void
     {
-        self::assertSame(CodeCheck::INVALID, self::codes()->check(self::binding(), '123456', $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check(self::binding(), self::challenge(), '123456', $this->now));
         self::assertSame(0, DB::table('one_time_codes')->count());
     }
 
@@ -615,7 +567,7 @@ final class OneTimeCodesTest extends TestCase
         self::assertFalse(self::codes()->isCurrent($binding, 'another-issuance', $this->now));
         self::assertFalse(self::codes()->isCurrent(CodeBinding::signIn('web', 'phone', self::PHONE), $issued->issueId, $this->now));
 
-        self::codes()->check($binding, $issued->code(), $this->now);
+        self::codes()->check($binding, self::challenge(), $issued->code(), $this->now);
 
         self::assertFalse(self::codes()->isCurrent($binding, $issued->issueId, $this->now));
     }
@@ -686,7 +638,7 @@ final class OneTimeCodesTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $wrong, $this->now));
+        self::assertSame(CodeCheck::WRONG, self::codes()->check($binding, self::challenge(), $wrong, $this->now));
         self::assertSame(1, self::attempts());
 
         DB::rollBack();
@@ -735,30 +687,6 @@ final class OneTimeCodesTest extends TestCase
         }
 
         self::assertCount(20, array_unique($tokens));
-    }
-
-    /**
-     * A token shares the codes' resend cooldown: within it no new token is
-     * issued and the seconds left are answered; from its end a new token
-     * replaces the old one, which stops working.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    public function testATokenFollowsTheResendCooldown(): void
-    {
-        $binding = self::linkBinding();
-        $first   = self::codes()->issueToken($binding, $this->now, 900);
-
-        self::assertInstanceOf(IssuedCode::class, $first);
-        self::assertSame(1, self::codes()->issueToken($binding, $this->now->addSeconds(59), 900));
-
-        $second = self::codes()->issueToken($binding, $this->now->addSeconds(60), 900);
-
-        self::assertInstanceOf(IssuedCode::class, $second);
-        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, $first->code(), $this->now->addSeconds(60)));
-        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $second->code(), $this->now->addSeconds(60)));
     }
 
     /**
@@ -892,16 +820,18 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * Invalidating deletes exactly the live codes of the bindings listed,
-     * whatever their state (live, used, locked), in one statement, and leaves
-     * every other binding's code working; a binding listed twice or with no
-     * code costs nothing more, and an empty list runs no statement.
+     * Invalidating ends exactly the listed bindings' unused challenges, in one
+     * statement (none for an empty list, a binding listed twice or one with no
+     * row): each is used up now under a new issuance, so none can be checked
+     * again, while its row keeps its window, deliveries, last delivery and
+     * expiry. A binding not listed is left as it is, and invalidating an ended
+     * challenge again ends nothing.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testInvalidatingDeletesExactlyTheListedBindings(): void
+    public function testInvalidatingEndsExactlyTheListedBindings(): void
     {
         $ada    = new PlainIdentityFixture(1);
         $signIn = self::binding();
@@ -914,7 +844,9 @@ final class OneTimeCodesTest extends TestCase
             self::issued($binding);
         }
 
-        self::codes()->check($signIn, '000000', $this->now);
+        self::codes()->check($signIn, self::challenge($signIn), '000000', $this->now);
+
+        $before = self::rows();
 
         /** @var \ArrayObject<int, string> $statements */
         $statements = new \ArrayObject;
@@ -926,13 +858,121 @@ final class OneTimeCodesTest extends TestCase
         self::assertSame(0, self::codes()->invalidate([]));
         self::assertCount(0, $statements);
 
-        $deleted = self::codes()->invalidate([$signIn, $reset, $link, $change, $reset, CodeBinding::signIn('web', 'phone', self::PHONE)]);
+        CarbonImmutable::setTestNow($this->now->addSeconds(30));
 
-        self::assertSame(4, $deleted);
+        $ended = self::codes()->invalidate([$signIn, $reset, $link, $change, $reset, CodeBinding::signIn('web', 'phone', self::PHONE)]);
+
+        self::assertSame(4, $ended);
         self::assertCount(1, $statements);
-        self::assertStringStartsWith('delete', strtolower($statements[0]));
-        self::assertSame([self::bindingDigest($kept)], DB::table('one_time_codes')->pluck('id')->all());
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($reset, '000000', $this->now));
+        self::assertStringStartsWith('update', strtolower($statements[0]));
+
+        $after = self::rows();
+
+        self::assertSame(array_keys($before), array_keys($after));
+
+        foreach ($after as $id => $row) {
+
+            $endedNow = $id !== self::bindingDigest($kept);
+
+            self::assertSame($endedNow ? '2026-04-06 12:00:30' : null, $row['consumed_at']);
+            self::assertSame($endedNow, $row['issue_id'] !== $before[$id]['issue_id']);
+
+            foreach (['challenge_id', 'code_hash', 'attempts', 'deliveries', 'window_started_at', 'issued_at', 'expires_at'] as $column) {
+                self::assertSame($before[$id][$column], $row[$column], $column);
+            }
+        }
+
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($reset, self::challenge($reset), '000000', $this->now));
+        self::assertSame(0, self::codes()->invalidate([$signIn, $reset]));
+    }
+
+    /**
+     * Ending a key's challenge resets neither its delivery cap nor its resend
+     * cooldown: a delivery straight after waits out the cooldown since the last
+     * one, the next is refused while the window has had all its deliveries, and
+     * one is made again only once the window ends.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAnEndedChallengeKeepsItsKeysCooldownAndDeliveryCap(): void
+    {
+        $binding = self::binding();
+
+        foreach ([0, 60, 120] as $second) {
+            self::assertInstanceOf(IssuedCode::class, self::codes()->issue($binding, $this->now->addSeconds($second)));
+        }
+
+        self::codes()->invalidate([$binding]);
+
+        $soon = self::codes()->issue($binding, $this->now->addSeconds(130));
+        $late = self::codes()->issue($binding, $this->now->addSeconds(180));
+
+        self::assertInstanceOf(DeliveryRefusal::class, $soon);
+        self::assertSame([50, false], [$soon->retryAfter, $soon->exhausted]);
+        self::assertInstanceOf(DeliveryRefusal::class, $late);
+        self::assertSame([1620, true], [$late->retryAfter, $late->exhausted]);
+        self::assertSame(3, self::deliveries());
+        self::assertInstanceOf(IssuedCode::class, self::codes()->issue($binding, $this->now->addSeconds(1800)));
+    }
+
+    /**
+     * A check that names another challenge than the live one, a well-formed id
+     * or a stale one, is invalid and spends no attempt, even with the right
+     * code; the live challenge still accepts it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testACheckForAnotherChallengeSpendsNothing(): void
+    {
+        config()->set('authentication.codes.resend_cooldown_seconds', 0);
+
+        $binding = self::binding();
+        $first   = self::issued($binding);
+
+        self::codes()->invalidate([$binding]);
+
+        $issued = self::issued($binding);
+
+        foreach ([self::NO_CHALLENGE, $first->challengeId] as $other) {
+            self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $other, $issued->code(), $this->now));
+        }
+
+        self::assertSame(0, self::attempts());
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, $issued->challengeId, $issued->code(), $this->now));
+    }
+
+    /**
+     * Rows of `[value, whether it can be a challenge id]`.
+     *
+     * @return iterable<string, array{0: string, 1: bool}>
+     */
+    public static function provideChallengeShapes(): iterable
+    {
+        yield from [
+            'an issued id'      => ['0195f4a2-7b1c-4000-8000-00000000000a', true],
+            'upper case'        => ['0195F4A2-7B1C-4000-8000-00000000000A', false],
+            'no hyphens'        => ['0195f4a27b1c4000800000000000000a', false],
+            'a trailing break'  => ["0195f4a2-7b1c-4000-8000-00000000000a\n", false],
+            'one character off' => ['0195f4a2-7b1c-4000-8000-00000000000', false],
+            'empty'             => ['', false],
+        ];
+    }
+
+    /**
+     * Only a lower-case UUID can be a challenge id the engine issued.
+     *
+     * @param  string  $value
+     * @param  bool  $wellFormed
+     * @return void
+     */
+    #[DataProvider('provideChallengeShapes')]
+    public function testTellsWhetherAValueCanBeAChallenge(string $value, bool $wellFormed): void
+    {
+        self::assertSame($wellFormed, self::codes()->isWellFormedChallenge($value));
     }
 
     /**
@@ -947,6 +987,36 @@ final class OneTimeCodesTest extends TestCase
         self::assertIsNumeric($attempts);
 
         return (int) $attempts;
+    }
+
+    /**
+     * The deliveries counted in the live code's delivery window.
+     *
+     * @return int
+     */
+    private static function deliveries(): int
+    {
+        $deliveries = DB::table('one_time_codes')->value('deliveries');
+
+        self::assertIsNumeric($deliveries);
+
+        return (int) $deliveries;
+    }
+
+    /**
+     * Every row of the table as stored, by key.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private static function rows(): array
+    {
+        $rows = [];
+
+        foreach (DB::table('one_time_codes')->orderBy('id')->get() as $row) {
+            $rows[(string) $row->id] = (array) $row;
+        }
+
+        return $rows;
     }
 
     /**

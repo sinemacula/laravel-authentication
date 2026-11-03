@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Passwords;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -183,6 +184,56 @@ final class ResetRequestsTest extends TestCase
         self::assertSame(1800, $limited->retryAfter);
         self::assertSame(['rate_limited', 'rate_limited'], array_map(static fn (AuthenticationFailed $event): string => $event->reason->value, $this->recorded));
         self::assertSame([60, 1800], array_map(static fn (AuthenticationFailed $event): ?int => $event->retryAfter, $this->recorded));
+    }
+
+    /**
+     * A reset code's answer carries the challenge id its reset names, for an
+     * identifier no one holds as for a held one; a reset link's carries none,
+     * its token being its own challenge.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACodesAnswerCarriesItsChallengeAndALinksNone(): void
+    {
+        $known   = $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE]);
+        $unknown = $this->passwords()->sendResetCode('phone', ['phone' => '+447700900999']);
+        $link    = $this->passwords()->sendResetLink(['email' => self::EMAIL]);
+
+        self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, (string) $known->challengeId);
+        self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, (string) $unknown->challengeId);
+        self::assertSame([$known->status, $known->expiresAt?->getTimestamp()], [$unknown->status, $unknown->expiresAt?->getTimestamp()]);
+        self::assertTrue($link->isSent());
+        self::assertNull($link->challengeId);
+    }
+
+    /**
+     * Once an identifier's delivery window has had all its deliveries, a
+     * request for a reset is refused until the window ends, reported as
+     * `deliveries_exhausted` with the wait.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentifierOutOfDeliveriesIsRefusedUntilItsWindowEnds(): void
+    {
+        config()->set('authentication.codes.max_deliveries', 1);
+
+        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL])->isSent());
+
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(60));
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $request = $this->passwords()->sendResetLink(['email' => self::EMAIL]);
+
+        self::assertSame([CodeRequestStatus::DELIVERIES_EXHAUSTED, 1740], [$request->status, $request->retryAfter]);
+        self::assertSame(
+            [[AuthenticationFlow::PASSWORD_RESET, 'deliveries_exhausted', 1740]],
+            array_map(static fn (AuthenticationFailed $event): array => [$event->flow, $event->reason->value, $event->retryAfter], $this->recorded),
+        );
     }
 
     /**

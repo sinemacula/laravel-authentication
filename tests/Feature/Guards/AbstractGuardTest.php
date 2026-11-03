@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
 use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
@@ -30,10 +31,16 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use Tests\Fixtures\Factors\FirstFactorMeetsRequirements;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Unit\Stubs\PlainTenantFixture;
 use Tests\Unit\Stubs\StubCredentialGuard;
 use Tests\Unit\Stubs\StubRequestResolvingGuard;
@@ -95,7 +102,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
             ->byDefault()
             ->andReturnUsing(fn (AttemptSubject $subject): AttemptReservation => $this->record('acquire', new AttemptReservation($subject, null)));
         $this->limiter->shouldReceive('release')->byDefault()->andReturnUsing(fn (): mixed => $this->record('release', null));
-        $this->factors->shouldReceive('requiresAdditionalFactor')->byDefault()->andReturnUsing(fn (): bool => $this->record('requiresAdditionalFactor', false));
+        $this->factors->shouldReceive('requirementFor')->byDefault()->andReturnUsing(fn (): Requirement => $this->record('requirementFor', new Requirement));
 
         assert($this->app !== null);
 
@@ -190,7 +197,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
                 'admitIdentifier',
                 'mayUse',
                 'rehashPasswordIfRequired',
-                'requiresAdditionalFactor',
+                'requirementFor',
                 'release',
                 'release account',
             ],
@@ -592,7 +599,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
 
         $this->access->shouldReceive('mayUse')->once()->andReturnFalse();
-        $this->factors->shouldNotReceive('requiresAdditionalFactor');
+        $this->factors->shouldNotReceive('requirementFor');
         $this->provider->shouldNotReceive('rehashPasswordIfRequired');
         $this->expectNoSlotGivenBack();
 
@@ -617,10 +624,11 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * The additional-factor policy is asked about the admitted sign-in with
-     * the password method and the request's client, and is never told of a
-     * session; when it requires a factor the attempt fails, because
-     * `attempt()` cannot leave a session pending.
+     * The additional-factor policy is asked about the admitted sign-in with the
+     * password's proof and the request's client, and is never told of a
+     * session; when it requires what the password alone does not meet (the
+     * default check meets nothing) the attempt fails, because `attempt()`
+     * cannot leave a session pending.
      *
      * @return void
      *
@@ -637,10 +645,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $asked = null;
 
-        $this->factors->shouldReceive('requiresAdditionalFactor')->once()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): bool {
+        $this->factors->shouldReceive('requirementFor')->once()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): Requirement {
             $asked = $context;
 
-            return true;
+            return new Requirement(new RequirementPart);
         });
         $this->expectNoSlotGivenBack();
 
@@ -652,9 +660,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertNotContains(Login::class, array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()));
 
         self::assertInstanceOf(AdditionalFactorContext::class, $asked);
-        self::assertSame(self::GUARD_NAME, $asked->guard);
+        self::assertSame(self::GUARD_NAME, $asked->application);
         self::assertSame($identity, $asked->identity);
-        self::assertSame('password', $asked->method);
+        self::assertSame('password', $asked->firstFactor->method);
+        self::assertSame(ChannelKind::PASSWORD, $asked->firstFactor->channel->kind);
         self::assertSame(self::IP, $asked->client->ip);
         self::assertNull($asked->clientName);
         self::assertNull($asked->platform);
@@ -665,6 +674,49 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertInstanceOf(AuthenticationFailed::class, $signIn);
         self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $signIn->reason);
         self::assertSame($principal, $signIn->context->principal);
+    }
+
+    /**
+     * A requirement the bound check finds the password alone meets lets the
+     * attempt through: the check judges the password's own proof, in memory,
+     * with no session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequirementThePasswordMeetsLetsTheAttemptThrough(): void
+    {
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockActivePrincipal();
+
+        $this->expectPasswordAccepted($identity);
+        $this->provider->shouldReceive('rehashPasswordIfRequired')->twice();
+
+        $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
+
+        $this->factors->shouldReceive('requirementFor')->once()->andReturn(new Requirement(new RequirementPart));
+
+        $check = new ProofJudgingRequirementCheck;
+
+        app()->instance(RequirementCheck::class, new FirstFactorMeetsRequirements);
+
+        self::assertTrue($this->makeGuard()->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
+
+        app()->instance(RequirementCheck::class, $check);
+
+        $this->expectPasswordAccepted($identity);
+        $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
+        $this->factors->shouldReceive('requirementFor')->once()->andReturn(new Requirement(new RequirementPart));
+
+        self::assertFalse($this->makeGuard()->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
+
+        [$subject] = $check->judged;
+
+        self::assertNull($subject->session);
+        self::assertSame(ProofKind::FIRST_FACTOR, $subject->firstFactor->kind);
+        self::assertSame(ChannelKind::PASSWORD, $subject->firstFactor->channel->kind);
+        self::assertSame([$subject->firstFactor], $subject->proofs());
     }
 
     /**
@@ -691,16 +743,16 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $asked = null;
 
-        $this->factors->shouldReceive('requiresAdditionalFactor')->once()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): bool {
+        $this->factors->shouldReceive('requirementFor')->once()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): Requirement {
             $asked = $context;
 
-            return false;
+            return new Requirement;
         });
 
         self::assertTrue($this->makeGuard()->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
         self::assertInstanceOf(AdditionalFactorContext::class, $asked);
         self::assertSame($identity, $asked->identity);
-        self::assertSame(['guard', 'identity', 'method', 'client', 'clientName', 'platform', 'provenSession'], array_keys(get_object_vars($asked)));
+        self::assertSame(['application', 'identity', 'firstFactor', 'client', 'clientName', 'platform', 'provenSession'], array_keys(get_object_vars($asked)));
     }
 
     /**
@@ -722,7 +774,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
 
-        $this->factors->shouldNotReceive('requiresAdditionalFactor');
+        $this->factors->shouldNotReceive('requirementFor');
 
         $events = $this->recordEvents();
 
@@ -870,10 +922,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $asked = [];
 
-        $this->factors->shouldReceive('requiresAdditionalFactor')->twice()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): bool {
+        $this->factors->shouldReceive('requirementFor')->twice()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): Requirement {
             $asked[] = $context->provenSession;
 
-            return count($asked) === 2;
+            return count($asked) === 2 ? new Requirement(new RequirementPart) : new Requirement;
         });
 
         $guard = $this->makeGuard();
@@ -935,7 +987,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->policy->shouldNotReceive('admitIdentifier');
         $this->access->shouldNotReceive('mayUse');
         $this->limiter->shouldNotReceive('acquire');
-        $this->factors->shouldNotReceive('requiresAdditionalFactor');
+        $this->factors->shouldNotReceive('requirementFor');
         $this->provider->shouldNotReceive('rehashPasswordIfRequired');
 
         self::assertTrue($this->makeGuard()->validate(['email' => 'ada@example.test', 'password' => 'secret']));
@@ -985,7 +1037,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->provider->shouldReceive('retrieveByCredentials')->andReturn($identity, $identity, $identity, null);
         $this->provider->shouldReceive('validateCredentials')->andReturnTrue();
         $this->resolver->shouldReceive('resolve')->andReturn($principal);
-        $this->factors->shouldReceive('requiresAdditionalFactor')->andReturn(false, true);
+        $this->factors->shouldReceive('requirementFor')->andReturn(new Requirement, new Requirement(new RequirementPart));
 
         $events = $this->recordEvents();
 

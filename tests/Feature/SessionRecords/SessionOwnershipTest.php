@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -87,6 +88,25 @@ final class SessionOwnershipTest extends TestCase
     public function testIsOwnerRejectsEveryIdentityForASessionWithoutAnOwnerKey(): void
     {
         self::assertFalse(SessionOwnership::isOwner($this->record(StubIdentity::class, null), new StubIdentity));
+    }
+
+    /**
+     * The row stored under a session's key is that session only while it
+     * records the same generation and the same owner's type and key: another
+     * generation, another owner of the same type or the same key of another
+     * type, and a session that is not an Eloquent one are not.
+     *
+     * @return void
+     */
+    public function testTheStoredRowIsTheSessionOnlyWithItsGenerationAndOwner(): void
+    {
+        $given = $this->record(StubIdentity::class, '9')->forceFill(['generation' => 'gen-1']);
+
+        self::assertTrue(SessionOwnership::isSameSession($given, (clone $given)->forceFill(['authenticatable_id' => 9])));
+        self::assertFalse(SessionOwnership::isSameSession($given, (clone $given)->forceFill(['generation' => 'gen-2'])));
+        self::assertFalse(SessionOwnership::isSameSession($given, (clone $given)->forceFill(['authenticatable_id' => '10'])));
+        self::assertFalse(SessionOwnership::isSameSession($given, (clone $given)->forceFill(['authenticatable_type' => StubPrincipal::class])));
+        self::assertFalse(SessionOwnership::isSameSession(\Mockery::mock(Session::class), $given));
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Proofs;
 
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -15,8 +16,9 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Records proofs and provenance on a session, in the caller's transaction on
- * the storage connection, where the session itself is written, and clears what
- * an earlier session left under a new session's key.
+ * the storage connection, where the session itself is written, voids the proofs
+ * a removed factor made, and clears what an earlier session left under a new
+ * session's key.
  *
  * A proof's binding is the session it is recorded on: its owner (the identity),
  * its guard (the application) and its key; the purpose is the proof's own.
@@ -107,6 +109,36 @@ final class ProofWriter
         ]);
 
         self::insert($row);
+    }
+
+    /**
+     * Void the session's proofs made with the factor, so none of them counts
+     * again: one `UPDATE` that marks every proof not voided yet that is bound
+     * to the session as `record()` binds it (its key, the guard given and its
+     * owner) and records that very factor reference, compared byte for byte.
+     * Returns how many proofs it voided.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  string  $guard
+     * @param  string  $factor
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return int
+     *
+     * @throws \LogicException
+     */
+    public static function void(EloquentSession&Model $session, string $guard, string $factor, CarbonImmutable $now): int
+    {
+        $owner = $session->authenticatable();
+        $model = new SessionProof;
+
+        return $model->newQuery()
+            ->where('session_id', self::sessionId($session))
+            ->where('guard', $guard)
+            ->where('authenticatable_type', $session->getAttribute($owner->getMorphType()))
+            ->where('authenticatable_id', IdentifierCoercion::stringify($session->getAttribute($owner->getForeignKeyName())))
+            ->where('factor_reference', $factor)
+            ->whereNull('voided_at')
+            ->update(['voided_at' => $model->fromDateTime(self::local($now))]);
     }
 
     /**

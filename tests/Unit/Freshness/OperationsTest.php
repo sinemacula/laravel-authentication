@@ -10,6 +10,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessSettings;
 use SineMacula\Laravel\Authentication\Freshness\Operations;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 
 /**
  * The operations the package names: each is an operation's name, and the
@@ -32,9 +33,10 @@ final class OperationsTest extends TestCase
     public static function provideOperations(): iterable
     {
         yield from [
-            'identifier change'      => [Operations::IDENTIFIER_CHANGE],
-            'password establishment' => [Operations::PASSWORD_ESTABLISHMENT],
-            'factor change'          => [Operations::FACTOR_CHANGE],
+            'identifier change'       => [Operations::IDENTIFIER_CHANGE],
+            'password establishment'  => [Operations::PASSWORD_ESTABLISHMENT],
+            'factor change'           => [Operations::FACTOR_CHANGE],
+            'first additional factor' => [Operations::FIRST_ADDITIONAL_FACTOR],
         ];
     }
 
@@ -52,6 +54,27 @@ final class OperationsTest extends TestCase
 
         self::assertTrue(FreshnessSettings::isOperation($operation));
         self::assertNotNull($settings->requirement('api', $operation));
+    }
+
+    /**
+     * The shipped configuration takes only a fresh step-up for a factor change,
+     * and only a fresh reauthentication, never the sign-in itself, for an
+     * identity's first additional factor, each within 15 minutes.
+     *
+     * @return void
+     */
+    public function testTheShippedFactorOperationsTakeWhatTheyMust(): void
+    {
+        $settings = new FreshnessSettings(new Repository(['authentication' => require __DIR__ . '/../../../config/authentication.php']));
+
+        $change = $settings->requirement('api', Operations::FACTOR_CHANGE);
+        $first  = $settings->requirement('api', Operations::FIRST_ADDITIONAL_FACTOR);
+
+        self::assertSame('first_additional_factor', Operations::FIRST_ADDITIONAL_FACTOR);
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::RECOVERY_CODE], $change?->proofs);
+        self::assertSame([ProofKind::FIRST_FACTOR_REAUTHENTICATION, ProofKind::EXTERNAL_REAUTHENTICATION], $first?->proofs);
+        self::assertSame(900, $first->maxAgeSeconds);
+        self::assertFalse($first->takes(ProofKind::FIRST_FACTOR));
     }
 
     /**
