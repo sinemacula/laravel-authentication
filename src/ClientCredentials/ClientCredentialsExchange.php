@@ -41,7 +41,13 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  * authentication, so `invalid_grant` is never answered: a client that fails to
  * authenticate is `invalid_client`, always 401 with a Basic challenge.
  *
- * In order: the guard's application must list `client_credentials`
+ * A token request read by `fromRequest()` is first refused for its own form,
+ * before anything else is checked: `invalid_request` for one not in form or
+ * authenticating the client both ways, `unsupported_grant_type` for another
+ * grant, and `invalid_client` for client authentication that is missing,
+ * malformed, or in the body where the application does not set
+ * `client_secret_post`. Then, for that request as for `exchange()`, in order:
+ * the guard's application must list `client_credentials`
  * (`unauthorized_client`); the IP address must not have used up its failures
  * for now, nor the client id when the guard limits it, which it does not by
  * default, as a client id is no secret (`slow_down`, 429 with `Retry-After`);
