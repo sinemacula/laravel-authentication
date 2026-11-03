@@ -1875,7 +1875,6 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame([], $this->dispatched);
         self::assertSame(self::GUARD_NAME, $failure->context->guard);
         self::assertSame($session->id, $failure->context->sessionId);
-        self::assertSame($session->id, $failure->context->sessionId);
         self::assertSame($before, $this->row($session));
     }
 
