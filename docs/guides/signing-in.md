@@ -595,9 +595,11 @@ use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasskeyRemoval;
 Event::listen(PasskeyRemoved::class, RevokeSessionsOnPasskeyRemoval::class);
 ```
 
-It ends every session of the identity with `factor_removed`; to keep the current session signed in, call
-`Auth::sessions()->credentialRemoved($identity, Auth::session())` yourself instead. With a factor package, a passkey it
-associated as a factor is removed through `remove()` (its gate first), and the factor package then calls
+It ends every session of the identity with `factor_removed`, also when a global scope (a soft delete, a tenant or
+application scope) hides the identity from the request: the listener reads the identity without its model's global
+scopes. To keep the current session signed in, call `Auth::sessions()->credentialRemoved($identity, Auth::session())`
+yourself instead. With a factor package, a passkey it associated as a factor is removed through `remove()` (its gate
+first), and the factor package then calls
 `Auth::sessions()->factorRemoved()` (see [Sign-in factors](sessions.md#sign-in-factors)); register the listener
 alongside it only if every passkey removal should end every session. See `docs/design/passkeys.md`.
 

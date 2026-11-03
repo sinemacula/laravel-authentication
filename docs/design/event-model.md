@@ -53,8 +53,11 @@ to these events, so the shape and the timing are a contract.
   takes the session a package guard already resolved has bound when its identifier is the event's
   (`AuthManager::resolvedGuard()`, which creates no guard), so the bind that dispatched the event reads nothing more,
   and otherwise reads the session by identifier (`SessionLookup::find()`); `RevokeSessionsOnPasskeyRemoval` reloads the
-  identity through its guard's provider and acts only when its morph class is the event's `identityType`. Laravel's own
-  auth events (`Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) keep their models.
+  identity by its key from the model `identityType` names (through the morph map or directly), with none of the model's
+  global scopes, and acts only when that is an Eloquent identity model and the row is there. A provider's scoping (soft
+  deletes, a tenant or application scope) would hide an identity that lost a passkey while out of scope, and its
+  sessions would be live again once it was visible. Laravel's own auth events (`Attempting`, `Validated`, `Login`,
+  `Authenticated`, `Failed`, `Logout`) keep their models.
 - No event field carries a token, a digest, a password, a pending credential or any other secret, and no model's
   attributes: a context holds types and identifiers only. Laravel's own auth events, like any that carry a model, hold
   the identity's attributes.
@@ -204,7 +207,7 @@ to these events, so the shape and the timing are a contract.
   `tests/Feature/Sessions/ExternalReauthenticationTest.php` `testARedemptionIsReportedAfterTheReauthentication`
 - `tests/Feature/Listeners/RecordSessionUsageTest.php` `testASessionTheGuardHasNotBoundIsReadByItsIdentifier`,
   `testNoSessionOrAGoneOneRecordsNothing`; `tests/Feature/Listeners/RevokeSessionsOnPasskeyRemovalTest.php`
-  `testAnIdentityTheProviderDoesNotReturnRevokesNothing`
+  `testAnIdentityAGlobalScopeHidesHasItsSessionsRevoked`, `testAnEventNamingNoIdentityRevokesNothing`
 - `tests/Integration/Events/EveryEventRestoresTest.php`
   `testTheEventRestoresWithItsSnapshotOnceItsRowsAreGone`, `testEveryPackageEventIsChecked`
 - `tests/Feature/Events/EventContextTest.php`

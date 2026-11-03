@@ -5,17 +5,24 @@ declare(strict_types = 1);
 namespace Tests\Feature\Listeners;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasskeyRemoval;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
@@ -132,15 +139,44 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
     }
 
     /**
-     * An identity the guard's provider no longer finds, or one the provider
-     * finds under the identifier but of another type than the event names, has
-     * nothing revoked: the identity the event names is not the provider's.
+     * An identity a global scope hides from every ordinary query, as a soft
+     * delete or a tenant or application scope does, still has every session
+     * ended: the identity is read with none of its model's global scopes.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnIdentityTheProviderDoesNotReturnRevokesNothing(): void
+    public function testAnIdentityAGlobalScopeHidesHasItsSessionsRevoked(): void
+    {
+        $identity = $this->seedIdentity();
+        $passkey  = $this->registerPasskey($identity);
+
+        self::assertTrue($this->signInWithPasskey()->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
+
+        IntegrationIdentity::addGlobalScope('nobody', static function (Builder $query): void {
+            $query->whereRaw('1 = 0');
+        });
+
+        try {
+            self::assertNull(IntegrationIdentity::query()->find($identity->id));
+            self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id));
+        } finally {
+            IntegrationIdentity::clearBootedModels();
+        }
+
+        self::assertSame(['factor_removed', 'factor_removed'], DB::table('authentication_sessions')->pluck('revoked_reason')->all());
+    }
+
+    /**
+     * An identity named by its alias in the morph map is found through the map.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityNamedByItsMorphAliasHasItsSessionsRevoked(): void
     {
         $identity = $this->seedIdentity();
 
@@ -148,11 +184,76 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
 
         self::assertTrue($this->signInWithPasskey()->isSignedIn());
 
-        $client = new ClientContext(null, null);
+        Relation::morphMap(['person' => IntegrationIdentity::class]);
 
-        event(new PasskeyRemoved(new EventContext('api', $client, new PlainIdentityFixture($identity->id), method: 'passkey', credentialId: 'removed')));
-        event(new PasskeyRemoved(new EventContext('api', $client, new PlainIdentityFixture($identity->id + 1), method: 'passkey', credentialId: 'removed')));
+        try {
+            $context = new EventContext('api', new ClientContext(null, null), $identity, method: 'passkey', credentialId: 'removed');
 
+            event(new PasskeyRemoved($context));
+        } finally {
+            Relation::morphMap([], false);
+        }
+
+        self::assertSame('person', $context->identityType);
+        self::assertSame(['factor_removed'], DB::table('authentication_sessions')->pluck('revoked_reason')->all());
+    }
+
+    /**
+     * Rows of an event that names no identity a passkey could belong to: an
+     * identifier no row has, an identity that is not a model, a model that is
+     * not an identity (a session row, under its own key), a class that does not
+     * exist, and a type without an identifier or an identifier without a type,
+     * as a session row can record them.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\Tests\Integration\Fixtures\IntegrationIdentity): \SineMacula\Laravel\Authentication\Events\EventContext, 1: int}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideUnknownIdentities(): iterable
+    {
+        yield 'an id no row has' => [static fn (IntegrationIdentity $identity): EventContext => self::about($identity->replicate()->forceFill(['id' => $identity->id + 1])), 1];
+        yield 'an identity that is not a model' => [static fn (IntegrationIdentity $identity): EventContext => self::about(new PlainIdentityFixture($identity->id)), 0];
+        yield 'a model that is not an identity' => [static fn (IntegrationIdentity $identity): EventContext => self::recorded(SessionLookup::model()::class, self::sessionId()), 0];
+        yield 'a class that does not exist' => [static fn (IntegrationIdentity $identity): EventContext => self::recorded('Tests\NoSuchIdentity', (string) $identity->id), 0];
+        yield 'a type without an identifier' => [static fn (IntegrationIdentity $identity): EventContext => self::about(new IntegrationIdentity), 0];
+        yield 'an identifier without a type' => [static fn (IntegrationIdentity $identity): EventContext => self::recorded(null, (string) $identity->id), 0];
+    }
+
+    /**
+     * An event that names no identity a passkey could belong to revokes
+     * nothing, and reads no row unless it names an identity model and a key.
+     *
+     * @param  \Closure(\Tests\Integration\Fixtures\IntegrationIdentity): \SineMacula\Laravel\Authentication\Events\EventContext  $context
+     * @param  int  $reads
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideUnknownIdentities')]
+    public function testAnEventNamingNoIdentityRevokesNothing(\Closure $context, int $reads): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->registerPasskey($identity);
+
+        self::assertTrue($this->signInWithPasskey()->isSignedIn());
+
+        $event   = new PasskeyRemoved($context($identity));
+        $queries = 0;
+
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        event($event);
+
+        self::assertSame($reads, $queries);
         self::assertSame([null], DB::table('authentication_sessions')->pluck('revoked_reason')->all());
     }
 
@@ -175,5 +276,45 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
 
         self::configureSessionGuards($config);
         self::configurePasskeys($config);
+    }
+
+    /**
+     * The context of an event about the identity given, from no known client.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
+     */
+    private static function about(Identity $identity): EventContext
+    {
+        return new EventContext('api', new ClientContext(null, null), $identity, method: 'passkey');
+    }
+
+    /**
+     * The context of an event about a session row that records the owner type
+     * and identifier given, and nothing else.
+     *
+     * @param  ?string  $type
+     * @param  string  $id
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    private static function recorded(?string $type, string $id): EventContext
+    {
+        $session = SessionLookup::model();
+
+        $session->setRawAttributes(['authenticatable_type' => $type, 'authenticatable_id' => $id]);
+
+        return new EventContext('api', new ClientContext(null, null), session: $session, method: 'passkey', fromSession: true);
+    }
+
+    /**
+     * The key of the session the test signed in.
+     *
+     * @return string
+     */
+    private static function sessionId(): string
+    {
+        return IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('id')) ?? '';
     }
 }
