@@ -42,8 +42,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * records an `external_reauthentication` proof on it and issues it a new access
  * token. It renews the session's authentication time and nothing else unless
  * the evidence contract accepts the provider's evidence: no refresh token is
- * issued, the session row, its deadlines and its provenance stay as they were,
- * and nothing is bound.
+ * issued, the session row (apart from its issuance guard), its deadlines and
+ * its provenance stay as they were, and nothing is bound.
  *
  * In order: the application policy must allow `external_provider`
  * (`method_not_allowed`); the session the identifier names, read on the write
@@ -66,8 +66,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * tenant no longer admits is `sso_required`, a further factor it now requires
  * and the session does not meet `additional_factor_required`, and either rolls
  * the proof back. Neither writes the session: the next refresh revokes it or
- * returns it to pending, and no version is recorded, since the row is never
- * written here.
+ * returns it to pending, and no version is recorded, since the policy version
+ * is never written here.
  *
  * The proof is timed when the provider authenticated the identity (now, when
  * that is after now), so the access token's `auth_time`, the newest of the

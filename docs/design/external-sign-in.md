@@ -65,8 +65,9 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   place for a secret, and is not protected as a credential is.
 - A session reauthenticates at the provider only through the very link that established it: the link's identity must own
   it and its provenance must record exactly the result's connection and the link's id (`link_mismatch`); a session
-  recorded with no link never matches. Only an access token is issued; the refresh token, the session row, its deadlines
-  and its provenance are untouched, so a result's provider context is not recorded at reauthentication.
+  recorded with no link never matches. Only an access token is issued; the refresh token, the session row (apart from
+  its issuance guard), its deadlines and its provenance are untouched, so a result's provider context is not recorded at
+  reauthentication.
 - A link's sessions end only through that link: `linkRemoved()` and `linkScopeWidened()` revoke the identity's live
   sessions, pending ones included, whose provenance records exactly the connection and the link id, leaving its
   sessions through any other link. `linkRemoved()` honours `authentication.revocation.link_removed`;

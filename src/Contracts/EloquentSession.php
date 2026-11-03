@@ -114,10 +114,12 @@ interface EloquentSession extends EloquentSessionOrigin, EloquentSessionStanding
 
     /**
      * Column name holding the session's issuance sequence: the issuance guard,
-     * an integer every issuance of an access token for the session, and every
-     * change of its proofs, increments first in its own transaction, so two of
-     * them on one session never read its proofs past each other. Nothing reads
-     * its value.
+     * an integer that every issuance of an access token for the session that
+     * does not write the row itself (as a sign-in's insert and an activation's
+     * update do) increments before it reads the session's proofs, and every
+     * change of its proofs increments before the change, in the same
+     * transaction, so two of them on one session never read its proofs past
+     * each other. Nothing reads its value.
      *
      * @return string
      */

@@ -25,10 +25,11 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
  * never answers with a policy that has just changed. Change the version
  * whenever anything the answer depends on changes, the exemptions included, and
  * call `Auth::sessions()->tenantPolicyChanged($tenant)` when the policy
- * changes, so sessions that no longer meet it end. An external reauthentication
- * asks it while the package holds the session's row lock, after every lock the
- * adapter took, so an implementation only reads, or takes no lock the adapter
- * does not already hold.
+ * changes, so sessions that no longer meet it end. A refresh, a switch and an
+ * external reauthentication ask it while the package holds the session's row
+ * lock (a refresh and a switch from their issuance guard on, an external
+ * reauthentication after every lock the adapter took), so an implementation
+ * only reads, or takes no lock its caller does not already hold.
  *
  * @api
  *

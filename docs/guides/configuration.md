@@ -415,7 +415,7 @@ A session is one sign-in, on one application, on one device. The shipped migrati
 | `attempt_windows`                                      | The attempt slots a pending session keeps until it first activates                                       |
 | `tenant_id`, `tenant_policy_version`                   | The active tenant's opaque identifier (`null` for none, indexed), and the version of its policy last met |
 | `switched_at`                                          | When the session's context last changed (principal or active tenant, a return to pending, an activation) |
-| `issuance_sequence`                                    | The issuance guard: written first by every token issuance and proof change, never read (required, `0`)   |
+| `issuance_sequence`                                    | The issuance guard: written before a token reads proofs (unless it writes the row) or they change (`0`)  |
 | `guard`, `sign_in_method`                              | The guard and sign-in method that created it                                                             |
 | `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any                                                         |
 | `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)                                                    |

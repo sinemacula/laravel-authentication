@@ -38,8 +38,8 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
  * through one of this package's sign-in methods: records a first-factor
  * reauthentication proof on the session and issues it a new access token. It
  * renews the session's authentication time and nothing else: the `amr`, any
- * further factor's standing and the session row are as they were, no refresh
- * token is issued, and nothing is bound.
+ * further factor's standing and the session row (apart from its issuance guard)
+ * are as they were, no refresh token is issued, and nothing is bound.
  *
  * In order: the application policy must allow the method (`method_not_allowed`,
  * nothing counted); the session, read on the write connection, must still be

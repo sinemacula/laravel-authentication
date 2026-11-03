@@ -60,7 +60,8 @@ claims a specific principal or session and the runtime cannot prove that claim, 
 - Issuing enforces the same claims: `issueAccessToken()` and `issueRefreshToken()` throw an `InvalidArgumentException`
   instead of minting a token with an empty `sub`, `principal`, `sid`, or `jti` (an unsaved model or a non-scalar
   identifier), so a token that could never authenticate, or would silently drop its session or principal, is never
-  issued.
+  issued. An access token for an Eloquent session with no key, or whose row is gone, is refused earlier, with a
+  `LogicException`, by the issuance guard it writes first.
 - If no bearer `sid` is present, auth can still succeed with `session = null`.
 - If `principal` is present and the resolver returns the exact matching principal, auth continues normally.
 - If refresh carries `principal`, the same exact-match rule is applied before the rotated pair is issued.

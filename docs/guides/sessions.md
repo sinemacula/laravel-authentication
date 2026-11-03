@@ -82,8 +82,10 @@ direct `issueAccessToken()` with a session) first writes the session's issuance 
 `issuance_sequence`, or writes the session's row itself (an activation, a sign-in's insert); every change of a session's
 proofs (`satisfy()`, a step-up, a reauthentication, `factorRemoved()`) writes it before the proof. The issuance takes
 its time once it holds the row (an activation issues at its operation's time: no other token of a pending session can
-have committed meanwhile), and then reads the proofs current, in the same transaction on the session's connection, which
-holds the row until it commits. So two of them on one session never read the proofs past each other:
+have committed meanwhile; a direct `issueAccessToken()` given an `$issuedAt` uses it as given, so take it after you lock
+the session in your transaction around the call, or the guarantee does not hold for that token), and then reads the
+proofs current, in the same transaction on the session's connection, which holds the row until it commits. So two of
+them on one session never read the proofs past each other:
 
 - At READ COMMITTED, on PostgreSQL and MySQL, and at MySQL's REPEATABLE READ, the later waits on the row the earlier
   wrote, and then reads what it committed (on MySQL with a shared lock, since its plain reads inside a REPEATABLE READ

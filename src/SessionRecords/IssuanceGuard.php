@@ -8,9 +8,12 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 
 /**
- * The write every issuance of an access token for a session, and every change
- * of the session's proofs, makes first in its transaction: an increment of the
- * session row's issuance sequence (`getIssuanceSequenceName()`).
+ * The write every issuance of an access token for a session that does not write
+ * the session's row itself (as a sign-in's insert and an activation's update
+ * do) makes before it reads the session's proofs, and every change of the
+ * session's proofs makes before the change, in the same transaction: an
+ * increment of the session row's issuance sequence
+ * (`getIssuanceSequenceName()`).
  *
  * Two of them on one session therefore never read its proofs past each other.
  * The later waits on the row the earlier wrote until the earlier ends, and then

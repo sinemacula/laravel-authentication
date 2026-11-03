@@ -300,7 +300,8 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
 - Letting an external reauthentication through any link but the one the session's provenance records, or locking the
   session before the link contract is asked.
 - Judging freshness on the latest authentication time rather than the proof that meets the requirement.
-- Letting a step-up or a reauthentication issue a refresh token, move a deadline, or write the session row.
+- Letting a step-up or a reauthentication issue a refresh token, move a deadline, or write the session row beyond its
+  issuance guard.
 - Taking a password as an identifier change's proof where the requirement asks for more than a first-factor
   reauthentication.
 - Reading a proof history unbounded by the session's distinct combinations.

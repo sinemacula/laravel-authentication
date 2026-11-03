@@ -59,8 +59,8 @@ revoked, and when a session that ended is deleted. Starting a session is in
   session it still proves. `signOutWith($token)` proves and revokes the same way for a token a body application's code
   read, but forgets no other binding: a guard bound to another session stays bound to it, whether the token is refused
   or proves another session. A cookie application throws a `LogicException`.
-- A sign-out by refresh credential races a rotation without a lock, as the exchange does: a token rotated in between is
-  the previous one inside the grace window and still proves the session, and the conditional revocation means two
+- A sign-out by refresh credential takes no lock, so it races a rotation's compare-and-swap: a token rotated in between
+  is the previous one inside the grace window and still proves the session, and the conditional revocation means two
   sign-outs, or a sign-out and a replay, revoke and report once.
 - `revokeSession()` reads the session through the owner's `sessions()` relation on the writer
   (`IdentitySessions::find()`), with the key-shape check first, so another identity's session is "not found" (`false`)

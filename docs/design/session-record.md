@@ -47,8 +47,9 @@ new session, so "the device" and "the record" are no longer one thing.
 - `issuance_sequence` (unsigned big integer, `0` at insert, not indexed, named by
   `EloquentSession::getIssuanceSequenceName()`, `issuance_sequence` in `RecordsSessionMilestones`) is the session's
   issuance guard: `SessionRecords\IssuanceGuard::write()` increments it with one `UPDATE` by key, through the query
-  builder (no model event, `updated_at` untouched, the in-memory session not mirrored), first in every transaction that
-  issues the session an access token without writing its row otherwise, and before every change of its proofs. Nothing
+  builder (no model event, `updated_at` untouched, the in-memory session not mirrored), before the proofs are read in
+  every transaction that issues the session an access token without writing its row otherwise, and before every change
+  of its proofs. Nothing
   reads its value: the write is what makes two issuances of one session wait on each other or, under PostgreSQL's
   REPEATABLE READ, fail to serialise (see `proofs-and-freshness.md` and `refresh-rotation-and-replay.md`). The session
   row is the last row in the package's lock order (the caller's locks, then the connection guard rows, then session
