@@ -227,6 +227,29 @@ final class BearerFormsTest extends TestCase
     }
 
     /**
+     * The class holds no state and cannot be instantiated: its constructor is
+     * private. Reflection invokes it so the line is covered while still
+     * documenting the access modifier.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(BearerForms::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(BearerForms::class, $instance);
+    }
+
+    /**
      * A request whose route lists the guards.
      *
      * @param  list<?string>  $guards

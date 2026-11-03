@@ -57,4 +57,27 @@ final class ClosureRebindingTest extends TestCase
         self::assertSame($callable, ClosureRebinding::onto($replaced, $replacement, $callable));
         self::assertSame('replaced', ClosureRebinding::onto($replaced, $replacement, $callable)());
     }
+
+    /**
+     * The class holds no state and cannot be instantiated: its constructor is
+     * private. Reflection invokes it so the line is covered while still
+     * documenting the access modifier.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(ClosureRebinding::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(ClosureRebinding::class, $instance);
+    }
 }
