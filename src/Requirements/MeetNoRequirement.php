@@ -8,8 +8,11 @@ use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 
 /**
  * The default requirement check: it meets no part of any requirement, so a
- * tenant authentication policy that asks for a further factor can never be met
- * until a further-factor package binds a check of its own. Fail closed.
+ * further factor the identity's or a tenant's policy asks for is never met by
+ * a session's proofs until a further-factor package binds a check of its own;
+ * only an external provider's evidence that the bound `ExternalEvidencePolicy`
+ * accepted and says meets the whole requirement can meet it meanwhile, and its
+ * default accepts none. Fail closed.
  *
  * @api
  *

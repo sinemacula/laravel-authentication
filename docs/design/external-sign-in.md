@@ -20,7 +20,10 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   as their method (`SessionPreconditions::assertSessionMethod()`). Only `signInExternally()` records a session under it.
 - The identity is the one `Contracts\ExternalIdentityLinks::find($connectionId, $issuer, $subject)` answers, through a
   link made through exactly that connection for exactly that issuer and subject, never by email or any other attribute
-  the provider asserted. Its answer (`External\ExternalLink`) is the identity and the link's own opaque id.
+  the provider asserted. Its answer (`External\ExternalLink`) is the identity and the link's own opaque id. The link id
+  is taken from that answer, not from the result, though the verified result an adapter redeems carries one: the
+  contract reads, inside the adapter's transaction, the very link it maps the identity through, so the id recorded is
+  always that link's and can never name a link other than the one that chose the identity.
 - The link contract and the evidence policy are asked before the package takes any lock, so the adapter's own locks,
   taken inside its transaction, always come first and the package's session rows (the session reauthenticated, or the
   one a sign-in supersedes) last. No identity row is locked on these paths.

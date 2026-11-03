@@ -25,10 +25,10 @@ use SineMacula\Laravel\Authentication\External\ExternalEvidence;
  * factor then carries the acceptance; evidence that was not accepted is never
  * recorded. Times are kept to the whole second.
  *
- * @api
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
+ *
+ * @internal
  */
 final readonly class Provenance
 {

@@ -16,7 +16,11 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
  * each with an optional maximum age). The package's default,
  * `MeetNoRequirement`, meets none, so a requirement a further-factor package
  * has not been bound to judge fails closed. The package never asks it with an
- * empty requirement, which is met by definition.
+ * empty requirement, which is met by definition, nor about a session an
+ * external provider established whose accepted evidence the bound
+ * `ExternalEvidencePolicy` says meets the whole requirement: that evidence
+ * meets it first, and this check is asked only when it does not, never to judge
+ * what the evidence left unmet.
  *
  * The subject reads the session's counting proofs through bounded queries on
  * the write connection: ask it for what the requirement needs (by kind, and
