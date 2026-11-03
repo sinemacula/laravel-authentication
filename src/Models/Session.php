@@ -57,6 +57,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property ?string $tenant_id
  * @property ?string $tenant_policy_version
  * @property ?\Carbon\CarbonInterface $switched_at
+ * @property int $issuance_sequence
  * @property ?string $guard
  * @property ?string $sign_in_method
  * @property ?string $sign_in_identifier_type
@@ -178,6 +179,7 @@ class Session extends Model implements EloquentSession
             'tenant_id'               => 'string',
             'tenant_policy_version'   => 'string',
             'switched_at'             => 'datetime',
+            'issuance_sequence'       => 'integer',
             'guard'                   => 'string',
             'sign_in_method'          => 'string',
             'sign_in_identifier_type' => 'string',

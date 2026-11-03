@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -49,6 +50,7 @@ use SineMacula\Laravel\Authentication\Sessions\FactorRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
@@ -78,7 +80,7 @@ use Tests\Unit\Stubs\StubNonModelSession;
 #[CoversTrait(EndsSessions::class)]
 final class FactorRevocationsTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InspectsIssuanceGuards, InteractsWithSessions;
 
     /** @var string Guard over `ChoosingMember`, whose members choose between their memberships. */
     private const string CHOOSERS = 'choosers';
@@ -123,8 +125,9 @@ final class FactorRevocationsTest extends TestCase
     /**
      * A removal ends every other session of the identity and keeps the current
      * one while nothing is asked of it: only the current session's proofs made
-     * with the removed factor are voided, another factor's stay, and the other
-     * sessions' proofs are left as they are.
+     * with the removed factor are voided, after its issuance guard is written,
+     * another factor's stay, and the other sessions' proofs are left as they
+     * are, as are their guards.
      *
      * @return void
      *
@@ -140,8 +143,22 @@ final class FactorRevocationsTest extends TestCase
         $this->stepUp($current, 'factor-b');
         $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, SessionReturnedToPending::class]);
 
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
         $removal = Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
 
+        $guard = array_key_first(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'issuance_sequence')));
+        $void  = array_key_first(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'voided_at') && str_starts_with($sql, 'update')));
+
+        self::assertIsInt($guard);
+        self::assertIsInt($void);
+        self::assertLessThan($void, $guard);
+        self::assertSame(3, self::issuanceGuardWrites($current->record->getKey()));
+        self::assertSame(1, self::issuanceGuardWrites($other->record->getKey()));
         self::assertSame(1, $removal->revoked);
         self::assertFalse($removal->currentRevoked);
         self::assertFalse($removal->isPending());
@@ -476,9 +493,9 @@ final class FactorRevocationsTest extends TestCase
 
     /**
      * A current session that is pending, live and still the session given has
-     * its proofs made with the removed factor voided, another factor's kept,
-     * and stays pending as it was: nothing else of it is written, judged or
-     * counted.
+     * its issuance guard written and its proofs made with the removed factor
+     * voided, another factor's kept, and stays pending as it was: nothing else
+     * of it is written, judged or counted.
      *
      * @return void
      *
@@ -502,7 +519,8 @@ final class FactorRevocationsTest extends TestCase
         self::assertSame(0, $removal->revoked);
         self::assertFalse($removal->currentRevoked);
         self::assertFalse($removal->isPending());
-        self::assertSame($during, $this->columnsOf($current->record->getKey()));
+        self::assertIsArray($during);
+        self::assertSame([...$during, 'issuance_sequence' => 3], $this->columnsOf($current->record->getKey()));
         self::assertSame(['factor-a' => $this->now->toDateTimeString(), 'factor-b' => null], $this->voidedOn($current->record->getKey()));
         self::assertSame([], $this->recordedClasses());
     }

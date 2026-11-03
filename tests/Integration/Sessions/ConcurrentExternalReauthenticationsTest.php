@@ -7,6 +7,7 @@ namespace Tests\Integration\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,7 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\ExternalReauthentication;
 use Tests\Concerns\InteractsWithExternalSignIns;
+use Tests\Concerns\InteractsWithIsolationLevels;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
@@ -29,7 +31,11 @@ use Tests\TestCase;
  * session's lock meanwhile and waits on it. Once the first commits, the second
  * records its proof and its token's `auth_time` is still the first's, the later
  * of the two: the renewal is decided under the session's lock, never from what
- * either side read before it.
+ * either side read before it. So it is when the second side runs inside a
+ * caller's REPEATABLE READ transaction that read before the first committed: on
+ * MySQL its proofs are read current, and on PostgreSQL its lock fails to
+ * serialise on the row the first side's issuance guard wrote, and the caller's
+ * retry of the whole transaction reads the first's proof.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -42,7 +48,7 @@ use Tests\TestCase;
 #[CoversClass(ExternalReauthentication::class)]
 final class ConcurrentExternalReauthenticationsTest extends TestCase
 {
-    use InteractsWithExternalSignIns, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithIsolationLevels, InteractsWithSessions;
 
     /** @var int How long the first side holds its lock once the second is about to take it, in microseconds. */
     private const int SETTLE_MICROSECONDS = 300000;
@@ -169,6 +175,91 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
         self::assertGreaterThanOrEqual(self::SETTLE_MICROSECONDS / 1000000 / 2, $reported['waited']);
         self::assertSame([$this->start->addMinutes(50)->getTimestamp(), true], $first);
         self::assertSame([$this->start->addMinutes(50)->getTimestamp(), true], $reported['result']);
+        self::assertSame(2, DB::table('authentication_proofs')->where('kind', 'external_reauthentication')->count());
+    }
+
+    /**
+     * The second side, inside a caller's REPEATABLE READ transaction that read
+     * before the first committed, still issues the first's later `auth_time`:
+     * at once on MySQL, and on PostgreSQL once the caller has retried the whole
+     * transaction its lock failed to serialise.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheLaterProviderTimeWinsInsideACallersRepeatableReadTransaction(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->start))->session?->record;
+
+        self::assertInstanceOf(Session::class, $session);
+
+        $this->freezeAt($this->start->addHour());
+
+        DB::disconnect();
+
+        $pid = pcntl_fork();
+
+        if ($pid < 0) {
+            self::fail('The second side could not be forked.');
+        }
+
+        if ($pid === 0) {
+            $this->runInChild(function () use ($session): array {
+                $this->externalLinks()->whileAsked(function (): void {
+                    touch("{$this->outcomes}/locking");
+                });
+
+                $reauthenticate = fn (): array => self::authenticationTimeOf($this->reauthenticate($session, $this->start->addMinutes(10)));
+
+                self::beginTransactionAt('repeatable read');
+
+                DB::table('authentication_proofs')->count();
+
+                $failed = null;
+
+                try {
+                    $result = $reauthenticate();
+                } catch (DeadlockException $exception) {
+                    $failed = (string) $exception->getPrevious()?->getCode();
+
+                    DB::rollBack();
+
+                    self::beginTransactionAt('repeatable read');
+
+                    $result = $reauthenticate();
+                }
+
+                DB::commit();
+
+                return ['time' => $result, 'failed' => $failed];
+            });
+        }
+
+        DB::beginTransaction();
+
+        $first = self::authenticationTimeOf($this->reauthenticate($session, $this->start->addMinutes(50)));
+
+        touch("{$this->outcomes}/start");
+
+        if (!self::wasSignalled("{$this->outcomes}/locking")) {
+            self::abandon($pid, 'The second side never reached the session\'s lock, so the reauthentications did not overlap.');
+        }
+
+        usleep(self::SETTLE_MICROSECONDS);
+
+        DB::commit();
+
+        pcntl_waitpid($pid, $status);
+
+        $reported = json_decode((string) file_get_contents("{$this->outcomes}/outcome"), true, flags: JSON_THROW_ON_ERROR);
+
+        self::assertIsArray($reported);
+        self::assertArrayNotHasKey('error', $reported);
+        self::assertSame([$this->start->addMinutes(50)->getTimestamp(), true], $first);
+        self::assertSame(self::readsASnapshot('repeatable read') ? '40001' : null, $reported['result']['failed']);
+        self::assertSame([$this->start->addMinutes(50)->getTimestamp(), true], $reported['result']['time']);
         self::assertSame(2, DB::table('authentication_proofs')->where('kind', 'external_reauthentication')->count());
     }
 

@@ -57,7 +57,10 @@ use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
  * a reauthentication cost, what asking the freshness policy and the
  * factor-change gate costs (nothing for an operation with no requirement), and
  * that the claims, freshness and accepted-evidence reads stay one query each,
- * and quick, however many proofs a session holds.
+ * and quick, however many proofs a session holds. Every issuance that records a
+ * proof writes the session's issuance guard, one `UPDATE` by key, under the
+ * lock and before the proof, so an issuance of the session that overlaps it
+ * reads its proof: one write beside the proof itself.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -110,28 +113,29 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A step-up locks the session, reloads its owner, records the proof and
-     * reads the session's proofs for the new access token: three reads and one
-     * write, the refresh state untouched.
+     * A step-up locks the session, reloads its owner, writes the issuance
+     * guard, records the proof and reads the session's proofs for the new
+     * access token: three reads and two writes, the refresh state untouched.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAStepUpReadsThriceAndWritesTheProofOnly(): void
+    public function testAStepUpReadsThriceAndWritesItsGuardAndTheProof(): void
     {
         $session  = $this->signedIn();
         $sessions = $this->sessions();
         $proof    = self::adapterProof($session->identity, 'api', $session->record->getKey());
 
-        self::assertTrue($this->assertQueryBudget(3, 1, static fn (): AccessTokenResult => $sessions->stepUp($proof))->isIssued());
+        self::assertTrue($this->assertQueryBudget(3, 2, static fn (): AccessTokenResult => $sessions->stepUp($proof))->isIssued());
     }
 
     /**
      * A reauthentication reads the session, then the identity the password
      * names, and, under the lock, the session and its owner again and the
      * proofs for the new token; it reserves and gives back a slot on each of
-     * the three counters the sign-in created, and writes the proof.
+     * the three counters the sign-in created, and writes the issuance guard and
+     * the proof.
      *
      * @return void
      *
@@ -144,7 +148,7 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
 
         self::assertTrue($this->assertQueryBudget(
             5,
-            7,
+            8,
             static fn (): AccessTokenResult => $sessions->reauthenticate($session->record, 'password', self::credentials()),
         )->isIssued());
     }
@@ -152,9 +156,9 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     /**
      * An external reauthentication reads the session, then, under the lock, the
      * session, its provenance, its owner and its proofs for the new token, and
-     * writes the proof; the link contract, here a fake, reads nothing of the
-     * package's. A locked standing reads the session and its provenance and
-     * writes nothing.
+     * writes the issuance guard and the proof; the link contract, here a fake,
+     * reads nothing of the package's. A locked standing reads the session and
+     * its provenance and writes nothing.
      *
      * @return void
      *
@@ -168,7 +172,7 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
         $result   = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: CarbonImmutable::now());
 
         self::assertNotNull($session);
-        self::assertTrue($this->assertQueryBudget(5, 1, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($session->record->getKey(), $result))->isIssued());
+        self::assertTrue($this->assertQueryBudget(5, 2, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($session->record->getKey(), $result))->isIssued());
 
         $standing = $this->assertQueryBudget(2, 0, static fn (): ?FailureReason => DB::transaction(
             static fn (): ?FailureReason => $sessions->externalStanding($session->record->getKey(), $session->identity, 'connection-7', 'link-1'),
@@ -183,8 +187,9 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
      * tenant-less budget it reads only what admits the principal and its
      * tenant; with connections and a factor the session's accepted evidence
      * meets, it reads the provenance's connection, the first factor and the
-     * accepted evidence too, and nothing more. An unlocked standing through any
-     * link reads the session and its provenance, and writes nothing.
+     * accepted evidence too, and nothing more; each writes the issuance guard
+     * and the proof. An unlocked standing through any link reads the session
+     * and its provenance, and writes nothing.
      *
      * @return void
      *
@@ -209,11 +214,11 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
 
         $key = $session->record->getKey();
 
-        self::assertTrue($this->assertQueryBudget(7, 1, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($key, $result))->isIssued());
+        self::assertTrue($this->assertQueryBudget(7, 2, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($key, $result))->isIssued());
 
         $policy->requirement = new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart), ['connection-7']);
 
-        self::assertTrue($this->assertQueryBudget(10, 1, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($key, $result))->isIssued());
+        self::assertTrue($this->assertQueryBudget(10, 2, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($key, $result))->isIssued());
         self::assertNull($this->assertQueryBudget(2, 0, static fn (): ?FailureReason => $sessions->externalStanding($key, $member, 'connection-7')));
     }
 

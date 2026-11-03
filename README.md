@@ -59,12 +59,13 @@ are caught on the server.
   application's evidence policy accepts it (never by default), and a tenant may require single sign-on of the sessions
   acting in it.
 - **Sessions**: timestamped proofs of every sign-in and an external provider's provenance on each session, step-up and
-  reauthentication with `auth_time` and `amr` derived from the proofs, per-operation freshness judged on the proof that
-  meets it, a gate for changing a further factor, list and get one, sign out (by the access token, or by the refresh
-  credential once the access token has expired), sign out everywhere, revoke on security changes (a further factor's
-  removal ends the other sessions and judges the current one again without it) and when a connection is disabled or
-  deleted or a link through it removed or its scope widened (only that link's sessions), and list, get and switch to the
-  principals an identity may use, or switch its active tenant.
+  reauthentication with `auth_time` and `amr` derived from the proofs and never going back from one of a session's
+  tokens to the next, whatever the isolation level (a per-session issuance guard), per-operation freshness judged on the
+  proof that meets it, a gate for changing a further factor, list and get one, sign out (by the access token, or by the
+  refresh credential once the access token has expired), sign out everywhere, revoke on security changes (a further
+  factor's removal ends the other sessions and judges the current one again without it) and when a connection is
+  disabled or deleted or a link through it removed or its scope widened (only that link's sessions), and list, get and
+  switch to the principals an identity may use, or switch its active tenant.
 - **The caller of a request**: `Auth::caller()` reads who a request is from the access, refresh or pending credential
   its route authenticates with, and says whether a session, identity or principal is the caller's, so an application can
   scope its own route bindings.

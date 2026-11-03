@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\SessionRecords\IssuanceGuard;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -72,6 +73,14 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * sets a limit), restarts the idle one, and writes in one compare-and-swap.
  * When the principal or the tenant changes, that write also moves the session's
  * `switched_at`, so every access token issued before it is refused at once.
+ *
+ * The switch of a session it finds runs in one transaction on the session's
+ * connection (a savepoint inside one of the caller's), which first writes the
+ * session's issuance guard (`IssuanceGuard`) and only then takes the time the
+ * switch is judged and issued at: a switch that overlaps another issuance of
+ * the session, or a change of its proofs, waits for it and then reads what it
+ * committed, or, where its transaction reads a snapshot taken before (on
+ * PostgreSQL's REPEATABLE READ), fails to serialise, for the caller to retry.
  *
  * One switch is one instance, built with the guard's context, the client and
  * the target when the switch runs.
@@ -153,7 +162,11 @@ final readonly class SessionSwitch
     }
 
     /**
-     * Run the switch for the parsed claims on the session they name.
+     * Run the switch for the parsed claims on the session they name: a session
+     * of another guard (or of none) fails as `session_guard_mismatch` before
+     * anything is written to it, and a session of this guard is switched in one
+     * transaction on its connection that first writes its issuance guard; one
+     * whose row is gone by then fails as `session_unknown`.
      *
      * @param  ?array<string, mixed>  $claims
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending|\SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal
@@ -170,15 +183,28 @@ final readonly class SessionSwitch
 
         $sessionId = $claims[Claims::SESSION_ID->value];
         $session   = SessionLookup::find($sessionId);
+        $unknown   = fn (): AuthenticationFailed => self::refused(
+            FailureReason::SESSION_UNKNOWN,
+            new EventContext($this->context->name(), $this->client, sessionId: IdentifierCoercion::stringify($sessionId)),
+        );
 
-        return $session === null
-            ? self::refused(FailureReason::SESSION_UNKNOWN, new EventContext($this->context->name(), $this->client, sessionId: IdentifierCoercion::stringify($sessionId)))
-            : $this->switchOn($session, [$rotationId, $claims[Claims::PRINCIPAL->value] ?? null]);
+        if ($session === null) {
+            return $unknown();
+        }
+
+        $presented = [$rotationId, $claims[Claims::PRINCIPAL->value] ?? null];
+        $switch    = fn (): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal => IssuanceGuard::write($session)
+            ? $this->switchOn($session, $presented)
+            : $unknown();
+
+        return WriteConnection::during($session, static fn (): ?string => $session->getGuard()) === $this->context->name()
+            ? $session->getConnection()->transaction($switch)
+            : self::refused(FailureReason::SESSION_GUARD_MISMATCH, $this->eventContext($session));
     }
 
     /**
-     * Run the switch on the session the token names: its guard, the rotation id
-     * against it, the destination's admission, then the switch or the retry.
+     * Run the switch on the session of this guard the token names: the rotation
+     * id against it, the destination's admission, then the switch or the retry.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  array{0: string, 1: mixed}  $presented
@@ -189,9 +215,7 @@ final readonly class SessionSwitch
     private function switchOn(EloquentSession&Model $session, #[\SensitiveParameter] array $presented): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal
     {
         $now     = CarbonImmutable::now()->startOfSecond();
-        $verdict = WriteConnection::during($session, static fn (): ?string => $session->getGuard()) === $this->context->name()
-            ? RefreshJudgment::classify($session, $presented[0], $now, $this->tokens->lifetimes())
-            : FailureReason::SESSION_GUARD_MISMATCH;
+        $verdict = RefreshJudgment::classify($session, $presented[0], $now, $this->tokens->lifetimes());
 
         if ($verdict instanceof FailureReason) {
             return $this->fail($session, $verdict, $now);
@@ -582,7 +606,7 @@ final readonly class SessionSwitch
     private function issue(Admitted $admitted, EloquentSession&Model $session, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): TokenPair
     {
         return new TokenPair(
-            $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now),
+            $this->tokens->issueGuardedAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now),
             $this->tokens->issueRefreshToken($session, $rotationId, $admitted->principal, $now),
         );
     }

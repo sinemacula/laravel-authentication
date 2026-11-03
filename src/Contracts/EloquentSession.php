@@ -113,6 +113,17 @@ interface EloquentSession extends EloquentSessionOrigin, EloquentSessionStanding
     public function getSwitchedAtName(): string;
 
     /**
+     * Column name holding the session's issuance sequence: the issuance guard,
+     * an integer every issuance of an access token for the session, and every
+     * change of its proofs, increments first in its own transaction, so two of
+     * them on one session never read its proofs past each other. Nothing reads
+     * its value.
+     *
+     * @return string
+     */
+    public function getIssuanceSequenceName(): string;
+
+    /**
      * Column name holding the idle deadline.
      *
      * @return string

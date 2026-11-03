@@ -47,11 +47,26 @@ final class SessionLookup
         /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession $model */
         $model = new $class;
 
-        if (!StorageConnection::holds($model)) {
-            throw InvalidSessionModelConfigurationException::offStorage($class, StorageConnection::nameOf($model), StorageConnection::resolvedName());
-        }
+        self::assertOnStorage($model);
 
         return $model;
+    }
+
+    /**
+     * Refuse a session model that does not live on the storage connection,
+     * where the package writes its sessions with its other rows in one
+     * transaction, naming both connections.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    public static function assertOnStorage(EloquentSession&Model $model): void
+    {
+        if (!StorageConnection::holds($model)) {
+            throw InvalidSessionModelConfigurationException::offStorage($model::class, StorageConnection::nameOf($model), StorageConnection::resolvedName());
+        }
     }
 
     /**

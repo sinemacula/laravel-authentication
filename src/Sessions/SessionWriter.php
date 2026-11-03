@@ -458,6 +458,7 @@ final readonly class SessionWriter
             $session->getSupersedesRefreshKeyName() => null,
             $session->getAttemptWindowsName()       => null,
             $session->getSwitchedAtName()           => null,
+            $session->getIssuanceSequenceName()     => 0,
             $session->getGenerationName()           => Str::uuid7()->toString(),
             $session->getLastUsedAtName()           => $session->fromDateTime($now),
             $session->getLastUsedIpName()           => $context->client->ip,
@@ -511,6 +512,7 @@ final readonly class SessionWriter
             $session->getSupersedesSessionIdName()  => IdentifierCoercion::stringify($proven?->getSessionIdentifier()),
             $session->getSupersedesRefreshKeyName() => $proven?->getRefreshKey(),
             $session->getSwitchedAtName()           => null,
+            $session->getIssuanceSequenceName()     => 0,
             $session->getGenerationName()           => Str::uuid7()->toString(),
             $session->getLastUsedAtName()           => $session->fromDateTime($now),
             $session->getLastUsedIpName()           => $context->client->ip,
@@ -592,7 +594,9 @@ final readonly class SessionWriter
     }
 
     /**
-     * Issue the session's first pair at `$now`, after the session was written.
+     * Issue the session's first pair at `$now`, after the session was written:
+     * its insert is the issuance guard, and its proofs are only its own until
+     * the transaction commits, so they are read as it sees them.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -608,7 +612,7 @@ final readonly class SessionWriter
     private function issue(EloquentSession&Model $session, Admitted $admitted, string $method, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): SignedInSession
     {
         $tokens = new TokenPair(
-            $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now),
+            $this->tokens->issueGuardedAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now, true),
             $this->tokens->issueRefreshToken($session, $rotationId, $admitted->principal, $now),
         );
 

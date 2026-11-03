@@ -326,12 +326,22 @@ proves nothing (its session is already revoked) and gets another new session; th
 unused until it expires or is pruned. Do not give an existing session a new `refresh_key` yourself; let the session
 service do it.
 
-Every refresh judges the session at one moment, taken when it starts, so application servers should keep synchronised
-clocks. The package opens no transaction. If you call `refresh()` inside your own transaction, do not roll it back after
-a failed refresh: a rollback also undoes a replay revocation. `SessionRevoked` is dispatched once the revocation is
-committed on the session's own connection: at once outside a transaction, so before `Failed` and `AuthenticationFailed`,
-and after the commit inside one, so after them; a rolled-back revocation is never reported, and a transaction on another
-connection neither delays nor withdraws it. The transaction that Laravel's `DatabaseTransactions` and `RefreshDatabase`
-testing traits wrap around each test does not count either, so a test sees `SessionRevoked` when the application would.
-Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialization
-error, which surfaces as a server error for you to retry.
+Every refresh judges the session at one moment, so application servers should keep synchronised clocks. Once the session
+is found (and is this guard's: a token of another guard's session writes nothing to it), the exchange runs in one
+transaction on the session's connection, a savepoint inside yours, whose first statement writes the session's issuance
+guard (see [Issuance order](sessions.md#issuance-order)); the moment is taken after it, and everything the refresh
+judges and writes (its admission, the tenant's policy, the rotation, a grace retry, a return to pending, a replay
+revocation) follows in that transaction, with the session's row held until it commits. The application policy, the
+identity provider, the principal resolver and the tenant's authentication policy are asked while the row is held, so
+they must only read, or take no lock your transaction does not already hold. A failure while issuing rolls the
+transaction back, guard included, and leaves the presented token valid. A session whose row is gone by the time the
+guard is written fails as `session_unknown`. If you call `refresh()` inside your own transaction, do not roll it back
+after a failed refresh: a rollback also undoes a replay revocation. `SessionRevoked` is dispatched once the revocation
+is committed on the session's own connection: at once outside a transaction, so before `Failed` and
+`AuthenticationFailed`, and after the commit inside one, so after them; a rolled-back revocation is never reported, and
+a transaction on another connection neither delays nor withdraws it. The transaction that Laravel's
+`DatabaseTransactions` and `RefreshDatabase` testing traits wrap around each test does not count either, so a test sees
+`SessionRevoked` when the application would. Under PostgreSQL's REPEATABLE READ, a parallel refresh, switch, step-up or
+reauthentication of the session that commits first makes this one fail with a serialisation error on the guard, which
+surfaces as a server error for you to retry; at READ COMMITTED a parallel refresh with the same token waits for the
+first and is answered as a grace retry.

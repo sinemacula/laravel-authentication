@@ -15,7 +15,11 @@ use SineMacula\Laravel\Authentication\Contracts\Session;
  * The proofs are read in one aggregate query on the write connection, bounded
  * by the distinct kinds and `amr` sets the session recorded however long it
  * lives, so a session with many step-ups costs what one with a few does. Inside
- * the transaction that writes a proof, the read sees it.
+ * the transaction that writes a proof, the read sees it. The read is current
+ * (`SessionProofs::history()`), after the issuance has written the session's
+ * issuance guard, so it sees every proof an issuance or a proof change of the
+ * session committed before it; only a sign-in, whose new session holds no
+ * proofs but its own until it commits, reads them as its transaction sees them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,18 +34,20 @@ final class AuthenticationClaims
     private function __construct() {}
 
     /**
-     * The session's authentication time and `amr` values. A session the package
-     * wrote always has a counting first factor, so one without is a
-     * `LogicException`: no token is issued with no authentication time.
+     * The session's authentication time and `amr` values, read current unless
+     * `$current` is `false`. A session the package wrote always has a counting
+     * first factor, so one without is a `LogicException`: no token is issued
+     * with no authentication time.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  bool  $current
      * @return \SineMacula\Laravel\Authentication\Proofs\AuthenticationSummary
      *
      * @throws \LogicException
      */
-    public static function forSession(Session $session): AuthenticationSummary
+    public static function forSession(Session $session, bool $current = true): AuthenticationSummary
     {
-        $history = SessionProofs::history($session);
+        $history = SessionProofs::history($session, $current);
         $at      = $history->authenticatedAt();
 
         if ($at === null || !$history->hasFirstFactor()) {

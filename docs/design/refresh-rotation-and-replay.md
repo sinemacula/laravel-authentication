@@ -94,15 +94,27 @@ other rotated token as a replay that revokes the session.
   a lost rotation is, except that a grace retry gets no pair (`rotation_conflict`): the policy this exchange asked
   refused one. A pending session's refresh token is refused as `session_pending` before any digest is compared, so it is
   never taken for a replay.
-- The package opens no transaction around a refresh.
+- Once a session of this guard is found, the whole exchange runs in one transaction on the session's connection (a
+  savepoint inside a caller's), opened by the session's issuance guard (`SessionRecords\IssuanceGuard`, an increment of
+  `issuance_sequence`): the exchange's `$now` is taken after it, and the classification, admission, tenant policy,
+  rotation, grace reissue, lost-rotation reload, return to pending and replay revocation all follow inside it, the
+  session's row held until it commits. A step-up, reauthentication, switch or other refresh of the session that overlaps
+  it therefore either committed first (and the pair reads its proofs, current: `SessionProofs::history($session, true)`,
+  a shared lock on MySQL and MariaDB) or waits for it; under PostgreSQL's REPEATABLE READ a snapshot older than the
+  other fails to serialise on the guard, which the package never retries. A guard that finds no row (deleted after the
+  lookup) refuses as `session_unknown`. Events stay deferred until commit, and the attempt limiter stays outside the
+  transaction.
 
 ## Success Path
 
 - Parse the refresh JWT (which must carry this guard's `client_id`). Ask the limiter whether the token's `sid` (none for
   a token that does not parse) or the client's IP address has used up its failures; if so, stop with `rate_limited`.
 - Extract `sid`, `jti`, and optional `principal`, and load the configured session model by primary key from the write
-  connection (`SessionLookup::find()`); take `$now`.
-- Refuse a session whose `guard` is not this guard (or is `null`) with `session_guard_mismatch`.
+  connection (`SessionLookup::find()`).
+- Refuse a session whose `guard` is not this guard (or is `null`) with `session_guard_mismatch`, writing nothing to it:
+  the guard a session records never changes.
+- Open the exchange's transaction, write the session's issuance guard (`session_unknown` when it finds no row), and take
+  `$now`.
 - Classify the session at `$now`, before any identity or principal is loaded and before any rotation id is compared:
   1. revoked: `session_revoked`;
   2. session ended (either deadline reached or missing): `session_expired`;
@@ -200,8 +212,9 @@ other rotated token as a replay that revokes the session.
   server error for the caller to retry, with nothing revoked. A caller that rolls back a transaction on the session's
   connection around `refresh()` also rolls back a replay revocation, and `SessionRevoked` is then never dispatched; do
   not roll back around refresh.
-- An exception while issuing the new pair propagates without an `AuthenticationFailed` event and without touching the
-  session row, so the client can retry with the same refresh token.
+- An exception while issuing the new pair propagates without an `AuthenticationFailed` event, rolling the exchange's
+  transaction back with its issuance guard, so the session row is as it was and the client can retry with the same
+  refresh token.
 - After the swap, `refresh()` schedules `Refreshed` and `SignedIn` for the rotation's commit on the session's connection
   before it binds the new context (`Validated`, `Login` and the bind events), so a listener that throws on a bind event
   cannot withhold `Refreshed`. With no transaction open there they are dispatched at once, before the bind events;

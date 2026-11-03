@@ -698,8 +698,11 @@ public, and refuses contributed keys no contributor could give) or binds a fake 
   (see [At the external provider](sessions.md#at-the-external-provider)): only the very link that established the
   session reauthenticates it (`link_mismatch` otherwise, and for a session no link established), the session's row is
   locked after the adapter's own locks, and `auth_time` becomes the later of the session's and the provider's, under
-  that lock. The tenant's authentication policy and the evidence policy are then asked under that lock, so neither may
-  take a lock the adapter takes after the session's row. An adapter that must answer a session's standing
+  that lock and after the session's issuance guard (see [Issuance order](sessions.md#issuance-order)), so another
+  issuance of the session that overlaps it is counted or waits; at PostgreSQL's REPEATABLE READ, a redemption whose
+  snapshot predates one fails to serialise, for the adapter to retry the whole transaction. The tenant's authentication
+  policy and the evidence policy are then asked under that lock, so neither may take a lock the adapter takes after the
+  session's row. An adapter that must answer a session's standing
   (`laravel-sso`'s re-authentication sessions) asks `externalStanding($sessionId, $identity, $connectionId, $linkId)`:
   with no link id and outside a transaction when a flow starts, which locks nothing, and with the link id inside the
   redemption's transaction, which locks the row; it answers `null` or the reason.

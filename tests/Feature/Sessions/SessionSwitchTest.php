@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -68,6 +69,7 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
+use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
@@ -106,7 +108,7 @@ use Tests\TestCase;
 #[CoversTrait(SwitchesSessions::class)]
 final class SessionSwitchTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InspectsIssuanceGuards, InteractsWithProofs, InteractsWithSessions;
 
     /** @var string Guard over `ActivatableTenantMember`. */
     private const string GUARD = 'members';
@@ -479,7 +481,7 @@ final class SessionSwitchTest extends TestCase
         $this->advance(5);
         $this->switched($session, $second);
 
-        $row = (array) DB::table('authentication_sessions')->sole();
+        $row = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole());
 
         $this->advance(5);
 
@@ -490,7 +492,7 @@ final class SessionSwitchTest extends TestCase
         self::assertTrue($retried->isSwitched());
         self::assertTrue($retried->session?->principal->is($second)); // @phpstan-ignore method.notFound
         self::assertSame([], $this->recordedClasses());
-        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+        self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole()));
 
         $this->advance(1);
 
@@ -699,7 +701,7 @@ final class SessionSwitchTest extends TestCase
         [, $theirs] = $this->seedMember('other@example.test', $tenant);
 
         $session = $this->signIn();
-        $row     = (array) DB::table('authentication_sessions')->sole();
+        $row     = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole());
 
         $mismatch = $this->assertSwitchFails(FailureReason::PRINCIPAL_MISMATCH, $session, $theirs);
 
@@ -716,7 +718,7 @@ final class SessionSwitchTest extends TestCase
         $inactive = $this->assertSwitchFails(FailureReason::TENANT_INACTIVE, $session, $second);
 
         self::assertSame(IdentifierCoercion::stringify($second->getKey()), $inactive->context->principalId);
-        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+        self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole()));
     }
 
     /**
@@ -735,11 +737,11 @@ final class SessionSwitchTest extends TestCase
         self::refuseTenantsPrincipals($second->tenant_id);
 
         $session = $this->signIn();
-        $row     = (array) DB::table('authentication_sessions')->sole();
+        $row     = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole());
         $refused = $this->assertSwitchFails(FailureReason::PRINCIPAL_INELIGIBLE, $session, $second);
 
         self::assertSame(IdentifierCoercion::stringify($second->getKey()), $refused->context->principalId);
-        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+        self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole()));
     }
 
     /**
@@ -757,14 +759,14 @@ final class SessionSwitchTest extends TestCase
         [, $second] = $this->seedMemberships();
 
         $session = $this->signIn();
-        $row     = (array) DB::table('authentication_sessions')->sole();
+        $row     = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole());
 
         foreach ([['sso'], []] as $methods) {
             config()->set('auth.guards.' . self::GUARD . '.application.methods', $methods);
 
             $this->assertSwitchFails(FailureReason::METHOD_NOT_ALLOWED, $session, $second);
 
-            self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+            self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole()));
         }
 
         config()->set('auth.guards.' . self::GUARD . '.application.methods', ['password']);
@@ -787,7 +789,7 @@ final class SessionSwitchTest extends TestCase
         [, $second] = $this->seedMemberships();
 
         $session = $this->signIn();
-        $row     = (array) DB::table('authentication_sessions')->sole();
+        $row     = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole());
 
         config()->set('authentication.session.model', IdentifierTypeOmittingSession::class);
 
@@ -799,7 +801,7 @@ final class SessionSwitchTest extends TestCase
             self::assertStringContainsString('its `sign_in_identifier_type` attribute is not loaded', $exception->getMessage());
         }
 
-        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+        self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole()));
     }
 
     /**
@@ -847,7 +849,7 @@ final class SessionSwitchTest extends TestCase
         [, $second, $member] = $this->seedMemberships();
 
         $session = $this->signIn();
-        $row     = (array) DB::table('authentication_sessions')->sole();
+        $row     = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole());
         $package = app(ApplicationPolicy::class);
 
         $policy = \Mockery::mock(ApplicationPolicy::class);
@@ -862,7 +864,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->assertSwitchFails(FailureReason::IDENTIFIER_UNVERIFIED, $session, $second);
 
-        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+        self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole()));
     }
 
     /**
@@ -888,7 +890,8 @@ final class SessionSwitchTest extends TestCase
     /**
      * A token that is no refresh token of the guard, one naming an unknown
      * session, and one whose session belongs to another guard are refused
-     * before anything is switched.
+     * before anything is switched; nothing is written to the other guard's
+     * session, not even its issuance guard.
      *
      * @return void
      *
@@ -906,9 +909,84 @@ final class SessionSwitchTest extends TestCase
 
         $this->assertSwitchFails(FailureReason::SESSION_GUARD_MISMATCH, $session, $second);
 
+        self::assertSame(0, self::issuanceGuardWrites($session->record->getKey()));
+
         DB::table('authentication_sessions')->delete();
 
         $this->assertSwitchFails(FailureReason::SESSION_UNKNOWN, $session, $second);
+    }
+
+    /**
+     * A switch runs in one transaction whose first statement is the session's
+     * issuance guard, written after the session is looked up: the owner's and
+     * the target's reads, the read of the session's proofs for the access token
+     * and the compare-and-swap all follow it there, and the time the switch is
+     * judged and recorded at is taken once the guard is written.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchRunsInATransactionTheIssuanceGuardOpens(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session    = $this->signIn();
+        $later      = $this->now->addSeconds(2);
+        $statements = [];
+
+        DB::listen(function (QueryExecuted $query) use (&$statements, $later): void {
+            $statements[] = [$query->sql, $query->connection->transactionLevel()];
+
+            if (!str_contains($query->sql, 'issuance_sequence')) {
+                return;
+            }
+
+            $this->freezeAt($later);
+        });
+
+        $this->switched($session, $second);
+
+        $guard = array_key_first(array_filter($statements, static fn (array $statement): bool => str_contains($statement[0], 'issuance_sequence')));
+
+        self::assertIsInt($guard);
+        self::assertSame(0, $statements[$guard - 1][1]);
+        self::assertSame([1], array_values(array_unique(array_column(array_slice($statements, $guard, -1), 1))));
+        self::assertStringContainsString('group by', implode(' | ', array_column(array_slice($statements, $guard), 0)));
+        self::assertSame(0, DB::transactionLevel());
+        self::assertSame(1, self::issuanceGuardWrites($session->record->getKey()));
+        self::assertSame($later->toDateTimeString(), $this->storedTime('refresh_rotated_at'));
+    }
+
+    /**
+     * A session deleted between the switch's lookup and its issuance guard
+     * fails as `session_unknown`, as one the lookup never found does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionGoneBeforeTheGuardIsUnknown(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+        $ran     = false;
+
+        DB::connection()->beforeExecuting(static function (string $query) use (&$ran): void {
+            if ($ran || !str_contains($query, 'issuance_sequence')) {
+                return;
+            }
+
+            $ran = true;
+
+            DB::table('authentication_sessions')->delete();
+        });
+
+        $failure = $this->assertSwitchFails(FailureReason::SESSION_UNKNOWN, $session, $second);
+
+        self::assertTrue($ran);
+        self::assertSame(IdentifierCoercion::stringify($session->record->getKey()), $failure->context->sessionId);
     }
 
     /**
@@ -1119,7 +1197,7 @@ final class SessionSwitchTest extends TestCase
         app()->instance(ApplicationPolicy::class, $policy);
 
         $session = $this->signIn();
-        $before  = (array) DB::table('authentication_sessions')->first();
+        $before  = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->first());
 
         $this->advance(600);
 
@@ -1127,7 +1205,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->assertSwitchFails(FailureReason::SESSION_EXPIRED, $session, $second);
 
-        self::assertSame($before, (array) DB::table('authentication_sessions')->first());
+        self::assertSame($before, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->first()));
     }
 
     /**
@@ -1417,7 +1495,7 @@ final class SessionSwitchTest extends TestCase
 
         $other   = ActivatableTenant::query()->create(['name' => 'Unrelated', 'is_active' => true]);
         $session = $this->signIn();
-        $row     = (array) DB::table('authentication_sessions')->sole();
+        $row     = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole());
 
         $foreign = $this->assertTargetFails(FailureReason::TENANT_INELIGIBLE, $session, SwitchTarget::tenant(TenantSelection::of($other->getKey())));
 
@@ -1431,7 +1509,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->assertTargetFails(FailureReason::TENANT_INACTIVE, $session, SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
 
-        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+        self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole()));
     }
 
     /**
@@ -1509,7 +1587,7 @@ final class SessionSwitchTest extends TestCase
         $policy = $this->scriptPolicy([IdentifierCoercion::stringify($second->tenant_id) => new TenantRequirement('v1', connections: ['their-idp'])]);
 
         $session = $this->signIn();
-        $row     = (array) DB::table('authentication_sessions')->sole();
+        $row     = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole());
 
         $this->advance(5);
 
@@ -1518,7 +1596,7 @@ final class SessionSwitchTest extends TestCase
 
         self::assertSame(IdentifierCoercion::stringify($second->getKey()), $refused->context->principalId);
         self::assertSame(IdentifierCoercion::stringify($second->tenant_id), $refused->context->tenantId);
-        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+        self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole()));
         self::assertCount($asked + 1, $policy->asked);
 
         $this->bearer($session->tokens->accessToken->reveal())->assertOk();
@@ -1828,7 +1906,7 @@ final class SessionSwitchTest extends TestCase
         self::assertNotSame($this->storedTime('refresh_rotated_at'), $this->storedTime('switched_at'));
         self::assertTrue($first->is($back->principal));
 
-        $row = (array) DB::table('authentication_sessions')->sole();
+        $row = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole());
 
         $this->recordEvents([PrincipalSwitched::class, AuthenticationFailed::class]);
 
@@ -1837,7 +1915,7 @@ final class SessionSwitchTest extends TestCase
         self::assertTrue($retried->isSwitched());
         self::assertTrue($first->is($retried->session?->principal));
         self::assertSame([], $this->recordedClasses());
-        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+        self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole()));
     }
 
     /**
@@ -1870,11 +1948,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->scriptPolicy([$tenant => new TenantRequirement('v1', connections: ['conn-a'])]);
 
-        $row = (array) DB::table('authentication_sessions')->sole();
+        $row = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole());
 
         $this->assertTargetFails(FailureReason::SSO_REQUIRED, $session, $target);
 
-        self::assertEquals($row, (array) DB::table('authentication_sessions')->sole());
+        self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole()));
 
         $this->scriptPolicy([$tenant => new TenantRequirement('v2', new Requirement(phishingResistance: new RequirementPart))]);
 

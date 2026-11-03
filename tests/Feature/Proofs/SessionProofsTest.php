@@ -13,6 +13,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
@@ -41,6 +42,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\PretendsStorageEngines;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainSessionFixture;
 
@@ -64,7 +66,7 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 #[CoversClass(RecordedProof::class)]
 final class SessionProofsTest extends TestCase
 {
-    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions, PretendsStorageEngines;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -387,6 +389,37 @@ final class SessionProofsTest extends TestCase
         $contract->shouldReceive('getGuard')->andReturn('api');
 
         self::assertNull(SessionProofs::history($contract)->authenticatedAt());
+    }
+
+    /**
+     * A current read of the history, as an issuance makes once it has written
+     * the session's issuance guard, takes a shared lock on MySQL and MariaDB,
+     * whose plain reads inside a REPEATABLE READ transaction return its
+     * snapshot, and on no other engine (PostgreSQL refuses one on a grouped
+     * read); the plain read, the default, never takes one. Either is the one
+     * grouped query.
+     *
+     * @param  string  $driver
+     * @return void
+     */
+    #[DataProvider('provideStorageEngines')]
+    public function testOnlyACurrentHistoryReadOnMysqlOrMariadbTakesASharedLock(string $driver): void
+    {
+        $session = new PlainSessionFixture('0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70');
+
+        $current = self::statementsOn($driver, static function () use ($session): void {
+            self::assertNull(SessionProofs::history($session, true)->authenticatedAt());
+        });
+
+        $plain = self::statementsOn($driver, static function () use ($session): void {
+            self::assertNull(SessionProofs::history($session)->authenticatedAt());
+        });
+
+        self::assertCount(1, $current);
+        self::assertCount(1, $plain);
+        self::assertStringContainsString('group by', $current[0]);
+        self::assertSame(in_array($driver, ['mysql', 'mariadb'], true), str_ends_with($current[0], ' lock in share mode'));
+        self::assertSame(str_replace(' lock in share mode', '', $current[0]), $plain[0]);
     }
 
     /**

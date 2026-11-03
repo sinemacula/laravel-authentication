@@ -7,7 +7,7 @@ namespace Tests\Integration\Guards;
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Database\QueryException;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -346,11 +346,14 @@ final class RefreshReplayIntegrationTest extends TestCase
 
     /**
      * Inside a caller's REPEATABLE READ transaction, a parallel refresh that
-     * commits between this refresh's read and its swap is handled as the engine
-     * allows: MySQL's locking re-read sees the committed rotation, so this
-     * refresh is a grace retry; PostgreSQL refuses the swap with a
-     * serialisation failure, which propagates as a server error for the caller
-     * to retry, and nothing is revoked.
+     * commits between this refresh's read and its issuance guard (it can no
+     * longer commit after the guard, which holds the row until this refresh
+     * ends) is handled as the engine allows: on MySQL the guard and the
+     * compare-and-swap see the committed rotation, the swap misses and the
+     * locking re-read makes this refresh a grace retry; PostgreSQL refuses the
+     * guard with a serialisation failure, raised inside the caller's
+     * transaction as a `DeadlockException` for the caller to retry, and nothing
+     * is revoked.
      *
      * @return void
      *
@@ -369,7 +372,7 @@ final class RefreshReplayIntegrationTest extends TestCase
 
         $token = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
 
-        $this->beforeTheSwap(function () use ($session): void {
+        $this->beforeTheGuard(function () use ($session): void {
             DB::connection(self::COMPETITOR)->table('authentication_sessions')->where('id', $session->getKey())->update([
                 'refresh_key'          => RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)),
                 'previous_refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID),
@@ -387,11 +390,11 @@ final class RefreshReplayIntegrationTest extends TestCase
             $result = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
 
             DB::commit();
-        } catch (QueryException $exception) {
+        } catch (DeadlockException $exception) {
             DB::rollBack();
 
             self::assertSame('pgsql', $driver);
-            self::assertSame('40001', $exception->getCode());
+            self::assertSame('40001', $exception->getPrevious()?->getCode());
             self::assertNull(DB::connection(self::COMPETITOR)->table('authentication_sessions')->where('id', $session->getKey())->value('revoked_at'));
 
             return;
@@ -489,6 +492,28 @@ final class RefreshReplayIntegrationTest extends TestCase
             'previous_refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID),
             'refresh_rotated_at'   => $rotatedAt,
         ]);
+    }
+
+    /**
+     * Run a callback once, just before the refresh's issuance guard executes on
+     * the default connection.
+     *
+     * @param  \Closure(): void  $callback
+     * @return void
+     */
+    private function beforeTheGuard(\Closure $callback): void
+    {
+        $ran = false;
+
+        DB::connection()->beforeExecuting(static function (string $query) use (&$ran, $callback): void {
+            if ($ran || !str_contains($query, 'issuance_sequence')) {
+                return;
+            }
+
+            $ran = true;
+
+            $callback();
+        });
     }
 
     /**

@@ -138,10 +138,11 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
         ]);
 
         // The proofs table keeps any key as a string, so the token can say how
-        // the session authenticated.
+        // the session authenticated; the session has no row, so the token is
+        // minted without the issuance guard the public issue writes to it.
         self::recordProof($malformed, ProofKind::FIRST_FACTOR, Carbon::now(), ['pwd']);
 
-        $token = $this->accessToken($identity, $malformed);
+        $token = $this->authManager()->jwt('api')->issueGuardedAccessToken($identity, $identity, null, $malformed, Carbon::now())->reveal();
 
         DB::enableQueryLog();
 

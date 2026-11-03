@@ -80,6 +80,12 @@ return new class extends Migration {
             // before the change is refused even when the context comes back.
             $blueprint->dateTime('switched_at', 0)->nullable();
 
+            // Written first by every access-token issuance that does not
+            // already write the row first, and by every change of the session's
+            // proofs, in the same transaction, so two of them never pass each
+            // other unseen (the issuance guard); never read for anything.
+            $blueprint->unsignedBigInteger('issuance_sequence')->default(0);
+
             $blueprint->string('guard')->nullable();
             $blueprint->string('sign_in_method')->nullable();
             $blueprint->string('sign_in_identifier_type')->nullable();

@@ -113,9 +113,10 @@ session holds; the token's claims and every freshness answer are worked out from
 - A step-up (`SessionService::stepUp()`) and a reauthentication (`reauthenticate()`) share `Sessions\ProofIssuance`:
   in one transaction on the session's connection, the session's row is locked; the session must exist, be this guard's,
   live and a person's; the operation's own check runs on the locked row; the session is admitted again as a refresh
-  admits it; the proof is recorded and one access token issued, its claims derived with the new proof included. The
-  refresh token, the deadlines and the session row are untouched, so a concurrent refresh's compare-and-swap is
-  unaffected, and nothing is bound to the request.
+  admits it; the session's issuance guard is written, the proof is recorded and one access token issued, its claims
+  derived with the new proof included. The refresh token and the deadlines are untouched, and the session row takes only
+  its issuance guard, which no compare-and-swap reads, so a concurrent refresh's compare-and-swap is unaffected, and
+  nothing is bound to the request. A proof refused before it is recorded writes nothing.
 - A step-up takes only an `additional_factor` or a `recovery_code`, accepted, made for `step_up`, no later than now and
   no earlier than the session started (`proof_invalid`), bound to the session's owner, this guard and the session's key
   (`proof_binding_mismatch`). A reauthentication runs an allowed, non-machine sign-in method under the `sign_in` limits
@@ -183,11 +184,15 @@ session holds; the token's claims and every freshness answer are worked out from
   removal or widened scope, say) that commits before the reauthentication's lock refuses it as `session_revoked`; one
   that commits after ends the new token at its next request.
 - Two reauthentications at the provider racing on one session both record their proofs; `auth_time` is the later
-  provider time whichever commits last, since it is derived from the proofs, never written. The proofs are read with a
-  plain read, so inside a caller's transaction at REPEATABLE READ (MySQL's default) or above whose first read came
-  before the other committed, the token issued second leaves the other's proof out of its `auth_time` and `amr`. That
-  token is only ever older than the proofs say, never fresher, and the next token issued counts both. The same holds
-  for a step-up and a reauthentication with a factor, which share the issuance.
+  provider time whichever commits last, since it is derived from the proofs, never written. Each writes the session's
+  issuance guard (`SessionRecords\IssuanceGuard`) before its proof and reads the proofs for its token current
+  (`SessionProofs::history($session, true)`: a shared lock on MySQL and MariaDB, whose plain reads inside a REPEATABLE
+  READ transaction return its first snapshot), so the token issued second counts the other's proof. Inside a caller's
+  transaction at PostgreSQL's REPEATABLE READ or SERIALIZABLE whose snapshot predates the other's commit, no read could
+  see it, and the second fails to serialise on the guard (or on its own lock of the row the first's guard wrote)
+  instead, for the caller to retry whole. The same holds for every issuer of a session's tokens: in commit order no
+  token carries an older `auth_time` or fewer `amr` values than one before it, except where a factor's removal voided
+  proofs on purpose (`FactorRevocations` writes the guard before it voids).
 - An exception from the evidence policy or the link contract, and a database error (a serialization failure included),
   propagates and rolls back the caller's transaction, for the adapter to retry whole.
 - All the accepted evidence the session holds (within `EVIDENCE_LIMIT` proofs) is judged against a requirement, newest

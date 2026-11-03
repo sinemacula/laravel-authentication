@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
+use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -60,6 +61,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversTrait(VerifiesPinnedContext::class)]
 final class SessionLifetimeIntegrationTest extends TestCase
 {
+    use InspectsIssuanceGuards;
+
     /** @var string Plaintext rotation id of the session's first refresh token. */
     private const string ROTATION_ID = 'first-rotation-id';
 
@@ -420,8 +423,9 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
     /**
      * A refresh at or after either deadline fails with `session_expired`,
-     * writes nothing, and does not revoke the session: expiry is not
-     * revocation. One second earlier, the same refresh succeeds.
+     * writes nothing but the session's issuance guard, and does not revoke the
+     * session: expiry is not revocation. One second earlier, the same refresh
+     * succeeds.
      *
      * @param  int  $idleIn
      * @param  int  $absoluteIn
@@ -451,7 +455,8 @@ final class SessionLifetimeIntegrationTest extends TestCase
         }
 
         self::assertSame(FailureReason::SESSION_EXPIRED, $this->refreshFailure($token));
-        self::assertSame($before, $this->storedRow($session));
+        self::assertSame(self::withoutIssuanceGuard($before), self::withoutIssuanceGuard($this->storedRow($session)));
+        self::assertSame(1, self::issuanceGuardWrites($session->getKey()));
         self::assertNull($this->stored($session)->getRevokedAt());
     }
 

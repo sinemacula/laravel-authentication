@@ -179,6 +179,7 @@ trait InteractsWithSessionRecords
             $blueprint->string('tenant_id')->nullable();
             $blueprint->string('tenant_policy_version', 64)->nullable();
             $blueprint->dateTime('switched_at', 0)->nullable();
+            $blueprint->unsignedBigInteger('issuance_sequence')->default(0);
             $blueprint->string('guard')->nullable();
             $blueprint->string('sign_in_method')->nullable();
             $blueprint->string('sign_in_identifier_type')->nullable();

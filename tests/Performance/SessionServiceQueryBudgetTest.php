@@ -255,10 +255,12 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
      * and the IP address's); looking it up reads the session, its owner, its
      * first factor and the one page of proofs the check judges for what is
      * still outstanding; and satisfying it locks and reads the session and its
-     * owner, writes the further factor's proof, reads its first factor and the
-     * page of proofs the check judges, activates the session with one update,
-     * reads its proofs for the access token's `auth_time` and `amr`, and gives
-     * the three slots back.
+     * owner, writes the session's issuance guard (so an issuance of the session
+     * that overlaps the proof reads it) and the further factor's proof, reads
+     * its first factor and the page of proofs the check judges, activates the
+     * session with one update, which is the activation's own guard, reads its
+     * proofs for the access token's `auth_time` and `amr`, and gives the three
+     * slots back.
      *
      * @return void
      *
@@ -284,7 +286,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
         $proof    = self::proofFor($identity, $result->pending->id);
 
-        self::assertTrue($this->assertQueryBudget(5, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
     }
 
     /**
@@ -316,7 +318,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions('members');
         $proof    = self::proofFor($member, $result->pending->id, 'members');
 
-        self::assertTrue($this->assertQueryBudget(8, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(8, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
     }
 
     /**
@@ -351,7 +353,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions('members');
         $proof    = self::proofFor($member, $result->pending->id, 'members');
 
-        self::assertTrue($this->assertQueryBudget(8, 5, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(8, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
         self::assertSame(1, $this->firstFactorReads());
     }
 
@@ -383,7 +385,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $credential = $pending->credential->reveal();
         $proof      = self::proofFor($identity, $pending->pending->id);
         $sessions   = $this->sessions();
-        $result     = $this->assertQueryBudget(6, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof));
+        $result     = $this->assertQueryBudget(6, 7, static fn (): SignInResult => $sessions->satisfy($credential, $proof));
 
         self::assertSame($pending->pending->id, $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));

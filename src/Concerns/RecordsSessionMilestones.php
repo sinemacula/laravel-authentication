@@ -9,8 +9,8 @@ use Carbon\CarbonInterface;
 /**
  * Default Eloquent-backed accessors for the generation a session started with,
  * when it started and the floor its context changes set for its access tokens'
- * issue time, using conventional attribute names. Override the `*Name()`
- * methods to remap columns.
+ * issue time, and the name of its issuance guard, using conventional attribute
+ * names. Override the `*Name()` methods to remap columns.
  *
  * The times are session state: a session loaded without either column throws a
  * `LogicException` rather than reading the missing value as `null`. The
@@ -76,5 +76,15 @@ trait RecordsSessionMilestones
     public function getSwitchedAtName(): string
     {
         return 'switched_at';
+    }
+
+    /**
+     * Column name holding the session's issuance sequence, the issuance guard.
+     *
+     * @return string
+     */
+    public function getIssuanceSequenceName(): string
+    {
+        return 'issuance_sequence';
     }
 }
