@@ -164,12 +164,7 @@ final class RequirementJudge
      */
     private static function meetsByEvidence(EvidenceSubject $subject, ?Session $session, ?SessionEvidence $evidence, Requirement $requirement): bool
     {
-        $held = $evidence !== null || $session === null ? array_filter([$evidence?->externalEvidence]) : SessionProofs::acceptedEvidence($session);
-
-        if ($held === []) {
-            return false;
-        }
-
+        $held   = $evidence !== null || $session === null ? array_filter([$evidence?->externalEvidence]) : SessionProofs::acceptedEvidence($session);
         $policy = Container::getInstance()->make(ExternalEvidencePolicy::class);
 
         foreach ($held as $external) {

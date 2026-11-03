@@ -278,7 +278,9 @@ final class RequirementJudgeTest extends TestCase
 
     /**
      * With a first factor but neither a session nor evidence the subject has no
-     * proofs to read.
+     * proofs to read, and no evidence: given one an external provider made, the
+     * evidence policy is never asked, however much it would trust, nothing is
+     * read, and the check alone judges.
      *
      * @return void
      *
@@ -288,10 +290,22 @@ final class RequirementJudgeTest extends TestCase
     {
         [$member] = $this->seedMember();
 
-        $first = SignInProof::unattested('password', CarbonImmutable::now())->recorded();
+        $now      = CarbonImmutable::now()->startOfSecond();
+        $first    = SignInProof::unattested('password', $now)->recorded();
+        $policy   = $this->trustEvidenceFor([RequirementKind::ADDITIONAL_VERIFICATION]);
+        $accepted = new ExternalEvidence(['hwk'], null, $now);
+        $external = SignInProof::external('sso', new Provenance('conn-a', evidence: $accepted), $now, new Evaluation(true, true))->recorded();
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, null, $first, CarbonImmutable::now(), null, new Requirement(new RequirementPart)));
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, $first, $now, null, new Requirement(new RequirementPart)));
         self::assertSame([], $this->check->judged[0]->proofs());
+
+        DB::enableQueryLog();
+
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, $external, $now, null, new Requirement(new RequirementPart)));
+        self::assertSame([], DB::getQueryLog());
+        self::assertSame([], $policy->asked);
+        self::assertSame(2, $this->judgedCount());
+        self::assertSame([], $this->check->judged[1]->proofs());
     }
 
     /**
