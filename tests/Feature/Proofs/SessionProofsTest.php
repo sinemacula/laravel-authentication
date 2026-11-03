@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofHistory;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
+use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -730,6 +731,33 @@ final class SessionProofsTest extends TestCase
             ->update(['evidence' => '{"methods":"broken"}']);
 
         self::assertNull(SessionProofs::acceptedEvidence($record));
+    }
+
+    /**
+     * The provenance reads back with the evidence it recorded accepted, and
+     * with none when it recorded none or holds it malformed.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheProvenanceReadsBackWithItsAcceptedEvidence(): void
+    {
+        $record   = $this->signedIn()->record;
+        $evidence = new ExternalEvidence(['hwk'], 'phrh', $this->now->subMinute());
+
+        self::assertNull(SessionProofs::provenance($record));
+
+        ProofWriter::provenance($record, new Provenance('conn-a', linkId: 'link-1', evidence: $evidence));
+
+        $read = SessionProofs::provenance($record);
+
+        self::assertSame(['conn-a', 'link-1'], [$read?->connectionId, $read?->linkId]);
+        self::assertEquals($evidence, $read?->evidence);
+
+        DB::table('authentication_provenance')->update(['accepted_evidence' => '{"methods":[""]}']);
+
+        self::assertNull(SessionProofs::provenance($record)?->evidence);
     }
 
     /**

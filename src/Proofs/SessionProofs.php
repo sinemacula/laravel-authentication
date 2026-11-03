@@ -234,6 +234,7 @@ final class SessionProofs
             $row->provider_session_expires_at,
             $row->policy_version,
             $row->link_id,
+            ExternalEvidence::fromStored($row->accepted_evidence),
         ) : null;
     }
 
