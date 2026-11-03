@@ -9,6 +9,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -111,9 +112,15 @@ final readonly class SessionReauthentication
     {
         SessionPreconditions::assertSessionMethod($method);
 
-        $now       = CarbonImmutable::now()->startOfSecond();
+        $now    = CarbonImmutable::now()->startOfSecond();
+        $policy = CredentialAttempt::checkMethod($this->container, $this->context->name(), $method);
+
+        if ($policy instanceof Refused) {
+            return $this->fail($policy, $method, null);
+        }
+
         $challenge = $this->challengeOf($method, $input);
-        $outcome   = $this->verified($session, $method, $input, $now);
+        $outcome   = $this->verified($session, $policy, $method, $input, $now);
 
         if ($outcome instanceof Refused) {
             return $this->fail($outcome, $method, $challenge);
@@ -144,15 +151,17 @@ final readonly class SessionReauthentication
     }
 
     /**
-     * Check the method and the session, take the attempt's slot, and verify the
-     * input for the session's owner: the stored session, the first factor, the
-     * time it was verified and the attempt, or the refusal.
+     * Check the session, take the attempt's slot, and verify the input for the
+     * session's owner under the policy that allowed the method: the stored
+     * session, the first factor, the time it was verified and the attempt, or
+     * the refusal.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy  $policy
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
      * @param  \Carbon\CarbonImmutable  $now
@@ -164,19 +173,14 @@ final readonly class SessionReauthentication
      *
      * @throws \Throwable
      */
-    private function verified(Session $session, string $method, #[\SensitiveParameter] array $input, CarbonImmutable $now): array|Refused
+    private function verified(Session $session, ApplicationPolicy $policy, string $method, #[\SensitiveParameter] array $input, CarbonImmutable $now): array|Refused
     {
         $guard  = $this->context->name();
-        $policy = CredentialAttempt::checkMethod($this->container, $guard, $method);
-        $stored = $policy instanceof Refused ? null : self::stored($session);
+        $stored = self::stored($session);
         $live   = $stored === null ? FailureReason::SESSION_UNKNOWN : OwnedSession::refusal($stored, $guard, $now);
 
-        if ($policy instanceof Refused || $stored === null || $live !== null || SessionOwnership::isMachineOwned($stored)) {
-            return match (true) {
-                $policy instanceof Refused => $policy,
-                $live !== null             => new Refused($live, session: $stored),
-                default                    => new Refused(FailureReason::MACHINE_IDENTITY, session: $stored),
-            };
+        if ($stored === null || $live !== null || SessionOwnership::isMachineOwned($stored)) {
+            return new Refused($live ?? FailureReason::MACHINE_IDENTITY, session: $stored);
         }
 
         $driver  = $this->container->make(SignInMethodManager::class)->method($method);
@@ -260,7 +264,9 @@ final readonly class SessionReauthentication
 
     /**
      * The id of the challenge the input answers, as the method registered under
-     * the name says, or `null` for a name no method is registered under.
+     * the name says, or `null` for a name no method is registered under. Asked
+     * only once the application allowed the method, so a method it does not
+     * allow is refused without its driver being built.
      *
      * @param  string  $method
      * @param  array<array-key, mixed>  $input

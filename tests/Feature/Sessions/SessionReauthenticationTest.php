@@ -243,8 +243,9 @@ final class SessionReauthenticationTest extends TestCase
 
     /**
      * A method the application does not allow is refused before anything is
-     * counted, one no method is registered under naming no challenge, and a
-     * machine credential kind is no method at all.
+     * counted and before its driver is built, naming no challenge whether a
+     * method is registered under it or not, and a machine credential kind is no
+     * method at all.
      *
      * @return void
      *
@@ -270,6 +271,23 @@ final class SessionReauthenticationTest extends TestCase
         $unregistered = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
 
         self::assertSame([FailureReason::METHOD_NOT_ALLOWED, null], [$unregistered->reason, $this->recordedEvent(AuthenticationFailed::class)->challengeId]);
+
+        $built = false;
+
+        app(SignInMethodManager::class)->extend('badge', function () use (&$built): SignInMethod {
+
+            $built = true;
+
+            return new RefusalIgnoringSignIn;
+        });
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $disallowed = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
+
+        self::assertSame([FailureReason::METHOD_NOT_ALLOWED, null], [$disallowed->reason, $this->recordedEvent(AuthenticationFailed::class)->challengeId]);
+        self::assertFalse($built);
+        self::assertSame(0, DB::table('rate_limits')->count());
 
         $this->expectException(\InvalidArgumentException::class);
 
