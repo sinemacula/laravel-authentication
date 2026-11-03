@@ -44,14 +44,14 @@ final class EvidenceAcceptanceTest extends TestCase
     }
 
     /**
-     * Evidence the policy says meets multifactor authentication is accepted as
-     * multifactor, after one question; evidence it says meets only an
+     * Evidence the policy accepts for multifactor authentication is accepted as
+     * multifactor, after one question; evidence it accepts only for an
      * additional verification is accepted, not as multifactor, after it was
-     * asked for multifactor first; evidence it says meets only phishing
-     * resistance is accepted, not as multifactor, after both; evidence that
-     * meets none (a minimum level alone) is not accepted. Each question asks
-     * for the one part, of any age, about the subject, with reads pinned to the
-     * write connection.
+     * asked for multifactor first; evidence it accepts only for phishing
+     * resistance is accepted, not as multifactor, after both; evidence it
+     * accepts for none (a minimum level alone) is not accepted. Each question
+     * is the policy's `accepts()`, for the one part, of any age, about the
+     * subject, with reads pinned to the write connection.
      *
      * @return void
      */
@@ -67,7 +67,9 @@ final class EvidenceAcceptanceTest extends TestCase
         self::assertCount(1, $multifactor->asked);
         self::assertSame([RequirementKind::MULTIFACTOR], $multifactor->asked[0]['requirement']->kinds());
         self::assertNull($multifactor->asked[0]['requirement']->multifactor?->maxAgeSeconds);
-        self::assertSame([$evidence, $subject, true], [$multifactor->asked[0]['evidence'], $multifactor->asked[0]['subject'], $multifactor->asked[0]['pinned']]);
+        $asked = $multifactor->asked[0];
+
+        self::assertSame([$evidence, $subject, true, true], [$asked['evidence'], $asked['subject'], $asked['pinned'], $asked['accepting']]);
 
         $additional = $this->bind([RequirementKind::ADDITIONAL_VERIFICATION]);
 
@@ -90,7 +92,7 @@ final class EvidenceAcceptanceTest extends TestCase
         $none = $this->bind([RequirementKind::MINIMUM_LEVEL]);
 
         self::assertNull(EvidenceAcceptance::evaluate($evidence, $subject));
-        self::assertCount(3, $none->asked);
+        self::assertSame([true, true, true], array_column($none->asked, 'accepting'));
     }
 
     /**
@@ -140,9 +142,23 @@ final class EvidenceAcceptanceTest extends TestCase
              * @throws \RuntimeException
              */
             #[\Override]
-            public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
+            public function accepts(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
             {
                 throw new \RuntimeException('The trust store is unavailable.');
+            }
+
+            /**
+             * Meet nothing: acceptance is all this policy is asked.
+             *
+             * @param  \SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
+             * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+             * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
+             * @return bool
+             */
+            #[\Override]
+            public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
+            {
+                return false;
             }
         });
 

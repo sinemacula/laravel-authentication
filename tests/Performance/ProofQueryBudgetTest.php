@@ -293,10 +293,11 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
 
         $now     = $this->now->toImmutable()->addSeconds(self::MANY);
         $started = hrtime(true);
-        $newest  = $this->assertQueryBudget(1, 0, static fn (): ?ExternalEvidence => SessionProofs::acceptedEvidence($record));
+        $held    = $this->assertQueryBudget(1, 0, static fn (): array => SessionProofs::acceptedEvidence($record));
         $read    = (hrtime(true) - $started) / 1e9;
 
-        self::assertSame($now->getTimestamp(), $newest?->authenticatedAt->getTimestamp());
+        self::assertCount(1, $held);
+        self::assertSame($now->getTimestamp(), $held[0]->authenticatedAt->getTimestamp());
         self::assertLessThan(self::READ_CEILING_SECONDS, $read);
         $requirement = new Requirement(multifactor: new RequirementPart);
 

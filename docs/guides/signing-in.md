@@ -235,9 +235,9 @@ recorded with the session, pending or active, and never rewritten, and the provi
 context's (see [A sign-in's own deadline](#a-sign-ins-own-deadline)), so the earlier of the two caps the session's
 absolute deadline. The evidence counts only when the application's `ExternalEvidencePolicy` accepts it for the linked
 identity (as multifactor authentication, an additional verification or phishing resistance): the first proof then
-carries the acceptance, so the token's `amr` gains `mfa` when it met multifactor authentication, the provenance records
-the evidence, and the identity-level requirement and a tenant's are judged against it at once. Evidence it does not
-accept is never recorded (see [Proofs and provenance](sessions.md#proofs-and-provenance)).
+carries the acceptance, so the token's `amr` gains `mfa` when it was accepted for multifactor authentication, the
+provenance records the evidence, and the identity-level requirement and a tenant's are judged against it at once.
+Evidence it does not accept is never recorded (see [Proofs and provenance](sessions.md#proofs-and-provenance)).
 
 ```php
 use SineMacula\Laravel\Authentication\External\ExternalResult;

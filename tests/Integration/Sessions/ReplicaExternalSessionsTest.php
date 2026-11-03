@@ -129,7 +129,7 @@ final class ReplicaExternalSessionsTest extends TestCase
 
         $this->assertTheReplicaHoldsNoSession();
 
-        self::assertEquals($evidence, SessionProofs::acceptedEvidence($record));
+        self::assertEquals([$evidence], SessionProofs::acceptedEvidence($record));
         self::assertEquals($evidence, SessionProofs::provenance($record)?->evidence);
     }
 

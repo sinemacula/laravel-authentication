@@ -25,7 +25,12 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
  * The subject reads the session's counting proofs through bounded queries on
  * the write connection: ask it for what the requirement needs (by kind, and
  * since the oldest time a part's maximum age allows) rather than the whole
- * history.
+ * history. An external provider's proof (a first factor over the
+ * `external_provider` channel, an `external_reauthentication`) reads back with
+ * no evaluation, and never meets a requirement here: the evidence beside it was
+ * accepted for the whole application, of any age and for no tenant, and only
+ * the evidence contract judges it, for the tenant whose requirement it is and
+ * on the evidence's own time. Count no part of a requirement met by one.
  *
  * The package asks it inside `WriteConnection::during()` for the identity, so a
  * model read it makes of its own state (an identity's factors, how a factor is

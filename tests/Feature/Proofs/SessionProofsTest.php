@@ -665,8 +665,10 @@ final class SessionProofsTest extends TestCase
     /**
      * An external proof whose evidence was accepted counts like any other: its
      * values join `amr`, with `mfa` when its acceptance reports multifactor,
-     * and it reads back with its evidence; one whose evidence was not accepted
-     * only moves the time.
+     * and it reads back with its evidence but no evaluation, so a requirement
+     * check never takes the application's acceptance of evidence of any age for
+     * a tenant's multifactor proof; one whose evidence was not accepted only
+     * moves the time.
      *
      * @return void
      *
@@ -690,39 +692,43 @@ final class SessionProofsTest extends TestCase
         self::assertSame($this->now->addMinutes(3)->getTimestamp(), $summary->authenticatedAt->getTimestamp());
         self::assertSame(['pwd', FirstFactor::EXTERNAL_PROVIDER_METHOD, 'mfa'], $summary->methods);
         self::assertCount(2, $read);
-        self::assertEquals(new Evaluation(true, true), $read[0]->evaluation);
+        self::assertNull($read[0]->evaluation);
         self::assertEquals($evidence, $read[0]->evidence);
         self::assertNull($read[1]->evaluation);
         self::assertNull($read[1]->evidence);
     }
 
     /**
-     * The accepted evidence is the newest by the evidence's own time among the
-     * session's counting proofs: not the newest proof, never a voided proof's,
-     * and never what a row holds malformed; a session that holds none has none.
+     * The accepted evidence is every piece the session's counting proofs hold,
+     * newest by the evidence's own time first (not by the proof's), and of
+     * evidence asserting the same methods and context only the newest; never a
+     * voided proof's, and never what a row holds malformed; a session that
+     * holds none has none.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheAcceptedEvidenceIsTheNewestByItsOwnTime(): void
+    public function testTheAcceptedEvidenceIsNewestByItsOwnTimeFirst(): void
     {
         $record = $this->signedIn()->record;
 
-        self::assertNull(SessionProofs::acceptedEvidence($record));
+        self::assertSame([], SessionProofs::acceptedEvidence($record));
 
         $older  = new ExternalEvidence(['otp'], null, $this->now->subMinutes(10));
+        $copy   = new ExternalEvidence(['otp'], null, $this->now->subMinutes(20));
         $newest = new ExternalEvidence(['hwk'], 'phrh', $this->now->subMinutes(2));
         $voided = new ExternalEvidence(['pin'], null, $this->now->subMinute());
 
         self::recordExternal($record, $this->now->addMinutes(5), $older);
+        self::recordExternal($record, $this->now->addMinutes(6), $copy);
         self::recordExternal($record, $this->now->addMinutes(3), $newest);
         self::recordExternal($record, $this->now->addMinutes(1), $voided, 'voided-factor');
         self::recordExternal($record, $this->now->addMinutes(7), null);
 
         ProofWriter::void($record, 'api', 'voided-factor', $this->now);
 
-        self::assertEquals($newest, SessionProofs::acceptedEvidence($record));
+        self::assertEquals([$newest, $older], SessionProofs::acceptedEvidence($record));
 
         DB::table('authentication_proofs')
             ->where('channel_kind', ChannelKind::EXTERNAL_PROVIDER->value)
@@ -730,14 +736,14 @@ final class SessionProofsTest extends TestCase
             ->whereNull('voided_at')
             ->update(['evidence' => '{"methods":"broken"}']);
 
-        self::assertNull(SessionProofs::acceptedEvidence($record));
+        self::assertSame([], SessionProofs::acceptedEvidence($record));
     }
 
     /**
      * The accepted evidence is read from the `EVIDENCE_LIMIT` newest proofs
      * that carry any, and no further: evidence only an older proof holds is
-     * never read, however new it is, so the newest read is the newest among
-     * those proofs, the last of them included.
+     * never read, however new it is, so what is read is that of those proofs,
+     * the last of them included.
      *
      * @return void
      *
@@ -756,7 +762,7 @@ final class SessionProofsTest extends TestCase
             self::recordExternal($record, $this->now->subMinutes($minutes), new ExternalEvidence(['pwd'], null, $this->now->subHours(2)->subMinutes($minutes)));
         }
 
-        self::assertEquals($lastRead, SessionProofs::acceptedEvidence($record));
+        self::assertEquals([$lastRead, new ExternalEvidence(['pwd'], null, $this->now->subHours(2)->subMinute())], SessionProofs::acceptedEvidence($record));
     }
 
     /**

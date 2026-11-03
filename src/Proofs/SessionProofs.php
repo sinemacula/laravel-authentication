@@ -45,7 +45,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  */
 final class SessionProofs
 {
-    /** @var int The most proofs carrying evidence one read of the newest evidence takes. */
+    /** @var int The most proofs carrying evidence one read of the accepted evidence takes. */
     public const int EVIDENCE_LIMIT = 50;
 
     /**
@@ -169,17 +169,19 @@ final class SessionProofs
     }
 
     /**
-     * The newest evidence an external provider asserted for the session and the
-     * evidence contract accepted, by the evidence's own time, among its
-     * counting proofs that carry any (its external first factor and its
-     * external reauthentications), or `null` when none does: one bounded read
-     * of at most `EVIDENCE_LIMIT` of them, newest first, on the proofs' session
-     * index. Evidence a row holds malformed is no evidence.
+     * The evidence an external provider asserted for the session and the
+     * evidence contract accepted, among its counting proofs that carry any (its
+     * external first factor and its external reauthentications), newest by the
+     * evidence's own time first, and of evidence asserting the same methods and
+     * context only the newest, which an older copy can never better: one
+     * bounded read of at most `EVIDENCE_LIMIT` of those proofs, newest first,
+     * on the proofs' session index. Evidence a row holds malformed is no
+     * evidence.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @return ?\SineMacula\Laravel\Authentication\External\ExternalEvidence
+     * @return list<\SineMacula\Laravel\Authentication\External\ExternalEvidence>
      */
-    public static function acceptedEvidence(Session $session): ?ExternalEvidence
+    public static function acceptedEvidence(Session $session): array
     {
         $stored = WriteConnection::during(new SessionProof, static fn (): array => self::counting($session)
             ->whereIn('kind', [ProofKind::FIRST_FACTOR->value, ProofKind::EXTERNAL_REAUTHENTICATION->value])
@@ -190,12 +192,22 @@ final class SessionProofs
             ->get(['evidence'])
             ->all());
 
-        $newest = null;
+        $newest = [];
 
         foreach ($stored as $proof) {
             $evidence = ExternalEvidence::fromStored($proof->evidence);
-            $newest   = $evidence !== null && ($newest === null || $evidence->authenticatedAt->greaterThan($newest->authenticatedAt)) ? $evidence : $newest;
+
+            if ($evidence === null) {
+                continue;
+            }
+
+            $asserted = serialize([$evidence->methods, $evidence->context]);
+            $kept     = $newest[$asserted] ?? null;
+
+            $newest[$asserted] = $kept === null || $evidence->authenticatedAt->greaterThan($kept->authenticatedAt) ? $evidence : $kept;
         }
+
+        usort($newest, static fn (ExternalEvidence $one, ExternalEvidence $other): int => $other->authenticatedAt->getTimestamp() <=> $one->authenticatedAt->getTimestamp());
 
         return $newest;
     }
@@ -325,7 +337,10 @@ final class SessionProofs
     }
 
     /**
-     * The proof as callers read it.
+     * The proof as callers read it. An external proof reads back with no
+     * evaluation: its acceptance is the application's, of evidence of any age,
+     * and never a tenant's, so only the evidence beside it, which the evidence
+     * contract judges, says what it is worth.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\SessionProof  $proof
      * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
@@ -334,7 +349,8 @@ final class SessionProofs
      */
     private static function recorded(SessionProof $proof): RecordedProof
     {
-        $evaluation = $proof->accepted === null || $proof->multifactor === null ? null : new Evaluation($proof->accepted, $proof->multifactor);
+        $external   = $proof->channel_kind          === ChannelKind::EXTERNAL_PROVIDER->value;
+        $evaluation = $external || $proof->accepted === null || $proof->multifactor === null ? null : new Evaluation($proof->accepted, $proof->multifactor);
 
         $observed = new ObservedProperties(
             $proof->user_presence,

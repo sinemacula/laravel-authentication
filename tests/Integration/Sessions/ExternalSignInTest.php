@@ -201,7 +201,7 @@ final class ExternalSignInTest extends TestCase
         $record   = $this->sessions()->signInExternally($this->linkedResult($this->seedIdentity(), evidence: $evidence))->session?->record;
 
         self::assertNotNull($record);
-        self::assertEquals($evidence, SessionProofs::acceptedEvidence($record));
+        self::assertEquals([$evidence], SessionProofs::acceptedEvidence($record));
         self::assertEquals($evidence, SessionProofs::provenance($record)?->evidence);
     }
 

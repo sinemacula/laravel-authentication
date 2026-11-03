@@ -85,8 +85,9 @@ final class SignInProofTest extends TestCase
 
     /**
      * An external sign-in whose evidence was accepted carries the acceptance on
-     * its first factor and the evidence with it, as written and as read back;
-     * one without carries neither.
+     * its first factor and the evidence with it as written, and reads back with
+     * the evidence alone, the acceptance being no requirement check's; one
+     * without carries neither.
      *
      * @return void
      */
@@ -99,7 +100,7 @@ final class SignInProofTest extends TestCase
 
         self::assertSame($evaluation, $proof->evaluation);
         self::assertSame([$evaluation, $evidence], [$proof->firstFactor()->evaluation, $proof->firstFactor()->evidence]);
-        self::assertSame([$evaluation, $evidence], [$proof->recorded()->evaluation, $proof->recorded()->evidence]);
+        self::assertSame([null, $evidence], [$proof->recorded()->evaluation, $proof->recorded()->evidence]);
 
         $plain = SignInProof::external('sso', new Provenance('connection-7'), $now);
 

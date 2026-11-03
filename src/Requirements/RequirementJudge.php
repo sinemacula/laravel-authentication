@@ -28,18 +28,20 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantFactor;
  * session with no first factor (neither the sign-in's evidence nor a stored
  * one) meets no other. A session an external provider established, holding
  * evidence the evidence contract accepted, meets it when the bound
- * `ExternalEvidencePolicy` says its newest accepted evidence meets the whole of
+ * `ExternalEvidencePolicy` says any of its accepted evidence meets the whole of
  * it: the sign-in's own, in memory, or, only when the first factor's channel is
- * the external provider, the newest its proofs record, one bounded read on the
- * write connection, the policy told the connection and the tenant whose
- * requirement it is (none for the identity level's), so one tenant's trust in a
- * connection never meets another's. Otherwise, or when the evidence falls
- * short, the bound `RequirementCheck` judges it, as the factor package sees it:
- * evidence never meets part of a requirement and leaves the rest to the factor
- * package's proofs. Either is asked inside `WriteConnection::during()` for the
- * identity; the check with a subject whose proofs are the sign-in's own, in
- * memory, or the session's, each read a bounded query on the write connection;
- * with neither evidence nor a session there are none.
+ * the external provider, what its proofs record (newest first, the newest of
+ * each assertion), one bounded read on the write connection, the policy told
+ * the connection and the tenant whose requirement it is (none for the identity
+ * level's), so one tenant's trust in a connection never meets another's, and
+ * newer evidence the policy accepted for less never hides older evidence that
+ * still meets it. Otherwise, or when the evidence falls short, the bound
+ * `RequirementCheck` judges it, as the factor package sees it: evidence never
+ * meets part of a requirement and leaves the rest to the factor package's
+ * proofs. Either is asked inside `WriteConnection::during()` for the identity;
+ * the check with a subject whose proofs are the sign-in's own, in memory, or
+ * the session's, each read a bounded query on the write connection; with
+ * neither evidence nor a session there are none.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -150,10 +152,11 @@ final class RequirementJudge
     }
 
     /**
-     * Whether the newest external evidence the session, or the sign-in, holds
-     * accepted meets the whole requirement for the subject (the connection the
-     * session was established through, and the tenant whose requirement it is),
-     * as the bound `ExternalEvidencePolicy` says; `false` when it holds none.
+     * Whether any external evidence the session, or the sign-in, holds accepted
+     * meets the whole requirement for the subject (the connection the session
+     * was established through, and the tenant whose requirement it is), as the
+     * bound `ExternalEvidencePolicy` says, asked of the newest first and no
+     * further once one does; `false` when it holds none.
      *
      * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
@@ -166,16 +169,23 @@ final class RequirementJudge
      */
     private static function meetsByEvidence(EvidenceSubject $subject, ?Session $session, ?SessionEvidence $evidence, Requirement $requirement): bool
     {
-        $external = $evidence !== null || $session === null ? $evidence?->externalEvidence : SessionProofs::acceptedEvidence($session);
+        $held = $evidence !== null || $session === null ? array_filter([$evidence?->externalEvidence]) : SessionProofs::acceptedEvidence($session);
 
-        if ($external === null) {
+        if ($held === []) {
             return false;
         }
 
         $policy = Container::getInstance()->make(ExternalEvidencePolicy::class);
-        $judged = EvidenceAcceptance::asOf($external, $subject);
 
-        return WriteConnection::during($subject->identity, static fn (): bool => $policy->meets($judged, $requirement, $subject));
+        foreach ($held as $external) {
+            $judged = EvidenceAcceptance::asOf($external, $subject);
+
+            if (WriteConnection::during($subject->identity, static fn (): bool => $policy->meets($judged, $requirement, $subject))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

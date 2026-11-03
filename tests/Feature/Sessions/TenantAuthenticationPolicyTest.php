@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
@@ -388,6 +389,45 @@ final class TenantAuthenticationPolicyTest extends TestCase
             array_map(static fn (EvidenceSubject $subject): mixed => $subject->tenant?->getTenantIdentifier(), $policy->subjects),
         );
         self::assertSame(['conn-a'], array_values(array_unique(array_column($policy->subjects, 'connectionId'))));
+    }
+
+    /**
+     * Evidence from a connection only one tenant trusts is still accepted, and
+     * so recorded, since acceptance asks whether anyone trusts it; it meets
+     * that tenant's requirement, but not the identity-level one, which only a
+     * connection trusted at the identity level meets.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEvidenceOnlyOneTenantTrustsIsAcceptedAndMeetsOnlyThatTenant(): void
+    {
+        [$member, $first, $tenant] = $this->seedMember();
+
+        $tenantId = (string) IdentifierCoercion::stringify($tenant->getKey());
+        $evidence = new ExternalEvidence(['mfa'], null, $this->now);
+
+        app()->instance(ExternalEvidencePolicy::class, new TenantTrustingEvidencePolicy([$tenantId => ['conn-a']]));
+
+        $this->policy->requirement = new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart));
+
+        $trusted = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a', evidence: $evidence), self::asPrincipal($first));
+
+        $record = $trusted->session?->record;
+
+        self::assertNotNull($record);
+        self::assertEquals($evidence, SessionProofs::provenance($record)?->evidence);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $identityLevel = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a', evidence: $evidence), self::asPrincipal($first));
+
+        self::assertTrue($identityLevel->isPending());
+
+        app()->instance(ExternalEvidencePolicy::class, new TenantTrustingEvidencePolicy(['' => ['conn-a'], $tenantId => ['conn-a']]));
+
+        self::assertTrue($this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a', evidence: $evidence), self::asPrincipal($first))->isSignedIn());
     }
 
     /**

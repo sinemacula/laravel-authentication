@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\External\MethodTrustingEvidencePolicy;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\TestCase;
@@ -395,17 +396,17 @@ final class RequirementJudgeTest extends TestCase
     }
 
     /**
-     * A stored session an external provider established is judged on the newest
-     * evidence its proofs hold accepted, by the evidence's own time, read in
-     * one more query; a session no provider established reads no evidence and
-     * never asks the policy: its first factor and the check's proofs are all it
-     * reads.
+     * A stored session an external provider established is judged on the
+     * evidence its proofs hold accepted, the newest by its own time first (and
+     * no further once it meets), read in one more query; a session no provider
+     * established reads no evidence and never asks the policy: its first factor
+     * and the check's proofs are all it reads.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAStoredExternalSessionIsJudgedOnItsNewestAcceptedEvidence(): void
+    public function testAStoredExternalSessionIsJudgedOnItsAcceptedEvidenceNewestFirst(): void
     {
         [$member] = $this->seedMember();
 
@@ -441,6 +442,82 @@ final class RequirementJudgeTest extends TestCase
         self::assertStringNotContainsString('evidence', implode(' ', $statements->getArrayCopy()));
         self::assertCount(1, $policy->asked);
         self::assertSame(1, $this->judgedCount());
+    }
+
+    /**
+     * Newer evidence the policy accepted for less never hides older evidence
+     * that still meets the requirement: the policy is asked of the newest first
+     * and then of the older, which meets it; evidence none of which meets it is
+     * refused once each has been asked.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOlderAcceptedEvidenceStillMeetsWhenNewerFallsShort(): void
+    {
+        [$member] = $this->seedMember();
+
+        $now     = CarbonImmutable::now()->startOfSecond();
+        $session = $this->signedIn();
+        $policy  = new MethodTrustingEvidencePolicy(['mfa' => [RequirementKind::MULTIFACTOR], 'hwk' => [RequirementKind::PHISHING_RESISTANCE]]);
+
+        app()->instance(ExternalEvidencePolicy::class, $policy);
+
+        DB::table('authentication_proofs')->where('session_id', IdentifierCoercion::stringify($session->getKey()))->delete();
+
+        self::recordExternal($session, ProofKind::FIRST_FACTOR, $now->subMinutes(5), new ExternalEvidence(['mfa'], null, $now->subMinutes(5)));
+        self::recordExternal($session, ProofKind::EXTERNAL_REAUTHENTICATION, $now->subMinute(), new ExternalEvidence(['hwk'], null, $now->subMinute()));
+
+        self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, $now, null, new Requirement(multifactor: new RequirementPart)));
+        self::assertSame([['hwk'], ['mfa']], $policy->judged);
+        self::assertSame(0, $this->judgedCount());
+
+        $policy->judged = [];
+
+        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, null, new Requirement(additionalVerification: new RequirementPart)));
+        self::assertSame([['hwk'], ['mfa']], $policy->judged);
+    }
+
+    /**
+     * The requirement check never sees an external proof's acceptance, stored
+     * or in memory: provider multifactor evidence three days old, which the
+     * evidence policy finds too old for a five-minute requirement, reaches the
+     * check as proofs with no evaluation, so a check counting accepted
+     * multifactor proofs cannot credit it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheCheckSeesNoExternalProofsAcceptance(): void
+    {
+        [$member] = $this->seedMember();
+
+        $now         = CarbonImmutable::now()->startOfSecond();
+        $stale       = new ExternalEvidence(['mfa'], null, $now->subDays(3));
+        $session     = $this->signedIn();
+        $requirement = new Requirement(multifactor: new RequirementPart(300));
+
+        $this->trustEvidenceFor([]);
+
+        DB::table('authentication_proofs')->where('session_id', IdentifierCoercion::stringify($session->getKey()))->delete();
+
+        self::recordExternal($session, ProofKind::FIRST_FACTOR, $now, $stale);
+
+        $signIn = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a', evidence: $stale), $now, new Evaluation(true, true)));
+
+        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, null, $requirement));
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, $signIn, $requirement));
+        self::assertSame(2, $this->judgedCount());
+
+        foreach ($this->check->judged as $subject) {
+            $proofs = $subject->proofs();
+
+            self::assertCount(1, $proofs);
+            self::assertSame([null, null], [$subject->firstFactor->evaluation, $proofs[0]->evaluation]);
+            self::assertEquals($stale, $proofs[0]->evidence);
+        }
     }
 
     /**

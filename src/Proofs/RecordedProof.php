@@ -13,11 +13,14 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
  * A proof as the session records it, read back: a snapshot, so no caller holds
  * or changes the stored row.
  *
- * The evaluation is the adapter's, for a proof an adapter verified; for an
- * external proof (a sign-in or reauthentication at an external provider) whose
- * evidence the evidence contract accepted, it is the package's acceptance, with
- * the evidence beside it; and `null` for any other proof this package verified
- * itself (a first factor or a reauthentication with it).
+ * The evaluation is the adapter's, for a proof an adapter verified, and `null`
+ * for any proof this package verified itself (a first factor or a
+ * reauthentication with it) and for an external proof (a sign-in or
+ * reauthentication at an external provider). An external proof whose evidence
+ * the evidence contract accepted carries that evidence instead: its acceptance
+ * is the application's, of evidence of any age, and is no tenant's, so it is
+ * the evidence contract's to judge against a requirement, never a requirement
+ * check's.
  *
  * @api
  *
@@ -64,7 +67,7 @@ final readonly class RecordedProof
         /** What was observed about the authenticator. */
         public ObservedProperties $observed,
 
-        /** What the adapter reported, for a proof an adapter verified. */
+        /** What the adapter reported, for a proof an adapter verified; `null` for an external proof. */
         public ?Evaluation $evaluation,
 
         /** The authentication method reference values it stands for. */

@@ -157,7 +157,9 @@ final readonly class SignInProof
     }
 
     /**
-     * The first factor as it reads back once recorded, under its id.
+     * The first factor as it reads back once recorded, under its id: with no
+     * evaluation, since only an external provider's carries one, and that one
+     * reads back without it (see `SessionProofs`).
      *
      * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
      */
@@ -173,7 +175,7 @@ final readonly class SignInProof
             $factor->channel,
             null,
             $factor->observed,
-            $factor->evaluation,
+            null,
             $factor->methods,
             $factor->authenticatedAt,
             $factor->evidence,

@@ -40,6 +40,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\External\MethodTrustingEvidencePolicy;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -510,6 +511,50 @@ final class ExternalReauthenticationTest extends TestCase
 
         self::assertTrue($met->isIssued());
         self::assertSame(1, SessionProof::query()->where('kind', 'external_reauthentication')->count());
+    }
+
+    /**
+     * A reauthentication bringing evidence the evidence contract accepts only
+     * for less than the tenant requires is issued, as one bringing no evidence
+     * is: the multifactor evidence the session signed in with still meets the
+     * tenant's requirement, though the newer evidence does not.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testNewerEvidenceAcceptedForLessKeepsTheTenantsRequirementMet(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        $this->app?->instance(ExternalEvidencePolicy::class, new MethodTrustingEvidencePolicy([
+            'mfa' => [RequirementKind::MULTIFACTOR],
+            'hwk' => [RequirementKind::PHISHING_RESISTANCE],
+        ]));
+        $requirement = new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart));
+
+        $this->app?->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy($requirement));
+
+        $signedIn = $this->sessions('members')->signInExternally(
+            $this->linkedResult($member, subject: 'subject-1', evidence: new ExternalEvidence(['mfa'], null, $this->now->subMinute())),
+            self::asPrincipal($membership),
+        );
+
+        self::assertTrue($signedIn->isSignedIn());
+
+        $session = $signedIn->session?->record;
+
+        self::assertNotNull($session);
+
+        $reauthenticated = $this->sessions('members')->reauthenticateExternally(
+            $session,
+            $this->throughTheLink(authenticatedAt: $this->now, evidence: new ExternalEvidence(['hwk'], null, $this->now)),
+        );
+
+        $proof = SessionProof::query()->where('kind', 'external_reauthentication')->sole();
+
+        self::assertTrue($reauthenticated->isIssued());
+        self::assertSame([true, false], [$proof->accepted, $proof->multifactor]);
     }
 
     /**
