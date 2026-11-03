@@ -97,26 +97,32 @@ return [
     |---------------------------------------------------------------------------
     |
     | Every session records the proofs it was established and kept with: the
-    | first factor at sign-in, a reauthentication with it, and a further factor
-    | or a recovery code an adapter verified, each with its method, channel,
-    | factor, what was observed, the adapter's evaluation, its `amr` values,
-    | its time and its binding, in `table`. A reauthentication at the external
-    | provider the session began with is a reserved kind: nothing records it
-    | yet. A session an external provider established also records how it
-    | began (the connection and its tenant, the provider's authentication time
-    | and session deadline, and the policy version checked, but no evidence:
-    | nothing accepts any yet) in `provenance_table`. Both live on the storage
-    | connection, are read from the write connection, and are pruned with
-    | their sessions by the session model's `model:prune`. A code proof's
-    | destination is personal data, kept no longer than its session. Each table
-    | name may be up to 47 characters, as the migrations name their indexes
-    | after it.
+    | first factor at sign-in, a reauthentication with it, a reauthentication at
+    | the external provider the session began with (through the link that
+    | established it), and a further factor or a recovery code an adapter
+    | verified, each with its method, channel, factor, what was observed, the
+    | adapter's evaluation, its `amr` values, its time, its binding and, for an
+    | external provider's proof, the evidence the provider asserted once the
+    | bound `ExternalEvidencePolicy` accepted it (which by default it never
+    | does), in `table`. A session an external provider established also records
+    | how it began (the connection and its tenant, the provider's authentication
+    | time and session deadline, the policy version checked, the id of the link
+    | it came through, and the accepted evidence) in `provenance_table`. Both
+    | live on the storage connection, are read from the write connection, and
+    | are pruned with their sessions by the session model's `model:prune`. A
+    | code proof's destination is personal data, kept no longer than its
+    | session. A sign-in through a connection and each revocation of its
+    | sessions write the connection's guards in `guards_table` (at most 64
+    | rows per connection, naming no identity, link or session, never pruned),
+    | so neither misses the other at any isolation level. Each table name may
+    | be up to 47 characters, as the migrations name their indexes after it.
     |
     */
 
     'proofs' => [
         'table'            => env('AUTHENTICATION_PROOFS_TABLE', 'authentication_proofs'),
         'provenance_table' => env('AUTHENTICATION_PROOFS_PROVENANCE_TABLE', 'authentication_provenance'),
+        'guards_table'     => env('AUTHENTICATION_PROOFS_GUARDS_TABLE', 'authentication_connection_guards'),
     ],
 
     /*
@@ -126,11 +132,12 @@ return [
     |
     | The session service's `connectionDisabled()` and `connectionDeleted()`
     | end every live session an external provider's connection established,
-    | and `linkRemoved()` an identity's sessions through it, found through the
-    | provenance (`connection_disabled`, `connection_deleted`, `link_removed`).
-    | Each is on unless its setting here is `false`, when it returns `0` and
-    | writes nothing. A value that is not a boolean fails closed when the
-    | method is first called, and `authentication:check` reports it.
+    | and `linkRemoved()` an identity's sessions through one link, found
+    | through the provenance (`connection_disabled`, `connection_deleted`,
+    | `link_removed`). Each is on unless its setting here is `false`, when it
+    | returns `0` and writes nothing. A value that is not a boolean fails
+    | closed when the method is first called, and `authentication:check`
+    | reports it. `linkScopeWidened()` has no setting: it is mandatory.
     |
     */
 
@@ -292,21 +299,23 @@ return [
     | included. `methods` lists the sign-in methods that may start the
     | application's sessions, by the lower-case names they are registered under
     | (or, for a session the application starts itself, the name it passes to
-    | `start()`), and the machine credentials it accepts (`api_key`,
-    | `client_credentials`). It is empty by default, so each application lists
-    | what it uses: an empty list refuses every sign-in, refresh, code and
-    | password reset request as `method_not_allowed` (and every client
-    | credentials exchange as `unauthorized_client`), and `authentication:check`
-    | warns about a `jwt` guard that lists nothing, or only `api_key`, which a
-    | `jwt` guard never accepts. `require_verified_identifier` refuses a sign-in
-    | with an identifier (an email address, say) the identity has not verified;
-    | sign-ins that use no identifier, such as SSO, are not affected. A
-    | malformed value, or an unknown key, fails closed with an
-    | `InvalidArgumentException` naming the guard and the key when the guard's
-    | policy is first used. Which principals may use an application, and which
-    | tenants they may act in, are not settings here but the `ApplicationAccess`
-    | and `TenantAccess` contracts: by default any principal may use any
-    | application, in its own tenant only.
+    | `start()`), `external_provider` for sign-in with a result an external
+    | identity provider verified (`signInExternally()`), and the machine
+    | credentials it accepts (`api_key`, `client_credentials`). It is empty by
+    | default, so each application lists what it uses: an empty list refuses
+    | every sign-in, refresh, code and password reset request as
+    | `method_not_allowed` (and every client credentials exchange as
+    | `unauthorized_client`), and `authentication:check` warns about a `jwt`
+    | guard that lists nothing, or only `api_key`, which a `jwt` guard never
+    | accepts. `require_verified_identifier` refuses a sign-in with an
+    | identifier (an email address, say) the identity has not verified; sign-ins
+    | that use no identifier, such as SSO, are not affected. A malformed value,
+    | or an unknown key, fails closed with an `InvalidArgumentException` naming
+    | the guard and the key when the guard's policy is first used. Which
+    | principals may use an application, and which tenants they may act in, are
+    | not settings here but the `ApplicationAccess` and `TenantAccess`
+    | contracts: by default any principal may use any application, in its own
+    | tenant only.
     |
     */
 

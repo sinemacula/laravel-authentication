@@ -4,17 +4,22 @@ declare(strict_types = 1);
 
 namespace Tests\Performance;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
@@ -26,7 +31,9 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -54,7 +61,7 @@ use Tests\Integration\Fixtures\ChoosingMembership;
 #[CoversTrait(SwitchesSessions::class)]
 final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithSessions;
 
     /** @var int Switches, grace retries and refusals each timed by the timing contract. */
     private const int TIMED_SWITCHES = 20;
@@ -135,6 +142,55 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $result   = $this->assertQueryBudget(7, 1, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
 
         self::assertTrue($result->isPending());
+    }
+
+    /**
+     * Rows of `[whether the session's accepted evidence meets the destination
+     * tenant's factor, reads]`.
+     *
+     * @return iterable<string, array{0: bool, 1: int}>
+     */
+    public static function provideExternalEvidenceVerdicts(): iterable
+    {
+        yield 'met by the accepted evidence' => [true, 10];
+        yield 'not met by it' => [false, 8];
+    }
+
+    /**
+     * A switch of a session an external provider established, whose
+     * destination's tenant asks for a further factor, reads what a switch
+     * returning to pending reads, then the session's accepted evidence in one
+     * more read: met, it switches, reading the session's proofs for the new
+     * access token and the membership it switched from; not met, it returns the
+     * session to pending. Either way it writes one compare-and-swap.
+     *
+     * @param  bool  $meets
+     * @param  int  $reads
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideExternalEvidenceVerdicts')]
+    public function testAnExternalSessionsSwitchUnderATenantsFactorReadsItsAcceptedEvidenceOnce(bool $meets, int $reads): void
+    {
+        [$member, $first, $tenant] = $this->seedMember();
+
+        $second   = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+        $evidence = new ExternalEvidence(['mfa'], null, CarbonImmutable::now());
+
+        app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy($meets ? [RequirementKind::MULTIFACTOR] : []));
+
+        $session = $this->sessions('members')->signInExternally($this->linkedResult($member, evidence: $evidence), self::asPrincipal($first))->session;
+
+        self::assertNotNull($session);
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart))));
+
+        $sessions = $this->sessions('members');
+        $token    = $session->tokens->refreshToken?->reveal();
+        $result   = $this->assertQueryBudget($reads, 1, static fn (): SwitchResult => $sessions->switchTo($token, SwitchTarget::principal($second)));
+
+        self::assertSame([$meets, !$meets], [$result->isSwitched(), $result->isPending()]);
     }
 
     /**

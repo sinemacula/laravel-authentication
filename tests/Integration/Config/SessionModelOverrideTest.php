@@ -104,6 +104,7 @@ final class SessionModelOverrideTest extends TestCase
         Schema::dropIfExists('rate_limits');
         Schema::dropIfExists('authentication_proofs');
         Schema::dropIfExists('authentication_provenance');
+        Schema::dropIfExists('authentication_connection_guards');
 
         parent::tearDown();
     }

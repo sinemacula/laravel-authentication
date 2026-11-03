@@ -15,9 +15,10 @@ use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
+use SineMacula\Laravel\Authentication\Sessions\ConnectionGuards;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
@@ -32,8 +33,10 @@ use Tests\TestCase;
  * proofs and provenance at the end of the same indexes; clearing what an
  * earlier session left under a key must lock nothing there, or on MySQL the
  * second side waits on the first and the first's next sign-in then waits on the
- * second, a deadlock that fails one of them. Neither side waits, and every
- * sign-in commits with its own proof and provenance.
+ * second, a deadlock that fails one of them. Each identity signs in through a
+ * link of its own whose guard is in a slot of its own, as most links of one
+ * connection are. Neither side waits, and every sign-in commits with its own
+ * proof and provenance.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -47,7 +50,7 @@ use Tests\TestCase;
 #[CoversClass(SessionWriter::class)]
 final class ConcurrentFreshSignInsTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithSessions;
 
     /** @var int How long the first side waits, once the second is about to insert its proof, for that insert to reach the server, in microseconds. */
     private const int SETTLE_MICROSECONDS = 200000;
@@ -133,6 +136,8 @@ final class ConcurrentFreshSignInsTest extends TestCase
         $grace = $this->seedIdentity('grace@example.test');
         $alan  = $this->seedIdentity('alan@example.test');
 
+        self::assertCount(3, array_unique(array_map(ConnectionGuards::slot(...), ['link-ada', 'link-grace', 'link-alan'])));
+
         $this->recordEvents(self::EVENTS);
 
         DB::disconnect();
@@ -151,13 +156,13 @@ final class ConcurrentFreshSignInsTest extends TestCase
                     touch($inserting);
                 });
 
-                return $this->startFor($grace);
+                return $this->startFor($grace, 'link-grace');
             });
         }
 
         DB::beginTransaction();
 
-        $first = $this->startFor($ada);
+        $first = $this->startFor($ada, 'link-ada');
 
         touch("{$this->outcomes}/start");
 
@@ -167,7 +172,7 @@ final class ConcurrentFreshSignInsTest extends TestCase
 
         usleep(self::SETTLE_MICROSECONDS);
 
-        $third = $this->startFor($alan);
+        $third = $this->startFor($alan, 'link-alan');
 
         DB::commit();
 
@@ -213,18 +218,19 @@ final class ConcurrentFreshSignInsTest extends TestCase
     }
 
     /**
-     * Start a new session for the identity, as an external provider established
-     * it, and return its key. `start()` takes no attempt-limit slot, so the
-     * sides share no row.
+     * Start a new session for the identity through the link, as an external
+     * provider established it, and return its key. An external sign-in takes no
+     * attempt-limit slot, so the sides share no row.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  string  $linkId
      * @return string
      *
      * @throws \Throwable
      */
-    private function startFor(IntegrationIdentity $identity): string
+    private function startFor(IntegrationIdentity $identity, string $linkId): string
     {
-        $session = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7'))->session;
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity, linkId: $linkId))->session;
 
         self::assertNotNull($session);
 

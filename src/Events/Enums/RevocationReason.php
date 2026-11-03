@@ -72,7 +72,11 @@ enum RevocationReason: string
     // `connectionDeleted()`
     case CONNECTION_DELETED = 'connection_deleted';
 
-    // The identity's link to the connection the session was established through
-    // was removed: `linkRemoved()`
+    // The link the session was established through was removed: `linkRemoved()`
     case LINK_REMOVED = 'link_removed';
+
+    // The scope of the link the session was established through was widened, so
+    // the link may now act for more than the session was established for:
+    // `linkScopeWidened()`
+    case LINK_SCOPE_WIDENED = 'link_scope_widened';
 }

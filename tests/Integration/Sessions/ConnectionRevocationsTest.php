@@ -27,9 +27,10 @@ use Tests\TestCase;
 /**
  * Integration tests of the revocations by connection against real rows: past
  * one chunk, every session the connection established is revoked once and no
- * other; a link's past one chunk of the identity's sessions; no cutoff moves;
- * and each runs inside a caller's transaction on the storage connection,
- * committing or rolling back with it and reporting only once it commits.
+ * other; a link's past one chunk of the identity's sessions, only those through
+ * that very link; no cutoff moves; and each runs inside a caller's transaction
+ * on the storage connection, committing or rolling back with it and reporting
+ * only once it commits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -115,8 +116,10 @@ final class ConnectionRevocationsTest extends TestCase
 
     /**
      * Past one chunk of the identity's sessions, a removed link revokes every
-     * one the connection established, and none of its other sessions; no cutoff
-     * moves.
+     * one established through that link, and none of its other sessions: not
+     * those through another link of the same connection, through no link, or
+     * through the same link id of another connection, and not another
+     * identity's through a link with the same id; no cutoff moves.
      *
      * @return void
      *
@@ -129,13 +132,45 @@ final class ConnectionRevocationsTest extends TestCase
 
         $this->insertSessions($ada, 'conn-b', ConnectionRevocations::CHUNK);
         $this->insertSessions($ada, 'conn-a', 2);
+        $this->insertSessions($ada, 'conn-a', 2, 'link-2');
+        $this->insertSessions($ada, 'conn-a', 1, null);
         $this->insertSessions($ada, null, 2);
         $this->insertSessions($grace, 'conn-a', 2);
 
-        self::assertSame(2, Auth::sessions('api')->linkRemoved($ada, 'conn-a'));
+        self::assertSame(2, Auth::sessions('api')->linkRemoved($ada, 'conn-a', 'link-1'));
         self::assertSame(2, DB::table('authentication_sessions')->where('revoked_reason', 'link_removed')->count());
-        self::assertSame(ConnectionRevocations::CHUNK + 4, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+        self::assertSame(ConnectionRevocations::CHUNK + 7, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
         self::assertNull(DB::table('cutoff_identities')->where('id', $ada->getKey())->value('tokens_valid_after'));
+    }
+
+    /**
+     * Past one chunk of the identity's sessions, a widened link scope revokes
+     * every one established through that link, with its own reason, though
+     * every per-event trigger is turned off; called again for the same widening
+     * it revokes and reports nothing more.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAWidenedLinkScopePastOneChunkIsMandatoryAndIdempotent(): void
+    {
+        config()->set('authentication.revocation', ['connection_disabled' => false, 'connection_deleted' => false, 'link_removed' => false]);
+
+        $ada = $this->seedCutoffIdentity('ada@example.test');
+
+        $this->insertSessions($ada, 'conn-a', ConnectionRevocations::CHUNK, 'link-2');
+        $this->insertSessions($ada, 'conn-a', 3);
+
+        $reported = $this->countRevocations();
+
+        self::assertSame(3, Auth::sessions('api')->linkScopeWidened($ada, 'conn-a', 'link-1'));
+        self::assertSame(3, DB::table('authentication_sessions')->where('revoked_reason', 'link_scope_widened')->count());
+        self::assertCount(3, $reported);
+        self::assertSame(0, Auth::sessions('api')->linkScopeWidened($ada, 'conn-a', 'link-1'));
+        self::assertCount(3, $reported);
+        self::assertSame(0, Auth::sessions('api')->linkRemoved($ada, 'conn-a', 'link-2'));
+        self::assertSame(ConnectionRevocations::CHUNK, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
     }
 
     /**
@@ -169,9 +204,9 @@ final class ConnectionRevocationsTest extends TestCase
     }
 
     /**
-     * With the provenance's connection column under a collation that counts
-     * distinct ids as equal, a removed link still ends only the identity's
-     * sessions through that very connection.
+     * With the provenance's connection and link columns under a collation that
+     * counts distinct ids as equal, a removed link still ends only the
+     * identity's sessions through that very connection and that very link.
      *
      * @param  string  $folded
      * @return void
@@ -182,18 +217,22 @@ final class ConnectionRevocationsTest extends TestCase
     public function testALinkTheCollationCountsAsEqualKeepsItsSessions(string $folded): void
     {
         self::foldColumns('authentication_provenance', ['connection_id']);
+        self::foldColumns('authentication_provenance', ['link_id'], true);
 
         $ada = $this->seedCutoffIdentity('ada@example.test');
 
-        $this->insertSessions($ada, 'alice', 1);
+        $this->insertSessions($ada, 'alice', 1, 'alice');
 
         self::assertColumnFolds('authentication_provenance', 'connection_id', $folded);
+        self::assertColumnFolds('authentication_provenance', 'link_id', $folded);
 
-        $this->insertSessions($ada, $folded, 2);
+        $this->insertSessions($ada, $folded, 2, 'alice');
+        $this->insertSessions($ada, 'alice', 3, $folded);
 
-        self::assertSame(1, Auth::sessions('api')->linkRemoved($ada, 'alice'));
-        self::assertSame(2, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
-        self::assertSame(2, Auth::sessions('api')->linkRemoved($ada, $folded));
+        self::assertSame(1, Auth::sessions('api')->linkRemoved($ada, 'alice', 'alice'));
+        self::assertSame(5, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+        self::assertSame(2, Auth::sessions('api')->linkScopeWidened($ada, $folded, 'alice'));
+        self::assertSame(3, Auth::sessions('api')->linkRemoved($ada, 'alice', $folded));
     }
 
     /**
@@ -205,7 +244,8 @@ final class ConnectionRevocationsTest extends TestCase
     {
         yield 'a connection disabled' => [static fn (CutoffIdentity $identity): int => Auth::sessions('api')->connectionDisabled('conn-a')];
         yield 'a connection deleted' => [static fn (CutoffIdentity $identity): int => Auth::sessions('api')->connectionDeleted('conn-a')];
-        yield 'a link removed' => [static fn (CutoffIdentity $identity): int => Auth::sessions('api')->linkRemoved($identity, 'conn-a')];
+        yield 'a link removed' => [static fn (CutoffIdentity $identity): int => Auth::sessions('api')->linkRemoved($identity, 'conn-a', 'link-1')];
+        yield 'a link scope widened' => [static fn (CutoffIdentity $identity): int => Auth::sessions('api')->linkScopeWidened($identity, 'conn-a', 'link-1')];
     }
 
     /**
@@ -309,15 +349,16 @@ final class ConnectionRevocationsTest extends TestCase
 
     /**
      * Insert that many live sessions of the identity on the `api` guard, each
-     * established through the connection given, or signed in with a password
-     * when none is.
+     * established through the connection and link given, or signed in with a
+     * password when no connection is.
      *
      * @param  \Tests\Integration\Fixtures\CutoffIdentity  $identity
      * @param  ?string  $connection
      * @param  int  $count
+     * @param  ?string  $link
      * @return void
      */
-    private function insertSessions(CutoffIdentity $identity, ?string $connection, int $count): void
+    private function insertSessions(CutoffIdentity $identity, ?string $connection, int $count, ?string $link = 'link-1'): void
     {
         $keys = array_map(static fn (): string => (string) Str::uuid7(), range(1, $count));
 
@@ -330,7 +371,7 @@ final class ConnectionRevocationsTest extends TestCase
             'principal_id'         => IdentifierCoercion::stringify($identity->getKey()),
             'status'               => 'active',
             'guard'                => 'api',
-            'sign_in_method'       => $connection === null ? 'password' : 'sso',
+            'sign_in_method'       => $connection === null ? 'password' : 'external_provider',
             'refresh_key'          => hash('sha256', 'refresh-' . $key),
             'signed_in_at'         => '2027-01-15 09:00:00',
             'idle_expires_at'      => '2027-02-15 09:00:00',
@@ -345,7 +386,7 @@ final class ConnectionRevocationsTest extends TestCase
             return;
         }
 
-        $provenance = array_map(static fn (string $key): array => ['session_id' => $key, 'connection_id' => $connection, 'created_at' => self::NOW], $keys);
+        $provenance = array_map(static fn (string $key): array => ['session_id' => $key, 'connection_id' => $connection, 'link_id' => $link, 'created_at' => self::NOW], $keys);
 
         foreach (array_chunk($provenance, 200) as $chunk) {
             DB::table('authentication_provenance')->insert($chunk);

@@ -19,6 +19,7 @@ JWT settings are read once and kept (see [Configuration lifetimes](operations.md
 | `session.pending_credential_field`                   | `pending_credential`                                                         | `AUTHENTICATION_SESSION_PENDING_CREDENTIAL_FIELD`          |           | [The caller of a request](sessions.md#the-caller-of-a-request)        |
 | `proofs.table`                                       | `authentication_proofs`                                                      | `AUTHENTICATION_PROOFS_TABLE`                              |           | [Proofs](#proofs)                                                     |
 | `proofs.provenance_table`                            | `authentication_provenance`                                                  | `AUTHENTICATION_PROOFS_PROVENANCE_TABLE`                   |           | [Proofs](#proofs)                                                     |
+| `proofs.guards_table`                                | `authentication_connection_guards`                                           | `AUTHENTICATION_PROOFS_GUARDS_TABLE`                       |           | [Proofs](#proofs)                                                     |
 | `revocation.connection_disabled`                     | `true`                                                                       |                                                            |           | [Revocation by connection](#revocation-by-connection)                 |
 | `revocation.connection_deleted`                      | `true`                                                                       |                                                            |           | [Revocation by connection](#revocation-by-connection)                 |
 | `revocation.link_removed`                            | `true`                                                                       |                                                            |           | [Revocation by connection](#revocation-by-connection)                 |
@@ -303,14 +304,14 @@ and a guard overrides any key in an `application` block of its own:
 ],
 ```
 
-| Key                           | Default | Meaning                                                                                                                                                    |
-|-------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `methods`                     | `[]`    | The sign-in methods that may start the application's sessions, and the machine credentials (`api_key`, `client_credentials`) it accepts (lower-case names) |
-| `require_verified_identifier` | `false` | Refuse a sign-in with an identifier the identity has not verified                                                                                          |
+| Key                           | Default | Meaning                                                                                                                                                                                              |
+|-------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `methods`                     | `[]`    | The sign-in methods that may start the application's sessions, `external_provider` for external sign-in, and the machine credentials (`api_key`, `client_credentials`) it accepts (lower-case names) |
+| `require_verified_identifier` | `false` | Refuse a sign-in with an identifier the identity has not verified                                                                                                                                    |
 
 Every feature is opt-in, so an application allows nothing until it lists it: with the default empty `methods` (or a
-guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`), refresh, switch, one-time code
-request and password reset request is refused as `method_not_allowed`, a password never reauthenticates
+guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`, `signInExternally()`), refresh, switch, one-time
+code request and password reset request is refused as `method_not_allowed`, a password never reauthenticates
 (`reauthentication_required`), an `api_key` guard refuses every key, and a client credentials exchange answers
 `unauthorized_client`. A session still pending (on a further factor or a choice of principal) when its method is removed
 is refused as `method_not_allowed` when it is next acted on, and stays pending until its credential expires. An empty
@@ -319,20 +320,21 @@ empty the list to stop an application's sign-ins and refreshes without revoking 
 or continue a session, not who holds one: access tokens already issued keep working until they expire, and a session
 refreshes again, if it is otherwise still valid, once its method is listed again. `authentication:check` warns about a
 `jwt` guard whose `methods` lists nothing, or only `api_key`, which a `jwt` guard never accepts; any other name counts,
-registered or not, since the application can start a session under it with `start()`. It reports an `api_key` guard that
-does not allow `api_key` as a problem, whatever policy is bound, since such a guard has no other use. A policy of your
-own, even one that wraps the package's, gets no warning, since the names it allows are its own. A change reaches a
-long-running process only after a restart (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
+registered or not, since the application can start a session under it with `start()`, and `external_provider` allows
+external sign-in (see [External sign-in](signing-in.md#external-sign-in)). It reports an `api_key` guard that does not
+allow `api_key` as a problem, whatever policy is bound, since such a guard has no other use. A policy of your own, even
+one that wraps the package's, gets no warning, since the names it allows are its own. A change reaches a long-running
+process only after a restart (see [Configuration lifetimes](operations.md#configuration-lifetimes)).
 
 The session layer asks the application before it issues anything: a sign-in with a method it does not list fails with
 `method_not_allowed`, at sign-in and again on every refresh, so a valid credential for one application cannot open or
 keep a session in another. With `require_verified_identifier`, a sign-in that used an identifier (an email address for
 the password method) fails with `identifier_unverified` unless the identity reports that identifier verified (see
-[Identifier verification](identity-models.md#identifier-verification)); sign-ins that used no identifier, such as SSO
-through `start()`, and refreshes are not gated, since the external provider or the existing session vouches for them.
-The check is made before any principal is resolved, so an unverified identifier gets `identifier_unverified` whether or
-not the identity has a principal yet, and the answer cannot tell whether it has been invited anywhere. A switch is
-held to the identifier type its session's sign-in used, which the session records.
+[Identifier verification](identity-models.md#identifier-verification)); sign-ins that used no identifier, such as an
+external sign-in through `signInExternally()`, and refreshes are not gated, since the external provider or the existing
+session vouches for them. The check is made before any principal is resolved, so an unverified identifier gets
+`identifier_unverified` whether or not the identity has a principal yet, and the answer cannot tell whether it has been
+invited anywhere. A switch is held to the identifier type its session's sign-in used, which the session records.
 
 A guard key that is present wins, `null` included; a guard `application` entry of `null` means no overrides. Nothing
 falls back to a literal: a key missing from both blocks, a value of the wrong shape (`null` or a map for `methods`, or a
@@ -500,6 +502,7 @@ and `authentication:check` reports it under `[session]`.
 'proofs' => [
     'table'            => 'authentication_proofs',
     'provenance_table' => 'authentication_provenance',
+    'guards_table'     => 'authentication_connection_guards',
 ],
 ```
 
@@ -509,6 +512,12 @@ provenance](sessions.md#proofs-and-provenance)). Both live on the storage connec
 written in one transaction, and both are read from the write connection. Each name may be up to 47 characters: the
 migrations name their indexes after it (`<table>_session_index` and so on), and PostgreSQL cuts a longer index name
 short. They are pruned with their sessions (see [Pruning](operations.md#pruning)).
+
+A sign-in through an external provider's connection, and every revocation of the sessions the connection or one of
+its links established, first writes the connection's guards in `proofs.guards_table` on the same connection, so the two
+never miss each other whatever your transaction's isolation level (see [Connections and
+links](sessions.md#connections-and-links)). A connection has at most 64 guards, which name no identity, link or session,
+are created by the shipped migration of the provenance table, and are never pruned.
 
 ## Revocation by connection
 
@@ -520,10 +529,11 @@ short. They are pruned with their sessions (see [Pruning](operations.md#pruning)
 ],
 ```
 
-`Auth::sessions()->connectionDisabled()`, `connectionDeleted()` and `linkRemoved()` end the sessions an external
-provider's connection established (see [Connections and links](sessions.md#connections-and-links)). Each is on unless
-its setting is `false`, when it returns `0` and writes nothing. A value that is not `true` or `false` fails closed with
-an `InvalidArgumentException` when the method is first called, and `authentication:check` reports it.
+`Auth::sessions()->connectionDisabled()` and `connectionDeleted()` end the sessions an external provider's connection
+established, and `linkRemoved()` an identity's sessions established through one link (see
+[Connections and links](sessions.md#connections-and-links)). Each is on unless its setting is `false`, when it returns
+`0` and writes nothing. A value that is not `true` or `false` fails closed with an `InvalidArgumentException` when the
+method is first called, and `authentication:check` reports it. `linkScopeWidened()` has no setting: it is mandatory.
 
 ## Freshness
 

@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +30,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
@@ -970,6 +972,63 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
+     * Each write of a session an external provider established, active, a
+     * replacement or pending, writes the guard of the link its provenance
+     * records before any session row, so a revocation of the link or the
+     * connection racing it writes the same row first or waits for it; a sign-in
+     * with no provenance writes no guard.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExternalSignInWritesItsLinksGuardBeforeAnySessionRow(): void
+    {
+        $identity  = $this->seedIdentity();
+        $admitted  = $this->admitted($identity);
+        $context   = $this->context();
+        $lifetimes = $this->lifetimes();
+        $external  = fn (): SignInProof => SignInProof::external('external_provider', new Provenance('connection-7', linkId: 'link-1'), $this->now);
+        $first     = $this->writer()->create($admitted, null, $context, $lifetimes, $this->now, $context->client, SignInProof::unattested('password', $this->now));
+        $proven    = Session::query()->whereKey($first->record->getKey())->firstOrFail();
+
+        /** @var \ArrayObject<int, string> $writes */
+        $writes = new \ArrayObject;
+
+        self::assertSame(0, DB::table('authentication_connection_guards')->count());
+
+        DB::listen(static function (QueryExecuted $query) use ($writes): void {
+            if (preg_match('/^(?:insert into|update|delete from) [`"](\w+)[`"]/', $query->sql, $match) !== 1) {
+                return;
+            }
+
+            $writes->append($match[1]);
+        });
+
+        $writers = [
+            'create'  => fn (): mixed => $this->writer()->create($admitted, null, $context, $lifetimes, $this->now, $context->client, $external()),
+            'replace' => fn (): mixed => $this->writer()->replace($admitted->on($proven), null, $context, $lifetimes, $this->now, $context->client, $external()),
+            'pending' => fn (): mixed => $this->writer()->createPending(self::draft($identity, $external()), $context, $lifetimes, $this->now, 300),
+        ];
+
+        foreach ($writers as $name => $write) {
+            $writes->exchangeArray([]);
+
+            self::assertNotNull($write(), $name);
+
+            $written = $writes->getArrayCopy();
+
+            self::assertSame('authentication_connection_guards', $written[0] ?? null, $name);
+            self::assertCount(1, array_keys($written, 'authentication_connection_guards', true), $name);
+            self::assertContains('authentication_sessions', $written, $name);
+        }
+
+        $guards = DB::table('authentication_connection_guards')->get(['connection_id', 'slot'])->map(static fn (object $row): array => (array) $row)->all();
+
+        self::assertSame([['connection_id' => 'connection-7', 'slot' => 26]], $guards);
+    }
+
+    /**
      * A pending session waiting on a choice records no principal, and one whose
      * absolute deadline comes before its credential's expiry idles out at the
      * absolute deadline; a sign-in that proved nothing and holds no slots
@@ -1114,6 +1173,19 @@ final class SessionWriterTest extends TestCase
         assert($app instanceof Application);
 
         self::configureSessionGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * A draft of a pending session of the identity, as its own principal,
+     * waiting on a further factor, from the sign-in's proof.
+     *
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
+     * @return \SineMacula\Laravel\Authentication\Sessions\PendingSessionDraft
+     */
+    private static function draft(IntegrationIdentity $identity, SignInProof $proof): PendingSessionDraft
+    {
+        return new PendingSessionDraft($identity, $identity, null, [PendingRequirement::MFA], null, $proof);
     }
 
     /**

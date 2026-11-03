@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -26,7 +27,6 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
@@ -64,7 +65,7 @@ use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 #[CoversClass(SessionEstablishment::class)]
 final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithSessions;
 
     /** @var int Timebox for the timing contracts, in microseconds. */
     private const int TIMEBOX_MICROSECONDS = 200000;
@@ -208,20 +209,41 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Starting a session an external provider established also writes its
-     * provenance, and nothing more.
+     * An external sign-in costs what `start()` does and writes its link's guard
+     * and the session's provenance too, and nothing more, the first sign-in
+     * through the link and every later one alike: the link contract is the
+     * adapter's, and the fake one here reads nothing.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testStartWithAProvenanceAlsoWritesTheProvenance(): void
+    public function testAnExternalSignInAlsoWritesItsGuardAndTheProvenance(): void
     {
-        $identity   = $this->seedIdentity();
-        $sessions   = $this->sessions();
-        $provenance = new Provenance('connection-7', 'tenant-3');
+        $identity = $this->seedIdentity();
+        $sessions = $this->sessions();
+        $result   = $this->linkedResult($identity, tenantId: 'tenant-3');
 
-        self::assertTrue($this->assertQueryBudget(4, 3, static fn (): SignInResult => $sessions->start($identity, null, 'sso', null, $provenance))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(4, 4, static fn (): SignInResult => $sessions->signInExternally($result))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(4, 4, static fn (): SignInResult => $sessions->signInExternally($result))->isSignedIn());
+    }
+
+    /**
+     * An unlinked external result reads and writes nothing: it is refused
+     * before the identity is reloaded.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnUnlinkedExternalResultCostsNothing(): void
+    {
+        $sessions = $this->sessions();
+        $result   = new ExternalResult('connection-7', self::ISSUER, 'nobody');
+
+        $this->externalLinks();
+
+        self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->signInExternally($result))->reason);
     }
 
     /**

@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Events\ExternalResultUnlinked;
 use SineMacula\Laravel\Authentication\Events\IdentifierChanged;
 use SineMacula\Laravel\Authentication\Events\IdentifierChangeRequested;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
@@ -122,6 +123,7 @@ final class EveryEventRestoresTest extends TestCase
             'ApiKeyRotated'             => [ApiKeyRotated::class, ['key-0']],
             'AuthenticationFailed'      => [AuthenticationFailed::class, [AuthenticationFlow::SIGN_IN, FailureReason::RATE_LIMITED, 'member@example.test', 30]],
             'ClientCredentialsGranted'  => [ClientCredentialsGranted::class, []],
+            'ExternalResultUnlinked'    => [ExternalResultUnlinked::class, ['connection-7', 'https://idp.example.test']],
             'IdentifierChangeRequested' => [IdentifierChangeRequested::class, ['email', 'new@example.test', $at]],
             'IdentifierChanged'         => [IdentifierChanged::class, ['email', 'old@example.test', 'new@example.test', $at]],
             'IdentifierVerified'        => [IdentifierVerified::class, ['email']],

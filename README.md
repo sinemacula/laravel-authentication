@@ -42,24 +42,29 @@ are caught on the server.
   (`client_id`, `auth_time`, `amr`, an `at+jwt` header type) and OpenID Connect's `sid`, refresh rotation with replay
   detection, and a refresh transport per application: the body, or for a browser application a host-only `HttpOnly`
   cookie named after it, with CSRF checks, whose results never hand its code the plain refresh token.
-- **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that SSO and
-  custom methods plug into; a further-factor package can use passkeys as a factor too, with a ceremony bound to the
-  session and the credentials it names, and a gate it takes part in when a passkey is registered or removed.
+- **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that custom
+  methods plug into; a further-factor package can use passkeys as a factor too, with a ceremony bound to the session and
+  the credentials it names, and a gate it takes part in when a passkey is registered or removed.
+- **External sign-in**: a result an external identity provider verified, handed over by a trusted adapter and never by a
+  client, signs in only the identity a link contract maps its connection, issuer and subject to (never by email), on an
+  application that allows it, with the provider's time, deadline and the link recorded on the session; the session
+  reauthenticates at the provider only through that same link, under its own lock.
 - **One-time code challenges**: every code is a challenge with an id the check names, kept across resends with its
   attempt budget, capped in deliveries per destination, and bound to its purpose; a further-factor package's codes are
   bound to the session and factor too, with its counters asked and told inside the transaction that checks them.
 - **Pending sessions**: a sign-in that still owes a further factor or a choice of principal waits as a pending session,
   with a short-lived credential that allows only the actions it owes; an identity's factor policy and a tenant's
   authentication policy each answer a requirement (an additional verification, multifactor, a minimum assurance level,
-  phishing resistance), judged against the session's proofs, and a tenant may require single sign-on of the sessions
+  phishing resistance), judged against the session's proofs, or against an external provider's evidence once the
+  application's evidence policy accepts it (never by default), and a tenant may require single sign-on of the sessions
   acting in it.
 - **Sessions**: timestamped proofs of every sign-in and an external provider's provenance on each session, step-up and
   reauthentication with `auth_time` and `amr` derived from the proofs, per-operation freshness judged on the proof that
   meets it, a gate for changing a further factor, list and get one, sign out (by the access token, or by the refresh
   credential once the access token has expired), sign out everywhere, revoke on security changes (a further factor's
   removal ends the other sessions and judges the current one again without it) and when a connection is disabled or
-  deleted or a link to it removed, and list, get and switch to the principals an identity may use, or switch its active
-  tenant.
+  deleted or a link through it removed or its scope widened (only that link's sessions), and list, get and switch to the
+  principals an identity may use, or switch its active tenant.
 - **The caller of a request**: `Auth::caller()` reads who a request is from the access, refresh or pending credential
   its route authenticates with, and says whether a session, identity or principal is the caller's, so an application can
   scope its own route bindings.

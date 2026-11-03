@@ -13,7 +13,7 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
 enum AuthenticationFlow: string
 {
     // A sign-in: attempt(), and the session service's signIn(), start(),
-    // satisfy() and choose()
+    // signInExternally(), satisfy() and choose()
     case SIGN_IN = 'sign_in';
 
     // A request's access token
@@ -54,8 +54,9 @@ enum AuthenticationFlow: string
     // service's stepUp()
     case STEP_UP = 'step_up';
 
-    // A reauthentication of an active session with the first factor: the
-    // session service's reauthenticate()
+    // A reauthentication of an active session with the first factor, or at the
+    // external provider it began with: the session service's reauthenticate()
+    // and reauthenticateExternally()
     case REAUTHENTICATION = 'reauthentication';
 
     // A request for, or a check of, a further factor's code or an enrolment's:

@@ -36,12 +36,14 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * a person (`machine_identity`); take the proof (the operation's own check,
  * given the session's start); and be admitted again as a refresh admits it (the
  * owner, the principal the session records and its tenant active, the method
- * still allowed, the principal still eligible). Then the proof is recorded and
- * one access token issued, its `auth_time` and `amr` derived from the proofs,
- * the new one included, and answered with when it expires (the access lifetime
- * from its issue, never past the session's end). Nothing else is written: the
- * refresh token, the deadlines and the session row stay as they were, so a
- * concurrent refresh's compare-and-swap is unaffected.
+ * still allowed, the principal still eligible). Then the proof is recorded, the
+ * session judged once more with it when the operation asks (its own check,
+ * given the admission: a refusal there rolls the proof back with the
+ * transaction), and one access token issued, its `auth_time` and `amr` derived
+ * from the proofs, the new one included, and answered with when it expires (the
+ * access lifetime from its issue, never past the session's end). Nothing else
+ * is written: the refresh token, the deadlines and the session row stay as they
+ * were, so a concurrent refresh's compare-and-swap is unaffected.
  *
  * Every check and the token are judged at the second the lock is taken, not
  * when the caller began: a credential's verification and the wait for the lock
@@ -72,7 +74,9 @@ final readonly class ProofIssuance
 
     /**
      * Record the proof on the session the key names and issue it a new access
-     * token, or refuse with as much as was resolved.
+     * token, or refuse with as much as was resolved. `$admits`, when given,
+     * judges the admitted session once the proof is recorded: a reason refuses
+     * the issuance and the proof is not kept.
      *
      * @formatter:off
      *
@@ -81,6 +85,7 @@ final readonly class ProofIssuance
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\Proofs\NewProof  $proof
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonInterface): ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $accepts
+     * @param  ?\Closure(\SineMacula\Laravel\Authentication\Admission\Admitted, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonImmutable): ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $admits
      * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: \SineMacula\Laravel\Authentication\Secrets\Secret, 3: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -89,13 +94,18 @@ final readonly class ProofIssuance
      *
      * @throws \Throwable
      */
-    public function issue(mixed $sessionId, NewProof $proof, \Closure $accepts): array|Refused
+    public function issue(mixed $sessionId, NewProof $proof, \Closure $accepts, ?\Closure $admits = null): array|Refused
     {
-        return SessionLookup::model()->getConnection()->transaction(fn (): array|Refused => $this->issueOn($sessionId, $proof, $accepts));
+        try {
+            return SessionLookup::model()->getConnection()->transaction(fn (): array|Refused => $this->issueOn($sessionId, $proof, $accepts, $admits));
+        } catch (IssuanceRefused $refusal) {
+            return $refusal->refused;
+        }
     }
 
     /**
-     * Lock, check, admit, record and issue, in the caller's transaction.
+     * Lock, check, admit, record, judge again with the proof recorded when the
+     * operation asks, and issue, in the caller's transaction.
      *
      * @formatter:off
      *
@@ -104,6 +114,7 @@ final readonly class ProofIssuance
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\Proofs\NewProof  $proof
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonInterface): ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $accepts
+     * @param  ?\Closure(\SineMacula\Laravel\Authentication\Admission\Admitted, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonImmutable): ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $admits
      * @return array{0: \SineMacula\Laravel\Authentication\Admission\Admitted, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 2: \SineMacula\Laravel\Authentication\Secrets\Secret, 3: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -116,8 +127,9 @@ final readonly class ProofIssuance
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \SineMacula\Laravel\Authentication\Sessions\IssuanceRefused
      */
-    private function issueOn(mixed $sessionId, NewProof $proof, \Closure $accepts): array|Refused
+    private function issueOn(mixed $sessionId, NewProof $proof, \Closure $accepts, ?\Closure $admits): array|Refused
     {
         $session = SessionLookup::lock($sessionId);
 
@@ -135,6 +147,8 @@ final readonly class ProofIssuance
         }
 
         ProofWriter::record($session, $this->context->name(), $proof);
+
+        self::assertAdmits($admits, $admitted, $session, $now);
 
         $token   = $this->tokens->issueAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
         $expires = $this->tokens->lifetimes()->accessExpiry($now, WriteConnection::during($session, static fn (): ?CarbonImmutable => SessionDeadlines::liveEnd($session, $now)));
@@ -171,6 +185,36 @@ final readonly class ProofIssuance
         $startedAt = WriteConnection::during($session, static fn (): ?CarbonInterface => $session->getSignedInAt());
 
         return SessionOwnership::isMachineOwned($session) ? FailureReason::MACHINE_IDENTITY : $accepts($session, $startedAt ?? $now);
+    }
+
+    /**
+     * Judge the admitted session once more, now that its proof is recorded,
+     * when the operation asks: a reason it gives refuses the issuance, rolling
+     * the proof back with the transaction.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  ?\Closure(\SineMacula\Laravel\Authentication\Admission\Admitted, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonImmutable): ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $admits
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Sessions\IssuanceRefused
+     */
+    private static function assertAdmits(?\Closure $admits, Admitted $admitted, EloquentSession&Model $session, CarbonImmutable $now): void
+    {
+        $shortfall = $admits === null ? null : $admits($admitted, $session, $now);
+
+        if ($shortfall !== null) {
+            throw new IssuanceRefused(new Refused($shortfall, $admitted->identity, $admitted->principal, $admitted->tenant, $session));
+        }
     }
 
     /**

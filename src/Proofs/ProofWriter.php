@@ -73,6 +73,7 @@ final class ProofWriter
             'key_protection'       => $observed->keyProtection?->value,
             'accepted'             => $proof->evaluation?->accepted,
             'multifactor'          => $proof->evaluation?->multifactor,
+            'evidence'             => $proof->evidence?->toArray(),
             'methods'              => $proof->methods,
             'authenticatable_type' => $session->getAttribute($owner->getMorphType()),
             'authenticatable_id'   => IdentifierCoercion::stringify($session->getAttribute($owner->getForeignKeyName())),
@@ -84,8 +85,8 @@ final class ProofWriter
     }
 
     /**
-     * Record how the session, established through an external provider, began.
-     * No evidence is recorded: nothing decides yet whether any is accepted.
+     * Record how the session, established through an external provider, began,
+     * with the provider's evidence when it was accepted.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Proofs\Provenance  $provenance
@@ -103,9 +104,10 @@ final class ProofWriter
             'connection_id'               => $provenance->connectionId,
             'tenant_id'                   => $provenance->tenantId,
             'provider_authenticated_at'   => self::local($provenance->providerAuthenticatedAt),
-            'accepted_evidence'           => null,
+            'accepted_evidence'           => $provenance->evidence?->toArray(),
             'provider_session_expires_at' => self::local($provenance->sessionNotAfter),
             'policy_version'              => $provenance->policyVersion,
+            'link_id'                     => $provenance->linkId,
         ]);
 
         self::insert($row);

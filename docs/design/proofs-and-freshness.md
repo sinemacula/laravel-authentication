@@ -3,18 +3,19 @@
 ## Purpose
 
 This note records how a session keeps the proofs it was established and kept with, how an access token's `auth_time`
-and `amr` are derived from them, how a session steps up and reauthenticates without becoming a new session, and how the
-freshness of a session's authentication is judged for a sensitive operation. The proofs are evidence a session holds;
-the token's claims and every freshness answer are worked out from them, never stored in their place.
+and `amr` are derived from them, how a session steps up and reauthenticates without becoming a new session (at the
+external provider it began with included), when an external provider's evidence is accepted and what it then counts
+for, and how the freshness of a session's authentication is judged for a sensitive operation. The proofs are evidence a
+session holds; the token's claims and every freshness answer are worked out from them, never stored in their place.
 
 ## Invariants
 
 - A proof is a row in `proofs.table`, on the storage connection, belonging to a session's key: its kind
   (`first_factor`, `first_factor_reauthentication`, `external_reauthentication`, `additional_factor`,
   `recovery_code`), method, channel, factor reference, observed properties (each `null` when not observed, which never
-  counts as true), evaluation, `amr` values, time and binding (identity, application, session, purpose). A proof is
-  never changed once recorded; a voided one never counts, and a further factor or recovery code counts only when its
-  adapter accepted it.
+  counts as true), evaluation, `amr` values, time, binding (identity, application, session, purpose) and, for an
+  external provider's proof, the evidence the provider asserted once it was accepted. A proof is never changed once
+  recorded; a voided one never counts, and a further factor or recovery code counts only when its adapter accepted it.
 - Every session the package writes records a generation, a random UUID written when the row is inserted and never
   changed (`EloquentSession::getGenerationName()`, `SessionRecords\SessionGeneration`): it tells a session apart from
   any other a model that reissues keys puts under its key, of the same owner and in the same second included, which
@@ -43,11 +44,67 @@ the token's claims and every freshness answer are worked out from them, never st
   `amr` set and multifactor report (`SessionProofs::history()`), and freshness reads the newest proof a requirement
   takes with `LIMIT 1` on the session, kind and time index (`SessionProofs::newestMeeting()`), so a session with many
   step-ups costs what one with few does.
-- `auth_time` is the newest time of any counting proof. `amr` is the values of the first factor, the further factors and
-  the recovery codes, once each, in the order of their newest times and then of their values; `mfa` is added only when
-  a further factor's or recovery code's evaluation reported multifactor authentication, never worked out from the
-  values, and a proof may not record it itself. A reauthentication of either kind renews `auth_time` and adds no value.
-  A session with no counting first factor issues no token (a `LogicException`).
+- `auth_time` is the newest time of any counting proof. `amr` is the values of the first factor, the further factors,
+  the recovery codes and the reauthentications with an accepted evaluation, once each, in the order of their newest
+  times and then of their values; `mfa` is added only when an accepted evaluation reported multifactor authentication
+  (a further factor's, a recovery code's, or an external provider's proof whose evidence was accepted as multifactor),
+  never worked out from the values, and a proof may not record it itself. A first-factor reauthentication, and an
+  external one whose evidence was not accepted, renews `auth_time` and adds no value (`ProofHistory`, which
+  `SessionProofs::history()` groups by acceptance too). A session with no counting first factor issues no token (a
+  `LogicException`). The claims describe how the session authenticated, not what any tenant accepts: `mfa` from
+  accepted evidence follows the application-wide acceptance, of any age, so it stays in every token of the session,
+  one issued as a principal of a tenant whose evidence policy refuses that connection included. A tenant's requirement
+  is judged by the evidence policy for that tenant, never on `amr`.
+- An external provider's evidence (`External\ExternalEvidence`: its `amr` values, its `acr` value or SAML authentication
+  context class reference, the time it is for) is accepted only when the bound `Contracts\ExternalEvidencePolicy`'s
+  `accepts()` accepts it for multifactor authentication or, failing that, an additional verification, then phishing
+  resistance, then the lowest assurance level (AAL1: evidence credible for any level is accepted, and the level a
+  requirement asks for is `meets()`'s), each of any age and for no tenant, asked inside `WriteConnection::during()` for
+  the identity (`External\EvidenceAcceptance::evaluate()`). Acceptance is its own question, not the identity-level
+  requirement's: the policy accepts evidence credible to anyone it may later be judged for (the identity level, or any
+  tenant that trusts the connection), and `meets()` scopes each requirement, so a connection only one tenant trusts
+  still has its evidence accepted and meets only that tenant's requirement. The default, `InsufficientEvidence`, accepts
+  nothing, so by default no evidence is accepted. Accepted evidence is recorded with its proof (`proofs.evidence`, the
+  first factor's at sign-in and an `external_reauthentication`'s) and, at sign-in, the provenance's `accepted_evidence`,
+  dated no later than the time it was judged at (`EvidenceAcceptance::asOf()`), and the proof carries the acceptance as
+  its evaluation (multifactor when it was accepted for multifactor authentication), which `amr` reads. The proof reads
+  back with no evaluation (`SessionProofs`, `SignInProof::recorded()`), so a `RequirementCheck` never takes the
+  application's acceptance of evidence of any age for a tenant's multifactor proof; only the evidence beside it, which
+  the evidence policy judges, says what it is worth. Evidence that is not accepted is recorded nowhere and counts for
+  nothing; there is no partial acceptance. A result's evidence is never dated after the provider's time the result gives
+  (`ExternalResult` refuses it): the provider's time times the proof, the evidence's own time is what its acceptance and
+  any requirement judged on it age. Evidence that is not valid UTF-8, or whose stored JSON (every character outside
+  ASCII escaped, up to twelve bytes for one) would exceed `ExternalEvidence::STORED_MAX_BYTES` (65,535, a MySQL `TEXT`
+  column), is refused when it is built, so evidence once accepted is always written.
+- Freshness takes no provider's evidence: a proof that carries accepted evidence never meets a freshness requirement
+  that asks for multifactor authentication (`SessionProofs::newestMeeting()`), since the evidence was accepted as of any
+  age and the proof is timed at the provider's time, not the evidence's. It still meets one that does not, on its time.
+- The identity-level requirement and a tenant's further factor have one judge (`Requirements\RequirementJudge`). For a
+  session an external provider established (its first factor's channel is `external_provider`) that holds accepted
+  evidence, it asks the evidence policy's `meets()` first whether any accepted evidence meets the whole requirement, the
+  newest by the evidence's own time first and no further once one does: at sign-in the sign-in's own, in memory
+  (`SessionEvidence::$externalEvidence`); otherwise one read of at most `SessionProofs::EVIDENCE_LIMIT` of the session's
+  counting proofs that carry evidence (`SessionProofs::acceptedEvidence()`), on the write connection, keeping of
+  evidence that asserts the same methods and context only the newest, which an older copy can never better. Newer
+  evidence accepted for less (an additional verification, say) never hides older evidence that still meets the
+  requirement on its own time, among those proofs: evidence only on proofs older than the newest `EVIDENCE_LIMIT` that
+  carry evidence is not read, which fails closed (the session needs a further factor or a new reauthentication). The
+  policy is told the connection and the tenant whose requirement it judges (`EvidenceSubject::$tenant`, `null` for the
+  identity level and for acceptance), so it can refuse evidence from a connection that tenant does not trust. Met,
+  `RequirementCheck` is not asked; otherwise it judges the session's proofs as it does any session's. Evidence never
+  meets part of a requirement and leaves the rest to the factor package's proofs, and a session no provider established
+  reads nothing more.
+- An `external_reauthentication` is recorded only by `reauthenticateExternally()` (`Sessions\ExternalReauthentication`),
+  through `ProofIssuance` like the others, and only through the very link that established the session: the link
+  contract is asked first (before any lock of the package's, so after the adapter's own), then under the session's
+  locked row the session must still be of the same generation, owned by the link's identity, with a provenance that
+  records exactly the result's connection and the link's id, byte for byte (`link_mismatch`; a session recorded with no
+  link never matches), and not begun after the provider's time (`proof_invalid`). With the proof recorded, the session
+  must still meet its tenant's authentication policy, as at every redemption (`sso_required`,
+  `additional_factor_required`; the proof rolls back). The proof is timed at the provider's time, never after now, so
+  the new token's `auth_time` is the later of the session's and the provider's, decided under that lock.
+  `externalStanding()` answers the same checks without writing, under the same lock inside a transaction and with none
+  outside one (when no link id is given, through any link of the connection).
 - A step-up (`SessionService::stepUp()`) and a reauthentication (`reauthenticate()`) share `Sessions\ProofIssuance`:
   in one transaction on the session's connection, the session's row is locked; the session must exist, be this guard's,
   live and a person's; the operation's own check runs on the locked row; the session is admitted again as a refresh
@@ -84,14 +141,18 @@ the token's claims and every freshness answer are worked out from them, never st
 
 ## Success Path
 
-1. A sign-in records the first factor its method returned (`FirstFactor`), or `start()` records the external
-   provider's with its provenance; a completion records the further factor it was given.
+1. A sign-in records the first factor its method returned (`FirstFactor`), `signInExternally()` records the external
+   provider's with its provenance (and its evidence, once accepted), and `start()` an unattested one; a completion
+   records the further factor it was given.
 2. Every access token issued for the session (`signIn()`, a refresh, a switch, a step-up, a reauthentication) asks
    `Proofs\AuthenticationClaims::forSession()` for its `auth_time` and `amr`.
 3. A further-factor adapter verifies a factor on a signed-in session and hands its `ProofResult` to `stepUp()`: the
    proof is recorded, a new access token issued, `SteppedUp` dispatched once committed.
 4. A client proves its first factor again through `reauthenticate()`: the attempt is counted and verified, the proof
-   recorded, a new access token issued with `auth_time` renewed, `Reauthenticated` dispatched once committed.
+   recorded, a new access token issued with `auth_time` renewed, `Reauthenticated` dispatched once committed. A trusted
+   adapter hands a result the session's external provider verified to `reauthenticateExternally()` inside its own
+   transaction: the link is found, the evidence judged, the session's row locked last and checked again, the proof
+   recorded and one access token issued, `Reauthenticated` (method `external_provider`) dispatched once committed.
 5. Before a sensitive operation, the caller asks `FreshnessPolicy::freshProof($session, $operation)` and acts only on a
    proof; a caller that acts atomically locks the session first, checks the locked row is still live itself (the
    policy's own read takes no lock, so a transaction may serve it from an earlier snapshot), and asks inside its
@@ -111,8 +172,23 @@ the token's claims and every freshness answer are worked out from them, never st
   anything is counted or written.
 - A token issued on a lagging replica's request still sees a proof just written: every proof read is on the write
   connection.
-- An `external_reauthentication` has no entry point yet: the kind is reserved for the provider's reauthentication
-  handoff, and a step-up refuses it.
+- An `external_reauthentication` is recorded only by `reauthenticateExternally()`; a step-up and `satisfy()` refuse it.
+  A result linked to no identity is `external_result_unlinked`, after `ExternalResultUnlinked`; one without the
+  provider's time, or with one before the session began, is `proof_invalid`. A revocation of the session (a link's
+  removal or widened scope, say) that commits before the reauthentication's lock refuses it as `session_revoked`; one
+  that commits after ends the new token at its next request.
+- Two reauthentications at the provider racing on one session both record their proofs; `auth_time` is the later
+  provider time whichever commits last, since it is derived from the proofs, never written. The proofs are read with a
+  plain read, so inside a caller's transaction at REPEATABLE READ (MySQL's default) or above whose first read came
+  before the other committed, the token issued second leaves the other's proof out of its `auth_time` and `amr`. That
+  token is only ever older than the proofs say, never fresher, and the next token issued counts both. The same holds
+  for a step-up and a reauthentication with a factor, which share the issuance.
+- An exception from the evidence policy or the link contract, and a database error (a serialization failure included),
+  propagates and rolls back the caller's transaction, for the adapter to retry whole.
+- All the accepted evidence the session holds (within `EVIDENCE_LIMIT` proofs) is judged against a requirement, newest
+  first: a later reauthentication whose evidence was accepted only as an additional verification or phishing resistance
+  leaves an earlier multifactor acceptance to meet a multifactor requirement while its own time allows, so such a
+  reauthentication is issued exactly as one without evidence would be.
 
 ## Seams Left
 
@@ -122,18 +198,16 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   proofs made with the removed factor (`ProofWriter::void()`), whether that session is active or pending, so a pending
   session's next action is never judged on them; the identity's other sessions end instead, so their proofs are never
   voided. A removed first-factor credential (`credentialRemoved()`) voids nothing.
-- Evidence: `accepted_evidence` has no writer and is always `null`. Nothing decides whether a provider's evidence is
-  accepted, so an external reauthentication would never count for MFA or `amr`.
-- `external_reauthentication`: a reserved kind that nothing records; there is no reauthentication handoff from the
-  provider, and step-up and `satisfy()` refuse it.
 - Provenance by connection or tenant: the connection index finds the sessions a connection established for
   `connectionDisabled()` and `connectionDeleted()` (`Sessions\ConnectionRevocations`); there is no lookup or listing of
   the sessions of a connection or of a tenant's connections, and the tenant index has no reader yet.
 - The freshness requirement (proof kinds, maximum age, multifactor, phishing resistance) is what the stored proofs can
   show. A tenant's further factor is a `Requirements\Requirement` instead (additional verification, multifactor, a
-  minimum assurance level, phishing resistance, each with an optional maximum age), and whether a session's proofs meet
-  it is `Contracts\RequirementCheck`'s answer, which by default meets nothing; the identity-level factor policy answers
-  a `Requirement` too, judged by the same check (`RequirementJudge`). Freshness uses neither. The factor-change gate
+  minimum assurance level, phishing resistance, each with an optional maximum age), and whether a session meets it is
+  the accepted evidence's (`Contracts\ExternalEvidencePolicy`) or its proofs' (`Contracts\RequirementCheck`) answer,
+  each meeting nothing by default; the identity-level factor policy answers a `Requirement` too, judged the same way
+  (`RequirementJudge`). Freshness uses neither, and so no provider's evidence: a proof carrying accepted evidence never
+  meets a multifactor freshness requirement. The factor-change gate
   (`SessionService::factorChange()`) asks freshness for `factor_change`, or `first_additional_factor` for an identity's
   first additional factor, excluding the factor a replacement or removal names. A sibling that needs more rebinds
   `FreshnessPolicy` until the value is extended.
@@ -149,8 +223,12 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
 - `src/Models/SessionProof.php`, `src/Models/SessionProvenance.php`,
   `database/migrations/2026_04_06_000008_create_authentication_proofs_table.php`,
   `database/migrations/2026_04_06_000009_create_authentication_provenance_table.php`.
-- `src/Sessions/ProofIssuance.php`, `SessionStepUp.php`, `SessionReauthentication.php`, `AccessTokenResult.php`,
-  `Concerns/ProvesSessions.php`, `SessionWriter.php` (`record()`).
+- `src/Sessions/ProofIssuance.php`, `SessionStepUp.php`, `SessionReauthentication.php`, `ExternalReauthentication.php`,
+  `ExternalResults.php`, `AccessTokenResult.php`, `Concerns/ProvesSessions.php`, `Concerns/SignsInExternally.php`,
+  `SessionWriter.php` (`record()`).
+- `src/Contracts/ExternalEvidencePolicy.php`, `src/External/*` (`ExternalEvidence`, `EvidenceSubject`,
+  `EvidenceAcceptance`, `InsufficientEvidence`), `src/Requirements/RequirementJudge.php`,
+  `src/Tenancy/SessionEvidence.php`.
 - `src/Contracts/FreshnessPolicy.php`, `src/Freshness/*` (`FreshnessRequirement`, `Operations`, `FreshnessSettings`,
   `ConfiguredFreshness`).
 - `src/Sessions/RecentAuthentication.php`, `src/Sessions/Reauthentication.php`.
@@ -164,10 +242,17 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   write rolled back.
 - `tests/Feature/Proofs/SessionProofsTest.php`, `tests/Unit/Proofs/ProofHistoryTest.php`: what counts, the aggregate
   read, `auth_time` and `amr` (order, `mfa`, reauthentications).
-- `tests/Feature/Sessions/SessionStepUpTest.php`, `SessionReauthenticationTest.php`: every refusal, the token, what is
-  kept, the events.
+- `tests/Feature/Sessions/SessionStepUpTest.php`, `SessionReauthenticationTest.php`, `ExternalReauthenticationTest.php`:
+  every refusal, the token, what is kept, the events; the external one's link checks, the later-time rule, accepted and
+  unaccepted evidence, changes under the lock and the standing.
+- `tests/Feature/External/EvidenceAcceptanceTest.php`, `tests/Unit/External/ExternalEvidenceTest.php`,
+  `tests/Feature/Requirements/RequirementJudgeTest.php`: acceptance and its order, the stored form, the evidence path of
+  the judge in memory and stored, and no read for a session no provider established.
+- `tests/Integration/Sessions/ExternalReauthenticationTest.php`, `ConcurrentExternalReauthenticationsTest.php`,
+  `ConcurrentExternalReauthenticationAndWideningTest.php`: the byte-exact link, the adapter's transaction, and the
+  races on the session's row lock.
 - `tests/Unit/Freshness/*`, `tests/Feature/Freshness/ConfiguredFreshnessTest.php`: requirements, the stricter rule,
-  configuration and its failures, the newest meeting proof.
+  configuration and its failures, the newest meeting proof, and no provider's evidence meeting multifactor freshness.
 - `tests/Feature/IdentifierChanges/RecentAuthenticationTest.php`: the identifier change's freshness.
 - `tests/Feature/IdentifierChanges/ReboundFreshnessPolicyTest.php`: a policy the application binds is the one asked,
   and the locked row is judged live whatever it answers.
@@ -178,13 +263,20 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   other nor deadlock while clearing their keys.
 - `tests/Integration/Proofs/ByteDistinctBindingTest.php`: session keys that differ only in case or by a trailing space,
   and `amr` values that differ only in case, stay apart.
+- `tests/Integration/Sessions/ReplicaExternalSessionsTest.php`: the provenance and the accepted evidence read on the
+  primary.
 - `tests/Integration/Proofs/ReplicaProofsTest.php`, `tests/Integration/Migration/ProofTablesSchemaTest.php`,
   `tests/Performance/ProofQueryBudgetTest.php`, `benchmarks/Proofs/ProofHistoryBench.php`.
 
 ## Change Triggers
 
 - Storing `auth_time` or `amr` instead of deriving them, or reading proofs from a replica.
-- Letting a reauthentication add `amr` values, or working `mfa` out from the values.
+- Letting a reauthentication add `amr` values without an accepted evaluation, or working `mfa` out from the values.
+- Recording or counting a provider's evidence the evidence policy did not accept, letting it meet part of a
+  requirement, storing an evidence time after the time it was judged at, or letting freshness count it as multifactor
+  authentication.
+- Letting an external reauthentication through any link but the one the session's provenance records, or locking the
+  session before the link contract is asked.
 - Judging freshness on the latest authentication time rather than the proof that meets the requirement.
 - Letting a step-up or a reauthentication issue a refresh token, move a deadline, or write the session row.
 - Taking a password as an identifier change's proof where the requirement asks for more than a first-factor

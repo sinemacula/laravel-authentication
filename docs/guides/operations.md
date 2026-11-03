@@ -184,7 +184,8 @@ also deletes whatever is recorded under its new session's key before it records 
 again (an integer key whose counter a truncation reset) does not inherit an earlier session's proofs. That deletion
 reads as of its transaction's snapshot: on MySQL at REPEATABLE READ, a sign-in inside a transaction of your own that
 read the database before the earlier session's rows were committed does not see them, so delete a session's rows with it
-rather than rely on the sign-in.
+rather than rely on the sign-in. The connection guards in `proofs.guards_table` are never pruned: they name no session,
+and a connection has at most 64.
 
 The package's models live outside your application's `app/Models`, so name them when you schedule the command:
 

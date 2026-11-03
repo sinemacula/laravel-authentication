@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -23,6 +24,9 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionActivated;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\External\EvidenceSubject;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\External\InsufficientEvidence;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
@@ -31,7 +35,7 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
+use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
@@ -45,16 +49,21 @@ use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\External\ScriptedEvidencePolicy;
+use Tests\Fixtures\External\TenantTrustingEvidencePolicy;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\TestCase;
@@ -83,7 +92,7 @@ use Tests\TestCase;
 #[CoversClass(AbstractGuard::class)]
 final class TenantAuthenticationPolicyTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
 
     /** @var string Guard over `ChoosingMember`, whose sign-ins wait for a choice of principal. */
     private const string CHOOSERS = 'choosers';
@@ -209,7 +218,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
         self::assertSame(FailureReason::SSO_REQUIRED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(0, Session::query()->count());
 
-        $signedIn = $this->sessions('members')->start($member, $membership, 'sso', null, new Provenance('conn-a'));
+        $signedIn = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a'), self::asPrincipal($membership));
 
         self::assertTrue($signedIn->isSignedIn());
         self::assertSame('v1', Session::query()->sole()->getTenantPolicyVersion());
@@ -257,6 +266,168 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         self::assertTrue($active->isSignedIn());
         self::assertSame('mfa', Session::query()->sole()->getTenantPolicyVersion());
+    }
+
+    /**
+     * A choice of principal judges the tenant's further factor against the
+     * evidence a pending external session holds accepted, read back from its
+     * proofs: met, the session activates; under the default evidence policy,
+     * which accepted none, it waits on `mfa`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceIsJudgedOnThePendingSessionsAcceptedEvidence(): void
+    {
+        [$member, , $second] = $this->seedChooser();
+
+        $this->policy->requirement = new TenantRequirement('mfa', new Requirement(multifactor: new RequirementPart));
+
+        $evidence = new ExternalEvidence(['mfa'], null, $this->now);
+        $policy   = new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]);
+
+        app()->instance(ExternalEvidencePolicy::class, $policy);
+
+        $trusted = $this->sessions(self::CHOOSERS)->signInExternally($this->linkedResult($member, evidence: $evidence));
+
+        self::assertTrue($trusted->isPending());
+        self::assertSame([PendingRequirement::PRINCIPAL], $trusted->pending?->requires);
+
+        $active = $this->sessions(self::CHOOSERS)->choose((string) $trusted->credential?->reveal(), $second);
+
+        self::assertTrue($active->isSignedIn());
+        self::assertSame($second->tenant_id, $policy->asked[1]['subject']->tenant?->getTenantIdentifier());
+        self::assertSame([], $this->check->judged);
+
+        app()->instance(ExternalEvidencePolicy::class, new InsufficientEvidence);
+
+        $untrusted = $this->sessions(self::CHOOSERS)->signInExternally($this->linkedResult($member, evidence: $evidence));
+        $waiting   = $this->sessions(self::CHOOSERS)->choose((string) $untrusted->credential?->reveal(), $second);
+
+        self::assertTrue($waiting->isPending());
+        self::assertSame([PendingRequirement::MFA], $waiting->pending?->requires);
+    }
+
+    /**
+     * A refresh and a switch judge the tenant's further factor against the
+     * evidence an external session holds accepted, read back from its proofs:
+     * met, the session refreshes and switches; once no evidence policy trusts
+     * that evidence, the next refresh returns the session to pending.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshAndASwitchAreJudgedOnTheSessionsAcceptedEvidence(): void
+    {
+        [$member, $first] = $this->seedMember();
+
+        $other  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+        $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
+
+        app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]));
+
+        $evidence = new ExternalEvidence(['mfa'], null, $this->now);
+        $session  = $this->sessions('members')->signInExternally($this->linkedResult($member, evidence: $evidence), self::asPrincipal($first))->session;
+
+        self::assertNotNull($session);
+
+        $this->policy->requirement = new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart));
+
+        $refreshed = $this->sessions('members')->refresh($session->tokens->refreshToken?->reveal());
+
+        self::assertTrue($refreshed->isRefreshed());
+        self::assertSame('v2', Session::query()->sole()->getTenantPolicyVersion());
+
+        $switched = $this->sessions('members')->switchTo($refreshed->session?->tokens->refreshToken?->reveal() ?? '', SwitchTarget::principal($second));
+
+        self::assertTrue($switched->isSwitched());
+        self::assertSame([], $this->check->judged);
+
+        app()->instance(ExternalEvidencePolicy::class, new InsufficientEvidence);
+
+        $this->policy->requirement = new TenantRequirement('v3', new Requirement(multifactor: new RequirementPart));
+
+        $returned = $this->sessions('members')->refresh($switched->session?->tokens->refreshToken?->reveal());
+
+        self::assertTrue($returned->isPending());
+        self::assertSame([PendingRequirement::MFA], $returned->pending?->requires);
+    }
+
+    /**
+     * The evidence policy is told whose requirement it judges, so one tenant's
+     * connection never meets another tenant's further factor: a sign-in through
+     * the first tenant's connection, with evidence that tenant trusts, signs in
+     * as its principal and waits on `mfa` as the other tenant's.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOneTenantsConnectionNeverMeetsAnotherTenantsFactor(): void
+    {
+        [$member, $first, $tenant] = $this->seedMember();
+
+        $other  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+        $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
+        $policy = new TenantTrustingEvidencePolicy([(string) IdentifierCoercion::stringify($tenant->getKey()) => ['conn-a']]);
+
+        app()->instance(ExternalEvidencePolicy::class, $policy);
+
+        $this->policy->requirement = new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart));
+
+        $evidence = new ExternalEvidence(['mfa'], null, $this->now);
+        $trusted  = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a', evidence: $evidence), self::asPrincipal($first));
+        $foreign  = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a', evidence: $evidence), self::asPrincipal($second));
+
+        self::assertTrue($trusted->isSignedIn());
+        self::assertTrue($foreign->isPending());
+        self::assertSame([PendingRequirement::MFA], $foreign->pending?->requires);
+        self::assertSame(
+            [null, $tenant->getKey(), null, $other->getKey()],
+            array_map(static fn (EvidenceSubject $subject): mixed => $subject->tenant?->getTenantIdentifier(), $policy->subjects),
+        );
+        self::assertSame(['conn-a'], array_values(array_unique(array_column($policy->subjects, 'connectionId'))));
+    }
+
+    /**
+     * Evidence from a connection only one tenant trusts is still accepted, and
+     * so recorded, since acceptance asks whether anyone trusts it; it meets
+     * that tenant's requirement, but not the identity-level one, which only a
+     * connection trusted at the identity level meets.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEvidenceOnlyOneTenantTrustsIsAcceptedAndMeetsOnlyThatTenant(): void
+    {
+        [$member, $first, $tenant] = $this->seedMember();
+
+        $tenantId = (string) IdentifierCoercion::stringify($tenant->getKey());
+        $evidence = new ExternalEvidence(['mfa'], null, $this->now);
+
+        app()->instance(ExternalEvidencePolicy::class, new TenantTrustingEvidencePolicy([$tenantId => ['conn-a']]));
+
+        $this->policy->requirement = new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart));
+
+        $trusted = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a', evidence: $evidence), self::asPrincipal($first));
+
+        $record = $trusted->session?->record;
+
+        self::assertNotNull($record);
+        self::assertEquals($evidence, SessionProofs::provenance($record)?->evidence);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $identityLevel = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a', evidence: $evidence), self::asPrincipal($first));
+
+        self::assertTrue($identityLevel->isPending());
+
+        app()->instance(ExternalEvidencePolicy::class, new TenantTrustingEvidencePolicy(['' => ['conn-a'], $tenantId => ['conn-a']]));
+
+        self::assertTrue($this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a', evidence: $evidence), self::asPrincipal($first))->isSignedIn());
     }
 
     /**
@@ -501,8 +672,8 @@ final class TenantAuthenticationPolicyTest extends TestCase
         $this->seedMember('other@example.test');
 
         $short   = $this->signedIn();
-        $met     = $this->sessions('members')->start($member, $membership, 'sso', null, new Provenance('conn-a'))->session?->record;
-        $current = $this->sessions('members')->start($member, $membership, 'sso', null, new Provenance('conn-b'))->session?->record;
+        $met     = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a'), self::asPrincipal($membership))->session?->record;
+        $current = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-b'), self::asPrincipal($membership))->session?->record;
         $outside = $this->signedIn('other@example.test');
 
         self::assertNotNull($met);
@@ -556,6 +727,44 @@ final class TenantAuthenticationPolicyTest extends TestCase
     }
 
     /**
+     * A policy change judges an external session's further factor on the
+     * evidence it holds accepted, for the tenant whose policy changed: evidence
+     * from a connection that tenant trusts meets it, and the session stays
+     * active with the version recorded; evidence from a connection only another
+     * tenant trusts does not, and the session is revoked.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPolicyChangeJudgesExternalSessionsOnTheTenantsTrustedEvidence(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $other    = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+        $evidence = new ExternalEvidence(['mfa'], null, $this->now);
+
+        app()->instance(ExternalEvidencePolicy::class, new TenantTrustingEvidencePolicy([
+            (string) IdentifierCoercion::stringify($tenant->getKey()) => ['conn-a'],
+            (string) IdentifierCoercion::stringify($other->getKey())  => ['conn-b'],
+        ]));
+
+        $trusted = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a', evidence: $evidence), self::asPrincipal($membership))->session?->record;
+        $foreign = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-b', evidence: $evidence), self::asPrincipal($membership))->session?->record;
+
+        self::assertNotNull($trusted);
+        self::assertNotNull($foreign);
+
+        $this->policy->requirement = new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart));
+
+        self::assertSame(1, $this->sessions('members')->tenantPolicyChanged($tenant));
+        self::assertNull($this->rowOf($trusted->getKey())->getRevokedAt());
+        self::assertSame('v2', $this->rowOf($trusted->getKey())->getTenantPolicyVersion());
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, $this->rowOf($foreign->getKey())->getRevokedReason());
+        self::assertCount(1, $this->check->judged);
+    }
+
+    /**
      * Inside a caller's transaction that rolls back, nothing is revoked and no
      * revocation is reported; called again outside it, the session is revoked,
      * and a third call finds nothing left to revoke.
@@ -605,7 +814,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
         self::configureSessionGuards($config);
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
-        $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso']]]);
+        $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso', 'external_provider']]]);
     }
 
     /**

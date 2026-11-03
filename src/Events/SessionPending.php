@@ -10,12 +10,12 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 
 /**
  * Dispatched when a sign-in leaves its session pending instead of activating
- * it: the credential (or, through `start()`, something outside the guard)
- * proved the identity, and a further factor is required, a principal is to be
- * chosen, or both. From `signIn()` it is the outcome of that sign-in's
- * `Attempting`; from `start()`, which dispatches no `Attempting`, it is the
- * only event. The session's activation dispatches `SessionCreated` and
- * `SignedIn`.
+ * it: the credential (or, through `start()` or `signInExternally()`, something
+ * outside the guard) proved the identity, and a further factor is required, a
+ * principal is to be chosen, or both. From `signIn()` it is the outcome of that
+ * sign-in's `Attempting`; from `start()` and `signInExternally()`, which
+ * dispatch no `Attempting`, it is the only event. The session's activation
+ * dispatches `SessionCreated` and `SignedIn`.
  *
  * Dispatched once the pending session is committed on the session's own
  * connection: at once when that connection has no open transaction, after its

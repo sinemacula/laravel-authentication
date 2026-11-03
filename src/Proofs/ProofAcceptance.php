@@ -18,9 +18,10 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * session it satisfies, or on a session it steps up.
  *
  * Either takes only a further factor or a recovery code (an
- * `external_reauthentication` or a first-factor kind is refused, which is how
- * an external reauthentication never counts for MFA until something accepts its
- * evidence, which nothing does yet), made for the operation's purpose
+ * `external_reauthentication` or a first-factor kind is refused: an external
+ * reauthentication is recorded only through the package's own entry point, and
+ * counts for MFA only through the acceptance of its evidence by the evidence
+ * contract, `External\EvidenceAcceptance`), made for the operation's purpose
  * (`sign_in` for a pending session, or `enrollment` for the further factor that
  * confirms a factor enrolled while it waits; `step_up` for a step-up), accepted
  * by its adapter, and made no later than now and no earlier than what it adds

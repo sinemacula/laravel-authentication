@@ -70,7 +70,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`. The deadlines
   come from the application policy's lifetimes for the guard (`ApplicationPolicy::lifetimes($guard)`), which with the
   shipped policy are the guard's token service's (see `application-policy.md`), the absolute one capped at the
-  context's own deadline (`SignInContext::$notAfter`, into which `start()` folds a provenance's deadline); a context
+  context's own deadline (`SignInContext::$notAfter`, into which `signInExternally()` folds the provider's); a context
   whose deadline is `$now` or earlier is refused as `session_expired` before anything is written.
 - Every sign-in creates a new session (D15): a new key, a new rotation id, both deadlines from `$now`. An active
   session is written in one transaction on the session's connection: the revocation of a proven session first, then the
@@ -83,14 +83,14 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   revokes nothing and issues no token.
 - What a sign-in proved travels as an internal `Proofs\SignInProof` from the moment it is verified to the session's
   first proofs: the method, the `FirstFactor` a sign-in method returned (its channel, observations and `amr` values,
-  `mfa` refused) timed when it returned, or for `start()` the provider's (the connection, the private
-  `urn:sinemacula:amr:external_provider` value, the provider's time, never after now) with the `Provenance`, or an
-  unattested one (unknown channel, no value, now). A pending session records it as its first proof when it is written,
-  so the session records the time the credentials were verified. A `satisfy()`'s `ProofResult` is accepted only as
-  `Proofs\ProofAcceptance::forPendingSession()` decides (an `additional_factor` or `recovery_code`, for `sign_in`, or
-  `enrollment` for an `additional_factor`, accepted, timed between when the session began waiting and now:
-  `proof_invalid`; bound to the pending session's identity, guard and id: `proof_binding_mismatch`); a refusal stores
-  nothing and leaves the session pending.
+  `mfa` refused) timed when it returned, or for `signInExternally()` the provider's (the connection, the private
+  `urn:sinemacula:amr:external_provider` value, the provider's time, never after now) with the `Provenance` (the link's
+  id included), or for `start()` an unattested one (unknown channel, no value, now). A pending session records it as its
+  first proof when it is written, so the session records the time the credentials were verified. A `satisfy()`'s
+  `ProofResult` is accepted only as `Proofs\ProofAcceptance::forPendingSession()` decides (an `additional_factor` or
+  `recovery_code`, for `sign_in`, or `enrollment` for an `additional_factor`, accepted, timed between when the session
+  began waiting and now: `proof_invalid`; bound to the pending session's identity, guard and id:
+  `proof_binding_mismatch`); a refusal stores nothing and leaves the session pending.
 - A refresh token proves a session only when it is the session's current rotation id, validly signed for the guard
   (`parseRefreshProof()`: every `parse()` check except expiry), and the session, read from the writer, is owned by the
   identity, records this guard and the same principal, and is not revoked. Anything else is no proof: a new session,
@@ -173,7 +173,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   guesses are bounded by the account's one count, whatever spelling of the identifier or guard the sign-ins used, held
   to the most permissive `per_identifier` limit among the guards that check the account (see `application-policy.md`);
   for a method that counts no account, only by its identifier's and the IP address's limits. A pending session from
-  `start()` holds no slots (nothing was guessed), so its external verifier bounds it.
+  `start()` or `signInExternally()` holds no slots (nothing was guessed), so its external verifier bounds it.
 - An activation runs in the acting request's client: its events and the session's last use carry that client, while
   the session keeps the client the sign-in came from as its creation.
 - Inside a caller's transaction the service's transaction is a savepoint: the lifecycle events, the bind and the

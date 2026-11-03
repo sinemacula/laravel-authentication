@@ -12,7 +12,8 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * One proof recorded on a session: its kind and purpose, the method, the
  * channel and the factor it used, what was observed, the adapter's evaluation
  * for one an adapter verified, its `amr` values, its time and its binding (the
- * identity, the guard and the session's key).
+ * identity, the guard and the session's key), and the evidence an external
+ * provider asserted for it once the evidence contract accepted it.
  *
  * Kept on the storage connection with the sessions, so a session and its proofs
  * are written in one transaction, in the table named by
@@ -45,6 +46,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property ?string $key_protection
  * @property ?bool $accepted
  * @property ?bool $multifactor
+ * @property ?array<array-key, mixed> $evidence
  * @property list<string> $methods
  * @property string $authenticatable_type
  * @property string $authenticatable_id
@@ -67,8 +69,8 @@ final class SessionProof extends Model
     /** @var list<string> The attributes that are mass assignable: none, every column is written with `forceFill()`. */
     protected $fillable = [];
 
-    /** @var list<string> The attributes hidden from serialisation: a code's destination and the factor used. */
-    protected $hidden = ['channel_reference', 'factor_reference'];
+    /** @var list<string> The attributes hidden from serialisation: a code's destination, the factor used and a provider's evidence. */
+    protected $hidden = ['channel_reference', 'factor_reference', 'evidence'];
 
     /**
      * Create a proof on the storage connection, in the configured table. Both
@@ -105,6 +107,7 @@ final class SessionProof extends Model
             'phishing_resistant' => 'boolean',
             'accepted'           => 'boolean',
             'multifactor'        => 'boolean',
+            'evidence'           => 'array',
             'methods'            => 'array',
             'authenticated_at'   => 'datetime',
             'voided_at'          => 'datetime',

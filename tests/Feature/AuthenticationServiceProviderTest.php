@@ -44,6 +44,8 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\ExternalIdentityLinks;
 use SineMacula\Laravel\Authentication\Contracts\FactorCodeCounters;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
@@ -58,6 +60,8 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException;
+use SineMacula\Laravel\Authentication\External\InsufficientEvidence;
+use SineMacula\Laravel\Authentication\External\NoExternalLinks;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
@@ -574,9 +578,11 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * The default tenant authentication policy, which requires nothing, the
-     * default requirement check, which meets nothing, and the default factor
-     * code counters, which refuse every factor code, are bound as singletons so
-     * a single sign-on or further-factor package can rebind them.
+     * default requirement check, which meets nothing, the default external
+     * evidence policy, which finds every provider's evidence insufficient, and
+     * the default factor code counters, which refuse every factor code, are
+     * bound as singletons so a single sign-on or further-factor package can
+     * rebind them.
      *
      * @return void
      */
@@ -590,8 +596,27 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertInstanceOf(RequireNothingOfTenants::class, app(TenantAuthenticationPolicy::class));
         self::assertTrue($app->isShared(RequirementCheck::class));
         self::assertInstanceOf(MeetNoRequirement::class, app(RequirementCheck::class));
+        self::assertTrue($app->isShared(ExternalEvidencePolicy::class));
+        self::assertInstanceOf(InsufficientEvidence::class, app(ExternalEvidencePolicy::class));
         self::assertTrue($app->isShared(FactorCodeCounters::class));
         self::assertInstanceOf(RefuseFactorCodes::class, app(FactorCodeCounters::class));
+    }
+
+    /**
+     * The default external identity links, which link nothing, are bound as a
+     * singleton so a single sign-on package can rebind them.
+     *
+     * @return void
+     */
+    public function testRegistersTheDefaultExternalIdentityLinks(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(ExternalIdentityLinks::class));
+        self::assertInstanceOf(NoExternalLinks::class, app(ExternalIdentityLinks::class));
+        self::assertSame(app(ExternalIdentityLinks::class), app(ExternalIdentityLinks::class));
     }
 
     /**

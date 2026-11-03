@@ -9,9 +9,9 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Sessions\ConnectionRevocations;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
@@ -20,7 +20,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
  * sessions cost one read of the provenance's connection index and one locking
  * read per chunk of 500, and one `UPDATE` per session; a link's cost one read
  * of the identity's sessions, one of their provenance and one locking read per
- * chunk; a trigger turned off reads and writes nothing.
+ * chunk, whichever of its triggers ends them, and a widened scope reported
+ * again writes nothing; a trigger turned off reads and writes nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,7 +31,7 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 #[CoversClass(ConnectionRevocations::class)]
 final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithSessions;
 
     /**
      * Create the tables.
@@ -59,9 +60,9 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
     }
 
     /**
-     * A disabled connection with three sessions reads one chunk of its
-     * provenance, locks those sessions in one read and writes one `UPDATE`
-     * each.
+     * A disabled connection with three sessions writes its guards in one
+     * statement, reads one chunk of its provenance, locks those sessions in one
+     * read and writes one `UPDATE` each.
      *
      * @return void
      *
@@ -77,12 +78,12 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
 
         $sessions = $this->sessions();
 
-        self::assertSame(3, $this->assertQueryBudget(2, 3, static fn (): int => $sessions->connectionDisabled('conn-a')));
+        self::assertSame(3, $this->assertQueryBudget(2, 4, static fn (): int => $sessions->connectionDisabled('conn-a')));
     }
 
     /**
      * Past one chunk, each chunk of 500 costs its two reads, and the writes
-     * stay one per session.
+     * stay one per session, with the guards written once.
      *
      * @return void
      *
@@ -97,12 +98,13 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
         $sessions = $this->sessions();
         $count    = ConnectionRevocations::CHUNK + 1;
 
-        self::assertSame($count, $this->assertQueryBudget(4, $count, static fn (): int => $sessions->connectionDeleted('conn-a')));
+        self::assertSame($count, $this->assertQueryBudget(4, $count + 1, static fn (): int => $sessions->connectionDeleted('conn-a')));
     }
 
     /**
-     * A removed link reads the identity's sessions, their provenance and the
-     * locked sessions through the connection, and writes one `UPDATE` each.
+     * A removed link writes its guard, reads the identity's sessions, their
+     * provenance and the locked sessions through the link, and writes one
+     * `UPDATE` each; a widened scope costs the same.
      *
      * @return void
      *
@@ -118,11 +120,40 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
 
         $sessions = $this->sessions();
 
-        self::assertSame(2, $this->assertQueryBudget(3, 2, static fn (): int => $sessions->linkRemoved($identity, 'conn-a')));
+        self::assertSame(2, $this->assertQueryBudget(3, 3, static fn (): int => $sessions->linkRemoved($identity, 'conn-a', 'link-1')));
+
+        DB::table('authentication_sessions')->update(['revoked_at' => null, 'revoked_reason' => null]);
+
+        self::assertSame(2, $this->assertQueryBudget(3, 3, static fn (): int => $sessions->linkScopeWidened($identity, 'conn-a', 'link-1')));
     }
 
     /**
-     * A trigger turned off reads and writes nothing.
+     * A widened scope reported again for the same widening writes the link's
+     * guard, as every widening does, reads the identity's sessions and their
+     * provenance, finds nothing live through the link, locks nothing and writes
+     * no session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAWidenedScopeReportedAgainWritesOnlyItsGuard(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->external($identity, 'conn-a');
+        $this->external($identity, 'conn-b');
+
+        $sessions = $this->sessions();
+
+        $widen = static fn (): int => $sessions->linkScopeWidened($identity, 'conn-a', 'link-1');
+
+        self::assertSame(1, $widen());
+        self::assertSame(0, $this->assertQueryBudget(2, 1, $widen));
+    }
+
+    /**
+     * A trigger turned off reads and writes nothing, its guards included.
      *
      * @return void
      *
@@ -168,7 +199,7 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
      */
     private function external(IntegrationIdentity $identity, string $connection): void
     {
-        self::assertNotNull($this->sessions()->start($identity, null, 'sso', null, new Provenance($connection))->session);
+        self::assertNotNull($this->sessions()->signInExternally($this->linkedResult($identity, $connection))->session);
     }
 
     /**
@@ -195,7 +226,7 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
             'principal_id'         => IdentifierCoercion::stringify($identity->getKey()),
             'status'               => 'active',
             'guard'                => 'api',
-            'sign_in_method'       => 'sso',
+            'sign_in_method'       => 'external_provider',
             'refresh_key'          => hash('sha256', 'refresh-' . $key),
             'signed_in_at'         => $at,
             'idle_expires_at'      => $idle,

@@ -356,6 +356,37 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
+     * `external_provider` is the method external sign-ins are recorded under,
+     * not a sign-in method: it cannot be registered as one, never resolves to
+     * one, so `signIn()` can never take an external result as input, and is no
+     * registered name.
+     *
+     * @return void
+     */
+    public function testTheExternalProviderMethodIsNotASignInMethod(): void
+    {
+        $manager = $this->manager();
+
+        self::assertSame('external_provider', SignInMethodManager::EXTERNAL_METHOD);
+        self::assertNotContains('external_provider', $manager->names());
+
+        try {
+            $manager->extend('external_provider', fn (): SignInMethod => \Mockery::mock(SignInMethod::class));
+
+            self::fail('Expected [external_provider] to be refused.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringStartsWith('[external_provider] is the method external sign-ins are recorded under, not a sign-in method;', $exception->getMessage());
+        }
+
+        self::assertNotContains('external_provider', $manager->names());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Sign-in method [external_provider] is not registered.');
+
+        $manager->method('external_provider');
+    }
+
+    /**
      * The registered names are the package's own methods, then those registered
      * with `extend()`, in the order they were registered, and no credential
      * kind.

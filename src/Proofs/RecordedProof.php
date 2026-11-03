@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Proofs;
 
 use Carbon\CarbonImmutable;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 
@@ -13,8 +14,13 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
  * or changes the stored row.
  *
  * The evaluation is the adapter's, for a proof an adapter verified, and `null`
- * for one this package verified itself (a first factor or a reauthentication
- * with it).
+ * for any proof this package verified itself (a first factor or a
+ * reauthentication with it) and for an external proof (a sign-in or
+ * reauthentication at an external provider). An external proof whose evidence
+ * the evidence contract accepted carries that evidence instead: its acceptance
+ * is the application's, of evidence of any age, and is no tenant's, so it is
+ * the evidence contract's to judge against a requirement, never a requirement
+ * check's.
  *
  * @api
  *
@@ -36,6 +42,7 @@ final readonly class RecordedProof
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\Evaluation  $evaluation
      * @param  list<string>  $methods
      * @param  \Carbon\CarbonImmutable  $authenticatedAt
+     * @param  ?\SineMacula\Laravel\Authentication\External\ExternalEvidence  $evidence
      */
     public function __construct(
 
@@ -60,7 +67,7 @@ final readonly class RecordedProof
         /** What was observed about the authenticator. */
         public ObservedProperties $observed,
 
-        /** What the adapter reported, for a proof an adapter verified. */
+        /** What the adapter reported, for a proof an adapter verified; `null` for an external proof. */
         public ?Evaluation $evaluation,
 
         /** The authentication method reference values it stands for. */
@@ -68,5 +75,8 @@ final readonly class RecordedProof
 
         /** When it was made. */
         public CarbonImmutable $authenticatedAt,
+
+        /** The evidence an external provider asserted, once accepted, for an external proof. */
+        public ?ExternalEvidence $evidence = null,
     ) {}
 }

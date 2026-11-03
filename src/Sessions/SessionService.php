@@ -30,7 +30,6 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
@@ -42,6 +41,7 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\GatesFactorChanges;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\LooksUpSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ProvesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\SignsInExternally;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
@@ -53,23 +53,24 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * pending, with a pending credential, while it waits on requirements.
  *
  * `signIn()` verifies the input with a sign-in method; `start()` begins a
- * session for an identity something else verified (an external identity
- * provider, say). Either way, in the order sign-in takes: the application
- * policy must allow the method; the identity must be human, active and admitted
- * with the identifier type the sign-in used; the principals the application
- * admits are found (with none left the sign-in is refused, after the credential
- * is verified); the one named, or the only one, is selected, or a choice is
- * left outstanding; the identity-level factor policy is asked, before any
- * principal is chosen; a selected principal's active tenant is admitted; and
- * that tenant's authentication policy is asked: one requiring sign-in through a
- * connection the sign-in did not come through refuses it (`sso_required`), and
- * a further factor it requires is outstanding as the identity's own is. With
- * nothing outstanding the session starts active; otherwise it is pending
- * (`SignInResult::pending()`), waiting on the further factor, then the choice,
- * and holding no token. `pending()` reads a pending session for an action,
- * `satisfy()` hands it the proof of a further factor, `choose()` makes the
- * choice, and `discard()` ends it; each takes the pending credential, which
- * travels only in a response body.
+ * session for an identity something else verified; `signInExternally()` begins
+ * one for the identity a result an external identity provider verified is
+ * linked to (`SignsInExternally`). Each way, in the order sign-in takes: the
+ * application policy must allow the method; the identity must be human, active
+ * and admitted with the identifier type the sign-in used; the principals the
+ * application admits are found (with none left the sign-in is refused, after
+ * the credential is verified); the one named, or the only one, is selected, or
+ * a choice is left outstanding; the identity-level factor policy is asked,
+ * before any principal is chosen; a selected principal's active tenant is
+ * admitted; and that tenant's authentication policy is asked: one requiring
+ * sign-in through a connection the sign-in did not come through refuses it
+ * (`sso_required`), and a further factor it requires is outstanding as the
+ * identity's own is. With nothing outstanding the session starts active;
+ * otherwise it is pending (`SignInResult::pending()`), waiting on the further
+ * factor, then the choice, and holding no token. `pending()` reads a pending
+ * session for an action, `satisfy()` hands it the proof of a further factor,
+ * `choose()` makes the choice, and `discard()` ends it; each takes the pending
+ * credential, which travels only in a response body.
  *
  * Every sign-in creates a new session, which records the proof of its first
  * factor (and the provenance of a session an external provider established) in
@@ -87,16 +88,18 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * sessions are acted on through `PendingSessions`. The service also refreshes a
  * session through `SessionRefresh` (`RefreshesSessions`), steps a session up
  * and reauthenticates it through `SessionStepUp` and `SessionReauthentication`
- * (`ProvesSessions`), each of which issues a new access token only, gates the
- * factor package's changes to an identity's further factors through
- * `FactorChangeGate` (`GatesFactorChanges`), lets a session switch the
- * principal it acts as or its active tenant through `SessionSwitch`
- * (`SwitchesSessions`), lists sessions, looks one session or principal up
- * (`LooksUpSessions`), and signs out, revokes sessions and ends sessions on
- * security changes through `SessionRevocations` (`EndsSessions`), which the
- * guard's `logout()` and password changes use too, signs out by refresh
- * credential through `SessionSignOut`, and ends the sessions a connection
- * established through `ConnectionRevocations` (`EndsConnectionSessions`).
+ * (`ProvesSessions`), or at an external provider through the link that
+ * established it through `ExternalReauthentication` (`SignsInExternally`), each
+ * of which issues a new access token only, gates the factor package's changes
+ * to an identity's further factors through `FactorChangeGate`
+ * (`GatesFactorChanges`), lets a session switch the principal it acts as or its
+ * active tenant through `SessionSwitch` (`SwitchesSessions`), lists sessions,
+ * looks one session or principal up (`LooksUpSessions`), and signs out, revokes
+ * sessions and ends sessions on security changes through `SessionRevocations`
+ * (`EndsSessions`), which the guard's `logout()` and password changes use too,
+ * signs out by refresh credential through `SessionSignOut`, and ends the
+ * sessions a connection established through `ConnectionRevocations`
+ * (`EndsConnectionSessions`).
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
@@ -113,7 +116,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  */
 final readonly class SessionService
 {
-    use EndsConnectionSessions, EndsSessions, GatesFactorChanges, LooksUpSessions, ProvesSessions, RefreshesSessions, SwitchesSessions;
+    use EndsConnectionSessions, EndsSessions, GatesFactorChanges, LooksUpSessions, ProvesSessions, RefreshesSessions, SignsInExternally, SwitchesSessions;
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionEstablishment Takes an admitted sign-in to its session, active or pending, never binding. */
     private SessionEstablishment $establishment;
@@ -163,14 +166,16 @@ final readonly class SessionService
         // Returns the current transactions manager, if any, when called.
         \Closure $transactions,
     ) {
-        $sessions = new RevocationWriter($connections, $transactions);
-        $proof    = new ProvenSessions($tokens);
-        $writer   = new SessionWriter($context->name(), $tokens, $connections);
+        $sessions        = new RevocationWriter($connections, $transactions);
+        $externalResults = new ExternalResults($context, $container);
+        $proof           = new ProvenSessions($tokens);
+        $writer          = new SessionWriter($context->name(), $tokens, $connections);
 
         $this->afterCommit       = new AfterCommit($transactions);
         $this->binds             = new DeferredBind($context, $this->afterCommit);
         $this->rotations         = new RefreshRotationStore($connections);
         $this->evaluation        = new PendingEvaluation($context, $container);
+        $this->externalSignIns   = new ExternalSignIn($externalResults, $this->evaluation);
         $this->establishment     = new SessionEstablishment($context, $writer, $proof, $this->evaluation, $this->afterCommit, $container);
         $this->pendings          = new PendingSessions($context, $this->evaluation, new SessionActivation($context, $tokens, $this->afterCommit, $container), $sessions);
         $this->revocations       = new SessionRevocations($context, $sessions, $container);
@@ -198,7 +203,9 @@ final readonly class SessionService
 
         $this->stepUps           = new SessionStepUp($context, $issuance, $this->afterCommit);
         $this->reauthentications = new SessionReauthentication($context, $issuance, $this->afterCommit, $container);
-        $this->factorChanges     = new FactorChangeGate($context, $container);
+
+        $this->externalReauthentications = new ExternalReauthentication($context, $issuance, $externalResults, $this->evaluation, $this->afterCommit);
+        $this->factorChanges             = new FactorChangeGate($context, $container);
     }
 
     /**
@@ -254,8 +261,8 @@ final readonly class SessionService
     }
 
     /**
-     * Start a session for an identity verified outside the guard, such as by an
-     * external identity provider, through the named method.
+     * Start a session for an identity verified outside the guard, through the
+     * named method.
      *
      * The identity is reloaded through the guard's identity provider from the
      * write connection and must come back as the same class and key
@@ -270,40 +277,31 @@ final readonly class SessionService
      * method may not be a machine credential kind (`api_key`,
      * `client_credentials`): those authenticate requests or exchanges, never
      * sessions, and a session recorded under one would pass for a machine
-     * credential to everything that reads the method.
+     * credential to everything that reads the method. Nor may it be
+     * `external_provider`: a session an external identity provider established
+     * starts only through `signInExternally()`, from the result the link
+     * contract maps to its identity, so it always records its provenance.
      *
-     * With a provenance (an external provider verified the identity), the
-     * session's first proof is the provider's: the connection as its channel,
-     * the private `urn:sinemacula:amr:external_provider` `amr` value, and the
-     * provider's authentication time (now, when it gave none or one after now),
-     * and the provenance is recorded with the session, pending or active. The
-     * provider's deadline for its session joins the context's through
-     * `withNotAfter()`, so the earlier of the two caps the session, and one
-     * already passed fails as `session_expired`. Without a provenance, the
-     * first proof names no channel and no `amr` value, timed now. The
-     * provenance is the trusted caller's to give, never built from what a
-     * client sent.
+     * The session's first proof names no channel and no `amr` value, timed now:
+     * nothing describes how the identity was verified.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $method
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
-     * @param  ?\SineMacula\Laravel\Authentication\Proofs\Provenance  $provenance
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \InvalidArgumentException
      * @throws \Throwable
      */
-    public function start(Identity $identity, ?Principal $principal, string $method, ?SignInContext $context = null, ?Provenance $provenance = null): SignInResult
+    public function start(Identity $identity, ?Principal $principal, string $method, ?SignInContext $context = null): SignInResult
     {
         SessionPreconditions::assertSessionMethod($method);
 
         $transport = $this->transport();
         $context ??= SignInContext::fromRequest($this->context->request());
-        $context = $context->withNotAfter($provenance?->sessionNotAfter);
-        $pinned  = SessionPreconditions::pinnedPrincipal($principal, $context);
-        $now     = CarbonImmutable::now()->startOfSecond();
-        $proof   = $provenance === null ? SignInProof::unattested($method, $now) : SignInProof::external($method, $provenance, $now);
+        $pinned = SessionPreconditions::pinnedPrincipal($principal, $context);
+        $proof  = SignInProof::unattested($method, CarbonImmutable::now());
 
         $outcome = $this->startFor($identity, $pinned, $method, $context, $proof);
 
@@ -600,7 +598,8 @@ final readonly class SessionService
     /**
      * Reload an externally verified identity through the guard's provider,
      * check the method is allowed and the identity admitted, and take it on to
-     * its session.
+     * its session: `start()`'s identity, or the one an external result is
+     * linked to.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal

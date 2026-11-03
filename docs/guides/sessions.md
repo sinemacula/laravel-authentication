@@ -5,32 +5,51 @@
 Every session records the proofs it was established and kept with, each a timestamped row in `proofs.table` (see
 [Proofs](configuration.md#proofs)), kept apart by kind:
 
-| Kind                            | Recorded by                                                                                                                                                                     |
-|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `first_factor`                  | every sign-in: what the sign-in method verified (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)), or the external provider's result `start()` was given |
-| `first_factor_reauthentication` | a reauthentication with the first factor on an active session                                                                                                                   |
-| `additional_factor`             | a further factor an adapter verified: at sign-in, with `satisfy()`, or as a step-up                                                                                             |
-| `recovery_code`                 | a recovery code an adapter accepted in place of a further factor                                                                                                                |
-| `external_reauthentication`     | reserved for a reauthentication at the external provider the session began with: nothing records it yet                                                                         |
+| Kind                            | Recorded by                                                                                                                                                                                |
+|---------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `first_factor`                  | every sign-in: what the sign-in method verified (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)), or the external provider's result `signInExternally()` was given |
+| `first_factor_reauthentication` | a reauthentication with the first factor on an active session                                                                                                                              |
+| `additional_factor`             | a further factor an adapter verified: at sign-in, with `satisfy()`, or as a step-up                                                                                                        |
+| `recovery_code`                 | a recovery code an adapter accepted in place of a further factor                                                                                                                           |
+| `external_reauthentication`     | a reauthentication at the external provider the session began with, through the link that established it (`reauthenticateExternally()`)                                                    |
 
 Each holds its method, its channel (`password`, `sms`, `email`, `authenticator_app`, `passkey`, `external_provider` or
 `unknown`, with the destination or credential reference: a code's address or number in its normal form, a passkey's own
 row id, a provider's connection id), the factor an adapter used, what was observed about the authenticator (user
 presence and verification, backup eligibility and state, phishing resistance, key protection: each `null` when it was
 not observed, which never counts as true), the adapter's evaluation (accepted, multifactor; none for a proof the package
-verified itself), its `amr` values, its time and its binding (the identity, the application, the session and the
-purpose: `sign_in`, `reauthenticate` or `step_up`). A proof is never changed once recorded, except to be marked void,
-after which it never counts: when the factor package removes a factor, `factorRemoved()` voids the proofs the current
-session made with it, and the identity's other sessions end (see [Sign-in factors](#sign-in-factors)). A removed
-first-factor credential (`credentialRemoved()`) voids nothing.
+verified itself, except an external one whose evidence was accepted), the external provider's evidence once accepted,
+its `amr` values, its time and its binding (the identity, the application, the session and the purpose: `sign_in`,
+`reauthenticate` or `step_up`). A proof is never changed once recorded, except to be marked void, after which it never
+counts: when the factor package removes a factor, `factorRemoved()` voids the proofs the current session made with it,
+and the identity's other sessions end (see [Sign-in factors](#sign-in-factors)). A removed first-factor credential
+(`credentialRemoved()`) voids nothing.
 
-A session an external provider established also records its provenance, once, in `proofs.provenance_table`: the
-connection and its tenant, the provider's authentication time, no evidence (nothing yet decides whether a provider's
-evidence is accepted, so none is recorded), the provider's deadline for its session (which also caps the session's
-absolute deadline, the earlier of it and the sign-in's own winning) and the policy version the caller checked. A later
-reauthentication at the provider is a proof of its own and never rewrites how the session began. The provenance is
-indexed by connection and by tenant: the sessions a connection established are revoked through it (see [Connections and
-links](#connections-and-links)); there is no lookup by connection or tenant yet.
+A session an external provider established (`signInExternally()`, see [External
+sign-in](signing-in.md#external-sign-in)) also records its provenance, once, in `proofs.provenance_table`: the
+connection and its tenant, the provider's authentication time, the evidence the provider asserted once accepted, the
+provider's deadline for its session (which also caps the session's absolute deadline, the earlier of it and the
+sign-in's own winning), the policy version the adapter checked, and the id of the link the result was mapped to its
+identity through, kept byte for byte. A later reauthentication at the provider is a proof of its own and never rewrites
+how the session began. The provenance is indexed by connection and by tenant: the sessions a connection established are
+revoked through it (see [Connections and links](#connections-and-links)); there is no lookup by connection or tenant
+yet.
+
+A provider's evidence (its `amr` values, its `acr` value or SAML authentication context class reference, and the time it
+is for) counts for nothing until the application binds an `ExternalEvidencePolicy` that accepts it (see [Tenant
+authentication policies](extending.md#tenant-authentication-policies)). Evidence the policy accepts for multifactor
+authentication, an additional verification, phishing resistance or any assurance level is accepted: it is recorded with
+the proof that brought it, and with the provenance at sign-in; the proof's evaluation is accepted, and multifactor when
+it was accepted for multifactor authentication, so `amr` gains `mfa` (in every token of the session: the claims say how
+it authenticated, not what a tenant accepts); and the identity-level requirement and a tenant's are met when the policy
+says any accepted evidence, the newest first, meets the whole of one, so newer evidence accepted for less never hides
+older evidence that still meets it (among the 50 newest proofs that carry evidence; older ones are not read). A proof
+that carries evidence reads back with no evaluation, so a requirement check never counts the acceptance itself. Evidence
+that is not accepted is never recorded, and a reauthentication at the provider without accepted evidence renews
+`auth_time` and nothing else. Freshness takes no provider's evidence: a provider's proof meets a freshness requirement
+on its own time, but never one that asks for multifactor authentication, whatever its evidence says. A result's evidence
+may not be dated after the provider's time the result gives (an `InvalidArgumentException`): that time times the proof,
+and the evidence's own time is what its acceptance and a requirement judged on it age.
 
 Proofs and provenance belong to the session's key, so they carry unchanged from a pending session to the active one it
 becomes, and across every refresh and switch. A sign-in that replaces a session the client proved it holds is a new
@@ -110,12 +129,13 @@ passkey takes the `challenge` and `credential` of a ceremony begun with `Auth::p
 [Using passkeys](signing-in.md#using-passkeys)). Whichever the method, the identity it verifies must be the session's
 owner.
 
-The method must be one the guard's application allows (`method_not_allowed`, nothing counted) and not a machine
-credential's (an `InvalidArgumentException`). The session must still be the one given, as stored (a session put under
-its key since, of the same owner or not, records another generation and is `session_unknown`), and one of the guard's
-live sessions of a person, as for a step-up. The attempt counts against the guard's `sign_in` limits, on the identifier
-and the IP address, before any transaction opens (`rate_limited`, with the wait), and the method verifies the input in
-the guard's credential timebox, its account checks counted as a sign-in's are. The identity it verifies must be the
+The method must be one the guard's application allows (`method_not_allowed`, nothing counted), and neither a machine
+credential's nor `external_provider` (an `InvalidArgumentException`; see [At the external
+provider](#at-the-external-provider)). The session must still be the one given, as stored (a session put under its key
+since, of the same owner or not, records another generation and is `session_unknown`), and one of the guard's live
+sessions of a person, as for a step-up. The attempt counts against the guard's `sign_in` limits, on the identifier and
+the IP address, before any transaction opens (`rate_limited`, with the wait), and the method verifies the input in the
+guard's credential timebox, its account checks counted as a sign-in's are. The identity it verifies must be the
 session's owner: another identity's correct credential is `invalid_credentials`, as a wrong one is, and never says whose
 it was. A concealed reason (`account_rate_limited`, an expired or exhausted code, a passkey's sign counter that did not
 advance) is answered as `invalid_credentials`, with no wait. The session is then locked, checked again (still the
@@ -125,9 +145,61 @@ owner's, and of the generation verified) and admitted again, as for a step-up, t
 A reauthentication renews the session's authentication time and nothing else: the new access token's `auth_time` is now,
 its `amr` is the session's as it was, and a further factor the session holds keeps its own time, so an operation that
 asks for a further factor within a minute is not met by a fresh password. `Reauthenticated` reports it once committed; a
-refusal is reported by `AuthenticationFailed` with the flow `reauthentication`. An `external_reauthentication`, at the
-provider the session began with, has no entry point yet: the kind is reserved for the provider's reauthentication
-handoff, and a step-up refuses it.
+refusal is reported by `AuthenticationFailed` with the flow `reauthentication`.
+
+### At the external provider
+
+A session an external identity provider established reauthenticates at that provider through
+`reauthenticateExternally($sessionId, $result)`, which a trusted server-side adapter calls with the identifier of the
+session its handoff names (never the session the request happens to be authenticated with) and the result the provider
+verified (from a reauthentication handoff it redeemed, say), never a client:
+
+```php
+$result = Auth::sessions('api')->reauthenticateExternally($redeemed->sessionId, new ExternalResult(
+    connectionId: $redeemed->connectionId,
+    issuer: $redeemed->issuer,
+    subject: $redeemed->subject,
+    authenticatedAt: $redeemed->authenticatedAt,
+    evidence: $redeemed->evidence,
+));
+```
+
+Only on an application that allows `external_provider` (`method_not_allowed`), only for one of the guard's live, active
+sessions of a person, as for a step-up (an identifier that names no session, or cannot be a key, is `session_unknown`),
+and only with the time the provider authenticated the identity (`proof_invalid` without one, or with one before the
+session began). The result must come through the very link that established the session: the link contract must link it
+to an identity (`ExternalResultUnlinked`, then `external_result_unlinked`), that identity must own the session, and the
+session's provenance must record exactly the result's connection and the link's id, compared byte for byte
+(`link_mismatch`, as for another link of the same identity through the same connection, a session no link established,
+or a result naming another link than the contract answers). The link contract is asked before anything is locked; the
+session's row is then locked, after every lock the adapter took, and judged again (still the session read before the
+lock, its provenance and the provider's time), so call it inside the adapter's transaction on the storage connection.
+With the proof recorded, the session must still meet its tenant's authentication policy, as at any redemption: a
+connection the tenant no longer admits is `sso_required`, and a further factor it now requires that none of the
+session's accepted evidence, this proof's included, meets is `additional_factor_required`; either rolls the proof back
+and writes nothing, so the next refresh revokes the session or returns it to pending. The tenant's policy and the
+evidence policy are asked then, under the session's row lock, so they must only read, or take no lock the adapter does
+not already hold. A database error, a serialization failure included, propagates for the adapter to retry the whole
+transaction.
+
+The proof is recorded as `external_reauthentication`, timed when the provider authenticated the identity (now, when that
+is after now), so the new access token's `auth_time` is the later of the session's and the provider's, decided under the
+lock (inside a transaction of yours at REPEATABLE READ, from the proofs its snapshot holds, so a racing reauthentication
+committed after your first read is left out of that one token, which is then older, never fresher). Nothing else is
+renewed: no refresh token is issued, and the session row, its deadlines and its provenance are kept. Its `amr` gains the
+provider's private value, and `mfa`, only when the application's `ExternalEvidencePolicy` accepts the result's evidence
+(see [Proofs and provenance](#proofs-and-provenance)); otherwise only `auth_time` moves. `Reauthenticated` (method
+`external_provider`) reports it once committed. A step-up refuses an external proof.
+
+An adapter asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` whether a session, by its identifier,
+stands for such a reauthentication: `null` for one of the guard's live, active sessions of a person owned by the
+identity and established through exactly that connection and link, on an application that allows `external_provider`,
+and otherwise the reason (`method_not_allowed`, `session_unknown`, `session_guard_mismatch`, `session_revoked`,
+`session_pending`, `session_expired`, `machine_identity`, `link_mismatch`). Without a link id, a session established
+through the connection and any link stands (one recorded with no link never does), for an adapter asked when a
+reauthentication flow starts, before the exact link is known. Asked outside a transaction, it reads the session on the
+write connection and locks nothing; asked inside the adapter's transaction, before it renews, it locks the session's row
+until the transaction ends. It writes and reports nothing.
 
 ## Freshness
 
@@ -689,8 +761,8 @@ if that is what you want.
 
 ### Connections and links
 
-When an external provider's connection is disabled or deleted, or an identity's link to one is removed, end the sessions
-it established from the same transaction:
+When an external provider's connection is disabled or deleted, or one of an identity's links through it is removed or
+has its scope widened, end the sessions it established from the same transaction:
 
 ```php
 DB::transaction(function () use ($connection) {
@@ -700,21 +772,46 @@ DB::transaction(function () use ($connection) {
 });
 
 Auth::sessions()->connectionDeleted($connectionId);
-Auth::sessions()->linkRemoved($user, $connectionId);
+Auth::sessions()->linkRemoved($user, $connectionId, $linkId);
+Auth::sessions()->linkScopeWidened($user, $connectionId, $linkId);
 ```
 
 `connectionDisabled()` and `connectionDeleted()` revoke every live session whose provenance records the connection (of
 every guard and identity, pending ones included; one already past a deadline is left for pruning), as
-`connection_disabled` or `connection_deleted`; `linkRemoved()` revokes only the identity's, as `link_removed`. Each
-returns how many it revoked. They are found through the provenance's connection index (a link's through the identity's
-sessions) 500 at a time, each chunk locked in key order, in one transaction on the storage connection, a savepoint
-inside yours. Once that commits, a request's guard bound to one of them forgets it, so the rest of the request is not
-authenticated as it even when a listener throws, and then `SessionRevoked` reports each. No cutoff moves and no
-`SignedOutEverywhere` is reported: the scope is how the sessions began, not the identity, whose other sessions stay.
-Each is on by default and turned off by its `authentication.revocation.*` setting (see [Revocation by
-connection](configuration.md#revocation-by-connection)); a connection id may not be empty. The connection is matched
-byte for byte, so revoking one never ends the sessions of another whose id differs from it only in case, accents or a
-trailing space.
+`connection_disabled` or `connection_deleted`. `linkRemoved()` and `linkScopeWidened()` revoke only the identity's
+sessions established through that one link: the provenance must record both the connection and the link id the link
+contract answered when the session was established, so the identity's sessions through its other links, of the same
+connection or another, stay, and a session recorded with no link is never one of a link's. They revoke as `link_removed`
+and `link_scope_widened`. Each returns how many it revoked. They are found through the provenance's connection index (a
+link's through the identity's sessions, then their provenance by key) 500 at a time, each chunk locked in key order, in
+one transaction on the storage connection, a savepoint inside yours. Both are found with locking reads, so a session a
+sign-in through the connection or link committed while your transaction waited for your lock on it is found even on
+MySQL's REPEATABLE READ, where a plain read would see your transaction's first snapshot. A link's read takes only the
+identity's sessions under `external_provider`, each of which has a provenance, so on MySQL it locks those rows (until
+your transaction ends) and no gap another identity's sign-in would write into. Once that commits, a request's guard
+bound to one of them forgets it, so the rest of the request is not authenticated as it even when a listener throws, and
+then `SessionRevoked` reports each. No cutoff moves and no `SignedOutEverywhere` is reported: the scope is how the
+sessions began, not the identity, whose other sessions stay.
+
+On PostgreSQL at REPEATABLE READ or SERIALIZABLE even a locking read sees only your transaction's first snapshot, so a
+session a sign-in committed after it would be invisible. A sign-in through a link therefore writes its link's guard (one
+of 64 rows per connection, in `proofs.guards_table`) before it writes the session, and before reading anything a link's
+revocation writes that guard and a connection's revocation every guard of the connection. When the sign-in committed
+after your transaction's snapshot was taken, the revocation fails to serialise (SQLSTATE 40001, raised by Laravel as an
+`Illuminate\Database\DeadlockException` inside your transaction) rather than miss the session: roll back and retry the
+whole transaction, as you do for any serialisation failure there, and the retry's snapshot sees the session and ends it.
+A sign-in whose transaction read before a revocation committed fails the same way. At READ COMMITTED, and on MySQL at
+any level, the guard only makes the later of the two wait for the earlier, and the locking reads find the session. Two
+sign-ins through different links of one connection share a guard about once in 64 times, and a connection's revocation
+holds every guard of the connection until your transaction ends, so sign-ins through it wait for that.
+
+`connectionDisabled()`, `connectionDeleted()` and `linkRemoved()` are on by default and each turned off by its
+`authentication.revocation.*` setting (see [Revocation by connection](configuration.md#revocation-by-connection)).
+`linkScopeWidened()` is mandatory, as `tenantPolicyChanged()` is: no setting turns it off, since a link that may now act
+for more than its sessions were established for must not keep them. Call it synchronously in the transaction that widens
+the scope; calling it twice for one widening is safe, as the second call finds nothing live left to end and revokes and
+reports nothing. A connection or link id may not be empty. Both are matched byte for byte, so revoking one never ends
+the sessions of another whose id differs from it only in case, accents or a trailing space.
 
 ### Access tokens without a session
 
@@ -753,11 +850,12 @@ must be loaded, or reading it throws a `LogicException`, and the column name com
 
 A tenant may ask more of the sessions active in it than the identity's own sign-in did: a further factor, or a sign-in
 through one of its connections (single sign-on). The package asks the bound `Contracts\TenantAuthenticationPolicy` (the
-default, `RequireNothingOfTenants`, asks nothing; see [Tenant authentication
-policies](extending.md#tenant-authentication-policies)) whenever a session comes to act in a tenant or keeps acting in
-it: at sign-in once a principal is selected, at a choice of principal, when a pending session activates, at every
-refresh, for the destination of a switch, and when `Auth::caller()` reads a refresh credential, never on a bearer
-request. A session that falls short:
+default, `RequireNothingOfTenants`, asks nothing; see
+[Tenant authentication policies](extending.md#tenant-authentication-policies)) whenever a session comes to act in a
+tenant or keeps acting in it: at sign-in once a principal is selected, at a choice of principal, when a pending session
+activates, at every refresh, for the destination of a switch, when `Auth::caller()` reads a refresh credential, and at a
+reauthentication at the external provider (`reauthenticateExternally()`), never on a bearer request. A session that
+falls short:
 
 | Where                                 | Needs a connection                                                       | Lacks a further factor                                                   |
 |---------------------------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------|
@@ -768,11 +866,14 @@ request. A session that falls short:
 | Switch                                | refused as `sso_required`, the session unchanged                         | returned to pending with the destination recorded, as for a refresh      |
 | `attempt()`                           | refused as `sso_required`                                                | refused as `additional_factor_required`                                  |
 | The caller of a refresh credential    | no caller (`sso_required`), nothing written                              | no caller (`additional_factor_required`), nothing written                |
+| External reauthentication             | refused as `sso_required`, the proof rolled back, nothing written        | refused as `additional_factor_required`, the proof rolled back           |
 
-A further factor is met only as the bound `Contracts\RequirementCheck` judges the session's proofs (the default,
-`MeetNoRequirement`, meets nothing, so a tenant that requires a further factor admits no session until a factor package
-binds its check). A session established through a connection carries it in its provenance (`start()` with a
-`Provenance`). A session that meets the policy records the version of the answer in `tenant_policy_version`.
+A further factor is met only as the bound `Contracts\ExternalEvidencePolicy` judges an external provider's accepted
+evidence (see [Proofs and provenance](#proofs-and-provenance)) or the bound `Contracts\RequirementCheck` judges the
+session's proofs (the defaults, `InsufficientEvidence` and `MeetNoRequirement`, meet nothing, so a tenant that requires
+a further factor admits no session until the application trusts a provider's evidence or a factor package binds its
+check). A session established through a connection carries it in its provenance (`signInExternally()`). A
+session that meets the policy records the version of the answer in `tenant_policy_version`.
 
 A refresh that returns a session to pending hands out no pair: `RefreshResult::isPending()`, with `pending` (what it
 waits on, `["mfa"]`) and `credential`, and `SessionReturnedToPending` reports it. A guard the request already bound to
@@ -827,7 +928,8 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | `factor_reset`          | The factor package's `factorReset()`: every session of the identity                                                                        |
 | `connection_disabled`   | `connectionDisabled()`: the sessions the connection established                                                                            |
 | `connection_deleted`    | `connectionDeleted()`: the sessions the connection established                                                                             |
-| `link_removed`          | `linkRemoved()`: the identity's sessions the connection established                                                                        |
+| `link_removed`          | `linkRemoved()`: the identity's sessions established through the link                                                                      |
+| `link_scope_widened`    | `linkScopeWidened()`: the identity's sessions established through the link, mandatory                                                      |
 
 `revokeSession()`, `revokeSessions()` and `revokePrincipalSessions()` take the reason as an argument (`REVOKED` in the
 examples above); the others set their own.

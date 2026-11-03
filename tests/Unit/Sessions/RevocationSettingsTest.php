@@ -115,13 +115,15 @@ final class RevocationSettingsTest extends TestCase
 
     /**
      * A reason no setting turns off always ends sessions, whatever is set under
-     * its name.
+     * its name: a factor removed, and a link's widened scope even with the
+     * link's own removal turned off.
      *
      * @return void
      */
     public function testAReasonNoSettingTurnsOffIsAlwaysOn(): void
     {
         self::assertTrue(self::settings(['factor_removed' => false])->isEnabled(RevocationReason::FACTOR_REMOVED));
+        self::assertTrue(self::settings(['link_scope_widened' => false, 'link_removed' => false])->isEnabled(RevocationReason::LINK_SCOPE_WIDENED));
     }
 
     /**

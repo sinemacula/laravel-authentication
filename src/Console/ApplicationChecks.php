@@ -25,10 +25,11 @@ use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
  * itself, in access-only mode, or its sign-ins are stopped), and its access
  * tokens already issued keep working until they expire. Any other name counts,
  * registered or not, since `SessionService::start()` signs in under a name the
- * application passes. A policy of the application's own, one that wraps the
- * package's included, gets no warning: the names it allows are not known to the
- * command. The checks read configuration only and open no database connection,
- * though a policy of the application's own may open one when it is asked.
+ * application passes, and `external_provider` allows external sign-in. A policy
+ * of the application's own, one that wraps the package's included, gets no
+ * warning: the names it allows are not known to the command. The checks read
+ * configuration only and open no database connection, though a policy of the
+ * application's own may open one when it is asked.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -150,8 +151,8 @@ final readonly class ApplicationChecks
     }
 
     /**
-     * The names a `jwt` guard could allow: every registered sign-in method and
-     * `client_credentials`.
+     * The names a `jwt` guard could allow: every registered sign-in method,
+     * `external_provider` and `client_credentials`.
      *
      * @return list<string>
      *
@@ -159,7 +160,7 @@ final readonly class ApplicationChecks
      */
     private function names(): array
     {
-        return [...$this->container->make(SignInMethodManager::class)->names(), ClientCredentialsExchange::METHOD];
+        return [...$this->container->make(SignInMethodManager::class)->names(), SignInMethodManager::EXTERNAL_METHOD, ClientCredentialsExchange::METHOD];
     }
 
     /**

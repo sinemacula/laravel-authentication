@@ -28,6 +28,8 @@ inheritance:
 | Tenants named by identifier       | Implement `TenantResolver` and bind it in the container                                                          |
 | Tenant authentication policies    | Implement `TenantAuthenticationPolicy` and bind it; call `tenantPolicyChanged()` when it changes                 |
 | Judging a further factor          | Implement `RequirementCheck` and bind it in the container (a further-factor package binds one)                   |
+| Linking external results          | Implement `ExternalIdentityLinks` and bind it in the container (by default no external result is linked)         |
+| Accepting a provider's evidence   | Implement `ExternalEvidencePolicy` and bind it in the container (by default no evidence is accepted)             |
 | Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
 | Identifier normal forms           | Implement `IdentifierNormalizer`, register it by type in the config                                              |
 | One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
@@ -181,7 +183,91 @@ time, and `proofs($since, $kinds, $limit)`, a bounded query over its counting pr
 `RequirementSubject::MAX_LIMIT`) and the `Requirement`, and answers a `Requirements\RequirementEvaluation` listing the
 kinds left unmet. It judges the identity-level requirement the additional-factor policy answers as well as a tenant's.
 The default, `MeetNoRequirement`, meets nothing: an identity or a tenant that requires a further factor admits no
-session until a factor package binds its check. The package never asks it with an empty requirement.
+session until a factor package binds its check. The package never asks it with an empty requirement, nor when an
+external provider's accepted evidence already meets the whole requirement (see below). An external provider's proof
+reads back with no evaluation: its evidence was accepted for the whole application, of any age and for no tenant, so
+the evidence policy alone judges it, and a check counts no part of a requirement met by one.
+
+Whether an external identity provider's evidence counts is `Contracts\ExternalEvidencePolicy`'s to say, in two
+questions about an `External\ExternalEvidence` (the provider's `amr` values, its `acr` value or SAML authentication
+context class reference, and the time it is for), a `Requirement` and an `External\EvidenceSubject` (the identity, the
+application, the connection that asserted it, the time it is judged at, and the tenant whose requirement it is judged
+against: `null` for the identity-level requirement and for the evidence's acceptance). `accepts()` answers whether the
+evidence, from that connection, is credible for the requirement, of any age, to anyone it may later be judged for: the
+identity level, or any tenant that trusts the connection. `meets()` answers whether accepted evidence meets the whole
+requirement for the subject. One tenant's trust in a connection is not another's: the administrators of the tenant a
+connection belongs to control what its provider asserts, so `meets()` judging a tenant's requirement must refuse
+evidence from a connection that tenant does not trust, or an identity linked through one tenant's connection would meet
+another tenant's requirement with it. The default, `External\InsufficientEvidence`, accepts and meets nothing, so a
+provider's evidence counts for nothing until you bind a policy that trusts it:
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
+use SineMacula\Laravel\Authentication\External\EvidenceSubject;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+
+final class TrustedProviderEvidence implements ExternalEvidencePolicy
+{
+    public function accepts(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
+    {
+        $trusted = TrustedConnection::query()
+            ->where('connection_id', $subject->connectionId) // any tenant's row, or the identity level's
+            ->exists();
+
+        return $trusted && $requirement->phishingResistance === null && in_array('mfa', $evidence->methods, true);
+    }
+
+    public function meets(ExternalEvidence $evidence, Requirement $requirement, EvidenceSubject $subject): bool
+    {
+        if ($requirement->minimumLevel !== null || $requirement->phishingResistance !== null) {
+            return false; // parts this policy cannot vouch for
+        }
+
+        $trusted = TrustedConnection::query()
+            ->where('connection_id', $subject->connectionId)
+            ->where('tenant_id', $subject->tenant?->getTenantIdentifier()) // null: trusted for the identity level
+            ->exists();
+
+        $maxAge = RequirementPart::shorter(
+            $requirement->additionalVerification?->maxAgeSeconds,
+            $requirement->multifactor?->maxAgeSeconds,
+        ) ?? 43200;
+
+        return $trusted
+            && in_array('mfa', $evidence->methods, true)
+            && $evidence->authenticatedAt->greaterThan($subject->now->subSeconds($maxAge));
+    }
+}
+
+$this->app->singleton(ExternalEvidencePolicy::class, TrustedProviderEvidence::class);
+```
+
+The package asks it in two places, inside `WriteConnection::during()` for the identity:
+
+- When a sign-in or reauthentication at a provider brings evidence, it asks `accepts()` whether the evidence is credible
+  for multifactor authentication and, if not, an additional verification, then phishing resistance, then the lowest
+  assurance level (AAL1, so evidence credible for any level is accepted and `meets()` judges the level), each of any age
+  and for no tenant. Evidence accepted for any of them is accepted: it is recorded with the proof (and, at sign-in, with
+  the session's provenance), the proof's evaluation is accepted, and multifactor when it was accepted for multifactor
+  authentication, so `amr` gains `mfa` in every token of the session (the claims say how the session authenticated, not
+  what a tenant accepts). Evidence accepted for none is not recorded and counts for nothing; a reauthentication at the
+  provider then renews `auth_time` and nothing else. Accept evidence from a connection that only one tenant trusts:
+  `meets()` keeps it to that tenant.
+- When the identity-level requirement or a tenant's is judged on a session an external provider established that holds
+  accepted evidence, it asks `meets()` whether any of that evidence meets the whole requirement, the newest by its own
+  time first and no further once one does, so newer evidence accepted for less never hides older evidence that still
+  meets it. When one does, the requirement is met and `RequirementCheck` is not asked; when none does,
+  `RequirementCheck` judges the session's proofs as it does any other session's, an external proof among them with no
+  evaluation. Evidence never meets part of a requirement and leaves the rest to the factor package's proofs: which
+  factors combine stays the factor package's.
+
+Judge any maximum age the requirement gives, the shortest of those its parts set, on `$evidence->authenticatedAt`
+against `$subject->now`, and refuse a part you cannot vouch for; evidence dated after the time it is judged at is judged
+as of that time. Both questions may be asked while the package holds a session's row lock (a reauthentication at the
+provider judges its tenant's requirement under it), so only read: take no lock your adapter does not already hold. An
+exception the policy throws reaches the caller and rolls back the transaction it was asked in.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
@@ -328,7 +414,7 @@ the package registers is not the one the package uses):
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
 $this->callAfterResolving(SignInMethodManager::class, static function (SignInMethodManager $methods): void {
-    $methods->extend('sso', fn ($app) => $app->make(SsoSignIn::class));
+    $methods->extend('magic_link', fn ($app) => $app->make(MagicLinkSignIn::class));
 });
 ```
 
@@ -371,8 +457,9 @@ seam has a default that works alone.
   session's proofs meet a requirement: the identity-level one above and the further factor a tenant's authentication
   policy requires, at sign-in (the first factor alone, in memory: a requirement the first factor meets activates the
   session at once), at the choice, on refresh, on a switch, when a pending session is acted on and when
-  `Auth::caller()` reads a refresh credential. Without it, a non-empty requirement never activates a session: it
-  fails closed (see [Tenant authentication policies](#tenant-authentication-policies)).
+  `Auth::caller()` reads a refresh credential. Without it, a non-empty requirement never activates a session that
+  holds no accepted provider evidence meeting it: it fails closed (see [Tenant authentication
+  policies](#tenant-authentication-policies)).
 - When a requirement is unmet, the sign-in's session waits pending with `mfa` outstanding: `SignInResult::isPending()`,
   its `PendingSession` and pending credential, then `Auth::sessions()->pending($credential, $action)` to check an
   `mfa.*` action (`Sessions\Enums\PendingAction`) before the factor package acts, `satisfy()` once the factor is
@@ -493,28 +580,56 @@ $passed = $result->isVerified();   // else $result->reason
 
 ### Single sign-on (`laravel-sso`)
 
-- When the identity provider's callback has proven the identity, start the session with
-  `Auth::sessions($guard)->start($identity, $principal, 'sso', $context)`: the application must list the method name,
-  the identity is reloaded through the guard's provider, activity, the application policy and the additional-factor
-  policy all apply, and no attempt limit or timebox does, since nothing is guessed. No registration is needed.
-- For an assertion the package should verify itself, implement `Contracts\SignInMethod`, register it with
-  `SignInMethodManager::extend()` and sign in through `signIn()`, which adds the limits and the timebox (see
-  [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)).
-- Pass what the callback checked as a `Proofs\Provenance` (`start($identity, $principal, 'sso', $context,
-  $provenance)`): the session records it once (the connection and its tenant, the provider's authentication time, its
-  session deadline and the policy version), indexed by connection and by tenant, its first proof is the provider's with
-  the private `amr` value `urn:sinemacula:amr:external_provider`, and the provider's deadline caps the session (see
-  [Signing in: the session service](signing-in.md#signing-in-the-session-service)). The provider's own `amr` values and
-  evidence are the SSO package's: none of them reaches this package's `amr`.
-- Either way the session records the method, so the application can stop allowing it and its sessions stop
-  refreshing.
+- Bind `Contracts\ExternalIdentityLinks`. Given the connection, the issuer and the subject of a result the provider
+  verified, `find()` answers the link made through exactly that connection for exactly that issuer and subject
+  (`External\ExternalLink`: the identity and the link's own id, opaque and compared exactly), or `null`. It never
+  matches by email or any other attribute the provider asserted. It is asked inside the adapter's transaction, before
+  any lock of the package's, so read the links on the write connection. The default, `NoExternalLinks`, links nothing,
+  so no external result signs anyone in until the identity package's adapter binds `laravel-sso`'s links. Linking, and
+  the links, are `laravel-sso`'s; this package stores none.
+- Inside the transaction in which it redeems a handoff, after `laravel-sso`'s own locks, the adapter hands the verified
+  result, naming the link it redeemed it through (`linkId`), to
+  `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
+  sign-in](signing-in.md#external-sign-in)). The application must list `external_provider` in its `methods`. The
+  identity is reloaded through the guard's provider, and activity, the application policy, the additional-factor policy,
+  the choice of principal and the tenant's authentication policy all apply; no attempt limit or timebox does, since
+  nothing is guessed. The package takes no lock before the link contract is asked, so every row of its own it locks
+  (the link's connection guard, then any session the sign-in replaces) is locked after the adapter's own. A database
+  error, a PostgreSQL serialization failure included, propagates for the adapter to retry the whole transaction. The
+  contract must answer exactly the link the result names (`link_mismatch` otherwise).
+- A result linked to no identity dispatches `ExternalResultUnlinked` and fails as `external_result_unlinked`. The event
+  is informational: `laravel-iam` provisions on `laravel-sso`'s own unlinked-result event, before any handoff is issued,
+  never on this one, since provisioning on both would provision twice.
+- An external result never arrives as a sign-in's input: `external_provider` is reserved, so no sign-in method can be
+  registered under it, `signIn()` cannot reach it and `start()` refuses it.
+- The session records the method `external_provider` and its provenance once (the connection and its tenant, the
+  provider's authentication time, its session deadline, the policy version and the link's id), indexed by connection and
+  by tenant. Its first proof is the provider's, with the private `amr` value `urn:sinemacula:amr:external_provider`, and
+  the provider's deadline caps the session. The provider's own `amr` values never become this package's: its evidence
+  counts only once the application's `ExternalEvidencePolicy` accepts it (see [Tenant authentication
+  policies](#tenant-authentication-policies)), and is recorded only then. The application can stop allowing
+  `external_provider`, and those sessions stop refreshing.
 - A tenant that requires sign-in through its connections says so through its `TenantAuthenticationPolicy` (see
   [Tenant authentication policies](#tenant-authentication-policies)): a session established through none of them is
   refused as `sso_required`, at sign-in and at refresh (which also revokes it).
-- A reauthentication at the provider (`external_reauthentication`) is reserved for the provider's reauthentication
-  handoff, which this package does not take yet; until then, a session reauthenticates with
-  `Auth::sessions()->reauthenticate()` through a sign-in method the application allows, the package's or one
-  registered with `SignInMethodManager::extend()`.
+- Inside the transaction in which it redeems a reauthentication handoff, the adapter hands the identifier of the
+  session the handoff names, and the result, to `Auth::sessions($guard)->reauthenticateExternally($sessionId, $result)`
+  (see [At the external provider](sessions.md#at-the-external-provider)): only the very link that established the
+  session reauthenticates it (`link_mismatch` otherwise, and for a session no link established), the session's row is
+  locked after the adapter's own locks, and `auth_time` becomes the later of the session's and the provider's, under
+  that lock. The tenant's authentication policy and the evidence policy are then asked under that lock, so neither may
+  take a lock the adapter takes after the session's row. An adapter that must answer a session's standing
+  (`laravel-sso`'s re-authentication sessions) asks `externalStanding($sessionId, $identity, $connectionId, $linkId)`:
+  with no link id and outside a transaction when a flow starts, which locks nothing, and with the link id inside the
+  redemption's transaction, which locks the row; it answers `null` or the reason.
+- When a link is removed, or its scope widened so it may act for more than its sessions were established for, the
+  adapter calls `linkRemoved($identity, $connectionId, $linkId)` or `linkScopeWidened(...)` in the same transaction (see
+  [Connections and links](sessions.md#connections-and-links)): each ends only the identity's sessions established
+  through that link. `linkScopeWidened()` is mandatory and safe to repeat; `linkRemoved()` honours its setting. Any
+  isolation level will do: a sign-in through the link and the revocation both write the link's connection guard first
+  (a connection's disabling or deletion every guard of the connection), so at PostgreSQL's REPEATABLE READ or
+  SERIALIZABLE, where no read sees a session a sign-in committed after the transaction's snapshot, the later of the two
+  fails to serialise (40001) instead, and the adapter retries its whole transaction.
 
 ### Audit (`laravel-audit-log`)
 

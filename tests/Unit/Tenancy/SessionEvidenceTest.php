@@ -7,8 +7,10 @@ namespace Tests\Unit\Tenancy;
 use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
@@ -61,5 +63,24 @@ final class SessionEvidenceTest extends TestCase
         self::assertSame('conn-a', $evidence->connectionId);
         self::assertSame('sso', $evidence->firstFactor->method);
         self::assertCount(1, $evidence->proofs);
+        self::assertNull($evidence->externalEvidence);
+    }
+
+    /**
+     * An external sign-in whose evidence was accepted carries that evidence,
+     * for the requirements judged before its session is written; a sign-in no
+     * provider established carries none.
+     *
+     * @return void
+     */
+    public function testAnExternalSignInsEvidenceCarriesItsAcceptedEvidence(): void
+    {
+        $now      = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+        $accepted = new ExternalEvidence(['hwk'], 'phrh', $now);
+        $evidence = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a', evidence: $accepted), $now, new Evaluation(true, true)));
+
+        self::assertSame($accepted, $evidence->externalEvidence);
+        self::assertSame($accepted, $evidence->firstFactor->evidence);
+        self::assertNull(SessionEvidence::of(SignInProof::unattested('password', $now))->externalEvidence);
     }
 }

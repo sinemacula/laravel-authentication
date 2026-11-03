@@ -98,7 +98,7 @@ are told apart, which claims are checked on every parse, and which the bearer pa
 - `tests/Performance/AccessTokenIssueQueryBudgetTest.php`: the tenant check's read, none for a tenant loaded through the
   principal.
 - `tests/Feature/Sessions/SessionStepUpTest.php` `testARefreshAndASwitchKeepTheStepUpsAuthentication`, and
-  `tests/Feature/Proofs/SignInProofsTest.php` `testStartWithAProvenanceRecordsTheProvidersFirstFactorAndProvenance`:
+  `tests/Feature/Proofs/SignInProofsTest.php` `testAnExternalSignInRecordsTheProvidersFirstFactorAndProvenance`:
   `auth_time` is the authentication's time, never the token's issue time; a refreshed token names the session's
   tenant, and a switched one the destination tenant.
 - `tests/Unit/Jwt/TokenProfileTest.php`

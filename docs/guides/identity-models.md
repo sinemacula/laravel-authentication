@@ -261,11 +261,11 @@ behave the same, and lets the index mean what the application means.
 
 A successful password sign-in rehashes the password when the hasher reports the stored hash outdated (a new algorithm or
 cost) and Laravel's `hashing.rehash_on_login` is on; never on bearer requests, refresh, `validate()`, or a session
-started with `start()` or activated with `satisfy()` or `choose()`, which check no password. The `model` provider writes
-the new hash with one conditional update, `WHERE <key> = :id AND <password> = :checkedHash`, so a password changed
-between the check and the rehash is never overwritten with a hash of the old one; the write fires no model events and
-leaves `updated_at` alone. A hash that does not come from the model's own password attribute (a `getAuthPassword()` that
-reads another table) is not rehashed by the provider.
+started with `start()` or `signInExternally()` or activated with `satisfy()` or `choose()`, which check no password. The
+`model` provider writes the new hash with one conditional update, `WHERE <key> = :id AND <password> = :checkedHash`, so
+a password changed between the check and the rehash is never overwritten with a hash of the old one; the write fires no
+model events and leaves `updated_at` alone. A hash that does not come from the model's own password attribute (a
+`getAuthPassword()` that reads another table) is not rehashed by the provider.
 
 ## Identifier verification
 

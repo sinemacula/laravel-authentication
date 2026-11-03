@@ -55,10 +55,13 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   its own answer; a destination of no tenant has no policy and asks nothing.
 - `TenantPolicyCheck::check()` judges a session, or a sign-in about to write one, against that answer: `SSO_REQUIRED`
   when it names connections the session was not established through (the provenance's connection), else
-  `FACTOR_REQUIRED` when `RequirementCheck::evaluate()` does not find the further factor met, else `MET`. The evidence
-  is the sign-in's own in memory, or the session's provenance and proofs, read only when the answer needs them, so the
-  default policy costs no query. The default `RequirementCheck` (`MeetNoRequirement`) meets nothing: a further factor
-  fails closed until a further-factor package binds its check.
+  `FACTOR_REQUIRED` when the one judge (`Requirements\RequirementJudge`) does not find the further factor met, else
+  `MET`. The judge asks the bound `ExternalEvidencePolicy` first, for a session an external provider established that
+  holds accepted evidence (any of it, the newest first, and each piece must meet the whole requirement), then
+  `RequirementCheck::evaluate()`. The evidence is the sign-in's own in memory, or the session's provenance and proofs,
+  read only when the answer needs them, so the default policy costs no query. The defaults (`InsufficientEvidence`,
+  `MeetNoRequirement`) meet nothing: a further factor fails closed until an application trusts a provider's evidence or
+  a further-factor package binds its check.
 - Where it is asked, and what a shortfall does: at sign-in with a selected principal (`sso_required` refuses and writes
   nothing; a factor makes `mfa` outstanding); at the choice (`sso_required` refuses that principal only; a factor
   records it and waits on `mfa`); at activation (either refuses, the session left pending); at every refresh (a

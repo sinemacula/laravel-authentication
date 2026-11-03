@@ -16,12 +16,21 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
  * each with an optional maximum age). The package's default,
  * `MeetNoRequirement`, meets none, so a requirement a further-factor package
  * has not been bound to judge fails closed. The package never asks it with an
- * empty requirement, which is met by definition.
+ * empty requirement, which is met by definition, nor about a session an
+ * external provider established whose accepted evidence the bound
+ * `ExternalEvidencePolicy` says meets the whole requirement: that evidence
+ * meets it first, and this check is asked only when it does not, never to judge
+ * what the evidence left unmet.
  *
  * The subject reads the session's counting proofs through bounded queries on
  * the write connection: ask it for what the requirement needs (by kind, and
  * since the oldest time a part's maximum age allows) rather than the whole
- * history.
+ * history. An external provider's proof (a first factor over the
+ * `external_provider` channel, an `external_reauthentication`) reads back with
+ * no evaluation, and never meets a requirement here: the evidence beside it was
+ * accepted for the whole application, of any age and for no tenant, and only
+ * the evidence contract judges it, for the tenant whose requirement it is and
+ * on the evidence's own time. Count no part of a requirement met by one.
  *
  * The package asks it inside `WriteConnection::during()` for the identity, so a
  * model read it makes of its own state (an identity's factors, how a factor is

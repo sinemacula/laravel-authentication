@@ -11,6 +11,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Models\SessionProvenance;
@@ -106,7 +107,46 @@ final class ProofWriterTest extends TestCase
         self::assertSame(ChannelKind::AUTHENTICATOR_APP->value, $row->getAttribute('channel_kind'));
         self::assertSame('factor-1', $row->getAttribute('factor_reference'));
         self::assertTrue((bool) $row->getAttribute('accepted'));
+        self::assertNull($row->getAttribute('evidence'));
         self::assertSame('2026-04-06 12:00:00', CarbonImmutable::parse($row->getRawOriginal('authenticated_at'))->toDateTimeString());
+    }
+
+    /**
+     * An external proof whose evidence was accepted is recorded with that
+     * evidence, as JSON in its stored form, hidden from serialisation.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExternalProofIsRecordedWithItsAcceptedEvidence(): void
+    {
+        $this->seedIdentity();
+
+        $session  = $this->newSession();
+        $evidence = new ExternalEvidence(['hwk', 'pin'], 'phrh', CarbonImmutable::now()->subMinute());
+        $proof    = new NewProof(
+            ProofKind::EXTERNAL_REAUTHENTICATION,
+            Purpose::REAUTHENTICATE,
+            'external_provider',
+            new Channel(ChannelKind::EXTERNAL_PROVIDER, 'conn-a'),
+            null,
+            new ObservedProperties,
+            new Evaluation(true, true),
+            ['urn:sinemacula:amr:external_provider'],
+            CarbonImmutable::now(),
+            $evidence,
+        );
+
+        ProofWriter::record($session, 'api', $proof, self::JUDGED_PROOF_ID);
+
+        $row = SessionProof::query()->findOrFail(self::JUDGED_PROOF_ID);
+
+        $stored = $row->getRawOriginal('evidence');
+
+        self::assertIsString($stored);
+        self::assertSame(['methods' => ['hwk', 'pin'], 'context' => 'phrh', 'authenticated_at' => '2026-04-06T11:59:00+00:00'], json_decode($stored, true));
+        self::assertArrayNotHasKey('evidence', $row->toArray());
     }
 
     /**
@@ -139,7 +179,9 @@ final class ProofWriterTest extends TestCase
     }
 
     /**
-     * Provenance is recorded under the session's key, with no evidence.
+     * Provenance is recorded under the session's key, with no evidence unless
+     * it carries accepted evidence, which is recorded in its stored form and
+     * hidden from serialisation.
      *
      * @return void
      *
@@ -159,6 +201,16 @@ final class ProofWriterTest extends TestCase
         self::assertSame('tenant-1', $row->getAttribute('tenant_id'));
         self::assertSame('v1', $row->getAttribute('policy_version'));
         self::assertNull($row->getAttribute('accepted_evidence'));
+
+        $other    = $this->newSession();
+        $evidence = new ExternalEvidence(['otp'], null, CarbonImmutable::now());
+
+        ProofWriter::provenance($other, new Provenance('conn-a', evidence: $evidence));
+
+        $accepted = SessionProvenance::query()->findOrFail(IdentifierCoercion::stringify($other->getKey()));
+
+        self::assertSame($evidence->toArray(), $accepted->getAttribute('accepted_evidence'));
+        self::assertArrayNotHasKey('accepted_evidence', $accepted->toArray());
     }
 
     /**

@@ -15,10 +15,12 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -27,13 +29,24 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\Evaluation;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
+use SineMacula\Laravel\Authentication\Proofs\NewProof;
+use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
+use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
@@ -773,6 +786,76 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         self::assertNull($result->session);
         self::assertSame($reason, $result->reason);
         self::assertSame($reason === null, $result->isPending());
+    }
+
+    /**
+     * Rows of `[whether the session's accepted evidence meets the tenant's
+     * factor, reads]`.
+     *
+     * @return iterable<string, array{0: bool, 1: int}>
+     */
+    public static function provideExternalEvidenceVerdicts(): iterable
+    {
+        yield 'met by the accepted evidence' => [true, 7];
+        yield 'not met by it' => [false, 6];
+    }
+
+    /**
+     * A 3D refresh of a session an external provider established, under a
+     * tenant that requires a further factor, reads what a rotation reads up to
+     * the principal and tenant, the first factor, then the session's accepted
+     * evidence in one more read: met, it rotates and reads the proofs for the
+     * new access token; not met, it returns the session to pending. Either way
+     * it writes one update.
+     *
+     * @param  bool  $meets
+     * @param  int  $reads
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideExternalEvidenceVerdicts')]
+    public function testAnExternalSessionsRefreshUnderATenantsFactorReadsItsAcceptedEvidenceOnce(bool $meets, int $reads): void
+    {
+        [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures();
+        $rotationId             = 'refresh-tenant-aware-external';
+        $now                    = $this->now->toImmutable();
+
+        $session = new Session;
+        $session->forceFill([
+            ...self::liveSession(self::TENANT_AWARE_GUARD, $principal),
+            'authenticatable_type' => TenantAware3dIdentity::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+            'last_used_at'         => $this->now,
+        ])->save();
+
+        DB::table('authentication_proofs')->delete();
+
+        ProofWriter::record($session, self::TENANT_AWARE_GUARD, new NewProof(
+            ProofKind::FIRST_FACTOR,
+            Purpose::SIGN_IN,
+            'external_provider',
+            new Channel(ChannelKind::EXTERNAL_PROVIDER, 'conn-a'),
+            null,
+            new ObservedProperties,
+            new Evaluation(true, true),
+            [FirstFactor::EXTERNAL_PROVIDER_METHOD],
+            $now,
+            new ExternalEvidence(['mfa'], null, $now),
+        ));
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart))));
+        app()->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy($meets ? [RequirementKind::MULTIFACTOR] : []));
+
+        $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
+        self::assertNotNull($jwt);
+
+        $token  = $jwt->issueRefreshToken($session, $rotationId, $principal)->reveal();
+        $guard  = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
+        $result = $this->assertQueryBudget($reads, 1, static fn (): RefreshResult => GuardSessions::of($guard)->refresh($token));
+
+        self::assertSame([$meets, !$meets], [$result->isRefreshed(), $result->isPending()]);
     }
 
     /**

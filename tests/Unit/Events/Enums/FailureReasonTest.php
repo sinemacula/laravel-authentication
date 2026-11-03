@@ -85,6 +85,8 @@ final class FailureReasonTest extends TestCase
             'factor_code_refused',
             'password_not_set',
             'password_already_set',
+            'external_result_unlinked',
+            'link_mismatch',
         ], array_map(static fn (FailureReason $reason): string => $reason->value, FailureReason::cases()));
     }
 
@@ -184,6 +186,7 @@ final class FailureReasonTest extends TestCase
             'connection_disabled',
             'connection_deleted',
             'link_removed',
+            'link_scope_widened',
         ], array_map(static fn (RevocationReason $reason): string => $reason->value, RevocationReason::cases()));
     }
 }

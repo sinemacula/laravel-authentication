@@ -79,8 +79,9 @@ enum FailureReason: string
     // The pinned session is not one of the identity's live sessions
     case SESSION_MISMATCH = 'session_mismatch';
 
-    // A further factor is required, which an access-only sign-in (attempt()) or
-    // the caller read from a refresh credential cannot wait for
+    // A further factor is required, which an access-only sign-in (attempt()),
+    // the caller read from a refresh credential or an external reauthentication
+    // (reauthenticateExternally()) cannot wait for
     case ADDITIONAL_FACTOR_REQUIRED = 'additional_factor_required';
 
     // The pending credential names no live pending session of this guard: it is
@@ -237,6 +238,16 @@ enum FailureReason: string
     // A password was to be established for an identity that already has one: it
     // changes it instead
     case PASSWORD_ALREADY_SET = 'password_already_set';
+
+    // A result an external provider verified is linked to no identity through
+    // its connection, issuer and subject
+    case EXTERNAL_RESULT_UNLINKED = 'external_result_unlinked';
+
+    // A session was not established through the connection and link an external
+    // result came through (or through any link), the link maps to another
+    // identity than the session's, or the result names another link than the
+    // one the link contract answers
+    case LINK_MISMATCH = 'link_mismatch';
 
     /**
      * Whether a sign-in method may answer with this reason. Every other reason

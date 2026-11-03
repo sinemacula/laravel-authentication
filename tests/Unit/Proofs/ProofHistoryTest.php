@@ -14,8 +14,9 @@ use SineMacula\Laravel\Authentication\Proofs\ProofHistory;
  * Unit tests for what a session's summary rows say about its authentication:
  * the newest time of any kind as `auth_time`; the first factor's, further
  * factors' and recovery codes' values as `amr`, once each, in a fixed order, a
- * stored `mfa` dropped and `mfa` added only from a reported multifactor
- * evaluation; and nothing from a reauthentication.
+ * stored `mfa` dropped and `mfa` added only from an accepted evaluation that
+ * reports multifactor; and nothing from a reauthentication unless it carries an
+ * accepted evaluation (an external one whose evidence was accepted).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -84,14 +85,15 @@ final class ProofHistoryTest extends TestCase
     }
 
     /**
-     * `mfa` is added only when a further factor's or a recovery code's
-     * evaluation reported multifactor authentication, after the other values;
-     * a stored `mfa` is dropped, and a first factor or a reauthentication that
-     * claims multifactor adds nothing.
+     * `mfa` is added only when an accepted evaluation (a further factor's or a
+     * recovery code's) reported multifactor authentication, after the other
+     * values; a stored `mfa` is dropped, and a first factor or a
+     * reauthentication that claims multifactor with no accepted evaluation adds
+     * nothing.
      *
      * @return void
      */
-    public function testMfaComesOnlyFromAReportedMultifactorEvaluation(): void
+    public function testMfaComesOnlyFromAnAcceptedMultifactorEvaluation(): void
     {
         $first = self::row(ProofKind::FIRST_FACTOR, ['pwd', 'mfa'], true, '2026-04-06 12:00:00');
 
@@ -102,16 +104,46 @@ final class ProofHistoryTest extends TestCase
     }
 
     /**
+     * An external proof counts toward `amr` like any other once its evidence
+     * was accepted: a first factor at the provider whose acceptance reports
+     * multifactor adds `mfa`, and a reauthentication at the provider with an
+     * accepted evaluation adds its values, and `mfa` when it reports
+     * multifactor. One with no accepted evaluation adds nothing but its time.
+     *
+     * @return void
+     */
+    public function testAnExternalProofCountsOnlyOnceItsEvidenceWasAccepted(): void
+    {
+        $external = 'urn:sinemacula:amr:external_provider';
+        $first    = self::row(ProofKind::FIRST_FACTOR, [$external], false, '2026-04-06 12:00:00');
+
+        self::assertSame([$external, 'mfa'], (new ProofHistory([self::row(ProofKind::FIRST_FACTOR, [$external], true, '2026-04-06 12:00:00', true)]))->methods());
+        self::assertSame([$external], (new ProofHistory([self::row(ProofKind::FIRST_FACTOR, [$external], false, '2026-04-06 12:00:00', true)]))->methods());
+
+        $unaccepted = new ProofHistory([$first, self::row(ProofKind::EXTERNAL_REAUTHENTICATION, ['hwk'], true, '2026-04-06 12:10:00')]);
+
+        self::assertSame([$external], $unaccepted->methods());
+        self::assertSame('2026-04-06 12:10:00', $unaccepted->authenticatedAt()?->format('Y-m-d H:i:s'));
+
+        $additional  = self::row(ProofKind::EXTERNAL_REAUTHENTICATION, ['hwk'], false, '2026-04-06 12:10:00', true);
+        $multifactor = self::row(ProofKind::EXTERNAL_REAUTHENTICATION, ['hwk'], true, '2026-04-06 12:10:00', true);
+
+        self::assertSame([$external, 'hwk'], (new ProofHistory([$first, $additional]))->methods());
+        self::assertSame([$external, 'hwk', 'mfa'], (new ProofHistory([$first, $multifactor]))->methods());
+    }
+
+    /**
      * One summary row.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind  $kind
      * @param  list<string>  $methods
      * @param  bool  $multifactor
      * @param  string  $at
-     * @return array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, at: \Carbon\CarbonImmutable}
+     * @param  ?bool  $accepted
+     * @return array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, accepted: bool, at: \Carbon\CarbonImmutable}
      */
-    private static function row(ProofKind $kind, array $methods, bool $multifactor, string $at): array
+    private static function row(ProofKind $kind, array $methods, bool $multifactor, string $at, ?bool $accepted = null): array
     {
-        return ['kind' => $kind, 'methods' => $methods, 'multifactor' => $multifactor, 'at' => CarbonImmutable::parse($at)];
+        return ['kind' => $kind, 'methods' => $methods, 'multifactor' => $multifactor, 'accepted' => $accepted ?? $kind->isAdditional(), 'at' => CarbonImmutable::parse($at)];
     }
 }

@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -50,7 +51,7 @@ use Tests\TestCase;
 #[CoversTrait(PrunesSessions::class)]
 final class ByteDistinctBindingTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -254,7 +255,7 @@ final class ByteDistinctBindingTest extends TestCase
     private function sessionAndTwin(\Closure $spell): array
     {
         $identity = $this->seedIdentity();
-        $record   = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7'))->session?->record;
+        $record   = $this->sessions()->signInExternally($this->linkedResult($identity))->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 

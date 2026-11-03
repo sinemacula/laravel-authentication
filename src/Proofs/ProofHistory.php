@@ -10,19 +10,22 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 /**
  * What a session's counting proofs say about its authentication, worked out
  * from the summary rows `SessionProofs::history()` reads: one per kind, set of
- * `amr` values and multifactor report, with the newest time among the proofs it
- * summarises.
+ * `amr` values, multifactor report and acceptance, with the newest time among
+ * the proofs it summarises.
  *
  * - `authenticatedAt()` (the token's `auth_time`) is the newest time of any
  *   kind: a step-up refreshes it, and so does either reauthentication.
  * - `methods()` (the token's `amr`) is the values of the first factor, the
- *   further factors and the recovery codes, once each, in the order of their
- *   rows' times and then of their values, so the claim is the same whatever
- *   order the database returns the rows in. A stored `mfa` is dropped, and
- *   `mfa` is added only when a further factor's or a recovery code's accepted
- *   evaluation reported multifactor authentication: it is never worked out from
- *   the values. A reauthentication, of either kind, adds nothing: it renews the
- *   authentication time and nothing else.
+ *   further factors, the recovery codes and the reauthentications with an
+ *   accepted evaluation, once each, in the order of their rows' times and then
+ *   of their values, so the claim is the same whatever order the database
+ *   returns the rows in. A stored `mfa` is dropped, and `mfa` is added only
+ *   when an accepted evaluation reported multifactor authentication: a further
+ *   factor's or a recovery code's, or an external proof's whose evidence the
+ *   evidence contract accepted as multifactor. It is never worked out from the
+ *   values. A reauthentication with no accepted evaluation (one with the first
+ *   factor, or at the provider when its evidence was not accepted) adds
+ *   nothing: it renews the authentication time and nothing else.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,11 +37,19 @@ final readonly class ProofHistory
     /**
      * Constructor.
      *
-     * @param  list<array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, at: \Carbon\CarbonImmutable}>  $rows
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  list<array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, accepted: bool, at: \Carbon\CarbonImmutable}>  $rows
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     public function __construct(
 
-        /** The summary rows: one per kind, `amr` values and multifactor report, with its newest time. */
+        /** The summary rows: one per kind, `amr` values, multifactor report and acceptance, with its newest time. */
         private array $rows,
     ) {}
 
@@ -81,7 +92,7 @@ final readonly class ProofHistory
      */
     public function methods(): array
     {
-        $rows = array_filter($this->rows, static fn (array $row): bool => !$row['kind']->isReauthentication());
+        $rows = array_filter($this->rows, static fn (array $row): bool => $row['accepted'] || !$row['kind']->isReauthentication());
 
         usort($rows, static fn (array $one, array $other): int => self::order($one) <=> self::order($other));
 
@@ -91,7 +102,7 @@ final readonly class ProofHistory
         foreach ($rows as $row) {
             array_push($methods, ...$row['methods']);
 
-            $multifactor = $multifactor || ($row['kind']->isAdditional() && $row['multifactor']);
+            $multifactor = $multifactor || ($row['accepted'] && $row['multifactor']);
         }
 
         $methods = array_values(array_unique(array_diff($methods, [AuthenticationMethods::MULTIFACTOR])));
@@ -102,7 +113,7 @@ final readonly class ProofHistory
     /**
      * What a row is ordered by: its time, then its values.
      *
-     * @param  array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, at: \Carbon\CarbonImmutable}  $row
+     * @param  array{kind: \SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind, methods: list<string>, multifactor: bool, accepted: bool, at: \Carbon\CarbonImmutable}  $row
      * @return array{0: int, 1: string}
      */
     private static function order(array $row): array

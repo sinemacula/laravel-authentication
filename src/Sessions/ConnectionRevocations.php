@@ -24,28 +24,47 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Ends the sessions an external provider's connection established, when the
- * connection is disabled or deleted, and an identity's sessions through it when
- * the identity's link to it is removed: every live session (pending ones
- * included, of every guard, unrevoked and before both deadlines) whose
- * provenance records the connection.
+ * connection is disabled or deleted, and an identity's sessions through one
+ * link, when the link is removed or its scope is widened: every live session
+ * (pending ones included, of every guard, unrevoked and before both deadlines)
+ * whose provenance records the connection, and for a link that very link.
  *
  * A connection's sessions are found through the provenance's connection index,
- * and a link's through the identity's own sessions, 500 at a time; each chunk
- * is locked in key order and revoked by the conditional revocation write, all
- * in one transaction on the session model's connection, a savepoint inside the
+ * and a link's through the identity's own sessions under the method
+ * `external_provider`, 500 at a time, whose provenance is then read by key and
+ * kept only when it records the connection and the link; each chunk is locked
+ * in key order and revoked by the conditional revocation write, all in one
+ * transaction on the session model's connection, a savepoint inside the
  * caller's. The provenance holds each key as a string, so a connection's chunks
  * follow the keys' own order (an integer key's numeric one, not its string
  * one): the locks the whole revocation holds are then taken in one key order,
  * as every other revocation takes them, and two revocations of overlapping
- * sessions never deadlock across a chunk. A connection is matched byte for
- * byte, whatever the provenance column's collation, so one connection's
- * revocation never ends the sessions of another whose id differs from it only
- * in case, accents or a trailing space. Once that commits, the guard first
- * forgets a binding to any session revoked, so the rest of the request is not
- * authenticated as a session it ended even when a listener throws, and then
- * `SessionRevoked` reports each one. No cutoff moves: the scope is how the
- * sessions began, not the identity. Each trigger can be turned off
- * (`RevocationSettings`), and then writes nothing.
+ * sessions never deadlock across a chunk. A connection and a link are matched
+ * byte for byte, whatever the provenance columns' collation, so one
+ * connection's or link's revocation never ends the sessions of another whose id
+ * differs from it only in case, accents or a trailing space; a session with no
+ * link recorded is never one of a link's. Both are found with locking reads (a
+ * link's sessions locked in key order, as the revocation then locks them),
+ * which read what is committed now rather than a snapshot the caller's
+ * transaction opened earlier: on MySQL's REPEATABLE READ a plain read would
+ * miss a session a sign-in through the connection or the link committed after
+ * the caller's first read, though the caller's lock on it made that sign-in
+ * wait. Every provenance key a link's read asks for exists, since only a
+ * session under `external_provider` is asked about and its sign-in writes its
+ * provenance with it, so MySQL locks those rows and no gap another identity's
+ * sign-in would insert into. Before it reads anything, a revocation writes the
+ * guards a sign-in through the link or the connection writes first too
+ * (`ConnectionGuards`, the link's or every one of the connection's), so at
+ * PostgreSQL's REPEATABLE READ or SERIALIZABLE, where even a locking read sees
+ * the caller's snapshot, a sign-in committed after that snapshot makes the
+ * revocation fail to serialise rather than miss its session, and the caller
+ * retries its whole transaction. Once the revocation commits, the
+ * authentication guard first forgets a binding to any session revoked, so the
+ * rest of the request is not authenticated as a session it ended even when a
+ * listener throws, and then `SessionRevoked` reports each one. No cutoff moves:
+ * the scope is how the sessions began, not the identity. Each per-event trigger
+ * can be turned off (`RevocationSettings`), and then writes nothing; a link's
+ * widened scope cannot.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -101,7 +120,9 @@ final readonly class ConnectionRevocations
      */
     public function connection(string $connectionId, RevocationReason $reason, CarbonImmutable $now): int
     {
-        if (!$this->isEnabled($connectionId, $reason)) {
+        self::assertNamed('A connection', $connectionId);
+
+        if (!$this->isEnabled($reason)) {
             return 0;
         }
 
@@ -109,6 +130,8 @@ final readonly class ConnectionRevocations
         $numeric = $model->getKeyType() === 'int';
 
         return $model->getConnection()->transaction(function () use ($model, $numeric, $connectionId, $reason, $now): int {
+
+            ConnectionGuards::connection($model->getConnection(), $connectionId);
 
             $ended   = $this->forgetOnCommit($model);
             $revoked = 0;
@@ -125,13 +148,17 @@ final readonly class ConnectionRevocations
     }
 
     /**
-     * End every live session of the identity the connection established
-     * (`link_removed`), unless the trigger is turned off. Returns how many
+     * End every live session of the identity established through the link (the
+     * connection and the link id given), with the reason of the trigger
+     * (`link_removed`, unless that trigger is turned off, or
+     * `link_scope_widened`, which no setting turns off). Returns how many
      * sessions this call revoked; an identity that is not an Eloquent model has
      * no sessions to end.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
+     * @param  string  $linkId
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  \Carbon\CarbonImmutable  $now
      * @return int
      *
@@ -140,15 +167,20 @@ final readonly class ConnectionRevocations
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
-    public function link(Identity $identity, string $connectionId, CarbonImmutable $now): int
+    public function link(Identity $identity, string $connectionId, string $linkId, RevocationReason $reason, CarbonImmutable $now): int
     {
-        if (!$this->isEnabled($connectionId, RevocationReason::LINK_REMOVED) || !$identity instanceof Model) {
+        self::assertNamed('A connection', $connectionId);
+        self::assertNamed('A link', $linkId);
+
+        if (!$this->isEnabled($reason) || !$identity instanceof Model) {
             return 0;
         }
 
         $model = SessionLookup::model();
 
-        return $model->getConnection()->transaction(function () use ($model, $identity, $connectionId, $now): int {
+        return $model->getConnection()->transaction(function () use ($model, $identity, $connectionId, $linkId, $reason, $now): int {
+
+            ConnectionGuards::link($model->getConnection(), $connectionId, $linkId);
 
             $ended   = $this->forgetOnCommit($model);
             $revoked = 0;
@@ -156,7 +188,7 @@ final readonly class ConnectionRevocations
 
             do {
                 $keys = self::owned($model, $identity, $after, $now);
-                $revoked += $this->revoke($model, self::through($keys, $connectionId), $identity, RevocationReason::LINK_REMOVED, $now, $ended);
+                $revoked += $this->revoke($model, self::through($keys, $connectionId, $linkId), $identity, $reason, $now, $ended);
                 $after = $keys === [] ? null : $keys[count($keys) - 1];
             } while (count($keys) === self::CHUNK);
 
@@ -165,30 +197,45 @@ final readonly class ConnectionRevocations
     }
 
     /**
-     * Whether the trigger ends sessions, once the connection id names one.
+     * Refuse an empty id: a connection or a link is named by its id.
      *
-     * @param  string  $connectionId
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
-     * @return bool
+     * @param  string  $what
+     * @param  string  $id
+     * @return void
      *
      * @throws \InvalidArgumentException
      */
-    private function isEnabled(string $connectionId, RevocationReason $reason): bool
+    private static function assertNamed(string $what, string $id): void
     {
-        if ($connectionId === '') {
-            throw new \InvalidArgumentException('A connection is named by its id, which may not be empty.');
+        if ($id === '') {
+            throw new \InvalidArgumentException(sprintf('%s is named by its id, which may not be empty.', $what));
         }
+    }
 
+    /**
+     * Whether the trigger ends sessions: its setting, or always for one no
+     * setting turns off.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @return bool
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    private function isEnabled(RevocationReason $reason): bool
+    {
         return (new RevocationSettings($this->container->make(Repository::class)))->isEnabled($reason);
     }
 
     /**
      * The next chunk of the provenance rows of the connection, after the key
      * given, in key order, as `[session key, connection id]`, read from the
-     * provenance's connection index on the write connection. The index finds
-     * them under the column's collation; `exactly()` keeps those that name the
-     * connection byte for byte. Integer keys, held as strings, are ordered by
-     * length and then as strings, which is their numeric order.
+     * provenance's connection index on the write connection with a locking
+     * read, so a provenance committed with its session after the caller's
+     * transaction first read is seen. The index finds them under the column's
+     * collation; `exactly()` keeps those that name the connection byte for
+     * byte. Integer keys, held as strings, are ordered by length and then as
+     * strings, which is their numeric order.
      *
      * @param  string  $connectionId
      * @param  ?string  $after
@@ -205,7 +252,8 @@ final readonly class ConnectionRevocations
             ->when($after !== null && !$numeric, static fn (Builder $query): Builder => $query->where('session_id', '>', $after))
             ->when($numeric, static fn (Builder $query): Builder => $query->orderByRaw($length))
             ->orderBy('session_id')
-            ->limit(self::CHUNK);
+            ->limit(self::CHUNK)
+            ->sharedLock();
 
         return self::provenance($query);
     }
@@ -230,8 +278,12 @@ final readonly class ConnectionRevocations
     }
 
     /**
-     * The next chunk of the keys of the identity's live sessions, after the key
-     * given, in key order, read on the write connection.
+     * The next chunk of the keys of the identity's live sessions an external
+     * provider established (the only ones with a provenance, which their
+     * sign-in writes with them), after the key given, in key order, read on the
+     * write connection with a locking read, so it sees every such session
+     * committed by now and holds each one, in key order, until the revocation's
+     * transaction ends.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
      * @param  \Illuminate\Database\Eloquent\Model  $identity
@@ -245,30 +297,40 @@ final readonly class ConnectionRevocations
         $query = self::live(WriteConnection::query($model->newQuery()), $model, $now)
             ->where($owner->getMorphType(), $identity->getMorphClass())
             ->where($owner->getForeignKeyName(), IdentifierCoercion::stringify($identity->getKey()))
+            ->where($model->getSignInMethodName(), SignInMethodManager::EXTERNAL_METHOD)
             ->when($after !== null, static fn (Builder $query): Builder => $query->where($model->getKeyName(), '>', $after))
             ->orderBy($model->getKeyName())
-            ->limit(self::CHUNK);
+            ->limit(self::CHUNK)
+            ->lockForUpdate();
 
         return self::strings(WriteConnection::during($model, static fn (): array => $query->pluck($model->getKeyName())->all()));
     }
 
     /**
-     * Those of the session keys the connection established, read from the
-     * provenance on the write connection.
+     * Those of the session keys established through the link (the connection
+     * and the link id given), read from the provenance on the write connection
+     * with a locking read, so a provenance committed with its session after the
+     * caller's transaction first read is seen, and kept only when both match
+     * byte for byte.
      *
      * @param  list<string>  $keys
      * @param  string  $connectionId
+     * @param  string  $linkId
      * @return list<string>
      */
-    private static function through(array $keys, string $connectionId): array
+    private static function through(array $keys, string $connectionId, string $linkId): array
     {
         if ($keys === []) {
             return [];
         }
 
-        $query = WriteConnection::query(SessionProvenance::query())->whereKey($keys)->where('connection_id', $connectionId);
+        $query = WriteConnection::query(SessionProvenance::query())->whereKey($keys)->where('connection_id', $connectionId)->where('link_id', $linkId)->sharedLock();
 
-        return self::exactly(self::provenance($query), $connectionId);
+        /** @var list<\stdClass> $rows */
+        $rows = WriteConnection::during(new SessionProvenance, static fn (): array => $query->toBase()->get(['session_id', 'connection_id', 'link_id'])->all());
+        $kept = array_filter($rows, static fn (\stdClass $row): bool => $row->connection_id === $connectionId && $row->link_id === $linkId);
+
+        return self::strings(array_column($kept, 'session_id'));
     }
 
     /**

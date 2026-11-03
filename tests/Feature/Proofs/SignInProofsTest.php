@@ -32,12 +32,12 @@ use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
-use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
+use SineMacula\Laravel\Authentication\Sessions\ExternalSignIn;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -45,6 +45,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
@@ -57,11 +58,11 @@ use Tests\TestCase;
 
 /**
  * Feature tests of the proofs a sign-in records on its session: the first
- * factor a password sign-in verified, the one `start()` records with and
- * without a provenance, the provenance itself, the further factor a pending
- * sign-in is completed with and every refusal of one, a choice of principal
- * carrying the first factor and provenance across, and the fresh proofs of a
- * session that replaces another.
+ * factor a password sign-in verified, the one `start()` records, the provider's
+ * an external sign-in records, the provenance itself, the further factor a
+ * pending sign-in is completed with and every refusal of one, a choice of
+ * principal carrying the first factor and provenance across, and the fresh
+ * proofs of a session that replaces another.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -69,6 +70,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionService::class)]
+#[CoversClass(ExternalSignIn::class)]
 #[CoversClass(SessionEstablishment::class)]
 #[CoversClass(SessionWriter::class)]
 #[CoversClass(PendingSessions::class)]
@@ -80,7 +82,7 @@ use Tests\TestCase;
 #[CoversClass(SessionProvenance::class)]
 final class SignInProofsTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
 
     /** @var string Guard over `ChoosingMember`, whose sign-ins wait for a choice of principal. */
     private const string CHOOSERS = 'choosers';
@@ -186,15 +188,15 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * `start()` without a provenance records a first factor the caller did not
-     * describe: under the method it names, an unknown channel, no `amr` value,
-     * timed now, and no provenance.
+     * `start()` records a first factor the caller did not describe: under the
+     * method it names, an unknown channel, no `amr` value, timed now, and no
+     * provenance.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testStartWithoutAProvenanceRecordsAnUnattestedFirstFactor(): void
+    public function testStartRecordsAnUnattestedFirstFactor(): void
     {
         $identity = $this->seedIdentity();
         $session  = $this->sessions()->start($identity, null, 'sso')->session;
@@ -214,27 +216,30 @@ final class SignInProofsTest extends TestCase
     }
 
     /**
-     * `start()` with a provenance records the provider's first factor (the
-     * connection as an external-provider channel, the private namespaced `amr`
-     * value, the provider's authentication time) and the provenance as given,
-     * with no evidence; the session's first access token says it authenticated
-     * when the provider did, two minutes before the token was issued.
+     * An external sign-in records the provider's first factor (under
+     * `external_provider`, the connection as an external-provider channel, the
+     * private namespaced `amr` value, the provider's authentication time) and
+     * the provenance of the result, with the link's id and no evidence; the
+     * session's first access token says it authenticated when the provider did,
+     * two minutes before the token was issued.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testStartWithAProvenanceRecordsTheProvidersFirstFactorAndProvenance(): void
+    public function testAnExternalSignInRecordsTheProvidersFirstFactorAndProvenance(): void
     {
-        $identity   = $this->seedIdentity();
-        $provenance = new Provenance('connection-7', 'tenant-3', $this->now->subMinutes(2), $this->now->addHours(8), 'enforcement-12');
-        $session    = $this->sessions()->start($identity, null, 'sso', null, $provenance)->session;
+        $identity = $this->seedIdentity();
+        $result   = $this->linkedResult($identity, 'connection-7', 'link-9', null, 'tenant-3', $this->now->subMinutes(2), $this->now->addHours(8), 'enforcement-12');
+        $session  = $this->sessions()->signInExternally($result)->session;
 
         self::assertNotNull($session);
+        self::assertSame('external_provider', $session->record->getSignInMethod());
 
         $proofs = self::proofsOf($session->record);
 
         self::assertCount(1, $proofs);
+        self::assertSame('external_provider', $proofs[0]->method);
         self::assertSame([ChannelKind::EXTERNAL_PROVIDER->value, 'connection-7'], [$proofs[0]->channel_kind, $proofs[0]->channel_reference]);
         self::assertSame([FirstFactor::EXTERNAL_PROVIDER_METHOD], $proofs[0]->methods);
         self::assertSame('urn:sinemacula:amr:external_provider', FirstFactor::EXTERNAL_PROVIDER_METHOD);
@@ -243,7 +248,7 @@ final class SignInProofsTest extends TestCase
         $stored = self::provenanceOf($session->record);
 
         self::assertNotNull($stored);
-        self::assertSame(['connection-7', 'tenant-3', 'enforcement-12'], [$stored->connection_id, $stored->tenant_id, $stored->policy_version]);
+        self::assertSame(['connection-7', 'tenant-3', 'enforcement-12', 'link-9'], [$stored->connection_id, $stored->tenant_id, $stored->policy_version, $stored->link_id]);
         self::assertSame($this->now->subMinutes(2)->getTimestamp(), $stored->provider_authenticated_at?->getTimestamp());
         self::assertSame($this->now->addHours(8)->getTimestamp(), $stored->provider_session_expires_at?->getTimestamp());
         self::assertNull($stored->accepted_evidence);
@@ -271,8 +276,8 @@ final class SignInProofsTest extends TestCase
     public function testAProviderTimeAfterNowOrNoneIsRecordedAsNow(): void
     {
         $identity = $this->seedIdentity();
-        $future   = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7', providerAuthenticatedAt: $this->now->addMinute()))->session;
-        $none     = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7'))->session;
+        $future   = $this->sessions()->signInExternally($this->linkedResult($identity, authenticatedAt: $this->now->addMinute()))->session;
+        $none     = $this->sessions()->signInExternally($this->linkedResult($identity))->session;
 
         self::assertNotNull($future);
         self::assertNotNull($none);
@@ -294,7 +299,7 @@ final class SignInProofsTest extends TestCase
     public function testTheProvidersDeadlineCapsTheSession(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7', sessionNotAfter: $this->now->addHours(8)))->session;
+        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, sessionNotAfter: $this->now->addHours(8)))->session;
 
         self::assertNotNull($session);
         self::assertSame($this->now->addHours(8)->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
@@ -330,7 +335,7 @@ final class SignInProofsTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $context  = new SignInContext(new ClientContext('203.0.113.7', 'agent'), notAfter: $this->now->addHours($contextIn));
-        $session  = $this->sessions()->start($identity, null, 'sso', $context, new Provenance('connection-7', sessionNotAfter: $this->now->addHours(8)))->session;
+        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, sessionNotAfter: $this->now->addHours(8)), $context)->session;
 
         self::assertNotNull($session);
         self::assertSame($this->now->addHours($cappedIn)->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
@@ -339,7 +344,7 @@ final class SignInProofsTest extends TestCase
 
     /**
      * A provider whose deadline is this second or has passed starts no session:
-     * `start()` is refused as `session_expired`, reported by
+     * the sign-in is refused as `session_expired`, reported by
      * `AuthenticationFailed`, before any session, proof or provenance is
      * written.
      *
@@ -355,7 +360,7 @@ final class SignInProofsTest extends TestCase
 
             $this->recordEvents([AuthenticationFailed::class]);
 
-            $result = $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7', sessionNotAfter: $deadline));
+            $result = $this->sessions()->signInExternally($this->linkedResult($identity, sessionNotAfter: $deadline));
 
             self::assertTrue($result->isFailed());
             self::assertSame(FailureReason::SESSION_EXPIRED, $result->reason);
@@ -398,7 +403,7 @@ final class SignInProofsTest extends TestCase
 
         self::requireAFurtherFactor();
 
-        [$pending, $credential] = self::pendingOf($this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7', sessionNotAfter: $deadline)));
+        [$pending, $credential] = self::pendingOf($this->sessions()->signInExternally($this->linkedResult($identity, sessionNotAfter: $deadline)));
 
         self::assertSame($deadline->getTimestamp(), Session::query()->sole()->getAbsoluteExpiresAt()?->getTimestamp());
 
@@ -427,7 +432,7 @@ final class SignInProofsTest extends TestCase
 
         $deadline = $this->now->addHours(8)->setTimezone($zone);
 
-        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->start($member, null, 'sso', null, new Provenance('connection-7', sessionNotAfter: $deadline)));
+        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->signInExternally($this->linkedResult($member, sessionNotAfter: $deadline)));
 
         $this->clockAt($this->now->addMinutes(2));
 
@@ -439,9 +444,10 @@ final class SignInProofsTest extends TestCase
 
     /**
      * The provider's times given in a time zone other than the application's
-     * are recorded as the same instants when `start()` signs in at once: the
-     * provenance's authentication time and deadline, the first factor's time,
-     * the session's absolute deadline and its access token's `auth_time`.
+     * are recorded as the same instants when an external sign-in starts at
+     * once: the provenance's authentication time and deadline, the first
+     * factor's time, the session's absolute deadline and its access token's
+     * `auth_time`.
      *
      * @param  string  $zone
      * @return void
@@ -454,8 +460,7 @@ final class SignInProofsTest extends TestCase
         $identity      = $this->seedIdentity();
         $authenticated = $this->now->subMinutes(5)->setTimezone($zone);
         $deadline      = $this->now->addHours(8)->setTimezone($zone);
-        $provenance    = new Provenance('connection-7', providerAuthenticatedAt: $authenticated, sessionNotAfter: $deadline);
-        $session       = $this->sessions()->start($identity, null, 'sso', null, $provenance)->session;
+        $session       = $this->sessions()->signInExternally($this->linkedResult($identity, authenticatedAt: $authenticated, sessionNotAfter: $deadline))->session;
 
         self::assertNotNull($session);
 
@@ -520,7 +525,7 @@ final class SignInProofsTest extends TestCase
         SessionProvenance::creating(static fn (): bool => false);
 
         try {
-            $this->sessions()->start($identity, null, 'sso', null, new Provenance('connection-7'));
+            $this->sessions()->signInExternally($this->linkedResult($identity));
             self::fail('Expected a cancelled provenance to fail the sign-in.');
         } catch (\LogicException $exception) {
             self::assertSame(SessionProvenance::class . ' was not saved: a model event cancelled it, so the session it belongs to is not written.', $exception->getMessage());
@@ -842,9 +847,9 @@ final class SignInProofsTest extends TestCase
 
         self::requireAFurtherFactor();
 
-        $provenance = new Provenance('connection-7', 'tenant-3', $this->now->subMinute(), $this->now->addHours(8), 'enforcement-12');
+        $result = $this->linkedResult($identity, 'connection-7', 'link-9', null, 'tenant-3', $this->now->subMinute(), $this->now->addHours(8), 'enforcement-12');
 
-        [$pending, $credential] = self::pendingOf($this->sessions()->start($identity, null, 'sso', null, $provenance));
+        [$pending, $credential] = self::pendingOf($this->sessions()->signInExternally($result));
 
         self::assertNotNull(self::provenanceOf(Session::query()->sole()));
 
@@ -864,7 +869,7 @@ final class SignInProofsTest extends TestCase
         );
         self::assertSame($this->now->subMinute()->getTimestamp(), $proofs[0]->authenticated_at->getTimestamp());
         self::assertNotNull($stored);
-        self::assertSame(['connection-7', 'tenant-3', 'enforcement-12'], [$stored->connection_id, $stored->tenant_id, $stored->policy_version]);
+        self::assertSame(['connection-7', 'tenant-3', 'enforcement-12', 'link-9'], [$stored->connection_id, $stored->tenant_id, $stored->policy_version, $stored->link_id]);
         self::assertSame($this->now->addHours(8)->getTimestamp(), $stored->provider_session_expires_at?->getTimestamp());
     }
 
@@ -881,9 +886,9 @@ final class SignInProofsTest extends TestCase
     {
         [$member, $membership] = $this->seedChooser();
 
-        $provenance = new Provenance('connection-7', 'tenant-3', $this->now->subMinute());
+        $result = $this->linkedResult($member, tenantId: 'tenant-3', authenticatedAt: $this->now->subMinute());
 
-        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->start($member, null, 'sso', null, $provenance));
+        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->signInExternally($result));
 
         $this->clockAt($this->now->addMinutes(2));
 
@@ -894,7 +899,10 @@ final class SignInProofsTest extends TestCase
         $proofs = self::proofsOf($session->record);
 
         self::assertCount(1, $proofs);
-        self::assertSame([ChannelKind::EXTERNAL_PROVIDER->value, 'connection-7', 'sso'], [$proofs[0]->channel_kind, $proofs[0]->channel_reference, $proofs[0]->method]);
+        self::assertSame(
+            [ChannelKind::EXTERNAL_PROVIDER->value, 'connection-7', 'external_provider'],
+            [$proofs[0]->channel_kind, $proofs[0]->channel_reference, $proofs[0]->method],
+        );
         self::assertSame($this->now->subMinute()->getTimestamp(), $proofs[0]->authenticated_at->getTimestamp());
         self::assertSame('tenant-3', self::provenanceOf($session->record)?->tenant_id);
     }
@@ -973,7 +981,7 @@ final class SignInProofsTest extends TestCase
         self::configureSessionGuards($config);
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
-        $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso']]]);
+        $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso', 'external_provider']]]);
     }
 
     /**
