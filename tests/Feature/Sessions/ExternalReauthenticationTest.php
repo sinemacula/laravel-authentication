@@ -410,7 +410,7 @@ final class ExternalReauthenticationTest extends TestCase
             [['revoked_at' => $this->now], [], FailureReason::SESSION_REVOKED],
             [[], ['link_id' => 'link-2'], FailureReason::LINK_MISMATCH],
             [['authenticatable_id' => $grace], [], FailureReason::LINK_MISMATCH],
-            [['generation' => 'another'], [], FailureReason::SESSION_UNKNOWN],
+            [['generation' => Str::uuid7()->toString()], [], FailureReason::SESSION_UNKNOWN],
         ];
 
         $this->recordEvents([AuthenticationFailed::class]);
