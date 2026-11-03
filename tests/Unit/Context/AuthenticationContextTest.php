@@ -182,11 +182,13 @@ final class AuthenticationContextTest extends TestCase
      */
     public static function provideRefusedContributions(): iterable
     {
-        $object = new \stdClass;
+        $object    = new \stdClass;
+        $namespace = 'The contributed namespace [%s] is the package\'s own, or is not a lower-case letter'
+            . ' and then up to 31 lower-case letters, digits or underscores.';
 
-        yield 'the package\'s namespace' => [['authentication' => ['mfa' => false]], 'The contributed namespace [authentication] is the package\'s own'];
-        yield 'a malformed namespace' => [['Sso' => ['id' => 'a']], 'The contributed namespace [Sso] is the package\'s own'];
-        yield 'a namespace that is a number' => [[7 => ['id' => 'a']], 'The contributed namespace [7] is the package\'s own'];
+        yield 'the package\'s namespace' => [['authentication' => ['mfa' => false]], sprintf($namespace, 'authentication')];
+        yield 'a malformed namespace' => [['Sso' => ['id' => 'a']], sprintf($namespace, 'Sso')];
+        yield 'a namespace that is a number' => [[7 => ['id' => 'a']], sprintf($namespace, '7')];
         yield 'keys that are not an array' => [['sso' => 'connection-7'], 'The keys contributed under [sso] must be an array.'];
         yield 'a key that is a number' => [['sso' => ['connection-7']], 'The key [0] contributed under [sso] must be a lower-case letter'];
         yield 'a key in upper case' => [['sso' => ['Id' => 'a']], 'The key [Id] contributed under [sso] must be a lower-case letter'];

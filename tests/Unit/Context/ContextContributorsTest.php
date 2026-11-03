@@ -78,8 +78,11 @@ final class ContextContributorsTest extends TestCase
             $contributors->register($namespace, 'App\Contributor');
             self::fail('The namespace was registered.');
         } catch (\LogicException $exception) {
-            self::assertStringContainsString('[' . $namespace . ']', $exception->getMessage());
-            self::assertStringContainsString('[authentication]', $exception->getMessage());
+            self::assertSame(
+                'An authentication context contributor cannot be registered under [' . $namespace . ']: a namespace is a lower-case letter'
+                . ' and then up to 31 lower-case letters, digits or underscores, and not the package\'s own [authentication].',
+                $exception->getMessage(),
+            );
         }
 
         self::assertSame([], $contributors->registered());
