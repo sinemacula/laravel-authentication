@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Context\Enums\CredentialKind;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -176,6 +177,35 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertInstanceOf(PrincipalAssigned::class, $dispatched[1]);
         EventContextAssertions::assertSession(null, $dispatched[1]->context);
         self::assertNull($dispatched[1]->context->method);
+    }
+
+    /**
+     * A person's bearer token, which names no API key, is an access token in
+     * the guard's authentication context, and grants no scopes.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPersonsBearerTokenIsAnAccessTokenInItsContext(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->andReturn('i-1');
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $principal->shouldReceive('getTenant')->andReturnNull();
+
+        $this->provider->shouldReceive('retrieveById')->once()->with('i-1')->andReturn($identity);
+        $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($principal);
+        $this->events->shouldReceive('dispatch');
+
+        $context = $this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'principal' => 'p-1'])))->authenticationContext();
+
+        self::assertNotNull($context);
+        self::assertSame('i-1', $context->identityId);
+        self::assertSame(CredentialKind::ACCESS_TOKEN, $context->credential);
+        self::assertNull($context->scopes);
     }
 
     /**
