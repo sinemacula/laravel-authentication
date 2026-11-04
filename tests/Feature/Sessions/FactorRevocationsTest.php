@@ -72,9 +72,9 @@ use Tests\Unit\Stubs\StubNonModelSession;
  * identity's other sessions and judges the current one again without the
  * factor, voiding only that session's proofs made with it, keeping it, taking
  * it back to pending or revoking it; a reset ends every session; a removed
- * first-factor credential voids nothing; and any other change of the factor
- * package's judges the current session again the same way, voiding nothing and
- * touching no other session.
+ * first-factor credential voids nothing; and an addition, a change of the
+ * factor package's that removes no factor, judges the current session again the
+ * same way, voiding nothing and touching no other session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

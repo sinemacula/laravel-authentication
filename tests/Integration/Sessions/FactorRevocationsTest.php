@@ -43,11 +43,12 @@ use Tests\TestCase;
 /**
  * Integration tests of the factor package's mandatory triggers, of a removed
  * first-factor credential, and of the judgement of the current session again
- * after any other change of the factor package's, inside the factor package's
- * own transaction on the storage connection: everything they write (the
- * revocations, the voided proofs, the current session's return to pending)
- * commits or rolls back with the factor package's change, nothing is reported
- * until it commits, and the guard forgets the current session only then.
+ * after an addition, a change of the factor package's that removes no factor,
+ * inside the factor package's own transaction on the storage connection:
+ * everything they write (the revocations, the voided proofs, the current
+ * session's return to pending) commits or rolls back with the factor package's
+ * change, nothing is reported until it commits, and the guard forgets the
+ * current session only then.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -38,10 +38,11 @@ use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
  * owner and its first factor, and the requirement's page of proofs while a
  * further factor is asked), plus the return to pending's one `UPDATE` when it
  * falls short; without a current session, it is the bulk revocation alone, and
- * so is a reset. Any other change of the factor package's judges the current
- * session alone: the locking read, the issuance guard's `UPDATE` and the same
- * reads of judging it again, plus the return's `UPDATE` when it falls short;
- * a current session that is no longer live costs the locking read alone.
+ * so is a reset. An addition, a change of the factor package's that removes
+ * no factor, judges the current session alone: the locking read, the issuance
+ * guard's `UPDATE` and the same reads of judging it again, plus the return's
+ * `UPDATE` when it falls short; a current session that is no longer live costs
+ * the locking read alone.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
