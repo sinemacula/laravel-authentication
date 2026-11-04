@@ -144,7 +144,7 @@ final readonly class TenantPolicyChanges
                 ->lockForUpdate();
 
             $chunk = WriteConnection::during($model, static fn (): array => $query->toBase()->pluck($name)->values()->all());
-            $keys  = [...$keys, ...$chunk];
+            array_push($keys, ...$chunk);
             $after = $chunk[count($chunk) - 1] ?? null;
         } while (count($chunk) === self::CHUNK);
 
