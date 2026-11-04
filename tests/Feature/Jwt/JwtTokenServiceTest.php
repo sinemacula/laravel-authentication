@@ -47,6 +47,7 @@ use Tests\Unit\Stubs\StubNonModelSession;
  *
  * @internal
  */
+#[CoversClass(IssuedAccessToken::class)]
 #[CoversClass(JwtTokenService::class)]
 final class JwtTokenServiceTest extends TestCase
 {
