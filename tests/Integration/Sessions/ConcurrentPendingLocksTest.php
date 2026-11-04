@@ -72,7 +72,7 @@ final class ConcurrentPendingLocksTest extends TestCase
     /** @var float The least time, in seconds, the second call must have waited to show it waited on the first. */
     private const float LEAST_WAIT_SECONDS = 0.5;
 
-    /** @var int How long the forked side holds the proven session before it asks for the pending one, in microseconds: under PostgreSQL's one-second deadlock check, so the waiting satisfaction is the side that finds the cycle. */
+    /** @var int How long the forked side waits, once the satisfaction waits on the proven session, before it asks for the pending one, in microseconds: under PostgreSQL's one-second deadlock check, so the satisfaction, which has waited longer, is the side that finds the cycle. */
     private const int CROSS_MICROSECONDS = 300000;
 
     /** @var int How long the second call waits to be started before giving up, in seconds. */
@@ -337,6 +337,13 @@ final class ConcurrentPendingLocksTest extends TestCase
             usleep(5000);
         }
 
+        if (!is_file("{$this->outcomes}/held")) {
+            posix_kill($pid, SIGKILL);
+            pcntl_waitpid($pid, $status);
+
+            self::fail('The forked side never held the proven session.');
+        }
+
         DB::beginTransaction();
 
         try {
@@ -444,10 +451,11 @@ final class ConcurrentPendingLocksTest extends TestCase
      * In the forked process: on a connection of its own, write the proven
      * session in a transaction, several times so its transaction is the heavier
      * and MySQL picks the other as the deadlock's victim, signal that it holds
-     * it, give the parent's satisfaction time to lock the pending session and
-     * wait on the proven one, then ask for the pending one, closing the cycle;
-     * once the database has failed the parent, roll back, report, and end
-     * without running the parent's shutdown.
+     * it, wait until the parent's satisfaction, having locked the pending
+     * session, waits on the proven one, then ask for the pending one, closing
+     * the cycle; once the database has failed the parent, roll back, report,
+     * and end without running the parent's shutdown. A satisfaction that never
+     * waits is reported as an error.
      *
      * @param  mixed  $proven
      * @param  mixed  $pending
@@ -463,6 +471,9 @@ final class ConcurrentPendingLocksTest extends TestCase
             }
 
             touch("{$this->outcomes}/held");
+
+            self::awaitAWaiter();
+
             usleep(self::CROSS_MICROSECONDS);
 
             DB::table('authentication_sessions')->where('id', $pending)->lockForUpdate()->first();
@@ -478,6 +489,43 @@ final class ConcurrentPendingLocksTest extends TestCase
         posix_kill(posix_getpid(), SIGKILL);
 
         exit(1);
+    }
+
+    /**
+     * Wait until another connection waits on a lock this connection's
+     * transaction holds, for as long as a call waits to be started.
+     *
+     * @return void
+     *
+     * @throws \RuntimeException
+     */
+    private static function awaitAWaiter(): void
+    {
+        $deadline = microtime(true) + self::START_TIMEOUT_SECONDS;
+
+        while (!self::isWaitedOn()) {
+            if (microtime(true) >= $deadline) {
+                throw new \RuntimeException('Nothing waited on the locks this side holds.');
+            }
+
+            usleep(5000);
+        }
+    }
+
+    /**
+     * Whether another connection waits on a lock this connection's transaction
+     * holds, as the engine's lock-wait view reports it.
+     *
+     * @return bool
+     */
+    private static function isWaitedOn(): bool
+    {
+        return DB::connection()->getDriverName() === 'pgsql'
+            ? DB::table('pg_stat_activity')->whereRaw('pg_backend_pid() = any(pg_blocking_pids(pid))')->exists()
+            : DB::table('performance_schema.data_lock_waits as waits')
+                ->join('performance_schema.threads as threads', 'threads.THREAD_ID', '=', 'waits.BLOCKING_THREAD_ID')
+                ->whereRaw('threads.PROCESSLIST_ID = connection_id()')
+                ->exists();
     }
 
     /**
