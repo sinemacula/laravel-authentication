@@ -437,9 +437,11 @@ final readonly class SessionService
      * connection (for an identity that is its own principal, or has no
      * `principals()`, the resolver's default), that are active, act within an
      * active tenant (or none), and may use the application. Each one listed
-     * that uses `ActsAsPrincipal` holds its tenant, loaded with the others' on
-     * the write connection, so reading `getTenant()` on it costs no query and
-     * never lazy-loads, even under Eloquent strict mode.
+     * from the identity's `principals()` that uses `ActsAsPrincipal` holds its
+     * tenant, loaded with the others' on the write connection, so reading
+     * `getTenant()` on it costs no query and never lazy-loads, even under
+     * Eloquent strict mode; the resolver's default is returned as the resolver
+     * gave it.
      *
      * With an identifier type, the application policy must also admit the
      * identity with it, as it admits a sign-in that used one: a switch screen

@@ -47,15 +47,15 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * In order: the identity (not a machine identity, active, and admitted by the
  * application policy with the identifier type the sign-in used); the principals
  * the application admits (its `principals()`, read on the write connection with
- * the tenants of those judged loaded together, or the resolver's default for an
- * identity that is its own principal or lists none), each active, in an active
- * tenant and allowed to use the application, with none left a refusal after the
- * credential is verified; the principal selected (the one named, when it is
- * among them, else the only one, else none and a choice is outstanding); the
- * identity-level factor policy, asked before any principal is chosen for the
- * requirement the session's authentication must meet, which `RequirementJudge`
- * judges against its proofs; and, with a principal, the tenant it is to be
- * active in and that tenant's authentication policy.
+ * the tenants of the active ones judged loaded together, or the resolver's
+ * default for an identity that is its own principal or lists none), each
+ * active, in an active tenant and allowed to use the application, with none
+ * left a refusal after the credential is verified; the principal selected (the
+ * one named, when it is among them, else the only one, else none and a choice
+ * is outstanding); the identity-level factor policy, asked before any principal
+ * is chosen for the requirement the session's authentication must meet, which
+ * `RequirementJudge` judges against its proofs; and, with a principal, the
+ * tenant it is to be active in and that tenant's authentication policy.
  *
  * It decides; it writes nothing. Every read and every contract is asked on the
  * write connection.
@@ -165,7 +165,7 @@ final readonly class PendingEvaluation
      * principal), admitted as it admits them, after the same identifier-type
      * refusal. So a principal is found exactly when `principals()` lists it.
      * Only the one found has its tenant loaded, so a lookup costs the
-     * candidates' read and, when one matches, its tenant's.
+     * candidates' read and, when an active one matches, its tenant's.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $id
