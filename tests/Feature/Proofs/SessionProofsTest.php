@@ -437,7 +437,7 @@ final class SessionProofsTest extends TestCase
      * @return void
      */
     #[DataProvider('provideStorageEngines')]
-    public function testOnlyACurrentJudgementReadOnMysqlOrMariadbTakesASharedLock(string $driver): void
+    public function testOnlyACurrentReadUnderTheLockOnMysqlOrMariadbTakesASharedLock(string $driver): void
     {
         $session = new PlainSessionFixture('0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70');
         $kinds   = [ProofKind::ADDITIONAL_FACTOR];
