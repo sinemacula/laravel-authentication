@@ -333,6 +333,86 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
+     * Inside the factor package's transaction that rolls back, a change that
+     * revoked the current session (its identity deactivated in the same
+     * transaction) leaves it unrevoked with its tokens, reports nothing and
+     * keeps the guard bound to it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeThatRevokedTheCurrentSessionRollsBackWithTheFactorPackagesTransaction(): void
+    {
+        $this->seedIdentity();
+
+        $current  = $this->activeWithoutAFurtherFactor();
+        $guard    = $this->boundGuard($current);
+        $recorded = $this->recordTriggerEvents();
+        $before   = (array) DB::table('authentication_sessions')->where('id', $current->record->getKey())->first();
+
+        DB::beginTransaction();
+
+        DB::table('integration_identities')->update(['is_active' => false]);
+
+        self::assertTrue(Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::OTHER, $current->record)->isRevoked());
+
+        DB::rollBack();
+
+        self::assertSame($before, (array) DB::table('authentication_sessions')->where('id', $current->record->getKey())->first());
+        self::assertSame([], $recorded->getArrayCopy());
+        self::assertSame($current->record->getKey(), $guard->session()?->getSessionIdentifier());
+        self::assertTrue($this->sessions()->refresh((string) $current->tokens->refreshToken?->reveal())->isRefreshed());
+    }
+
+    /**
+     * Inside the factor package's transaction that commits, a change that
+     * revoked the current session (its identity deactivated in the same
+     * transaction) commits the revocation as `factor_changed` with the factor
+     * package's own writes and leaves the identity's other session alone; the
+     * guard forgets the current session after the commit and before the
+     * revocation is reported, once.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeThatRevokedTheCurrentSessionCommitsWithTheFactorPackagesTransaction(): void
+    {
+        $this->seedIdentity();
+
+        $other    = $this->activeWithoutAFurtherFactor();
+        $current  = $this->activeWithoutAFurtherFactor();
+        $guard    = $this->boundGuard($current);
+        $recorded = $this->recordTriggerEvents();
+
+        /** @var \ArrayObject<int, mixed> $bound */
+        $bound = new \ArrayObject;
+
+        Event::listen(SessionRevoked::class, static function () use ($guard, $bound): void {
+            $bound->append($guard->session()?->getSessionIdentifier());
+        });
+
+        $change = DB::transaction(static function () use ($current, $recorded): FactorChangeResult {
+
+            DB::table('integration_identities')->update(['is_active' => false]);
+
+            $change = Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::OTHER, $current->record);
+
+            self::assertSame([], $recorded->getArrayCopy());
+
+            return $change;
+        });
+
+        self::assertTrue($change->isRevoked());
+        self::assertSame('factor_changed', DB::table('authentication_sessions')->where('id', $current->record->getKey())->value('revoked_reason'));
+        self::assertNull(DB::table('authentication_sessions')->where('id', $other->record->getKey())->value('revoked_at'));
+        self::assertSame([SessionRevoked::class], $recorded->getArrayCopy());
+        self::assertSame([null], $bound->getArrayCopy());
+        self::assertNull($guard->session());
+    }
+
+    /**
      * Register the session guards.
      *
      * @param  mixed  $app
