@@ -66,9 +66,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * in one transaction, a savepoint inside the caller's: it voids no proof,
  * touches no other session and moves no cutoff, so the identity may live
  * anywhere. A current session that is no longer the session given, or no longer
- * live and active, is skipped; a pending one is judged at its next action, as
- * it is today. Its revocation records `factor_changed`, or `factor_removed`
- * after a removal.
+ * live and active, is skipped; a pending one is judged at its next action. Its
+ * revocation records `factor_changed`, or `factor_removed` after a removal.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

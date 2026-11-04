@@ -86,16 +86,15 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   admitted, when a refresh or a switch finds the tenant's policy asking for a factor the session lacks, or the factor
   package's removal of a factor, or any other change of its factors (`factorChanged()`), leaves the session short of the
   identity's requirement or its tenant's (`Sessions\FactorRevocations`, flow `factor_change`, with the outstanding
-  requirement): one compare-and-swap on the
-  row as the caller loaded it (`status = active`, unrevoked, refresh digest, principal, `tenant_id`, policy version and
-  both deadlines) that writes a new pending credential, `requires = ["mfa"]`, the destination's principal and tenant,
-  `switched_at` by `SwitchFloor::after()` and the credential's expiry as the idle deadline. It keeps the refresh
-  digests, which stay refused as `session_pending` until the session activates with a new rotation id; from its commit
-  every access token of the session is refused. `SessionReturnedToPending` follows the commit. A connection requirement
-  never returns a session to pending: no action could meet it. The session's first factor is read once: the tenant's
-  verdict carries the one it was judged on, and `PendingTransitions::firstFactorOf()` hands that to the identity-level
-  judgement (`outstanding()`) and to the pending session, reading the session's own only when the verdict asked for no
-  further factor.
+  requirement): one compare-and-swap on the row as the caller loaded it (`status = active`, unrevoked, refresh digest,
+  principal, `tenant_id`, policy version and both deadlines) that writes a new pending credential, `requires = ["mfa"]`,
+  the destination's principal and tenant, `switched_at` by `SwitchFloor::after()` and the credential's expiry as the
+  idle deadline. It keeps the refresh digests, which stay refused as `session_pending` until the session activates with
+  a new rotation id; from its commit every access token of the session is refused. `SessionReturnedToPending` follows
+  the commit. A connection requirement never returns a session to pending: no action could meet it. The session's first
+  factor is read once: the tenant's verdict carries the one it was judged on, and `PendingTransitions::firstFactorOf()`
+  hands that to the identity-level judgement (`outstanding()`) and to the pending session, reading the session's own
+  only when the verdict asked for no further factor.
 
 ## Success Path
 

@@ -190,9 +190,11 @@ session holds; the token's claims and every freshness answer are worked out from
   READ transaction return its first snapshot), so the token issued second counts the other's proof. Inside a caller's
   transaction at PostgreSQL's REPEATABLE READ or SERIALIZABLE whose snapshot predates the other's commit, no read could
   see it, and the second fails to serialise on the guard (or on its own lock of the row the first's guard wrote)
-  instead, for the caller to retry whole. The same holds for every issuer of a session's tokens: in commit order no
-  token carries an older `auth_time` or fewer `amr` values than one before it, except where a factor's removal voided
-  proofs on purpose (`FactorRevocations` writes the guard before it voids).
+  instead, for the caller to retry whole; a retry can fail the same way once more when the other writes the row again
+  after it commits (a refresh's `Listeners\RecordSessionUsage` records the last use then). The same holds for every
+  issuer of a session's tokens: in commit order no token carries an older `auth_time` or fewer `amr` values than one
+  before it, except where a factor's removal voided proofs on purpose (`FactorRevocations` writes the guard before it
+  voids).
 - On MySQL at REPEATABLE READ, the shared lock of an issuance's current read is a set of next-key locks on the proofs'
   session index (`session_id`, `kind`, `authenticated_at`), so it also locks the gaps on either side of the session's
   proofs, up to the neighbouring entries. Keys are time-ordered, so a proof another transaction inserts there waits

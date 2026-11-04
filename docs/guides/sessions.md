@@ -94,8 +94,10 @@ until it commits. So two of them on one session never read the proofs past each 
   transaction return the transaction's first snapshot).
 - At PostgreSQL's REPEATABLE READ or SERIALIZABLE, a transaction whose snapshot was taken before the other committed
   fails to serialise on the guard (SQLSTATE 40001; inside your transaction Laravel raises it as a `DeadlockException`).
-  The package does not retry: retry your whole transaction, whose new snapshot sees the other. Two parallel refreshes of
-  one session at that level fail one of them this way; at READ COMMITTED the second is answered as a grace retry.
+  The package does not retry: retry your whole transaction, whose new snapshot sees the other. A retry can fail the same
+  way once more when the other writes the session's row again after it commits (a refresh records the session's last
+  use then), so allow more than one. Two parallel refreshes of one session at that level fail one of them this way; at
+  READ COMMITTED the second is answered as a grace retry.
 
 A sign-in reads its new session's proofs as its own transaction sees them: nothing else can record a proof under a
 session that is not committed yet. Reading the authentication context of a request is not an issuance and writes

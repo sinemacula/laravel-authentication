@@ -227,7 +227,7 @@ revoked, and when a session that ended is deleted. Starting a session is in
   (`sessions()`)
 - `src/Concerns/ScopesActiveSessions.php` (`scopeActive()`, composed by `ActsAsSession`),
   `src/Concerns/PrunesSessions.php`, `src/Database/SessionRetention.php`, `src/Models/Session.php`
-- `src/Sessions/FactorRevocations.php` (`factorRemoved()`, `factorReset()`, `factorChanged()`),
+- `src/Sessions/FactorRevocations.php` (behind `factorRemoved()`, `factorReset()` and `factorChanged()`),
   `src/Sessions/FactorRemoval.php`, `src/Sessions/FactorChangeResult.php`, `src/Sessions/Enums/FactorChangeStatus.php`,
   `src/Factors/Enums/FactorChangeMade.php`
 - `src/Sessions/SessionRevocations.php` (the security changes), `src/Listeners/RevokeSessionsOn*.php`,
