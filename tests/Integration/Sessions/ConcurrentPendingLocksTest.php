@@ -514,14 +514,19 @@ final class ConcurrentPendingLocksTest extends TestCase
 
     /**
      * Whether another connection waits on a lock this connection's transaction
-     * holds, as the engine's lock-wait view reports it.
+     * holds, as the engine's lock-wait view reports it. PostgreSQL's is read
+     * from `pg_locks`, because `pg_stat_activity` keeps the backends of its
+     * first read in a transaction, before the waiter has connected.
      *
      * @return bool
      */
     private static function isWaitedOn(): bool
     {
         return DB::connection()->getDriverName() === 'pgsql'
-            ? DB::table('pg_stat_activity')->whereRaw('pg_backend_pid() = any(pg_blocking_pids(pid))')->exists()
+            ? DB::table('pg_locks')
+                ->where('granted', false)
+                ->whereRaw('pg_backend_pid() = any(pg_blocking_pids(pid))')
+                ->exists()
             : DB::table('performance_schema.data_lock_waits as waits')
                 ->join('performance_schema.threads as threads', 'threads.THREAD_ID', '=', 'waits.BLOCKING_THREAD_ID')
                 ->whereRaw('threads.PROCESSLIST_ID = connection_id()')
