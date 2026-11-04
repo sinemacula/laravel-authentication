@@ -13,10 +13,8 @@ use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
  *
  * A refused registration stores and dispatches nothing. The status names every
  * outcome; `passkey` is set only for `registered`, and `factor` only for a
- * registered passkey the factor gate associated, its `completion` carrying the
- * factor package's completion of the registration, if any, uninterpreted (the
- * current session's new pending credential, for one, when the registration
- * returned it to pending).
+ * registered passkey the factor gate associated, its `completion` the factor
+ * package's own, uninterpreted.
  *
  * @api
  *

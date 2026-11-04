@@ -372,9 +372,7 @@ trait EndsSessions
      * one given, or no longer live and active (a pending one is judged at its
      * next action), is left as it is (`skipped`), which says nothing of whether
      * it is usable. When this guard is bound to it and it is returned to
-     * pending or revoked, the binding is forgotten once the change commits. The
-     * identity's other sessions are not judged: they keep running as they were
-     * admitted.
+     * pending or revoked, the binding is forgotten once the change commits.
      *
      * The factor package calls it inside the transaction that makes the change,
      * on the storage connection, after taking its own locks, so both commit or

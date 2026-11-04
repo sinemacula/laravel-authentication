@@ -30,13 +30,11 @@ use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
  * credential a sign-in credential only. When a passkey factor is removed,
  * `removing()` carries out the factor package's own removal (`factorRemoved()`
  * for the factor, which judges the current session again). Each may answer the
- * factor package's completion of the change (the association's `completion`, or
- * what `removing()` returns), which the registration or the removal hands back
- * to its caller uninterpreted, so a new pending credential reaches the client.
- * The package's default, `NoPasskeyFactors`, associates nothing, completes
- * nothing and refuses nothing: without a factor package no passkey is a factor.
- * A passkey's use and its bookkeeping (sign count, backup state) are no change
- * the identity makes, so they are not gated.
+ * factor package's completion of the change, which the passkey service's caller
+ * gets back uninterpreted. The package's default, `NoPasskeyFactors`,
+ * associates nothing, completes nothing and refuses nothing: without a factor
+ * package no passkey is a factor. A passkey's use and its bookkeeping (sign
+ * count, backup state) are no change the identity makes, so they are not gated.
  *
  * @api
  *

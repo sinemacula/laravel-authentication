@@ -5,8 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Passkeys;
 
 /**
- * How removing one of an identity's passkeys ended: removed by this call, with
- * the factor package's completion of the removal, if its gate answered one, or
+ * How removing one of an identity's passkeys ended: removed by this call, or
  * not removed, because the identity has no passkey by that id for the guard's
  * relying party (none was ever stored, or it was removed already, concurrently
  * included).
