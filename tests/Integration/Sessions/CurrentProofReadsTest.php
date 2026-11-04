@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
+use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
@@ -96,8 +97,9 @@ use Tests\TestCase;
  * issuance guard fails to serialise instead, and once the caller retries the
  * whole transaction the judgement is made on the change. A judgement that read
  * the snapshot would return a session to pending for want of the step-up, keep
- * it active on the voided proof, or keep a session the reused key no longer
- * establishes through the tenant's connection.
+ * it active on the voided proof, list less than a session returned to pending
+ * waits on, or keep a session the reused key no longer establishes through the
+ * tenant's connection.
  *
  * Skipped on SQLite, whose in-memory database each connection would have to
  * itself.
@@ -250,6 +252,41 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
+     * A factor's removal under a tenant's further factor never counts a proof
+     * another factor's removal voided after the caller's first read: with both
+     * factors' proofs voided, the session falls short of its tenant's further
+     * factor, which the identity does not ask for, and returns to pending.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testAFactorRemovalUnderATenantsFactorNeverCountsAProofVoidedMeanwhile(string $level): void
+    {
+        [$member] = $this->seedMember();
+
+        $session = $this->signedIn('members', $member);
+        $key     = $session->record->getKey();
+
+        foreach (['factor-1', 'factor-2'] as $factor) {
+            self::assertTrue($this->sessions('members')->stepUp($this->proof($member, 'members', $key, $factor, Purpose::STEP_UP))->isIssued());
+        }
+
+        $this->policy->requirement = new TenantRequirement('v2', new Requirement(new RequirementPart));
+
+        $removed = $this->judgeAfter(
+            $level,
+            fn () => $this->voidElsewhere('members', $key, 'factor-2'),
+            fn (): bool => $this->sessions('members')->factorRemoved($member, 'factor-1', $session->record)->isPending(),
+        );
+
+        self::assertTrue($removed);
+        self::assertSame(['pending', 'v2'], [DB::table('authentication_sessions')->value('status'), DB::table('authentication_sessions')->value('tenant_policy_version')]);
+    }
+
+    /**
      * A refresh counts a step-up committed after the caller's first read: a
      * session whose tenant now asks for a further factor, which the step-up
      * meets, is handed a pair.
@@ -276,6 +313,41 @@ final class CurrentProofReadsTest extends TestCase
 
         self::assertTrue($refreshed);
         self::assertSame('v2', DB::table('authentication_sessions')->where('tenant_id', IdentifierCoercion::stringify($tenant->getKey()))->value('tenant_policy_version'));
+    }
+
+    /**
+     * A refresh its tenant's further factor returns to pending never counts a
+     * proof voided after the caller's first read towards the identity's own:
+     * the pending session lists the identity's further factor beside the
+     * tenant's, never the tenant's alone.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testARefreshReturnedToPendingNeverCountsAProofVoidedMeanwhile(string $level): void
+    {
+        [$member] = $this->seedMember();
+
+        $session = $this->signedIn('members', $member);
+        $key     = $session->record->getKey();
+
+        self::assertTrue($this->sessions('members')->stepUp($this->proof($member, 'members', $key, 'factor-1', Purpose::STEP_UP))->isIssued());
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $this->policy->requirement = new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart));
+
+        $outstanding = $this->judgeAfter(
+            $level,
+            fn () => $this->voidElsewhere('members', $key, 'factor-1'),
+            fn (): ?array => $this->sessions('members')->refresh((string) $session->tokens->refreshToken?->reveal())->pending?->requirement->kinds(),
+        );
+
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $outstanding);
+        self::assertSame('pending', DB::table('authentication_sessions')->value('status'));
     }
 
     /**
@@ -364,6 +436,52 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
+     * A switch its destination's further factor returns to pending never counts
+     * a proof voided after the caller's first read towards the identity's own:
+     * the pending session lists the identity's further factor beside the
+     * destination tenant's, never the tenant's alone.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testASwitchReturnedToPendingNeverCountsAProofVoidedMeanwhile(string $level): void
+    {
+        [$member, $first] = $this->seedMember();
+
+        $other  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+        $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
+        $target = IdentifierCoercion::stringify($other->getKey());
+
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), new SignInContext(new ClientContext(null, null), principal: $first));
+
+        self::assertNotNull($result->session);
+
+        $session   = $result->session;
+        $key       = $session->record->getKey();
+        $presented = (string) $session->tokens->refreshToken?->reveal();
+
+        self::assertTrue($this->sessions('members')->stepUp($this->proof($member, 'members', $key, 'factor-1', Purpose::STEP_UP))->isIssued());
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $this->policy->answer = static fn (TenantPolicyContext $context): TenantRequirement => IdentifierCoercion::stringify($context->tenant->getTenantIdentifier()) === $target
+            ? new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart))
+            : new TenantRequirement;
+
+        $outstanding = $this->judgeAfter(
+            $level,
+            fn () => $this->voidElsewhere('members', $key, 'factor-1'),
+            fn (): ?array => $this->sessions('members')->switchTo($presented, SwitchTarget::principal($second))->pending?->requirement->kinds(),
+        );
+
+        self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $outstanding);
+        self::assertSame('pending', DB::table('authentication_sessions')->value('status'));
+    }
+
+    /**
      * A choice never counts a further factor's proof voided after the caller's
      * first read: the pending session that had satisfied its further factor
      * waits on it again, the choice recorded, instead of activating.
@@ -389,6 +507,49 @@ final class CurrentProofReadsTest extends TestCase
         $satisfied  = $this->sessions(self::CHOOSERS)->satisfy($credential, $this->proof($member, self::CHOOSERS, $pending->pending->id, 'factor-1', Purpose::SIGN_IN));
 
         self::assertSame([PendingRequirement::PRINCIPAL], $satisfied->pending?->requires);
+
+        $chosen = $this->judgeAfter(
+            $level,
+            fn () => $this->voidElsewhere(self::CHOOSERS, $pending->pending->id, 'factor-1'),
+            fn (): ?array => $this->sessions(self::CHOOSERS)->choose($credential, $first)->pending?->requires,
+        );
+
+        self::assertSame([PendingRequirement::MFA], $chosen);
+        self::assertSame('pending', DB::table('authentication_sessions')->value('status'));
+    }
+
+    /**
+     * A choice under a tenant's further factor never counts its proof voided
+     * after the caller's first read: once the identity no longer asks for a
+     * further factor of its own, the pending session that had satisfied one
+     * waits on it again for the chosen principal's tenant, the choice recorded,
+     * instead of activating.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testAChoiceUnderATenantsFactorNeverCountsAProofVoidedMeanwhile(string $level): void
+    {
+        [$member, $first] = $this->seedChooser();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $pending = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
+
+        self::assertNotNull($pending->pending);
+        self::assertNotNull($pending->credential);
+
+        $credential = $pending->credential->reveal();
+        $satisfied  = $this->sessions(self::CHOOSERS)->satisfy($credential, $this->proof($member, self::CHOOSERS, $pending->pending->id, 'factor-1', Purpose::SIGN_IN));
+
+        self::assertSame([PendingRequirement::PRINCIPAL], $satisfied->pending?->requires);
+
+        app()->instance(AdditionalFactorPolicy::class, new NeverRequireAdditionalFactor);
+
+        $this->policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart));
 
         $chosen = $this->judgeAfter(
             $level,
