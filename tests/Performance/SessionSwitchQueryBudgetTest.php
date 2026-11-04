@@ -42,18 +42,19 @@ use Tests\Integration\Fixtures\ChoosingMembership;
 
 /**
  * Query-budget and timing contracts for choosing and switching principal: a
- * sign-in held for a choice reads the identity and its principals (and each
- * one's tenant) and writes the attempt counters and the pending choice; making
- * the choice uses it up, writes the session and gives the slots back; a switch
- * reads the refresh counters and the session, writes the session's issuance
- * guard (one `UPDATE` by key, first in the switch's transaction), reads the
- * session again with a lock, its owner, the target, its tenant and its owner,
- * writes the one compare-and-swap, and then reads the session's proofs for the
- * new access token, while a switch its destination's policy returns to pending
- * reads the first factor once instead, a grace retry writes only the guard and
- * a refusal only the guard and the counters. The event names the principal
- * switched from by the type and identifier the session recorded, so it is never
- * read again.
+ * sign-in held for a choice reads the identity, its principals and their
+ * tenants (in one read, however many there are, as does a sign-in that selects
+ * the one admitted) and writes the attempt counters and the pending choice;
+ * making the choice uses it up, writes the session and gives the slots back; a
+ * switch reads the refresh counters and the session, writes the session's
+ * issuance guard (one `UPDATE` by key, first in the switch's transaction),
+ * reads the session again with a lock, its owner, the target, its tenant and
+ * its owner, writes the one compare-and-swap, and then reads the session's
+ * proofs for the new access token, while a switch its destination's policy
+ * returns to pending reads the first factor once instead, a grace retry writes
+ * only the guard and a refusal only the guard and the counters. The event names
+ * the principal switched from by the type and identifier the session recorded,
+ * so it is never read again.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -200,49 +201,85 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A sign-in held for a choice between two memberships reads the identity,
-     * its memberships and each one's tenant, and what an earlier session left
-     * under the pending session's key (two reads, which find nothing), and
-     * writes the six attempt-counter statements a password sign-in makes, the
-     * pending session and its first proof.
+     * Provide how many memberships a choice is offered between.
      *
+     * @return iterable<string, array{int}>
+     */
+    public static function provideMembershipCounts(): iterable
+    {
+        yield 'two memberships' => [2];
+        yield 'five memberships' => [5];
+    }
+
+    /**
+     * A sign-in held for a choice reads the identity, its memberships, their
+     * tenants together in one read however many there are, and what an earlier
+     * session left under the pending session's key (two reads, which find
+     * nothing), and writes the six attempt-counter statements a password
+     * sign-in makes, the pending session and its first proof.
+     *
+     * @param  int  $memberships
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAChoiceIsItsReadsTheCountersAndOneInsert(): void
+    #[DataProvider('provideMembershipCounts')]
+    public function testAChoiceIsItsReadsTheCountersAndOneInsert(int $memberships): void
     {
-        $member = ChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
-
-        foreach (['First', 'Second'] as $name) {
-            $tenant = ActivatableTenant::query()->create(['name' => $name, 'is_active' => true]);
-
-            ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
-        }
+        $this->seedChooser($memberships);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(6, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test')));
+        $result   = $this->assertQueryBudget(5, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test')));
 
         self::assertTrue($result->isPending());
     }
 
     /**
      * Reading a pending session waiting on a choice reads the session, its
-     * identity, the memberships and each one's tenant, and its first factor,
-     * and writes nothing.
+     * identity, the memberships, their tenants together in one read however
+     * many there are, and its first factor, and writes nothing.
      *
+     * @param  int  $memberships
      * @return void
      *
      * @throws \Throwable
      */
-    public function testReadingAChoiceIsItsReadsAlone(): void
+    #[DataProvider('provideMembershipCounts')]
+    public function testReadingAChoiceIsItsReadsAlone(int $memberships): void
     {
-        $token = $this->offerChoice();
+        $token = $this->offerChoice($memberships);
 
         $sessions = $this->sessions('choosers');
-        $choice   = $this->assertQueryBudget(6, 0, static fn (): ?PendingSession => $sessions->pending($token));
+        $choice   = $this->assertQueryBudget(5, 0, static fn (): ?PendingSession => $sessions->pending($token));
 
-        self::assertCount(2, $choice->principals ?? []);
+        self::assertCount($memberships, $choice->principals ?? []);
+    }
+
+    /**
+     * A sign-in that selects the one admitted membership of several reads the
+     * identity, its memberships, their tenants together in one read however
+     * many there are (the selected membership keeps the one it was judged by,
+     * so establishing the session reads it no more), what an earlier session
+     * left under the new session's key (two reads, which find nothing) and its
+     * proofs once for the access token, and writes the six attempt-counter
+     * statements, their three releases, the session and its first proof.
+     *
+     * @param  int  $memberships
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideMembershipCounts')]
+    public function testASignInSelectingOneOfSeveralMembershipsReadsTheirTenantsOnce(int $memberships): void
+    {
+        $this->seedChooser($memberships);
+
+        ActivatableTenant::query()->where('name', '!=', 'Tenant 1')->update(['is_active' => false]);
+
+        $sessions = $this->sessions('choosers');
+        $result   = $this->assertQueryBudget(6, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test')));
+
+        self::assertTrue($result->isSignedIn());
     }
 
     /**
@@ -487,22 +524,36 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Persist a chooser with two memberships, each in its own active tenant,
-     * sign it in, and return the pending credential its choice waits on.
+     * Persist a chooser with the given number of memberships, each in its own
+     * active tenant.
      *
+     * @param  int  $memberships
+     * @return void
+     */
+    private function seedChooser(int $memberships): void
+    {
+        $member = ChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+
+        foreach (range(1, $memberships) as $index) {
+            $tenant = ActivatableTenant::query()->create(['name' => 'Tenant ' . $index, 'is_active' => true]);
+
+            ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+        }
+    }
+
+    /**
+     * Persist a chooser with the given number of memberships (two by default),
+     * each in its own active tenant, sign it in, and return the pending
+     * credential its choice waits on.
+     *
+     * @param  int  $memberships
      * @return string
      *
      * @throws \Throwable
      */
-    private function offerChoice(): string
+    private function offerChoice(int $memberships = 2): string
     {
-        $member = ChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
-
-        foreach (['First', 'Second'] as $name) {
-            $tenant = ActivatableTenant::query()->create(['name' => $name, 'is_active' => true]);
-
-            ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
-        }
+        $this->seedChooser($memberships);
 
         $choice = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->credential?->reveal();
 

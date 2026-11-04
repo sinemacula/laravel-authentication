@@ -7,6 +7,8 @@ namespace SineMacula\Laravel\Authentication\Concerns;
 /**
  * Provides a default `CanBeActive` implementation sourced from a declared
  * Eloquent attribute. Override `getActiveAttributeName()` to remap the column.
+ * A model that records its deactivation as a time uses
+ * `ProvidesDeactivationTime` instead.
  *
  * The using class must also implement `CanBeActive`: activation is checked only
  * on models that declare the capability, so the trait on its own is never

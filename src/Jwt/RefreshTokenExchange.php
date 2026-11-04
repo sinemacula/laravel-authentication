@@ -615,10 +615,7 @@ final readonly class RefreshTokenExchange
 
         $record->setAttribute($record->getIdleExpiresAtName(), $idle);
 
-        $tokens = new TokenPair(
-            $this->tokens->issueGuardedAccessToken($session->identity, $session->principal, $session->tenant, $record, $now),
-            $this->tokens->issueRefreshToken($record, $next, $session->principal, $now),
-        );
+        $tokens = SessionTokens::pair($this->tokens, $session, $record, $next, $now);
 
         if ($this->store->rotate($record, $rotationId, $next, $idle, $now, $policyVersion)) {
             return self::exchanged($record, $session, $tokens);
@@ -751,12 +748,7 @@ final readonly class RefreshTokenExchange
      */
     private function reissue(EloquentSession&Model $record, Admitted $session, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): ExchangedRefresh
     {
-        $tokens = new TokenPair(
-            $this->tokens->issueGuardedAccessToken($session->identity, $session->principal, $session->tenant, $record, $now),
-            $this->tokens->issueRefreshToken($record, RefreshTokenHasher::successor($rotationId), $session->principal, $now),
-        );
-
-        return self::exchanged($record, $session, $tokens);
+        return self::exchanged($record, $session, SessionTokens::pair($this->tokens, $session, $record, RefreshTokenHasher::successor($rotationId), $now));
     }
 
     /**

@@ -46,8 +46,24 @@ final class PrincipalAdmission
      */
     public static function refusal(string $guard, Principal $principal): ?FailureReason
     {
+        return ActivationPolicy::isActive($principal) ? self::refusalOfActive($guard, $principal) : FailureReason::PRINCIPAL_INACTIVE;
+    }
+
+    /**
+     * Why a principal whose own activity the caller has checked may not hold a
+     * session of the application, or `null` when it may: `tenant_inactive` for
+     * its own tenant, then `principal_ineligible` when `ApplicationAccess`
+     * refuses it, as `refusal()` judges an active principal.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public static function refusalOfActive(string $guard, Principal $principal): ?FailureReason
+    {
         return match (true) {
-            !ActivationPolicy::isActive($principal)       => FailureReason::PRINCIPAL_INACTIVE,
             !ActivationPolicy::isTenantActive($principal) => FailureReason::TENANT_INACTIVE,
             !self::mayUse($guard, $principal)             => FailureReason::PRINCIPAL_INELIGIBLE,
             default                                       => null,

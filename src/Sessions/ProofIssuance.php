@@ -21,7 +21,6 @@ use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\IssuanceGuard;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
-use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
@@ -172,10 +171,9 @@ final readonly class ProofIssuance
 
         self::assertAdmits($admits, $admitted, $session, $now);
 
-        $token   = $this->tokens->issueGuardedAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
-        $expires = $this->tokens->lifetimes()->accessExpiry($now, WriteConnection::during($session, static fn (): ?CarbonImmutable => SessionDeadlines::liveEnd($session, $now)));
+        $token = $this->tokens->issueGuardedAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
 
-        return [$admitted, $session, $token, $expires];
+        return [$admitted, $session, $token->token, $token->expiresAt];
     }
 
     /**

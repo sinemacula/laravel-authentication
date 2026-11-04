@@ -29,9 +29,32 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   its principal identifier for a switch screen or a destination: the same candidates and the same admission, the one
   whose identifier matches (two matches are `null`), never the resolver's hinted lookup, so it is found exactly when
   `principals()` holds it (`callers.md`).
-- Each principal read with the others is checked on a stored copy (`WriteConnection::stored()`): Eloquent strict mode
-  prevents lazy loading on models read together, and the activity check (and any application policy that reads it) reads
-  its tenant. The list holds the principals as read.
+- The principals judged have their tenants loaded together first (`Admission\PrincipalListing`): after the
+  `principals()` read, each principal's own activity is checked on its stored copy (`WriteConnection::stored()`), and
+  each active one using `ActsAsPrincipal` has the relation its `getTenantRelationName()` names loaded with
+  `EloquentCollection::load()`, inside `WriteConnection::during()` for the identity, so the tenants come from the writer
+  of their own connection. That is one query per principal class (one per tenant type for a polymorphic relation, plus
+  the tenant model's own `$with`): a fixed number however many principals are listed. Loading after the read means no
+  global scope or `with()` on `principals()` can constrain it, and whatever was loaded under the name, nested relations
+  included, is replaced by the relation as a lazy load reads it. `EloquentCollection::load()` pairs the rows with the
+  principals by each key's PHP value rather than by the database's comparison, so a key the database matches but PHP
+  does not (another case under a case-insensitive collation, `'01'` against `1`) loads nothing; it also builds the
+  relation on a blank instance, so a relation reading the principal's attributes is constrained without them. A
+  principal the load finds no tenant for (nothing, or the unsaved default of `withDefault()`) has its tenant read alone
+  on the same connection (`PrincipalListing::isMissed()`), unless it is polymorphic without a type, which Eloquent would
+  build against the principal's own model and `getTenant()` refuses. Otherwise a tenant that does not opt into
+  activation would read as no tenant, admitting the principal with none, and one that does would be refused. Only
+  those principals cost a query; one with no tenant key costs none. Eloquent strict mode prevents lazy loading on models
+  read together, so without this every later read of a listed principal's tenant (the destination, a choice screen)
+  would throw, and listing N principals cost N tenant queries. The tenants loaded allow lazy loading, as a tenant read
+  alone does; the principals keep their strictness. An inactive principal is refused as `principal_inactive` without
+  its tenant being read, as when each principal was judged alone, so a tenant that cannot be loaded (a polymorphic type
+  naming a class that no longer exists) fails only the listing of an active principal that names it. `principal()`
+  loads the tenant of the one principal that matches only, so a lookup costs what it did. Each active principal is then
+  checked on its stored copy carrying only that tenant (`PrincipalAdmission::refusalOfActive()`, so its activity is not
+  asked twice), so no other relation whoever read the principal set can vouch for it; a principal the resolver supplied
+  carries nothing. The hinted single-principal paths (a refresh, the switch itself, a choice, the bearer path) read one
+  row, which Eloquent never makes strict, and are unchanged.
 - Every sign-in asks the application policy's `admitIdentifier()` before any principal is resolved or listed
   (`SignInAdmission`), so with the package's policy a guard requiring a verified identifier refuses an unverified one
   as `identifier_unverified` whether the identity has principals or not, and the answer never tells someone holding an
@@ -163,6 +186,8 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   `owedFactor()`, `owedFactorOn()`; `src/Sessions/PendingTransitions.php`: `firstFactorOf()` (the first factor the
   tenant's verdict was judged on, so it is read once), `outstanding()` (what a switch that returns the session to
   pending names: the strictest of the destination tenant's requirement and the identity's own).
+- `src/Admission/PrincipalListing.php`: `of()`, `resolved()`, `refusals()` (the tenants of the principals judged
+  loaded together, then each judged as stored).
 - `src/Sessions/SessionSwitch.php`: one switch, built per call; `switch()` (the limiter), `switchOn()`, `admit()`,
   `admitAsDestination()`, `isDestination()`, `switchCurrent()`, `underPolicy()`, `toPending()`, `rotateTo()`, `retry()`,
   `afterLostSwitch()`, `deadlines()`; `src/Sessions/SwitchTarget.php` and `src/Sessions/SwitchedPrincipal.php`.
@@ -194,6 +219,15 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   guard)
 - `tests/Integration/Applications/ReplicaChoicesAcrossConnectionsTest.php` (the principals read on the write
   connection)
+- `tests/Feature/Admission/PrincipalListingTest.php` (the tenants of the active principals judged read in one query per
+  class, by the relation each listed principal names, replacing whatever `principals()` loaded under it; strict
+  principals and lazy-loading tenants; a polymorphic tenant, a placeholder, a missing key; a tenant the load misses read
+  alone, plain or polymorphic; an inactive principal refused
+  without its tenant being read; nothing loaded for a principal whose relation is unknown or that the resolver
+  supplied), `tests/Integration/Admission/PrincipalListingTest.php` (the tenants read on the writer of their own
+  connection) and `tests/Feature/Sessions/PendingEvaluationTest.php`
+  `testOneAdmittedPrincipalOfSeveralSignsInUnderEloquentStrictMode`,
+  `testSeveralAdmittedPrincipalsHoldTheirTenantsUnderEloquentStrictMode`
 - `tests/Feature/Jwt/RefreshRotationStoreTest.php` `testSwitchSessionRecordsTheDestinationAndMirrorsIt`,
   `testSwitchSessionRecordsAChangeOfEitherAlone`, `testSwitchSessionToTheRecordedDestinationOnlyRotates`,
   `testSwitchSessionMovesTheFloorPastASwitchInTheSameSecond`,
@@ -204,14 +238,18 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 - `tests/Performance/SessionSwitchQueryBudgetTest.php` (eight reads, the issuance guard and one update per switch, from
   the request too; eight reads and the issuance guard alone per grace retry; the issuance guard and the counters' writes
   for a refusal, and their read alone when rate-limited; the reads, the counters' writes and the insert of a sign-in
-  left pending on a choice, the reads of a choice listed, and the reads and writes of a choice made; and a time ceiling
-  for switches, retries and refusals)
+  left pending on a choice, the reads of a choice listed and of a sign-in that selects the one admitted membership (each
+  the same for two principals and five), and the reads and writes of a choice made; and a time ceiling for switches,
+  retries and refusals) and
+  `tests/Performance/PrincipalLookupQueryBudgetTest.php` (a listing of two or five principals in two reads, a lookup in
+  two, an unknown one in one)
 
 ## Change Triggers
 
 Update this note when any of the following change:
 
 - when a choice is offered, which principals are admitted, or what a pending choice records
+- how the tenants of the principals listed are loaded, on which connection, or which principals carry them
 - the checks a switch runs, the order it runs them in, or the retry rule for the previous rotation id
 - what a destination's tenant policy does to a switch or a choice
 - the switch's compare-and-swap predicate or the columns it writes

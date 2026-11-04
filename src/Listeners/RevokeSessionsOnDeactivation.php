@@ -22,15 +22,16 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  *
  * Activity is judged on a copy holding the attributes as they were before the
  * update and on the model as it is now, so it suits activity held in the
- * model's own attributes (`ProvidesActiveState`); activity derived from
- * anything else calls `identityDeactivated()` or `principalDeactivated()`
- * itself. A model that is both identity and principal (2D) is treated as the
- * identity. A tenant has no observer: its principals are the application's to
- * list, so the application calls `tenantDeactivated()` with them (which also
- * ends every session acting in the tenant); registering this observer on any
- * other model throws a `LogicException` when it is deactivated. Deactivation
- * already stops every token at once through the live activity checks; revoking
- * makes it outlast a reactivation and records why.
+ * model's own attributes (`ProvidesActiveState`, or `ProvidesDeactivationTime`,
+ * whose time first set deactivates it); activity derived from anything else
+ * calls `identityDeactivated()` or `principalDeactivated()` itself. A model
+ * that is both identity and principal (2D) is treated as the identity. A tenant
+ * has no observer: its principals are the application's to list, so the
+ * application calls `tenantDeactivated()` with them (which also ends every
+ * session acting in the tenant); registering this observer on any other model
+ * throws a `LogicException` when it is deactivated. Deactivation already stops
+ * every token at once through the live activity checks; revoking makes it
+ * outlast a reactivation and records why.
  *
  * @api
  *

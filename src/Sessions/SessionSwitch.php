@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Jwt\RefreshJudgment;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\SessionTokens;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
@@ -612,10 +613,7 @@ final readonly class SessionSwitch
      */
     private function issue(Admitted $admitted, EloquentSession&Model $session, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): TokenPair
     {
-        return new TokenPair(
-            $this->tokens->issueGuardedAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now),
-            $this->tokens->issueRefreshToken($session, $rotationId, $admitted->principal, $now),
-        );
+        return SessionTokens::pair($this->tokens, $admitted, $session, $rotationId, $now);
     }
 
     /**

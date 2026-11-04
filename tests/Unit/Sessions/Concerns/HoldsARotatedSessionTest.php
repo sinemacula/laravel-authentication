@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Sessions\Concerns;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -164,7 +165,7 @@ final class HoldsARotatedSessionTest extends TestCase
             \Mockery::mock(Identity::class),
             \Mockery::mock(Principal::class),
             $record,
-            new TokenPair(new Secret('access'), new Secret('refresh')),
+            new TokenPair(new Secret('access'), CarbonImmutable::now()->addMinutes(5), 300, new Secret('refresh')),
             'password',
         );
     }

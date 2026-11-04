@@ -405,8 +405,8 @@ if ($result->isPending()) {
 $tokens = $result->session->tokens;
 
 // A cookie application's pair carries the cookie that sets the new refresh token; a body application's, the token.
-return $tokens->refreshCookie?->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken]))
-    ?? SecretResponse::json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
+return $tokens->refreshCookie?->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken, 'expires_in' => $tokens->expiresIn]))
+    ?? SecretResponse::json(['access_token' => $tokens->accessToken, 'expires_in' => $tokens->expiresIn, 'refresh_token' => $tokens->refreshToken]);
 ```
 
 `SwitchTarget::principal($principal)` switches to another principal of the identity in its default tenant (its own),
@@ -758,10 +758,11 @@ Membership::observe(RevokeSessionsOnDeactivation::class);
 - `RevokeSessionsOnDeactivation` observes a `CanBeActive` identity or principal model and answers an update that turns
   it from active to inactive with `identityDeactivated()` or `principalDeactivated()` (a 2D model is treated as the
   identity). It compares a copy holding the attributes from before the update with the model as it is now, so it suits
-  activity held in the model's own attributes (`ProvidesActiveState`); for activity derived from anything else, call the
-  method yourself. A tenant has no listener: its principals are yours to list, so call `tenantDeactivated()` with them
-  (it also ends every session acting in the tenant). Registering the observer on a model that is neither an identity nor
-  a principal throws a `LogicException` when that model is deactivated.
+  activity held in the model's own attributes (`ProvidesActiveState` or `ProvidesDeactivationTime`; with the latter it
+  ends the sessions when the deactivation time is first set, not when it moves or is cleared); for activity derived from
+  anything else, call the method yourself. A tenant has no listener: its principals are yours to list, so call
+  `tenantDeactivated()` with them (it also ends every session acting in the tenant). Registering the observer on a model
+  that is neither an identity nor a principal throws a `LogicException` when that model is deactivated.
 
 A password reset through Laravel's broker saves the new password through Eloquent before your code fires
 `PasswordReset`, so with both password listeners registered the observer revokes every session first, as

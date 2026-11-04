@@ -136,7 +136,7 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
         // public issue writes to that row.
         self::recordProof($session, ProofKind::FIRST_FACTOR, Carbon::now(), ['pwd']);
 
-        $token = $this->authManager()->jwt('api')->issueGuardedAccessToken($identity, $identity, null, $session, Carbon::now())->reveal();
+        $token = $this->authManager()->jwt('api')->issueGuardedAccessToken($identity, $identity, null, $session, Carbon::now())->token->reveal();
 
         Route::middleware('auth:api')->get('/me', static fn (): string => 'ok');
 

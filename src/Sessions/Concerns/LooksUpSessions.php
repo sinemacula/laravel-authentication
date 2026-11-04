@@ -57,7 +57,11 @@ trait LooksUpSessions
      * with it first. `null` when the principal is not the identity's, is not
      * admitted, or two of the identity's principals share the identifier,
      * without saying which. A switch destination is checked again by the
-     * switch.
+     * switch. A principal found among the identity's `principals()` that uses
+     * `ActsAsPrincipal` holds its tenant, loaded on the write connection, so
+     * reading `getTenant()` on it costs no further query and never lazy-loads,
+     * even under Eloquent strict mode; the resolver's default is returned as
+     * the resolver gave it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $principalId

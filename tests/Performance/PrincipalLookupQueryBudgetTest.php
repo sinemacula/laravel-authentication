@@ -7,6 +7,8 @@ namespace Tests\Performance;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Admission\PrincipalListing;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -15,10 +17,11 @@ use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 
 /**
- * Query-budget contracts for the lookup of one principal: the identity's
- * principals are read in one query, however many it has, and only the one the
- * identifier names is admitted, so its tenant is the only other read; nothing
- * is written.
+ * Query-budget contracts for listing an identity's principals and looking one
+ * up: the identity's principals are read in one query, however many it has;
+ * listing them reads every listed principal's tenant in one more query, while a
+ * lookup admits only the one the identifier names, so its tenant is the only
+ * other read; nothing is written.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,6 +30,7 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
  */
 #[CoversClass(SessionService::class)]
 #[CoversClass(PendingEvaluation::class)]
+#[CoversClass(PrincipalListing::class)]
 final class PrincipalLookupQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithSessions;
@@ -81,6 +85,41 @@ final class PrincipalLookupQueryBudgetTest extends PerformanceContractTestCase
         $found    = $this->assertQueryBudget(2, 0, static fn (): ?Principal => $sessions->principal($member, $id));
 
         self::assertSame($id, $found?->getPrincipalIdentifier());
+    }
+
+    /**
+     * Provide how many memberships the member has.
+     *
+     * @return iterable<string, array{int}>
+     */
+    public static function provideMembershipCounts(): iterable
+    {
+        yield 'two memberships' => [2];
+        yield 'five memberships' => [5];
+    }
+
+    /**
+     * Listing a member's memberships reads them once and their tenants once,
+     * however many there are, and writes nothing.
+     *
+     * @param  int  $memberships
+     * @return void
+     */
+    #[DataProvider('provideMembershipCounts')]
+    public function testListingPrincipalsIsOneCandidateQueryAndOneTenantQuery(int $memberships): void
+    {
+        [$member] = $this->seedMember();
+
+        foreach (range(2, $memberships) as $index) {
+            $tenant = ActivatableTenant::query()->create(['name' => 'Tenant ' . $index, 'is_active' => true]);
+
+            ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+        }
+
+        $sessions = $this->sessions('members');
+        $listed   = $this->assertQueryBudget(2, 0, static fn (): array => $sessions->principals($member));
+
+        self::assertCount($memberships, $listed);
     }
 
     /**

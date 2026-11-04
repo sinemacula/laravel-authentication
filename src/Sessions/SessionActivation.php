@@ -23,7 +23,7 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Jwt\SessionTokens;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
@@ -141,10 +141,7 @@ final readonly class SessionActivation
             $session->getTenantPolicyVersionName() => $policyVersion,
         ]);
 
-        $tokens = new TokenPair(
-            $this->tokens->issueGuardedAccessToken($identity, $principal, $tenant, $session, $now),
-            $this->tokens->issueRefreshToken($session, $rotationId, $principal, $now),
-        );
+        $tokens = SessionTokens::pair($this->tokens, $destination, $session, $rotationId, $now);
 
         $method  = (string) $session->getSignInMethod();
         $context = new EventContext($this->context->name(), $client, $identity, $principal, $tenant, $session, $method);

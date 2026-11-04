@@ -437,9 +437,34 @@ and PHPStan reports a class that uses the trait without the interface. It reads 
 `getActiveAttributeName()` to use another column) and throws a `LogicException` when the model was loaded without that
 column, so a partial select is reported instead of being read as either active or inactive.
 
-A tenant opts in the same way. When a principal's own tenant, or the active tenant a session acts in, implements
-`CanBeActive` and reports inactive, every principal in it, and every session acting in it, is rejected on the same paths
-(refresh fails with `tenant_inactive`):
+When your schema records deactivation as a time instead, a nullable timestamp that is `null` while the model is active,
+use the `ProvidesDeactivationTime` trait in place of `ProvidesActiveState` (pointing the boolean trait at such a column
+would invert its meaning):
+
+```php
+use SineMacula\Laravel\Authentication\Concerns\ProvidesDeactivationTime;
+
+// In a migration: $table->timestamp('deactivated_at')->nullable();
+
+class AppMembership extends Model implements CanBeActive, PrincipalContract
+{
+    use ActsAsPrincipal, ProvidesDeactivationTime;
+}
+```
+
+It reads `deactivated_at` (override `getDeactivatedAtName()` to use another column): the model is active exactly while
+the value is `null`, and any other value is inactive, whether the time is past, present or future, so a deactivation you
+schedule for later is yours to write when it falls due. The value is read as the model holds it, unsaved changes
+included, without its cast, so a stored time that cannot be parsed reads as inactive rather than throwing. Like the
+boolean form, it throws a `LogicException` when the model was loaded without the column. Either trait reads only the
+attributes the model holds, and Eloquent holds no value for a column a model was created without (one left to its
+database default) until the model is read again, so give the column on create (`'deactivated_at' => null`) when the
+model's activity is asked before it is read back, as `RevokeSessionsOnDeactivation` does on its first update. A model
+uses one trait or the other: both define `isActive()`.
+
+A tenant opts in the same way, with either trait. When a principal's own tenant, or the active tenant a session acts in,
+implements `CanBeActive` and reports inactive, every principal in it, and every session acting in it, is rejected on the
+same paths (refresh fails with `tenant_inactive`):
 
 ```php
 class AppTenant extends Model implements CanBeActive, TenantContract
@@ -464,3 +489,28 @@ missing one reads as no tenant, and a `tenant` relation to a model that is not a
 
 Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
 resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
+
+Where the package lists an identity's principals for admission (a sign-in, a pending session, `Auth::sessions()`'s
+`principals()` for a choice or switch screen, and `principal()` for a lookup by identifier), it loads their tenants
+itself: once the identity's `principals()` has been read on the write connection and each principal's own activity
+checked, the tenant relation of every active principal judged that uses `ActsAsPrincipal` (the one
+`getTenantRelationName()` names) is loaded on the writer of the tenant's own connection, in one query per principal
+class (one per tenant type for a polymorphic relation, plus whatever the tenant model's own `$with` loads), however many
+principals there are. An inactive principal is refused without its tenant being read. So listing any number of
+principals reads their tenants once, and the listing works under `Model::preventLazyLoading()`, which forbids a lazy
+load on models read together; you need not eager-load the tenant in `principals()`. Whatever `principals()` eager-loaded
+under that name, through `with()` or a global scope, is replaced by the relation as a lazy load would read it, so a
+constraint there cannot change which tenant is checked. Eloquent pairs the tenants it loads together with their
+principals by each key's PHP value, where a lazy load lets the database compare the key, so a key the database matches
+but PHP does not (another case under a case-insensitive collation, `'01'` against `1`) loads no tenant. A principal the
+load finds no tenant for while its relation may still name one is therefore read alone, as a lazy load reads it, so a
+present tenant is never taken for none; only those principals cost a query. The load builds the relation without any
+principal's attributes, as every eager load does, so keep the tenant relation's definition free of the principal's own
+attributes: one that reads them (a constraint on the principal's region, say) is read alone when the load finds nothing,
+but could be paired with a tenant the principal's own relation would not read. Relations nested under the name are
+replaced with it: a `with('tenant.plan')` on `principals()` does not leave `plan` loaded on the listed principals'
+tenants, so eager-load what you read on a listed tenant in the tenant model's `$with`, which the package's load applies.
+The tenants loaded allow lazy loading as a tenant read on its own does, so a tenant whose `isActive()` reads a relation
+of its own keeps working under strict mode, and a relation you read on a listed tenant without putting it in `$with` is
+read once per tenant rather than refused. A `Principal` that implements `getTenant()` itself has no relation the package
+can know: eager-load its tenant in `principals()`.

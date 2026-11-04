@@ -110,6 +110,30 @@ final class PrincipalAdmissionTest extends TestCase
     }
 
     /**
+     * A principal whose own activity the caller has checked is not asked it
+     * again: its own tenant is judged, then the access, as `refusal()` judges
+     * an active principal.
+     *
+     * @return void
+     */
+    public function testAPrincipalWhoseActivityWasCheckedIsJudgedByItsTenantThenTheAccess(): void
+    {
+        $tenant = \Mockery::mock(Tenant::class, CanBeActive::class);
+        $tenant->shouldReceive('isActive')->andReturnFalse();
+
+        $unasked    = new PlainPrincipalFixture(1, active: false);
+        $inInactive = new PlainPrincipalFixture(2, tenant: $tenant);
+        $kept       = new PlainPrincipalFixture(3);
+
+        $this->access->shouldReceive('mayUse')->once()->with('console', $unasked)->andReturnTrue();
+        $this->access->shouldReceive('mayUse')->once()->with('console', $kept)->andReturnFalse();
+
+        self::assertNull(PrincipalAdmission::refusalOfActive('console', $unasked));
+        self::assertSame(FailureReason::TENANT_INACTIVE, PrincipalAdmission::refusalOfActive('console', $inInactive));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, PrincipalAdmission::refusalOfActive('console', $kept));
+    }
+
+    /**
      * The access is resolved each time it is asked, so one bound later is the
      * one heard.
      *

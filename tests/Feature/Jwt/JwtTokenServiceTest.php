@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Jwt\IssuedAccessToken;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
@@ -46,6 +47,7 @@ use Tests\Unit\Stubs\StubNonModelSession;
  *
  * @internal
  */
+#[CoversClass(IssuedAccessToken::class)]
 #[CoversClass(JwtTokenService::class)]
 final class JwtTokenServiceTest extends TestCase
 {
@@ -232,8 +234,9 @@ final class JwtTokenServiceTest extends TestCase
     /**
      * The package's own issuers, which write the session's row themselves
      * first, issue at the time they give without writing anything, reading the
-     * proofs as the public issue does; a machine is refused, as it has no
-     * session.
+     * proofs as the public issue does, and are told when the token expires and
+     * how long it lives as its `exp` and `iat` say; a machine is refused, as it
+     * has no session.
      *
      * @return void
      *
@@ -242,8 +245,13 @@ final class JwtTokenServiceTest extends TestCase
     public function testAGuardedIssueWritesNothingAndRefusesAMachine(): void
     {
         $session           = $this->storedSession();
-        $issuedAt          = $this->now->addSecond();
-        [$queries, $token] = self::recordQueries(static fn (): Secret => self::tokens()->issueGuardedAccessToken(self::identity(), self::principal(), null, $session, $issuedAt));
+        $issuedAt          = $this->now->addSecond()->addMilliseconds(400);
+        $issued            = null;
+        [$queries, $token] = self::recordQueries(static function () use ($session, $issuedAt, &$issued): Secret {
+            $issued = self::tokens()->issueGuardedAccessToken(self::identity(), self::principal(), null, $session, $issuedAt);
+
+            return $issued->token;
+        });
 
         self::assertCount(1, $queries);
         self::assertStringContainsString('group by', $queries[0][0]);
@@ -254,6 +262,10 @@ final class JwtTokenServiceTest extends TestCase
         self::assertIsArray($claims);
         self::assertSame($this->now->addSecond()->getTimestamp(), $claims['iat']);
         self::assertSame($this->now->getTimestamp(), $claims['auth_time']);
+        self::assertInstanceOf(IssuedAccessToken::class, $issued);
+        self::assertIsInt($claims['exp']);
+        self::assertSame($claims['exp'], $issued->expiresAt->getTimestamp());
+        self::assertSame([$claims['exp'] - $this->now->addSecond()->getTimestamp(), 15 * 60], [$issued->expiresIn, $issued->expiresIn]);
 
         $machine = \Mockery::mock(MachineIdentity::class);
 
@@ -277,7 +289,7 @@ final class JwtTokenServiceTest extends TestCase
         $issue = fn (bool $inserted): \Closure => function () use ($inserted): void {
             $session = (new Session)->forceFill([...self::liveSession(), 'id' => '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70']);
 
-            self::assertHasNoClaims(fn (): Secret => $inserted
+            self::assertHasNoClaims(fn (): IssuedAccessToken => $inserted
                 ? self::tokens()->issueGuardedAccessToken(self::identity(), self::principal(), null, $session, $this->now, true)
                 : self::tokens()->issueGuardedAccessToken(self::identity(), self::principal(), null, $session, $this->now));
         };
