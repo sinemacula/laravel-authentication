@@ -189,8 +189,10 @@ final readonly class ExternalReauthentication
      * guard, live, active and a person's, owned by the identity and established
      * through exactly that connection and that link, or any link when none is
      * given. Inside a transaction on the session model's connection its row is
-     * locked until the transaction ends; outside one it is read on the write
-     * connection and nothing is locked.
+     * locked until the transaction ends, and its provenance read current
+     * (`SessionProofs`), so a key another sign-in reused after the
+     * transaction's first read is judged on its own provenance; outside one
+     * both are read on the write connection and nothing is locked.
      *
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -209,7 +211,8 @@ final readonly class ExternalReauthentication
             return FailureReason::METHOD_NOT_ALLOWED;
         }
 
-        $stored = SessionLookup::model()->getConnection()->transactionLevel() > 0 ? SessionLookup::lock($sessionId) : SessionLookup::find($sessionId);
+        $locks  = SessionLookup::model()->getConnection()->transactionLevel() > 0;
+        $stored = $locks ? SessionLookup::lock($sessionId) : SessionLookup::find($sessionId);
 
         if ($stored === null) {
             return FailureReason::SESSION_UNKNOWN;
@@ -217,7 +220,7 @@ final readonly class ExternalReauthentication
 
         return OwnedSession::refusal($stored, $this->context->name(), CarbonImmutable::now()->startOfSecond())
             ?? (SessionOwnership::isMachineOwned($stored) ? FailureReason::MACHINE_IDENTITY : null)
-            ?? (self::isEstablishedThrough($stored, $identity, $connectionId, $linkId) ? null : FailureReason::LINK_MISMATCH);
+            ?? (self::isEstablishedThrough($stored, $identity, $connectionId, $linkId, $locks) ? null : FailureReason::LINK_MISMATCH);
     }
 
     /**
@@ -361,23 +364,27 @@ final readonly class ExternalReauthentication
      * Whether the session is the identity's and its provenance records exactly
      * the connection and the link, or any link when none is given, each
      * compared byte for byte; a session with no provenance, or one that records
-     * no link, never is.
+     * no link, never is. The provenance is read current when asked, for a row
+     * this transaction holds locked with no check of its generation before; a
+     * session's provenance never changes within a generation, so a check made
+     * after `SessionGeneration::isSame()` reads it plainly.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $connectionId
      * @param  ?string  $linkId
+     * @param  bool  $current
      * @return bool
      *
      * @throws \InvalidArgumentException
      */
-    private static function isEstablishedThrough(EloquentSession&Model $session, Identity $identity, string $connectionId, ?string $linkId): bool
+    private static function isEstablishedThrough(EloquentSession&Model $session, Identity $identity, string $connectionId, ?string $linkId, bool $current = false): bool
     {
         if (!SessionOwnership::isOwner($session, $identity)) {
             return false;
         }
 
-        $provenance = SessionProofs::provenance($session);
+        $provenance = SessionProofs::provenance($session, $current);
 
         return $provenance !== null && $provenance->connectionId === $connectionId && $provenance->linkId !== null && ($linkId === null || $provenance->linkId === $linkId);
     }

@@ -41,12 +41,13 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * evidence its proofs hold accepted, `connectionId()` the connection its
  * provenance records, and `provenance()` the whole provenance.
  *
- * `history()`, `query()`, `firstFactor()`, `acceptedEvidence()` and
- * `connectionId()` read current when asked (`$current`): what is committed now
- * rather than what the transaction's snapshot holds. They are asked so only by
- * a caller that holds the session's row locked in the transaction (an issuance
- * once it has written the session's issuance guard, and every requirement
- * judgement made under the row's lock), and only MySQL and MariaDB need it:
+ * `history()`, `query()`, `firstFactor()`, `acceptedEvidence()`,
+ * `connectionId()` and `provenance()` read current when asked (`$current`):
+ * what is committed now rather than what the transaction's snapshot holds. They
+ * are asked so only by a caller that holds the session's row locked in the
+ * transaction (an issuance once it has written the session's issuance guard,
+ * every requirement judgement made under the row's lock, and a session's
+ * external standing answered under it), and only MySQL and MariaDB need it:
  * their plain reads inside a REPEATABLE READ transaction return the snapshot of
  * its first read, so a current read there takes a shared lock on the rows it
  * reads, held until the transaction ends (outside one, until the statement
@@ -57,12 +58,12 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * whose proofs border these, keys being time-ordered; on the provenance, it
  * takes the session's provenance row, or, for a session with none, the gap its
  * key falls in, where only an external sign-in's provenance can fall. Every
- * other engine reads as it does without: PostgreSQL refuses a shared lock on a
- * grouped read, and needs none, since at READ COMMITTED each statement reads
- * what is committed once the row's lock or guard has waited for any writer of
- * the session still in flight, and at REPEATABLE READ the lock or guard fails
- * to serialise when one committed after the snapshot; SQLite lets one writer in
- * at a time.
+ * other engine reads as it does without. PostgreSQL needs no lock for any of
+ * them, since at READ COMMITTED each statement reads what is committed once the
+ * row's lock or guard has waited for any writer of the session still in flight,
+ * and at REPEATABLE READ the lock or guard fails to serialise when one
+ * committed after the snapshot (and it refuses a shared lock on a grouped read
+ * such as `history()`'s); SQLite lets one writer in at a time.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -287,18 +288,26 @@ final class SessionProofs
 
     /**
      * The provenance the session records, read on the write connection, or
-     * `null` for a session no external provider established.
+     * `null` for a session no external provider established; read current when
+     * asked, as the class describes. Pass `$current` only for a session whose
+     * row this transaction holds locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  bool  $current
      * @return ?\SineMacula\Laravel\Authentication\Proofs\Provenance
      *
      * @throws \InvalidArgumentException
      */
-    public static function provenance(Session $session): ?Provenance
+    public static function provenance(Session $session, bool $current = false): ?Provenance
     {
-        $key = IdentifierCoercion::stringify($session->getSessionIdentifier()) ?? '';
+        $key    = IdentifierCoercion::stringify($session->getSessionIdentifier()) ?? '';
+        $model  = new SessionProvenance;
+        $shared = self::sharesLock($model, $current);
 
-        $row = WriteConnection::during(new SessionProvenance, static fn (): mixed => WriteConnection::query(SessionProvenance::query())->whereKey($key)->first());
+        $row = WriteConnection::during($model, static fn (): mixed => WriteConnection::query(SessionProvenance::query())
+            ->whereKey($key)
+            ->when($shared, static fn (Builder $query): Builder => $query->sharedLock())
+            ->first());
 
         return $row instanceof SessionProvenance ? new Provenance(
             $row->connection_id,

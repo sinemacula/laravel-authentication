@@ -394,7 +394,7 @@ other rotated token as a replay that revokes the session.
   `testASwitchOfASessionWithoutAFirstFactorFailsLoudly`
 - `tests/Integration/Sessions/CurrentProofReadsTest.php`
   `testARefreshCountsAStepUpCommittedMeanwhile`, `testASwitchCountsAStepUpCommittedMeanwhile`,
-  `testARefreshCountsEvidenceAcceptedMeanwhile`
+  `testASwitchRetryCountsAStepUpCommittedMeanwhile`, `testARefreshCountsEvidenceAcceptedMeanwhile`
 - `tests/Integration/Guards/SeparateSessionConnectionIntegrationTest.php`
   `testRefreshAndBearerUseTheSessionsOwnConnection`,
   `testReplayIsReportedAtOnceWhateverAnotherConnectionsTransactionDoes`,

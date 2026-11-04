@@ -164,8 +164,10 @@ trait SignsInExternally
      * outside a transaction, the session is read on the write connection and
      * nothing is locked. Asked inside one on the session model's connection,
      * after the adapter's own locks, the row stays locked until the transaction
-     * ends, so nothing revokes the session before the adapter renews it. It
-     * writes and reports nothing.
+     * ends, so nothing revokes the session before the adapter renews it, and
+     * its provenance is read current, so a key another sign-in reused after the
+     * transaction's first read is judged on its own. It writes and reports
+     * nothing.
      *
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

@@ -427,10 +427,11 @@ final class SessionProofsTest extends TestCase
     /**
      * A current read of a session's proofs as a requirement judgement makes
      * them (a page for the requirement check, the first factor, the accepted
-     * evidence and the provenance's connection), as one made under the
-     * session's lock asks, takes a shared lock on MySQL and MariaDB and on no
-     * other engine; the plain read, asked for or by default, never takes one,
-     * and is otherwise the same statement.
+     * evidence and the provenance's connection), or of its whole provenance as
+     * a standing answered under the session's lock reads it, as one made under
+     * that lock asks, takes a shared lock on MySQL and MariaDB and on no other
+     * engine; the plain read, asked for or by default, never takes one, and is
+     * otherwise the same statement.
      *
      * @param  string  $driver
      * @return void
@@ -446,6 +447,7 @@ final class SessionProofsTest extends TestCase
             'first factor'      => static fn (bool ...$current): ?RecordedProof => SessionProofs::firstFactor($session, ...$current),
             'accepted evidence' => static fn (bool ...$current): array => SessionProofs::acceptedEvidence($session, ...$current),
             'connection'        => static fn (bool ...$current): ?string => SessionProofs::connectionId($session, ...$current),
+            'provenance'        => static fn (bool ...$current): ?Provenance => SessionProofs::provenance($session, ...$current),
         ];
 
         foreach ($reads as $name => $read) {
@@ -461,10 +463,10 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * Read current, a session's page of proofs, first factor, accepted evidence
-     * and connection are what the plain reads return, each read taking a shared
-     * lock where the engine takes one (MySQL, and SQLite marked as it), and
-     * none read plainly.
+     * Read current, a session's page of proofs, first factor, accepted
+     * evidence, connection and provenance are what the plain reads return, each
+     * read taking a shared lock where the engine takes one (MySQL, and SQLite
+     * marked as it), and none read plainly.
      *
      * @return void
      *
@@ -494,20 +496,25 @@ final class SessionProofsTest extends TestCase
             SessionProofs::acceptedEvidence($record, $current),
             SessionProofs::connectionId($record, $current),
             SessionProofs::connectionId($external, $current),
+            SessionProofs::provenance($record, $current),
+            SessionProofs::provenance($external, $current),
         ];
 
         $plain   = [];
         $current = [];
 
-        self::assertSame(array_fill(0, 6, false), self::proofReadLocks(static function () use ($read, &$plain): void {
+        self::assertSame(array_fill(0, 8, false), self::proofReadLocks(static function () use ($read, &$plain): void {
             $plain = $read(false);
         }));
-        self::assertSame(array_fill(0, 6, self::takesSharedLocks()), self::proofReadLocks(static function () use ($read, &$current): void {
+        self::assertSame(array_fill(0, 8, self::takesSharedLocks()), self::proofReadLocks(static function () use ($read, &$current): void {
             $current = $read(true);
         }));
         self::assertEquals($plain, $current);
         self::assertCount(3, $plain[0]);
         self::assertSame(['conn-a', null], [$plain[5], $plain[4]]);
+        self::assertNull($plain[6]);
+        self::assertInstanceOf(Provenance::class, $plain[7]);
+        self::assertSame('conn-a', $plain[7]->connectionId);
     }
 
     /**

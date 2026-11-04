@@ -813,6 +813,35 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
+     * A session's standing asked inside a transaction reads its provenance
+     * current under the row's lock, a shared lock where the engine takes one,
+     * since no check of the row's generation comes before it; asked outside
+     * one, it reads the provenance plainly, as it reads the row.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAStandingUnderTheLockReadsTheProvenanceCurrent(): void
+    {
+        $signedIn = $this->signedInExternally();
+
+        self::markSharedLocks();
+
+        $key       = $signedIn->record->getKey();
+        $standings = [];
+        $ask       = fn (): ?FailureReason => $this->sessions()->externalStanding($key, $signedIn->identity, 'connection-7', 'link-1');
+
+        self::assertSame([self::takesSharedLocks()], self::proofReadLocks(static function () use ($ask, &$standings): void {
+            $standings[] = DB::transaction($ask);
+        }));
+        self::assertSame([false], self::proofReadLocks(static function () use ($ask, &$standings): void {
+            $standings[] = $ask();
+        }));
+        self::assertSame([null, null], $standings);
+    }
+
+    /**
      * A session that is unknown, another guard's, revoked, pending, ended or a
      * machine's has no standing, and nor has any session on an application that
      * does not allow `external_provider`.

@@ -78,14 +78,14 @@ use Tests\Integration\Fixtures\ChoosingMembership;
 use Tests\TestCase;
 
 /**
- * Every requirement judgement the package makes under a session's row lock, on
- * PostgreSQL and MySQL, on two connections to one database, inside a caller's
- * transaction at READ COMMITTED and at REPEATABLE READ that made a plain read
- * first: meanwhile the other connection commits a change to the session's
- * proofs as the package writes it (a step-up, a proof voided, a
- * reauthentication bringing accepted evidence, or the session's key reused by
- * another sign-in), each of which writes the session's row; then the caller's
- * transaction runs the judgement.
+ * Every requirement judgement the package makes under a session's row lock, and
+ * the external standing it answers under it, on PostgreSQL and MySQL, on two
+ * connections to one database, inside a caller's transaction at READ COMMITTED
+ * and at REPEATABLE READ that made a plain read first: meanwhile the other
+ * connection commits a change to the session's proofs as the package writes it
+ * (a step-up, a proof voided, a reauthentication bringing accepted evidence, or
+ * the session's key reused by another sign-in), each of which writes the
+ * session's row; then the caller's transaction runs the judgement.
  *
  * At READ COMMITTED, and on MySQL at REPEATABLE READ (whose plain reads return
  * the snapshot of the transaction's first read, so only the shared lock the
@@ -318,6 +318,52 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
+     * A switch's grace retry counts a step-up committed after the caller's
+     * first read: the switch presented again with the token it rotated, once
+     * the destination's tenant asks for a further factor the step-up meets, is
+     * answered as switched with the session's current credential, never
+     * returned to pending.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testASwitchRetryCountsAStepUpCommittedMeanwhile(string $level): void
+    {
+        [$member, $first] = $this->seedMember();
+
+        $other  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+        $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
+        $target = IdentifierCoercion::stringify($other->getKey());
+
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), new SignInContext(new ClientContext(null, null), principal: $first));
+
+        self::assertNotNull($result->session);
+
+        $session   = $result->session;
+        $presented = (string) $session->tokens->refreshToken?->reveal();
+
+        self::assertTrue($this->sessions('members')->switchTo($presented, SwitchTarget::principal($second))->isSwitched());
+
+        $rotated = DB::table('authentication_sessions')->value('refresh_key');
+
+        $this->policy->answer = static fn (TenantPolicyContext $context): TenantRequirement => IdentifierCoercion::stringify($context->tenant->getTenantIdentifier()) === $target
+            ? new TenantRequirement('v1', new Requirement(new RequirementPart))
+            : new TenantRequirement;
+
+        $retried = $this->judgeAfter(
+            $level,
+            fn () => $this->stepUpElsewhere($member, $session, 'factor-1'),
+            fn (): bool => $this->sessions('members')->switchTo($presented, SwitchTarget::principal($second))->isSwitched(),
+        );
+
+        self::assertTrue($retried);
+        self::assertSame(['active', $rotated], [DB::table('authentication_sessions')->value('status'), DB::table('authentication_sessions')->value('refresh_key')]);
+    }
+
+    /**
      * A choice never counts a further factor's proof voided after the caller's
      * first read: the pending session that had satisfied its further factor
      * waits on it again, the choice recorded, instead of activating.
@@ -516,21 +562,41 @@ final class CurrentProofReadsTest extends TestCase
 
         $revoked = $this->judgeAfter(
             $level,
-            fn () => $this->elsewhere(static function () use ($key): void {
-                DB::table('authentication_sessions')->where('id', $key)->update(['generation' => (string) Str::uuid7(), 'sign_in_method' => 'password']);
-
-                $row = SessionLookup::find($key);
-
-                self::assertNotNull($row);
-
-                ProofWriter::clear($row);
-                ProofWriter::record($row, 'members', SignInProof::unattested('password', CarbonImmutable::now())->firstFactor());
-            }),
+            fn () => $this->reuseElsewhere($key),
             fn (): int => $this->sessions('members')->tenantPolicyChanged($tenant),
         );
 
         self::assertSame(1, $revoked);
         self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, DB::table('authentication_sessions')->value('revoked_reason'));
+    }
+
+    /**
+     * A session's standing, asked under its lock, answers a session whose key
+     * another sign-in of the same identity reused after the caller's first read
+     * on the new session's own provenance: the password sign-in holding the key
+     * now has no standing through the connection and link that established the
+     * earlier session (`link_mismatch`), never the earlier session's.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testAStandingAnswersAReusedKeyOnItsOwnProvenance(string $level): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        $session = $this->sessions('members')->signInExternally($this->linkedResult($member, subject: 'subject-1'), self::asPrincipal($membership))->session;
+
+        self::assertNotNull($session);
+
+        $key      = $session->record->getKey();
+        $standing = fn (): ?FailureReason => $this->sessions('members')->externalStanding($key, $member, 'connection-7', 'link-1');
+
+        self::assertNull($standing());
+        self::assertSame(FailureReason::LINK_MISMATCH, $this->judgeAfter($level, fn () => $this->reuseElsewhere($key), $standing));
+        self::assertSame('password', DB::table('authentication_sessions')->value('sign_in_method'));
     }
 
     /**
@@ -640,6 +706,31 @@ final class CurrentProofReadsTest extends TestCase
         } finally {
             $manager->setDefaultConnection($default);
         }
+    }
+
+    /**
+     * Reuse the session's key for a password sign-in of the same owner on the
+     * other connection, sending what a key reuse sends: the row rewritten as a
+     * new generation, the earlier session's proofs and provenance deleted, and
+     * the new first factor recorded.
+     *
+     * @param  mixed  $key
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    private function reuseElsewhere(mixed $key): void
+    {
+        $this->elsewhere(static function () use ($key): void {
+            DB::table('authentication_sessions')->where('id', $key)->update(['generation' => (string) Str::uuid7(), 'sign_in_method' => 'password']);
+
+            $row = SessionLookup::find($key);
+
+            self::assertNotNull($row);
+
+            ProofWriter::clear($row);
+            ProofWriter::record($row, 'members', SignInProof::unattested('password', CarbonImmutable::now())->firstFactor());
+        });
     }
 
     /**

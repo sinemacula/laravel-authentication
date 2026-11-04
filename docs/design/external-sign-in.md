@@ -157,8 +157,12 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   such overlapping ones fails to serialise and is retried. A connection's revocation holds every guard of the connection
   until its transaction ends, so sign-ins through the connection wait for it. The guards name no identity, link or
   session and are never pruned.
-- `externalStanding()` locks the row only inside a transaction on the session model's connection; outside one it reads
-  the row on the write connection, so its answer may change before the redemption, which judges it again under the
+- `externalStanding()` locks the row only inside a transaction on the session model's connection, and then reads its
+  provenance current (`SessionProofs::provenance($session, true)`: a shared lock on MySQL and MariaDB), since no check
+  of the row's generation comes first: a key another sign-in reused after the adapter's first read is answered on its
+  own provenance, never the earlier session's (`link_mismatch`). The redemption's link check reads it plainly, after
+  `SessionGeneration::isSame()`, a session's provenance never changing within a generation. Outside a transaction it
+  reads the row on the write connection, so its answer may change before the redemption, which judges it again under the
   lock. Without a link id, a session recorded with no link still never stands. On an application that does not allow
   `external_provider` it answers `method_not_allowed` before anything is read.
 - A second `linkScopeWidened()` for the same widening finds nothing live and revokes and reports nothing.
@@ -186,8 +190,12 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   arriving as input, the redemption reported after the session's own events (active, pending, rolled back, refused), the
   provider context recorded but in no event or serialised model.
 - `tests/Feature/Sessions/ExternalReauthenticationTest.php`: the renewal and the later-time rule, every link mismatch,
-  the refusals, changes under the lock, the standing, the redemption reported after `Reauthenticated`, the provider
-  context the session began with kept.
+  the refusals, changes under the lock, the standing and its provenance read current under the lock, the redemption
+  reported after `Reauthenticated`, the provider context the session began with kept.
+- `tests/Integration/Sessions/CurrentProofReadsTest.php`
+  `testAnExternalReauthenticationCountsAStepUpCommittedMeanwhile`, `testAStandingAnswersAReusedKeyOnItsOwnProvenance`:
+  the reauthentication's tenant judgement and the standing, inside an adapter's transaction that read first, see what
+  another connection committed meanwhile.
 - `tests/Feature/Sessions/ConnectionRevocationsTest.php`, `tests/Integration/Sessions/ConnectionRevocationsTest.php`,
   `IntegerKeyConnectionRevocationsTest.php`: a link's sessions only, the mandatory and idempotent widening, the
   settings, folded collations, the caller's transaction.
