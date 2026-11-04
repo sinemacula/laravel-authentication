@@ -82,7 +82,7 @@ final class ProofIssuanceTest extends TestCase
      * A step-up writes the issuance guard once the proof is taken and before it
      * is recorded, in the transaction that locked the row, and the token it
      * issues reads the proofs after both: its `auth_time` and `amr` are the new
-     * proof's.
+     * proof's, and the result says it expires at its `exp`.
      *
      * @return void
      *
@@ -118,6 +118,7 @@ final class ProofIssuanceTest extends TestCase
         self::assertIsArray($claims);
         self::assertSame($this->now->addMinute()->getTimestamp(), $claims['auth_time']);
         self::assertSame(['pwd', 'otp', 'mfa'], $claims['amr']);
+        self::assertSame($claims['exp'], $result->expiresAt?->getTimestamp());
     }
 
     /**

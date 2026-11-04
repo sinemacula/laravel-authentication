@@ -19,8 +19,8 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\SessionTokens;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
@@ -611,10 +611,7 @@ final readonly class SessionWriter
      */
     private function issue(EloquentSession&Model $session, Admitted $admitted, string $method, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): SignedInSession
     {
-        $tokens = new TokenPair(
-            $this->tokens->issueGuardedAccessToken($admitted->identity, $admitted->principal, $admitted->tenant, $session, $now, true),
-            $this->tokens->issueRefreshToken($session, $rotationId, $admitted->principal, $now),
-        );
+        $tokens = SessionTokens::pair($this->tokens, $admitted, $session, $rotationId, $now, true);
 
         return new SignedInSession($admitted->identity, $admitted->principal, $session, $tokens, $method);
     }

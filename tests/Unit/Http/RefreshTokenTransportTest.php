@@ -469,7 +469,8 @@ final class RefreshTokenTransportTest extends TestCase
      * A cookie application's pair is delivered with its refresh token moved
      * into the cookie, which carries it `HttpOnly`, `Secure`,
      * `SameSite=Strict`, host-only, with the application's name and path, and
-     * expires when the session ends; the access token is kept as it was.
+     * expires when the session ends; the access token and its expiry are kept
+     * as they were.
      *
      * @param  int  $idle
      * @param  ?int  $absolute
@@ -478,19 +479,22 @@ final class RefreshTokenTransportTest extends TestCase
     #[DataProvider('provideDeadlines')]
     public function testACookieApplicationsPairCarriesTheCookieUntilTheSessionEnds(int $idle, ?int $absolute): void
     {
-        $now    = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
-        $access = new Secret('access-token');
+        $now     = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+        $access  = new Secret('access-token');
+        $expires = $now->addSeconds(240);
 
         Carbon::setTestNow($now);
 
         try {
             $session   = new PlainSessionFixture('session-1', $now->addSeconds($idle), $absolute === null ? null : $now->addSeconds($absolute));
-            $delivered = self::transport(Transport::COOKIE)->deliver(new TokenPair($access, new Secret(self::TOKEN)), $session);
+            $delivered = self::transport(Transport::COOKIE)->deliver(new TokenPair($access, $expires, 240, new Secret(self::TOKEN)), $session);
         } finally {
             Carbon::setTestNow();
         }
 
         self::assertSame($access, $delivered->accessToken);
+        self::assertSame($expires, $delivered->expiresAt);
+        self::assertSame(240, $delivered->expiresIn);
         self::assertNull($delivered->refreshToken);
         self::assertNotNull($delivered->refreshCookie);
         self::assertSame(
@@ -520,7 +524,7 @@ final class RefreshTokenTransportTest extends TestCase
     public function testABodyApplicationsPairAndADeliveredOneAreKept(): void
     {
         $session = new PlainSessionFixture('session-1', Carbon::now()->addHour());
-        $pair    = new TokenPair(new Secret('access-token'), new Secret(self::TOKEN));
+        $pair    = new TokenPair(new Secret('access-token'), CarbonImmutable::now()->addMinutes(5), 300, new Secret(self::TOKEN));
 
         self::assertSame($pair, self::transport()->deliver($pair, $session));
 
@@ -540,7 +544,9 @@ final class RefreshTokenTransportTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Cannot set a refresh cookie for a session that has ended or that has no idle deadline.');
 
-        self::transport(Transport::COOKIE)->deliver(new TokenPair(new Secret('access-token'), new Secret(self::TOKEN)), new PlainSessionFixture('session-1'));
+        $pair = new TokenPair(new Secret('access-token'), CarbonImmutable::now()->addMinutes(5), 300, new Secret(self::TOKEN));
+
+        self::transport(Transport::COOKIE)->deliver($pair, new PlainSessionFixture('session-1'));
     }
 
     /**

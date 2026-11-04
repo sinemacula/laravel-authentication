@@ -142,7 +142,7 @@ final class JwtGuardSessionRelationIntegrationTest extends TestCase
         // minted without the issuance guard the public issue writes to it.
         self::recordProof($malformed, ProofKind::FIRST_FACTOR, Carbon::now(), ['pwd']);
 
-        $token = $this->authManager()->jwt('api')->issueGuardedAccessToken($identity, $identity, null, $malformed, Carbon::now())->reveal();
+        $token = $this->authManager()->jwt('api')->issueGuardedAccessToken($identity, $identity, null, $malformed, Carbon::now())->token->reveal();
 
         DB::enableQueryLog();
 

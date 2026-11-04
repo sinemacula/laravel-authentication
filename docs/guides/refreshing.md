@@ -29,20 +29,23 @@ if ($result->isPending()) {
 
 return SecretResponse::json([
     'access_token'  => $result->session->tokens->accessToken,
+    'expires_in'    => $result->session->tokens->expiresIn,
     'refresh_token' => $result->session->tokens->refreshToken,
 ]);
 ```
 
 A refresh rotates the session's refresh token and binds the guard to the refreshed session for the rest of the request.
 The result's `session` is that session: its `identity`, `principal`, `record` (the session row), the `method` its
-sign-in used, and the new pair in `tokens`, whose tokens are secrets `SecretResponse::json()` reveals into a body that
-is never stored (see [Secrets in responses](signing-in.md#secrets-in-responses)); a cookie application's pair carries
-the cookie to set in `tokens->refreshCookie` instead of the refresh token (see [Refresh token
-cookie](#refresh-token-cookie)). Every refusal is returned, never thrown, with its `reason`; `rate_limited` also carries
-the seconds to wait in `retryAfter`, which the route answers with a 429 and `Retry-After` so the client waits. A refresh
-that finds the session's tenant now asking for a further factor the session lacks returns it to pending instead:
-`isPending()`, with `pending` and `credential` and no `session`, until the factor is satisfied (see [Tenant
-authentication policies](sessions.md#tenant-authentication-policies)).
+sign-in used, and the new pair in `tokens` (its access token's `expiresIn` and `expiresAt` from the refresh, as a
+sign-in's are; see [Signing in](signing-in.md#signing-in-the-session-service)), whose tokens are secrets
+`SecretResponse::json()` reveals into a body that is never stored (see [Secrets in
+responses](signing-in.md#secrets-in-responses)); a cookie application's pair carries the cookie to set in
+`tokens->refreshCookie` instead of the refresh token (see [Refresh token cookie](#refresh-token-cookie)). Every refusal
+is returned, never thrown, with its `reason`; `rate_limited` also carries the seconds to wait in `retryAfter`, which the
+route answers with a 429 and `Retry-After` so the client waits. A refresh that finds the session's tenant now asking for
+a further factor the session lacks returns it to pending instead: `isPending()`, with `pending` and `credential` and no
+`session`, until the factor is satisfied (see [Tenant authentication
+policies](sessions.md#tenant-authentication-policies)).
 
 Each application's refresh token travels one way, its `refresh_token.transport`: `body` (the default) reads it from
 the `refresh_token` field of the JSON or form body (never the query string) or the `X-Refresh-Token` header (`header`
@@ -195,7 +198,7 @@ Route::post('/auth/sign-in', function (Request $request) {
 
     abort_if($tokens === null, 401);
 
-    return $tokens->refreshCookie->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken]));
+    return $tokens->refreshCookie->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken, 'expires_in' => $tokens->expiresIn]));
 });
 
 Route::post('/auth/refresh', function () {
@@ -209,7 +212,7 @@ Route::post('/auth/refresh', function () {
 
     $tokens = $result->session->tokens;
 
-    return $tokens->refreshCookie->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken]));
+    return $tokens->refreshCookie->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken, 'expires_in' => $tokens->expiresIn]));
 });
 ```
 

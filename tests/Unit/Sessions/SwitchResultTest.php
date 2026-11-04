@@ -53,7 +53,7 @@ final class SwitchResultTest extends TestCase
             \Mockery::mock(Identity::class),
             \Mockery::mock(Principal::class),
             $record,
-            new TokenPair(new Secret('access'), new Secret('refresh')),
+            new TokenPair(new Secret('access'), CarbonImmutable::now()->addMinutes(5), 300, new Secret('refresh')),
             'password',
         );
         $result = SwitchResult::switched($session);
@@ -89,7 +89,7 @@ final class SwitchResultTest extends TestCase
             \Mockery::mock(Identity::class),
             \Mockery::mock(Principal::class),
             $record,
-            new TokenPair(new Secret('access'), new Secret('refresh')),
+            new TokenPair(new Secret('access'), CarbonImmutable::now()->addMinutes(5), 300, new Secret('refresh')),
             'password',
         );
 

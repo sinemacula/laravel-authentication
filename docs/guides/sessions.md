@@ -405,8 +405,8 @@ if ($result->isPending()) {
 $tokens = $result->session->tokens;
 
 // A cookie application's pair carries the cookie that sets the new refresh token; a body application's, the token.
-return $tokens->refreshCookie?->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken]))
-    ?? SecretResponse::json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
+return $tokens->refreshCookie?->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken, 'expires_in' => $tokens->expiresIn]))
+    ?? SecretResponse::json(['access_token' => $tokens->accessToken, 'expires_in' => $tokens->expiresIn, 'refresh_token' => $tokens->refreshToken]);
 ```
 
 `SwitchTarget::principal($principal)` switches to another principal of the identity in its default tenant (its own),

@@ -50,7 +50,7 @@ final class SignInResultTest extends TestCase
         $identity  = \Mockery::mock(Identity::class);
         $principal = \Mockery::mock(Principal::class);
         $record    = \Mockery::mock(Model::class, EloquentSession::class);
-        $tokens    = new TokenPair(new Secret('access'), new Secret('refresh'));
+        $tokens    = new TokenPair(new Secret('access'), CarbonImmutable::now()->addMinutes(5), 300, new Secret('refresh'));
         $session   = new SignedInSession($identity, $principal, $record, $tokens, 'password');
         $result    = SignInResult::signedIn($session);
 

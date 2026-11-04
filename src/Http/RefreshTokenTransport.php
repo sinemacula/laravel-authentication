@@ -144,7 +144,13 @@ final readonly class RefreshTokenTransport
             return $pair;
         }
 
-        return new TokenPair($pair->accessToken, null, new RefreshCookie($pair->refreshToken, $this->cookieName(), $this->cookiePath(), self::sessionEnd($session)));
+        return new TokenPair(
+            accessToken: $pair->accessToken,
+            expiresAt: $pair->expiresAt,
+            expiresIn: $pair->expiresIn,
+            refreshToken: null,
+            refreshCookie: new RefreshCookie($pair->refreshToken, $this->cookieName(), $this->cookiePath(), self::sessionEnd($session)),
+        );
     }
 
     /**

@@ -145,9 +145,16 @@ if ($result->isPending()) {
 
 return SecretResponse::json([
     'access_token'  => $result->session->tokens->accessToken,
+    'expires_in'    => $result->session->tokens->expiresIn,
     'refresh_token' => $result->session->tokens->refreshToken,
 ]);
 ```
+
+The pair says when its access token expires, as the token's own `exp` does: `expiresIn` is its lifetime in seconds
+(`exp` minus `iat`), the `expires_in` of an OAuth 2.0 token response (RFC 6749 section 5.1), and `expiresAt` the time
+itself, so a client knows when to refresh without decoding the token. Every pair carries both: a sign-in's, a pending
+session's once it activates, a refresh's and a switch's. A step-up or reauthentication answers with its own
+`AccessTokenResult::$expiresAt`.
 
 `signIn()` runs, in order: Laravel's `Attempting` (with only the identifier the method names, never the input); the
 application policy must allow the method (`method_not_allowed`, nothing counted); the identifier and the client's IP
@@ -391,7 +398,9 @@ Route::post('/sign-in/code', function (Request $request) {
 
     abort_unless($result->isSignedIn(), 401);
 
-    return SecretResponse::json(['access_token' => $result->session->tokens->accessToken, 'refresh_token' => $result->session->tokens->refreshToken]);
+    $tokens = $result->session->tokens;
+
+    return SecretResponse::json(['access_token' => $tokens->accessToken, 'expires_in' => $tokens->expiresIn, 'refresh_token' => $tokens->refreshToken]);
 });
 ```
 
@@ -874,7 +883,8 @@ left it activates in place (the guard is bound, the pair issued, the credential 
 new credential and the principals listed), and otherwise it stays pending. The access token's `amr` carries the proof's
 values, and `mfa` when its evaluation reports multifactor authentication. A refusal stores nothing and never revokes the
 session, which waits until its credential expires; every refusal reports `Failed` and `AuthenticationFailed`, and a
-credential that names nothing is `pending_invalid`.
+credential that names nothing is `pending_invalid`. An activation's result carries the session and its pair as a
+sign-in's does, answered the same way (`access_token`, `expires_in`, `refresh_token`).
 
 ### Choosing a principal
 

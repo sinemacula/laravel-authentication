@@ -189,6 +189,7 @@ Route::post('/login', function (Request $request) {
     // The tokens are secrets: SecretResponse reveals them into the body and marks it not to be stored.
     return SecretResponse::json([
         'access_token'  => $result->session->tokens->accessToken,
+        'expires_in'    => $result->session->tokens->expiresIn,
         'refresh_token' => $result->session->tokens->refreshToken,
     ]);
 });

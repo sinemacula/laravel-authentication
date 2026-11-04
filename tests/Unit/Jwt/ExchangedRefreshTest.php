@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Jwt;
 
+use Carbon\CarbonImmutable;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -46,7 +47,7 @@ final class ExchangedRefreshTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
 
         $session = new StubSession;
-        $tokens  = new TokenPair(new Secret('access-token'), new Secret('refresh-token'));
+        $tokens  = new TokenPair(new Secret('access-token'), CarbonImmutable::now()->addMinutes(5), 300, new Secret('refresh-token'));
 
         $result = new ExchangedRefresh($identity, $principal, $session, $tokens);
 
