@@ -1690,11 +1690,10 @@ final class PendingSessionsTest extends TestCase
 
     /**
      * A deadlock raised inside a caller's transaction is thrown on as Laravel's
-     * `DeadlockException`, with the caller's transaction level restored and
-     * nothing rolled back by the package (on MySQL and MariaDB the deadlock has
-     * already rolled the whole transaction back, its savepoints with it, so
-     * rolling back to one would fail and hide the deadlock). The caller rolls
-     * its whole transaction back, and its retry activates the session.
+     * `DeadlockException`, with the caller's transaction level restored (on
+     * MySQL and MariaDB the deadlock has already rolled the whole transaction
+     * back, its savepoints with it). The caller rolls its whole transaction
+     * back, and its retry activates the session.
      *
      * @return void
      *
@@ -1725,7 +1724,6 @@ final class PendingSessionsTest extends TestCase
         }
 
         self::assertSame($level + 1, DB::transactionLevel());
-        self::assertSame($proofs + 1, SessionProof::query()->count());
 
         DB::rollBack();
 

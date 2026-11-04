@@ -57,9 +57,9 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   nothing, and no refusal revokes the session: it waits until its credential expires, and only `discard()` ends it
   early (`signed_out`). The transaction is Laravel's `transaction()`, the refusal thrown out of it as
   `PendingActionRefused` and answered, so inside a caller's transaction a deadlock, serialisation failure or lock wait
-  timeout is thrown on as Laravel's `DeadlockException`, with nothing rolled back to the package's savepoint (on MySQL
-  and MariaDB a deadlock has already rolled the whole transaction back, its savepoints with it), for the caller to roll
-  back and retry whole.
+  timeout is thrown on as Laravel's `DeadlockException` with the caller's transaction level restored (on MySQL and
+  MariaDB a deadlock has already rolled the whole transaction back, its savepoints with it), for the caller to roll back
+  and retry whole.
 - Each runs the gate again under the lock: the identity (not a machine identity, active, `admitIdentifier()` with the
   recorded identifier type), the recorded method still allowed, the recorded or chosen principal admitted
   (`PrincipalAdmission::refusal()`) and its tenant (`TenantAdmission::recorded()` with the access check, or `select()`

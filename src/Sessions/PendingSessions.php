@@ -760,10 +760,10 @@ final readonly class PendingSessions
      * back everything it wrote, the proof it stored among it; an exception
      * rolls back too, and is thrown on. Inside a caller's transaction a
      * deadlock, serialisation failure or lock wait timeout is thrown on as
-     * Laravel's `DeadlockException`, with nothing rolled back here (on MySQL
-     * and MariaDB a deadlock has already rolled the caller's whole transaction
-     * back, its savepoints with it), for the caller to roll back and retry
-     * whole.
+     * Laravel's `DeadlockException` with the caller's transaction level
+     * restored (on MySQL and MariaDB a deadlock has already rolled the caller's
+     * whole transaction back, its savepoints with it), for the caller to roll
+     * back and retry whole.
      *
      * @param  \Closure(): (\SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult)  $work
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
