@@ -354,7 +354,9 @@ fresh for the change; a refused one carries the `reason`. The gate writes nothin
 or a replacement is made, in that same transaction, the factor package ends the sessions it affects with
 `factorRemoved()` for the factor removed or replaced, and after an addition (an enrolment confirmed, a passkey
 associated as a factor) it judges the current session again with `factorChanged()` (see
-[Sign-in factors](#sign-in-factors)).
+[Sign-in factors](#sign-in-factors)). Generating recovery codes removes no factor, so it never calls `factorRemoved()`:
+the proofs a session already made with a recovery code stay recorded and count, and `factorChanged()` follows only when
+the factor package's policy can change with the codes.
 
 A pending session never goes through the gate: its first factor is enrolled through its pending credential's
 `PendingAction::START_BOOTSTRAP_ENROLLMENT` and `CONFIRM_BOOTSTRAP_ENROLLMENT` actions
@@ -842,8 +844,11 @@ After an addition to the identity's factors made from the current session, the f
 with what it added (`Factors\Enums\FactorChangeMade`): `FACTOR_CONFIRMED`, a further factor's enrolment confirmed;
 `PASSKEY_FACTOR_REGISTERED`, a passkey registered and associated as a factor (from the passkey gate's `registering()`);
 or `OTHER`, any other change that removes no factor. A removal or a replacement goes through `factorRemoved()`, which
-judges the current session again itself. Under a factor policy that asks a further factor of an identity once it has
-one, the first factor confirmed leaves the session it was confirmed from short of it:
+judges the current session again itself. A new set of recovery codes replaces the old one but removes no factor, so it
+never calls `factorRemoved()`: the proofs the session made with a recovery code stay recorded and count, and the factor
+package calls `factorChanged()` with `OTHER` when its factor policy can change with the codes, and nothing otherwise.
+Under a factor policy that asks a further factor of an identity once it has one, the first factor confirmed leaves the
+session it was confirmed from short of it:
 
 ```php
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;

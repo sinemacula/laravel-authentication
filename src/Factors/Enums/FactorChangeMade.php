@@ -38,6 +38,7 @@ enum FactorChangeMade: string
     case FACTOR_REMOVED = 'factor_removed';
 
     // Any other change to the identity's factors that removes none of them and
-    // may leave the session short of what it is asked
+    // may leave the session short of what it is asked, a new set of recovery
+    // codes included when the factor policy can change with it
     case OTHER = 'other';
 }

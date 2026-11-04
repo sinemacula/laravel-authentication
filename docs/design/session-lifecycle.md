@@ -114,7 +114,9 @@ revoked, and when a session that ended is deleted. Starting a session is in
   factor is no sign of compromise, and judging every other session would lock their rows under the factor package's
   locks for no outcome but "leave"; a refresh asks the identity-level requirement only once the tenant's policy falls
   short, so they run as admitted until they end, unless the application ends them in the same transaction. A replacement
-  removes the factor it replaces, so it goes through `factorRemoved()` for that factor, never this call.
+  removes the factor it replaces, so it goes through `factorRemoved()` for that factor, never this call. A new set of
+  recovery codes removes no factor, so it never goes through `factorRemoved()`: the session's recovery-code proofs stay
+  recorded and count, and the factor package calls this with `OTHER` only when its policy can change with the codes.
   `FACTOR_REMOVED` exists only for a factor package that hands every change, a removal included, to this judgement once
   `factorRemoved()` has run. A session the removal took back to pending or revoked is then skipped, but one it kept is
   judged again at this call's own time, not the removal's, so it can still return to pending or be revoked (a maximum
