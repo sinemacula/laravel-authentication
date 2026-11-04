@@ -195,6 +195,14 @@ session holds; the token's claims and every freshness answer are worked out from
   issuer of a session's tokens: in commit order no token carries an older `auth_time` or fewer `amr` values than one
   before it, except where a factor's removal voided proofs on purpose (`FactorRevocations` writes the guard before it
   voids).
+- The judgement of the current session again after a factor's removal or an addition (`FactorRevocations`) writes the
+  session's issuance guard under its lock of the row, then reads the proofs with plain reads, as every requirement
+  judgement does. Inside a caller's transaction on MySQL or MariaDB at REPEATABLE READ whose first plain read came
+  before another transaction committed a proof (a step-up) or voided some (a removal of another factor), those reads
+  return that snapshot: the session may return to pending although it met the requirement, or a proof voided meanwhile
+  still counts. At PostgreSQL's REPEATABLE READ the lock fails to serialise instead; at READ COMMITTED, or when the
+  caller makes no plain read before the call, they read what is committed. A current read there would hold the shared
+  next-key locks an issuance's holds until the factor package commits.
 - On MySQL at REPEATABLE READ, the shared lock of an issuance's current read is a set of next-key locks on the proofs'
   session index (`session_id`, `kind`, `authenticated_at`), so it also locks the gaps on either side of the session's
   proofs, up to the neighbouring entries. Keys are time-ordered, so a proof another transaction inserts there waits
@@ -239,9 +247,9 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   meets a multifactor freshness requirement. The factor-change gate (`SessionService::factorChange()`) asks freshness
   for `factor_change`, or `first_additional_factor` for an identity's first additional factor, excluding the factor a
   replacement or removal names, before the change; once it is made, a removal or replacement judges the current session
-  again with `factorRemoved()` and an addition with `factorChanged()`, which reads the proofs as they stand under the
-  session's issuance guard and voids none. A sibling that needs more rebinds `FreshnessPolicy` until the value is
-  extended.
+  again with `factorRemoved()` and an addition with `factorChanged()`, which writes the session's issuance guard, then
+  reads the proofs with plain reads, as the caller's transaction sees them, and voids none. A sibling that needs more
+  rebinds `FreshnessPolicy` until the value is extended.
 - A pending session records its first factor and provenance as any session does, when it is written; the further
   factor `satisfy()` accepts is stored with them (the requirement check reads it when the policy is asked again), and
   none counts for a token until the session activates.

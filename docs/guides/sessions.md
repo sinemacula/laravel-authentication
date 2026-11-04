@@ -893,15 +893,20 @@ a write between them. A removal needs no such call; with one, hand the client th
 pending: `FactorRemoval::$credential`, or the `FactorChangeResult`'s when it `isPending()`.
 
 The call locks the session's row and writes its issuance guard before it reads the proofs, so it and any refresh or
-step-up of the session wait on each other rather than read the proofs past each other. When the request's guard is bound
-to the session and it returned to pending or was revoked, the guard forgets it once the change commits, before anything
-is reported. `$current` must be a session of this guard the identity owns (an `InvalidArgumentException` otherwise,
-before anything is written); the identity may live on any connection, since nothing of it is written. Open the factor
-package's transaction on the storage connection, as above, so the call is a savepoint of it and commits or rolls back
-with the change: on any other connection, or with no transaction, it commits on its own. If the change rolls back, the
-session stays active and the credential matches nothing. A change made with no current session (an administrator's, a
-queued job's, a request authenticated without one) has nothing to judge, so it does not call `factorChanged()`, as the
-example shows.
+step-up of the session wait on each other. Its judgement then reads the proofs with plain reads, as `factorRemoved()`'s
+does. On MySQL and MariaDB at REPEATABLE READ those return your transaction's snapshot, which its first plain read
+takes: a proof committed after that read (a step-up's) is not counted, so the session can return to pending although it
+met the requirement, and a proof voided after it (by a removal of another factor) still counts. There, make the call
+before any plain read in your transaction (locking reads and writes take no snapshot), or run the change at READ
+COMMITTED. At PostgreSQL's REPEATABLE READ the lock fails to serialise instead, for you to retry. When the request's
+guard is bound to the session and it returned to pending or was revoked, the guard forgets it once the change commits,
+before anything is reported. `$current` must be a session of this guard the identity owns (an `InvalidArgumentException`
+otherwise, before anything is written); the identity may live on any connection, since nothing of it is written. Open
+the factor package's transaction on the storage connection, as above, so the call is a savepoint of it and commits or
+rolls back with the change: on any other connection, or with no transaction, it commits on its own. If the change rolls
+back, the session stays active and the credential matches nothing. A change made with no current session (an
+administrator's, a queued job's, a request authenticated without one) has nothing to judge, so it does not call
+`factorChanged()`, as the example shows.
 
 The identity's other sessions are not judged. Only the current session's client is in the request to receive a pending
 credential, so returning another session to pending would mint a credential nobody holds, which is a revocation in

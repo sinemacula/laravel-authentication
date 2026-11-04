@@ -525,10 +525,12 @@ seam has a default that works alone.
   was `skipped` (no longer the session given, or no longer live and active). It locks the session's row after your
   locks, writes its issuance guard before it reads the proofs, and runs as a savepoint of your transaction when that is
   on the storage connection, so the return to pending commits or rolls back with the change; its events and the guard's
-  forgetting of the session follow the commit. The identity's other sessions are not judged: only the current session's
-  client can receive a pending credential, and an added factor ends nothing, so they keep running as they were admitted;
-  end them yourself in the same transaction (`revokeSessions(..., except: $current)`) if they must meet the new
-  requirement. The identity may live on any connection, since nothing of it is written.
+  forgetting of the session follow the commit. Its reads of the proofs are plain ones, so on MySQL and MariaDB at
+  REPEATABLE READ make the call before any plain read in your transaction, or run the change at READ COMMITTED (see
+  [Sign-in factors](sessions.md#sign-in-factors)). The identity's other sessions are not judged: only the current
+  session's client can receive a pending credential, and an added factor ends nothing, so they keep running as they were
+  admitted; end them yourself in the same transaction (`revokeSessions(..., except: $current)`) if they must meet the
+  new requirement. The identity may live on any connection, since nothing of it is written.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
   `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
   the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows
