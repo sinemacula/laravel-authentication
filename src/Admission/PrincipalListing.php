@@ -24,15 +24,15 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  * its own would be one query per principal. So once the listed principals' own
  * activity is judged, the tenant relation of each active one that uses
  * `ActsAsPrincipal` is loaded on them together, on the write connection, after
- * their own query: one query per principal class (one per tenant type for a
- * polymorphic relation, and those of the tenant model's own `$with`), however
- * many principals there are. No global scope or eager load the application put
- * on `principals()` can constrain it, and whatever was loaded under that name,
- * nested relations included, is replaced; a tenant the load misses is read
- * alone (`isMissed()`). The tenants loaded allow lazy loading, as a tenant read
- * on its own does, while the principals keep the strictness their query gave
- * them. A principal that implements `getTenant()` itself has no relation the
- * package can know, and is read as it always was.
+ * their own query: one query per principal class and connection (one per tenant
+ * type for a polymorphic relation, and those of the tenant model's own
+ * `$with`), however many principals there are. No global scope or eager load
+ * the application put on `principals()` can constrain it, and whatever was
+ * loaded under that name, nested relations included, is replaced; a tenant the
+ * load misses is read alone (`isMissed()`). The tenants loaded allow lazy
+ * loading, as a tenant read on its own does, while the principals keep the
+ * strictness their query gave them. A principal that implements `getTenant()`
+ * itself has no relation the package can know, and is read as it always was.
  *
  * Each principal is still judged as it is stored (`WriteConnection::stored()`),
  * with only the tenant loaded here carried onto the copy; a principal the
@@ -180,7 +180,11 @@ final readonly class PrincipalListing
 
     /**
      * The principal models whose tenant relation the package knows, grouped by
-     * class and relation, each group with the relation's name.
+     * class, connection and relation, each group with the relation's name.
+     *
+     * The connection is part of the group because Eloquent builds a group's
+     * load from its first model: principals of one class on two connections
+     * loaded together would all read the first one's tenants.
      *
      * @param  array<int, \SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
      * @return array<string, array{0: string, 1: list<\Illuminate\Database\Eloquent\Model>}>
@@ -197,7 +201,7 @@ final readonly class PrincipalListing
                 continue;
             }
 
-            $group = $principal::class . '@' . $name;
+            $group = $principal::class . '@' . $principal->getConnectionName() . '@' . $name;
 
             $groups[$group] ??= [$name, []];
             $groups[$group][1][] = $principal;

@@ -60,6 +60,9 @@ final class PrincipalListingTest extends TestCase
     /** @var string The guard the principals are judged for. */
     private const string GUARD = 'api';
 
+    /** @var string A second connection holding principals and tenants of its own. */
+    private const string ELSEWHERE = 'elsewhere';
+
     /**
      * Create the tables.
      *
@@ -287,6 +290,60 @@ final class PrincipalListingTest extends TestCase
         self::assertInstanceOf(ActivatableTenant::class, $memberships[1]->getRelation('tenant'));
         self::assertInstanceOf(ParentedTenant::class, $others[0]->getRelation('tenant'));
         self::assertInstanceOf(ParentedTenant::class, $others[2]->getRelation('workspace'));
+    }
+
+    /**
+     * Principals of one class on two connections have their tenants read on
+     * each one's own connection: a tenant key that names an active tenant on
+     * one and a deactivated tenant on the other is judged as each principal's
+     * own connection stores it, whichever principal is listed first.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testPrincipalsOnEachConnectionHaveTheirTenantsReadOnIt(): void
+    {
+        [, [$membership]] = $this->seedChooser(1);
+
+        config()->set('database.connections.' . self::ELSEWHERE, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+
+        $schema = Schema::connection(self::ELSEWHERE);
+
+        $schema->create('activatable_tenants', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('name');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+            $blueprint->softDeletes();
+        });
+
+        $schema->create('activatable_tenant_memberships', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+            $blueprint->unsignedInteger('tenant_id');
+            $blueprint->timestamps();
+        });
+
+        ActivatableTenant::on(self::ELSEWHERE)->create(['id' => $membership->tenant_id, 'name' => 'Elsewhere', 'is_active' => false]);
+
+        $elsewhere = ChoosingMembership::on(self::ELSEWHERE)->create(['identity_id' => $membership->identity_id, 'tenant_id' => $membership->tenant_id]);
+
+        foreach ([[$membership, $elsewhere], [$elsewhere, $membership]] as $candidates) {
+
+            $listing  = PrincipalListing::of($this->identityListing($this->builderListing($candidates)));
+            $expected = array_map(static fn (ChoosingMembership $candidate): ?FailureReason => $candidate === $elsewhere ? FailureReason::TENANT_INACTIVE : null, $candidates);
+
+            self::assertSame($expected, $listing->refusals(self::GUARD, $candidates));
+
+            foreach ($candidates as $candidate) {
+
+                $tenant = $candidate->getRelation('tenant');
+
+                self::assertInstanceOf(ActivatableTenant::class, $tenant);
+                self::assertSame($candidate->getConnectionName(), $tenant->getConnectionName());
+            }
+        }
     }
 
     /**
