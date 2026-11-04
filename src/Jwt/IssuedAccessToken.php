@@ -8,8 +8,7 @@ use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
- * An access token a session's issuer signed, with when it expires as it says:
- * its `exp`, and its lifetime in seconds, `exp` minus `iat`, read from the very
+ * An access token a session's issuer signed, with its expiry as read from the
  * claims signed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

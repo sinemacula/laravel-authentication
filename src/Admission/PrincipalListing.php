@@ -23,20 +23,16 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  * mode forbids each of them a lazy load, and reading each principal's tenant on
  * its own would be one query per principal. So once the listed principals' own
  * activity is judged, the tenant relation of each active one that uses
- * `ActsAsPrincipal` (the relation its `getTenantRelationName()` names, when
- * that is a relation of the model) is loaded on them together, on the write
- * connection, after their own query: one query per principal class (one per
- * tenant type for a polymorphic relation, and those of the tenant model's own
- * `$with`), however many principals there are. No global scope or eager load
- * the application put on `principals()` can constrain it, and whatever was
- * loaded under that name, nested relations included, is replaced. A principal
- * the load finds no tenant for, while its relation may still name one, has its
- * tenant read alone (`isMissed()`), so each principal holds the tenant a lazy
- * load would read and a tenant is never taken for none. The tenants loaded
- * allow lazy loading, as a tenant read on its own does, while the principals
- * keep the strictness their query gave them. An inactive principal is refused
- * without its tenant being read. A principal that implements `getTenant()`
- * itself has no relation the package can know, and is read as it always was.
+ * `ActsAsPrincipal` is loaded on them together, on the write connection, after
+ * their own query: one query per principal class (one per tenant type for a
+ * polymorphic relation, and those of the tenant model's own `$with`), however
+ * many principals there are. No global scope or eager load the application put
+ * on `principals()` can constrain it, and whatever was loaded under that name,
+ * nested relations included, is replaced; a tenant the load misses is read
+ * alone (`isMissed()`). The tenants loaded allow lazy loading, as a tenant read
+ * on its own does, while the principals keep the strictness their query gave
+ * them. A principal that implements `getTenant()` itself has no relation the
+ * package can know, and is read as it always was.
  *
  * Each principal is still judged as it is stored (`WriteConnection::stored()`),
  * with only the tenant loaded here carried onto the copy; a principal the
@@ -158,11 +154,9 @@ final readonly class PrincipalListing
     }
 
     /**
-     * Load the tenant relation of each principal model that uses
-     * `ActsAsPrincipal`, together for each principal class and relation (one
-     * query, or one per tenant type for a polymorphic relation), inside
-     * `WriteConnection::during()` for the identity, and return the relation
-     * name and what it loaded for each, by the principal's object id.
+     * Load each group's tenant relation on the identity's write connection, and
+     * return the relation name and what it loaded for each principal, by its
+     * object id.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array<int, \SineMacula\Laravel\Authentication\Contracts\Principal>  $principals

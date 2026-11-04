@@ -47,15 +47,16 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * In order: the identity (not a machine identity, active, and admitted by the
  * application policy with the identifier type the sign-in used); the principals
  * the application admits (its `principals()`, read on the write connection with
- * the tenants of the active ones judged loaded together, or the resolver's
- * default for an identity that is its own principal or lists none), each
- * active, in an active tenant and allowed to use the application, with none
- * left a refusal after the credential is verified; the principal selected (the
- * one named, when it is among them, else the only one, else none and a choice
- * is outstanding); the identity-level factor policy, asked before any principal
- * is chosen for the requirement the session's authentication must meet, which
- * `RequirementJudge` judges against its proofs; and, with a principal, the
- * tenant it is to be active in and that tenant's authentication policy.
+ * the tenants of the active ones loaded together when they are judged, or the
+ * resolver's default for an identity that is its own principal or lists none),
+ * each active, in an active tenant and allowed to use the application, with
+ * none left a refusal after the credential is verified; the principal selected
+ * (the one named, when it is among them, else the only one, else none and a
+ * choice is outstanding); the identity-level factor policy, asked before any
+ * principal is chosen for the requirement the session's authentication must
+ * meet, which `RequirementJudge` judges against its proofs; and, with a
+ * principal, the tenant it is to be active in and that tenant's authentication
+ * policy.
  *
  * It decides; it writes nothing. Every read and every contract is asked on the
  * write connection.
@@ -484,10 +485,10 @@ final readonly class PendingEvaluation
 
     /**
      * The principals the identity may act as, before any check: its
-     * `principals()` read on the write connection, with the tenants of those
-     * judged loaded together on the write connection when they are judged (see
-     * `PrincipalListing`), or, for an identity that is its own principal or has
-     * no `principals()`, the resolver's default.
+     * `principals()` read on the write connection, as a `PrincipalListing` that
+     * loads the tenants of the active ones it judges together, or, for an
+     * identity that is its own principal or has no `principals()`, the
+     * resolver's default.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return \SineMacula\Laravel\Authentication\Admission\PrincipalListing

@@ -256,7 +256,8 @@ final class TokenPairTest extends TestCase
     }
 
     /**
-     * A chooser with two memberships, each in an active tenant of its own.
+     * A chooser with two memberships, each in an active tenant of its own, and
+     * the first of them.
      *
      * @return array{0: \Tests\Integration\Fixtures\ChoosingMember, 1: \Tests\Integration\Fixtures\ChoosingMembership}
      */

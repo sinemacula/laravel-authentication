@@ -11,9 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 
 /**
  * Issues a session's token pair for the session service and the refresh
- * exchange: the access token for what was admitted, then the refresh token
- * carrying the rotation id, with the access token's expiry as its signed claims
- * give it.
+ * exchange.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
