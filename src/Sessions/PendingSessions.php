@@ -759,7 +759,12 @@ final readonly class PendingSessions
      * Run the work in one transaction on the session model's connection,
      * committing what it wrote unless it answers with a refusal, which rolls
      * back everything it wrote, the proof it stored among it; an exception
-     * rolls back too, and is thrown on.
+     * rolls back too, and is thrown on. Inside a caller's transaction a
+     * deadlock, serialisation failure or lock wait timeout is thrown on as
+     * Laravel's `DeadlockException`, with nothing rolled back here (on MySQL
+     * and MariaDB a deadlock has already rolled the caller's whole transaction
+     * back, its savepoints with it), for the caller to roll back and retry
+     * whole.
      *
      * @param  \Closure(): (\SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult)  $work
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
@@ -768,20 +773,15 @@ final readonly class PendingSessions
      */
     private function atomically(\Closure $work): Refused|SignInResult
     {
-        $connection = SessionLookup::model()->getConnection();
-
-        $connection->beginTransaction();
-
         try {
-            $outcome = $work();
-        } catch (\Throwable $exception) {
-            $connection->rollBack();
+            return SessionLookup::model()->getConnection()->transaction(static function () use ($work): SignInResult {
 
-            throw $exception;
+                $outcome = $work();
+
+                return $outcome instanceof Refused ? throw new PendingActionRefused($outcome) : $outcome;
+            });
+        } catch (PendingActionRefused $refusal) {
+            return $refusal->refused;
         }
-
-        $outcome instanceof Refused ? $connection->rollBack() : $connection->commit();
-
-        return $outcome;
     }
 }

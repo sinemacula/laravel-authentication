@@ -55,7 +55,11 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 - `satisfy()` and `choose()` run in one transaction on the session's connection that locks the row, finds the credential
   again under the lock, and rolls back on any refusal, so a refused proof is never stored, a refused choice records
   nothing, and no refusal revokes the session: it waits until its credential expires, and only `discard()` ends it
-  early (`signed_out`).
+  early (`signed_out`). The transaction is Laravel's `transaction()`, the refusal thrown out of it as
+  `PendingActionRefused` and answered, so inside a caller's transaction a deadlock, serialisation failure or lock wait
+  timeout is thrown on as Laravel's `DeadlockException`, with nothing rolled back to the package's savepoint (on MySQL
+  and MariaDB a deadlock has already rolled the whole transaction back, its savepoints with it), for the caller to roll
+  back and retry whole.
 - Each runs the gate again under the lock: the identity (not a machine identity, active, `admitIdentifier()` with the
   recorded identifier type), the recorded method still allowed, the recorded or chosen principal admitted
   (`PrincipalAdmission::refusal()`) and its tenant (`TenantAdmission::recorded()` with the access check, or `select()`
@@ -123,7 +127,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   to decide (activate, stay pending, move on to the choice, or refuse in `settle()`); `tenantPolicyChanged()` and every
   bulk revocation (`RevocationWriter`, and `ConnectionRevocations` for a connection or a link) lock the sessions they
   cover in key order, the older first. Over both sessions, the two can deadlock; the database fails one, for its caller
-  to roll back and retry whole.
+  to roll back and retry whole. Inside a caller's transaction the pending action fails as Laravel's `DeadlockException`
+  and leaves the caller's transaction level as it found it.
 - A return to pending that loses its compare-and-swap is judged again from the reloaded row, as a lost rotation is, so a
   concurrent rotation, switch, revocation or return applies and the other is refused or retried, never both.
 - A pending idle deadline can equal the active one near the absolute cap, so only `status` tells the two apart in a
@@ -138,7 +143,7 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 ## Implementation Anchors
 
 - `src/Sessions/PendingSessions.php`: `pending()`, `satisfy()`, `choose()`, `discard()`, `find()`, `admitted()`,
-  `chosen()`, `settle()`.
+  `chosen()`, `settle()`, `atomically()`; `src/Sessions/PendingActionRefused.php`.
 - `src/Sessions/PendingEvaluation.php`: the gate's building blocks (`identityRefusal()`, `allowsMethod()`,
   `principals()`, `selection()`, `named()`, `destination()`, `recorded()`, `owedFactor()`, `tenantPolicy()`,
   `requirements()`).
@@ -157,8 +162,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 
 - `tests/Feature/Sessions/PendingSessionsTest.php` (the actions per requirement, an unknown, expired, revoked,
   other-guard or tampered credential, every acceptance refusal, activation, moving on to the choice, a bootstrap
-  enrolment proof, a recovery code, the gate's refusals, the proven session and its lock, the current reads, the slots,
-  discard)
+  enrolment proof, a recovery code, the gate's refusals, the proven session and its lock, the current reads, a refusal
+  and a deadlock inside a caller's transaction, the slots, discard), `tests/Unit/Sessions/PendingActionRefusedTest.php`
 - `tests/Feature/Sessions/PendingTransitionsTest.php` (a return to pending, its compare-and-swap, the version it
   records, its event)
 - `tests/Feature/Sessions/PendingEvaluationTest.php` (the gate's checks on their own) and
@@ -171,7 +176,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   `tests/Unit/Traits/RecordsSessionStandingTest.php`, `tests/Unit/SessionRecords/SwitchFloorTest.php`
 - `tests/Integration/Sessions/ConcurrentPendingSatisfactionTest.php` (two calls on one credential) and
   `tests/Integration/Sessions/ConcurrentPendingLocksTest.php` (satisfy, discard and the policy-change helper waiting on
-  one another's row lock, on PostgreSQL and MySQL)
+  one another's row lock, and a satisfaction deadlocked on the proven session inside a caller's transaction, on
+  PostgreSQL and MySQL)
 - `tests/Integration/Sessions/ReplicaPendingSessionsTest.php` (pending, satisfy and the choice on a lagging replica)
 - `tests/Integration/Sessions/IntegerKeyPendingSessionTest.php` and
   `tests/Integration/Sessions/DottedKeyPendingSessionTest.php` (a credential naming an integer key, and a key that

@@ -9,9 +9,11 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -1684,6 +1686,94 @@ final class PendingSessionsTest extends TestCase
 
         self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->isSignedIn());
         self::assertSame($proofs + 1, SessionProof::query()->count());
+    }
+
+    /**
+     * A deadlock raised inside a caller's transaction is thrown on as Laravel's
+     * `DeadlockException`, with the caller's transaction level restored and
+     * nothing rolled back by the package (on MySQL and MariaDB the deadlock has
+     * already rolled the whole transaction back, its savepoints with it, so
+     * rolling back to one would fail and hide the deadlock). The caller rolls
+     * its whole transaction back, and its retry activates the session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeadlockInsideACallersTransactionIsThrownOnForTheCallerToRetryWhole(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $cause    = new \PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction');
+        $deadlock = new QueryException('testing', 'select 1', [], $cause);
+        $proofs   = SessionProof::query()->count();
+        $level    = DB::transactionLevel();
+        $proof    = static fn (): ProofResult => self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN);
+
+        $this->factorAnswer = static fn (): never => throw $deadlock;
+
+        DB::beginTransaction();
+
+        try {
+            $this->sessions()->satisfy($credential, $proof());
+
+            self::fail('The deadlock was not thrown on.');
+        } catch (DeadlockException $thrown) {
+            self::assertSame($deadlock, $thrown->getPrevious());
+        }
+
+        self::assertSame($level + 1, DB::transactionLevel());
+        self::assertSame($proofs + 1, SessionProof::query()->count());
+
+        DB::rollBack();
+
+        self::assertSame($level, DB::transactionLevel());
+        self::assertSame($proofs, SessionProof::query()->count());
+
+        $this->factorAnswer   = null;
+        $this->factorRequired = false;
+
+        self::assertTrue(DB::transaction(fn (): bool => $this->sessions()->satisfy($credential, $proof())->isSignedIn()));
+        self::assertSame($proofs + 1, SessionProof::query()->count());
+    }
+
+    /**
+     * A refusal inside a caller's transaction rolls back only what the action
+     * wrote, the proof it stored among it, and answers with the refusal: the
+     * caller's transaction stays open at its level with its own writes, and
+     * commits them.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefusalInsideACallersTransactionRollsBackOnlyTheActionsWrites(): void
+    {
+        [$member] = $this->seedMember();
+
+        [$credential, $pending] = $this->pendingSignIn('members', 'member@example.test');
+
+        $proofs = SessionProof::query()->count();
+        $level  = DB::transactionLevel();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', connections: ['conn-a'])));
+
+        DB::beginTransaction();
+
+        DB::table('authentication_sessions')->where('id', $pending->id)->update(['client_name' => 'the caller\'s write']);
+
+        $refused = $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN));
+
+        self::assertSame($level + 1, DB::transactionLevel());
+
+        DB::commit();
+
+        self::assertSame(FailureReason::SSO_REQUIRED, $refused->reason);
+        self::assertSame($proofs, SessionProof::query()->count());
+        self::assertSame('the caller\'s write', DB::table('authentication_sessions')->where('id', $pending->id)->value('client_name'));
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
     }
 
     /**

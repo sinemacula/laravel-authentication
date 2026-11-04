@@ -7,6 +7,7 @@ namespace Tests\Integration\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -17,13 +18,16 @@ use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithProofs;
@@ -39,7 +43,9 @@ use Tests\TestCase;
  * inside a transaction it keeps open, and the other, started meanwhile, waits
  * on that lock and then judges the row the first committed. A satisfaction and
  * a discard never both apply; a policy change and an activation each see the
- * other's result, so the session ends compliant either way.
+ * other's result, so the session ends compliant either way. A satisfaction that
+ * deadlocks inside a caller's transaction fails as a deadlock the caller can
+ * retry whole.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -65,6 +71,9 @@ final class ConcurrentPendingLocksTest extends TestCase
 
     /** @var float The least time, in seconds, the second call must have waited to show it waited on the first. */
     private const float LEAST_WAIT_SECONDS = 0.5;
+
+    /** @var int How long the forked side holds the proven session before it asks for the pending one, in microseconds: under PostgreSQL's one-second deadlock check, so the waiting satisfaction is the side that finds the cycle. */
+    private const int CROSS_MICROSECONDS = 300000;
 
     /** @var int How long the second call waits to be started before giving up, in seconds. */
     private const int START_TIMEOUT_SECONDS = 10;
@@ -279,6 +288,81 @@ final class ConcurrentPendingLocksTest extends TestCase
     }
 
     /**
+     * A satisfaction inside a caller's transaction that deadlocks on the
+     * session its sign-in proved (another transaction wrote that session, then
+     * asks for the pending one the satisfaction holds) is thrown on as
+     * Laravel's `DeadlockException` with the caller's transaction level
+     * restored: the package rolls nothing back to its savepoint, which on MySQL
+     * the deadlock has already dropped with the whole transaction. The caller
+     * rolls back, nothing the satisfaction wrote is kept, and its retry of the
+     * whole transaction activates the session and supersedes the proven one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASatisfactionDeadlockedInsideACallersTransactionIsThrownOnAsADeadlock(): void
+    {
+        $this->seedMember();
+
+        [$first, $proof] = $this->pendingSession();
+
+        $active = $this->sessions(self::GUARD)->satisfy($first, $proof)->session;
+
+        self::assertNotNull($active);
+
+        $client = new SignInContext(new ClientContext('203.0.113.7', 'Racing client'), refreshToken: $active->tokens->refreshToken?->reveal());
+        $result = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $client);
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        $pending    = $result->pending;
+        $credential = $result->credential->reveal();
+        $proof      = static fn (): ProofResult => self::adapterProof($pending->identity, self::GUARD, $pending->id, Purpose::SIGN_IN);
+        $proven     = $active->record->getKey();
+        $proofs     = SessionProof::query()->count();
+
+        DB::disconnect();
+
+        $pid = pcntl_fork();
+
+        if ($pid === 0) {
+            $this->crossInChild($proven, $pending->id);
+        }
+
+        $deadline = microtime(true) + self::START_TIMEOUT_SECONDS;
+
+        while (!is_file("{$this->outcomes}/held") && microtime(true) < $deadline) {
+            usleep(5000);
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $thrown = $this->sessions(self::GUARD)->satisfy($credential, $proof());
+        } catch (\Throwable $exception) {
+            $thrown = $exception;
+        }
+
+        $level = DB::transactionLevel();
+
+        DB::rollBack();
+
+        pcntl_waitpid($pid, $status);
+
+        self::assertSame(['crossed' => true], json_decode((string) file_get_contents("{$this->outcomes}/outcome"), true, flags: JSON_THROW_ON_ERROR));
+        self::assertInstanceOf(DeadlockException::class, $thrown);
+        self::assertSame(1, $level);
+        self::assertSame(0, DB::transactionLevel());
+        self::assertSame($proofs, SessionProof::query()->count());
+        self::assertSame('pending', DB::table('authentication_sessions')->where('id', $pending->id)->value('status'));
+
+        self::assertTrue(DB::transaction(fn (): bool => $this->sessions(self::GUARD)->satisfy($credential, $proof())->isSignedIn()));
+        self::assertSame(RevocationReason::SUPERSEDED->value, DB::table('authentication_sessions')->where('id', $proven)->value('revoked_reason'));
+    }
+
+    /**
      * Configure the guards.
      *
      * @param  mixed  $app
@@ -354,6 +438,46 @@ final class ConcurrentPendingLocksTest extends TestCase
         self::assertArrayNotHasKey('error', $reported);
 
         return [$outcome, $reported];
+    }
+
+    /**
+     * In the forked process: on a connection of its own, write the proven
+     * session in a transaction, several times so its transaction is the heavier
+     * and MySQL picks the other as the deadlock's victim, signal that it holds
+     * it, give the parent's satisfaction time to lock the pending session and
+     * wait on the proven one, then ask for the pending one, closing the cycle;
+     * once the database has failed the parent, roll back, report, and end
+     * without running the parent's shutdown.
+     *
+     * @param  mixed  $proven
+     * @param  mixed  $pending
+     * @return never
+     */
+    private function crossInChild(mixed $proven, mixed $pending): never
+    {
+        try {
+            DB::beginTransaction();
+
+            foreach (range(1, 5) as $ignored) {
+                DB::table('authentication_sessions')->where('id', $proven)->increment('issuance_sequence');
+            }
+
+            touch("{$this->outcomes}/held");
+            usleep(self::CROSS_MICROSECONDS);
+
+            DB::table('authentication_sessions')->where('id', $pending)->lockForUpdate()->first();
+            DB::rollBack();
+
+            $outcome = ['crossed' => true];
+        } catch (\Throwable $e) {
+            $outcome = ['error' => $e->getMessage()];
+        }
+
+        file_put_contents("{$this->outcomes}/outcome", json_encode($outcome));
+
+        posix_kill(posix_getpid(), SIGKILL);
+
+        exit(1);
     }
 
     /**
