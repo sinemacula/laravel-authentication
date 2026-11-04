@@ -156,7 +156,7 @@ final class PrincipalListingTest extends TestCase
 
         self::assertSame([null, FailureReason::TENANT_INACTIVE, null], $refusals);
         self::assertCount(1, $queries);
-        self::assertStringContainsString('"activatable_tenants"', $queries[0]);
+        self::assertStringContainsString(self::wrapped('activatable_tenants'), $queries[0]);
         self::assertSame(array_map(static fn (ChoosingMembership $membership): int => $membership->tenant_id, $memberships), array_map(self::tenantKeyOf(...), $candidates));
     }
 
@@ -593,8 +593,8 @@ final class PrincipalListingTest extends TestCase
 
         self::assertSame([null, null, null, null, null], $refusals);
         self::assertCount(2, $queries);
-        self::assertStringContainsString('"activatable_tenants"', $queries[0]);
-        self::assertStringContainsString('"activatable_tenants"', $queries[1]);
+        self::assertStringContainsString(self::wrapped('activatable_tenants'), $queries[0]);
+        self::assertStringContainsString(self::wrapped('activatable_tenants'), $queries[1]);
         self::assertFalse($custom->relationLoaded('tenant'));
         self::assertSame($member->getKey(), $custom->getIdentity()->getAuthIdentifier());
         self::assertSame(array_map(static fn (ChoosingMembership $membership): int => $membership->tenant_id, $memberships), array_map(self::tenantKeyOf(...), $memberships));
@@ -719,7 +719,7 @@ final class PrincipalListingTest extends TestCase
 
         self::assertSame([null, null, null], $refusals);
         self::assertCount(2, $queries);
-        self::assertStringContainsString('"typed_tenants"', $queries[1]);
+        self::assertStringContainsString(self::wrapped('typed_tenants'), $queries[1]);
 
         $tenants = null;
 
@@ -800,6 +800,17 @@ final class PrincipalListingTest extends TestCase
         }
 
         return array_map(static fn (array $query): string => $query['query'], DB::getQueryLog());
+    }
+
+    /**
+     * The table's name as the default connection's grammar quotes it in SQL.
+     *
+     * @param  string  $table
+     * @return string
+     */
+    private static function wrapped(string $table): string
+    {
+        return DB::connection()->getQueryGrammar()->wrapTable($table);
     }
 
     /**
