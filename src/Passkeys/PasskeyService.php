@@ -387,49 +387,52 @@ final readonly class PasskeyService
      * factor gate is asked first (`PasskeyFactorGate::removing()`), then the
      * row is deleted: a gate that throws refuses the removal, keeping the
      * passkey, and its exception reaches the caller; a passkey removed
-     * concurrently rolls the gate's work back. Returns whether this call
-     * removed it, and only then dispatches `PasskeyRemoved`, once the removal
-     * is committed. Ending the identity's sessions when it loses a first-factor
-     * credential is the optional `RevokeSessionsOnPasskeyRemoval` listener's;
-     * a factor package calls its own mandatory helper when the passkey was one
-     * of its factors.
+     * concurrently rolls the gate's work back. Answers whether this call
+     * removed it, with the completion the gate answered, uninterpreted, and
+     * only then dispatches `PasskeyRemoved`, once the removal is committed.
+     * Ending the identity's sessions when it loses a first-factor credential is
+     * the optional `RevokeSessionsOnPasskeyRemoval` listener's; a factor
+     * package calls its own mandatory helper when the passkey was one of its
+     * factors.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $passkeyId
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return bool
+     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRemoval
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Throwable
      */
-    public function remove(Identity $identity, string $passkeyId, ?ClientContext $client = null): bool
+    public function remove(Identity $identity, string $passkeyId, ?ClientContext $client = null): PasskeyRemoval
     {
         $owner   = PasskeyOwner::of($identity);
         $rp      = $this->relyingParty();
         $passkey = PasskeyCredentials::owned($rp, $owner, $passkeyId);
 
         if ($passkey === null) {
-            return false;
+            return PasskeyRemoval::notRemoved();
         }
 
         $gate = $this->gate();
 
         try {
-            $passkey->getConnection()->transaction(static function () use ($gate, $owner, $rp, $passkey): void {
+            $completion = $passkey->getConnection()->transaction(static function () use ($gate, $owner, $rp, $passkey): ?object {
 
-                $gate->removing($owner, $rp->guard, $passkey->id, $passkey->credential_id);
+                $completion = $gate->removing($owner, $rp->guard, $passkey->id, $passkey->credential_id);
 
                 PasskeyCredentials::delete($passkey) || throw new ConcurrentPasskeyChange;
+
+                return $completion;
             });
         } catch (ConcurrentPasskeyChange) {
-            return false;
+            return PasskeyRemoval::notRemoved();
         }
 
         $this->dispatchOnceCommitted($passkey, new PasskeyRemoved(PasskeyAssertions::context($rp, $this->client($client), $owner, $passkey->id)));
 
-        return true;
+        return PasskeyRemoval::removed($completion);
     }
 
     /**

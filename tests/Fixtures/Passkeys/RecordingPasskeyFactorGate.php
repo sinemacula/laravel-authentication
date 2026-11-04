@@ -15,9 +15,9 @@ use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 /**
  * Passkey factor gate a factor package's adapter might bind: it keeps what it
  * was asked and answers as the test scripts it (by default associating every
- * passkey as factor `factor-<passkey id>` and letting every removal go ahead),
- * and, as the factor package requires, refuses to run outside a transaction on
- * the storage connection.
+ * passkey as factor `factor-<passkey id>` and letting every removal go ahead,
+ * completing nothing), and, as the factor package requires, refuses to run
+ * outside a transaction on the storage connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,14 +36,14 @@ final class RecordingPasskeyFactorGate implements PasskeyFactorGate
      * Constructor.
      *
      * @param  ?\Closure(\SineMacula\Laravel\Authentication\Passkeys\RegisteredPasskey): ?\SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssociation  $onRegistering
-     * @param  ?\Closure(string, string): void  $onRemoving
+     * @param  ?\Closure(string, string): ?object  $onRemoving
      */
     public function __construct(
 
         /** Answers a registration in place of the default association. */
         private readonly ?\Closure $onRegistering = null,
 
-        /** Runs on a removal, before it goes ahead. */
+        /** Runs on a removal, before it goes ahead, and answers its completion. */
         private readonly ?\Closure $onRemoving = null,
     ) {}
 
@@ -70,28 +70,24 @@ final class RecordingPasskeyFactorGate implements PasskeyFactorGate
     }
 
     /**
-     * Keep the removal and run the scripted step.
+     * Keep the removal, run the scripted step and answer its completion.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $application
      * @param  string  $passkeyId
      * @param  string  $credentialId
-     * @return void
+     * @return ?object
      *
      * @throws \LogicException
      */
     #[\Override]
-    public function removing(Identity $identity, string $application, string $passkeyId, string $credentialId): void
+    public function removing(Identity $identity, string $application, string $passkeyId, string $credentialId): ?object
     {
         self::assertInsideTheStorageTransaction();
 
         $this->removals[] = ['identity' => $identity, 'application' => $application, 'passkeyId' => $passkeyId, 'credentialId' => $credentialId];
 
-        if ($this->onRemoving === null) {
-            return;
-        }
-
-        ($this->onRemoving)($passkeyId, $credentialId);
+        return $this->onRemoving === null ? null : ($this->onRemoving)($passkeyId, $credentialId);
     }
 
     /**

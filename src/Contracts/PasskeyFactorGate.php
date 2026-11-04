@@ -24,9 +24,15 @@ use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
  * associates the new credential in the same change, confirmed by the
  * registration's own assertion (its observed properties), and answers the
  * association; it may complete a pending session's factor from there
- * (`satisfy()`), which commits or rolls back with the registration. `null`
- * leaves the credential a sign-in credential only. The package's default,
- * `NoPasskeyFactors`, associates nothing and refuses nothing: without a factor
+ * (`satisfy()`), or judge an active current session again once the passkey
+ * counts as a factor (`factorChanged()` with `PASSKEY_FACTOR_REGISTERED`), and
+ * either commits or rolls back with the registration. `null` leaves the
+ * credential a sign-in credential only. When a passkey factor is removed,
+ * `removing()` carries out the factor package's own removal (`factorRemoved()`
+ * for the factor, which judges the current session again). Each may answer the
+ * factor package's completion of the change, which the passkey service's caller
+ * gets back uninterpreted. The package's default, `NoPasskeyFactors`,
+ * associates nothing, completes nothing and refuses nothing: without a factor
  * package no passkey is a factor. A passkey's use and its bookkeeping (sign
  * count, backup state) are no change the identity makes, so they are not gated.
  *
@@ -41,7 +47,10 @@ interface PasskeyFactorGate
      * Before the passkey the identity registered on the application is stored:
      * associate it as a factor, answer `null` to leave it a sign-in credential,
      * or throw to refuse it. The binding is the one the registration's options
-     * were asked for, if any.
+     * were asked for, if any. The association's completion reaches the
+     * registration's caller as `PasskeyRegistration::$factor->completion`; a
+     * duplicate credential found by the insert rolls back everything the gate
+     * did and answers no association.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $application
@@ -55,13 +64,16 @@ interface PasskeyFactorGate
     /**
      * Before the identity's passkey (its id, and its credential id as canonical
      * unpadded base64url) is removed from the application: throw to refuse the
-     * removal.
+     * removal, or answer the factor package's completion of it, `null` for
+     * none, which reaches the removal's caller as `PasskeyRemoval::$completion`
+     * once the passkey is removed; a passkey removed concurrently rolls back
+     * everything the gate did and answers no completion.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $application
      * @param  string  $passkeyId
      * @param  string  $credentialId
-     * @return void
+     * @return ?object
      */
-    public function removing(Identity $identity, string $application, string $passkeyId, #[\SensitiveParameter] string $credentialId): void;
+    public function removing(Identity $identity, string $application, string $passkeyId, #[\SensitiveParameter] string $credentialId): ?object;
 }

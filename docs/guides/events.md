@@ -169,8 +169,10 @@ or the active tenant (with which in `principalChanged` and `tenantChanged`, and 
 or `SessionReturnedToPending` when its destination asks for a further factor, and no `Login` or `SignedIn`. Nor is a
 step-up or a reauthentication, which keep their session: each dispatches `SteppedUp` or `Reauthenticated` once
 committed, and a refusal `AuthenticationFailed`, never `Attempting`, `Failed`, `Login` or `SignedIn`. Nor is the factor
-package's removal of a factor the current session relied on: when that leaves it short, `SessionReturnedToPending`
-reports it with the flow `factor_change` (see [Sign-in factors](sessions.md#sign-in-factors)). The event that reports a
+package's removal of a factor the current session relied on, or an addition to its factors that the session is judged
+again after (`factorChanged()`): when that leaves it short, `SessionReturnedToPending` reports it with the flow
+`factor_change`, and when it is no longer admitted, `SessionRevoked` reports it with `factor_removed`, or
+`factor_changed` after an addition (see [Sign-in factors](sessions.md#sign-in-factors)). The event that reports a
 session's write (`SessionCreated`, `SignedIn`, `Refreshed` or `PrincipalSwitched`) is scheduled before the guard is
 bound to the session, so a listener that throws on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or
 `SessionAuthenticated` cannot keep it from being reported (its exception still reaches the caller). Outside a

@@ -28,8 +28,8 @@ final class NoPasskeyFactorsTest extends TestCase
 
     /**
      * Without a factor package no passkey is a factor: a registration is
-     * associated with nothing, and a removal goes ahead, the identity never
-     * consulted.
+     * associated with nothing, and a removal goes ahead completing nothing, the
+     * identity never consulted.
      *
      * @return void
      */
@@ -43,6 +43,6 @@ final class NoPasskeyFactorsTest extends TestCase
 
         self::assertNull($gate->registering($identity, 'api', $passkey, null, 'Laptop'));
 
-        $gate->removing($identity, 'api', $passkey->id, $passkey->credentialId);
+        self::assertNull($gate->removing($identity, 'api', $passkey->id, $passkey->credentialId));
     }
 }

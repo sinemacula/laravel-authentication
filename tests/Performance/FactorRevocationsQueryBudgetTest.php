@@ -10,6 +10,8 @@ use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -18,6 +20,7 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
+use SineMacula\Laravel\Authentication\Sessions\FactorChangeResult;
 use SineMacula\Laravel\Authentication\Sessions\FactorRemoval;
 use SineMacula\Laravel\Authentication\Sessions\FactorRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -35,7 +38,11 @@ use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
  * owner and its first factor, and the requirement's page of proofs while a
  * further factor is asked), plus the return to pending's one `UPDATE` when it
  * falls short; without a current session, it is the bulk revocation alone, and
- * so is a reset.
+ * so is a reset. An addition, a change of the factor package's that removes
+ * no factor, judges the current session alone: the locking read, the issuance
+ * guard's `UPDATE` and the same reads of judging it again, plus the return's
+ * `UPDATE` when it falls short; a current session that is no longer live costs
+ * the locking read alone.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -162,6 +169,79 @@ final class FactorRevocationsQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
 
         self::assertSame(2, $this->assertQueryBudget(1, 2, static fn (): int => $sessions->factorReset($identity)));
+    }
+
+    /**
+     * A change that keeps the current session active locks it, writes its
+     * issuance guard and judges it again as a refresh does (its owner, its
+     * first factor and the requirement's page of proofs): four reads and one
+     * `UPDATE`, no other session read or written.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeKeepingTheCurrentSessionActiveCostsItsJudgement(): void
+    {
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $identity = $this->seedIdentity();
+
+        $this->satisfied();
+
+        $current  = $this->satisfied();
+        $sessions = $this->sessions();
+
+        $change = static fn (): FactorChangeResult => $sessions->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record);
+
+        self::assertTrue($this->assertQueryBudget(4, 1, $change)->isActive());
+    }
+
+    /**
+     * A change that returns the current session to pending costs the same and
+     * the one `UPDATE` of the return; the identity's other session is not read.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeReturningTheCurrentSessionToPendingCostsOneUpdateMore(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->signIn();
+
+        $current  = $this->signIn();
+        $sessions = $this->sessions();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $change = static fn (): FactorChangeResult => $sessions->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record);
+
+        self::assertTrue($this->assertQueryBudget(4, 2, $change)->isPending());
+    }
+
+    /**
+     * A change whose current session is no longer live is the locking read
+     * alone, and writes nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeSkippingTheCurrentSessionCostsTheLockAlone(): void
+    {
+        $identity = $this->seedIdentity();
+        $current  = $this->signIn();
+        $sessions = $this->sessions();
+
+        $sessions->revokeSession($identity, $current->record->getKey(), RevocationReason::REVOKED);
+
+        $change = static fn (): FactorChangeResult => $sessions->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record);
+
+        self::assertTrue($this->assertQueryBudget(1, 0, $change)->isSkipped());
     }
 
     /**

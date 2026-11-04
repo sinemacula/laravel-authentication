@@ -33,8 +33,8 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
  * that meet the requirement (`satisfy()`). The policy is asked again each time
  * the pending session is acted on, when a refresh or a switch returns the
  * session to pending under its tenant's authentication policy (never when that
- * policy is met), and when the removal of a factor judges the current session
- * again.
+ * policy is met), and when the removal or another change of a factor judges the
+ * current session again (`factorRemoved()`, `factorChanged()`).
  *
  * It is asked inside `WriteConnection::during()` for the identity, so a model
  * read it makes of the identity's own state sees the primary.

@@ -6,42 +6,42 @@ Concrete classes in this package are `final` except `AuthManager` (the package's
 shipped `Models\Session` model, and the extension points noted below. Extension is through **composition and DI**, not
 inheritance:
 
-| Extension point                   | How                                                                                                              |
-|-----------------------------------|------------------------------------------------------------------------------------------------------------------|
-| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                           |
-| Custom session model              | Implement `EloquentSession`, use `ActsAsSession` (and `PrunesSessions` to be pruned), on the storage connection  |
-| Ending session-less access tokens | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`                  |
-| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                        |
-| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                             |
-| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                              |
-| Guard and provider drivers        | Register them with `Auth::extend()` / `Auth::provider()` as usual: the package's manager inherits them           |
-| Custom auth manager               | Extend `AuthManager` and bind it to `auth` in a `register()`; the package keeps it                               |
-| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                |
-| Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
-| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy`; call `factorRemoved()` or `factorReset()` when factors are removed       |
-| Gating factor changes             | Call `Auth::sessions()->factorChange()` before adding, replacing or removing a factor or making recovery codes   |
-| Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
-| Passkeys registered as factors    | Bind your own `PasskeyFactorGate`; it is asked inside each passkey registration and removal                      |
-| Application decisions             | Implement `ApplicationPolicy` (methods, body client credentials, lifetimes, identifiers) and bind it             |
-| Who may use an application        | Implement `ApplicationAccess` and bind it in the container                                                       |
-| Tenants a principal may act in    | Implement `TenantAccess` and bind it in the container                                                            |
-| Tenants named by identifier       | Implement `TenantResolver` and bind it in the container                                                          |
-| Tenant authentication policies    | Implement `TenantAuthenticationPolicy` and bind it; call `tenantPolicyChanged()` when it changes                 |
-| Judging a further factor          | Implement `RequirementCheck` and bind it in the container (a further-factor package binds one)                   |
-| Linking external results          | Implement `ExternalIdentityLinks` and bind it in the container (by default no external result is linked)         |
-| Accepting a provider's evidence   | Implement `ExternalEvidencePolicy` and bind it in the container (by default no evidence is accepted)             |
-| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
-| Identifier normal forms           | Implement `IdentifierNormalizer`, register it by type in the config                                              |
-| One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
-| Further-factor code counts        | Implement `FactorCodeCounters` and bind it in the container (a further-factor package binds one)                 |
-| Breached-password checks          | Implement `BreachedPasswordChecker` and bind it in the container                                                 |
-| Password reset links              | Implement `PasswordResetLinkSender` and bind it in the container                                                 |
-| Identifier change notices         | Implement `IdentifierChangeNotifier` and bind it in the container                                                |
-| Freshness of sensitive operations | Configure `freshness` per operation and guard, or implement `FreshnessPolicy` and bind it in the container       |
-| Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                          |
-| Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                           |
-| Authentication context keys       | Implement `AuthenticationContextContributor` and register it with `ContextContributors::register()`              |
-| Authentication context source     | Type-hint `AuthenticationContexts` (rebind it in a test), or call `Auth::context()`                              |
+| Extension point                   | How                                                                                                                                                      |
+|-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                                                                   |
+| Custom session model              | Implement `EloquentSession`, use `ActsAsSession` (and `PrunesSessions` to be pruned), on the storage connection                                          |
+| Ending session-less access tokens | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`                                                          |
+| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                                                                |
+| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                                                                     |
+| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                                                                      |
+| Guard and provider drivers        | Register them with `Auth::extend()` / `Auth::provider()` as usual: the package's manager inherits them                                                   |
+| Custom auth manager               | Extend `AuthManager` and bind it to `auth` in a `register()`; the package keeps it                                                                       |
+| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                                                        |
+| Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use                                         |
+| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy`; call `factorRemoved()` (factor removed or replaced) or `factorReset()`, and `factorChanged()` after an addition  |
+| Gating factor changes             | Call `Auth::sessions()->factorChange()` before adding, replacing or removing a factor or making recovery codes                                           |
+| Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                                                           |
+| Passkeys registered as factors    | Bind your own `PasskeyFactorGate`; it is asked inside each passkey registration and removal, and may answer a completion                                 |
+| Application decisions             | Implement `ApplicationPolicy` (methods, body client credentials, lifetimes, identifiers) and bind it                                                     |
+| Who may use an application        | Implement `ApplicationAccess` and bind it in the container                                                                                               |
+| Tenants a principal may act in    | Implement `TenantAccess` and bind it in the container                                                                                                    |
+| Tenants named by identifier       | Implement `TenantResolver` and bind it in the container                                                                                                  |
+| Tenant authentication policies    | Implement `TenantAuthenticationPolicy` and bind it; call `tenantPolicyChanged()` when it changes                                                         |
+| Judging a further factor          | Implement `RequirementCheck` and bind it in the container (a further-factor package binds one)                                                           |
+| Linking external results          | Implement `ExternalIdentityLinks` and bind it in the container (by default no external result is linked)                                                 |
+| Accepting a provider's evidence   | Implement `ExternalEvidencePolicy` and bind it in the container (by default no evidence is accepted)                                                     |
+| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                                                                  |
+| Identifier normal forms           | Implement `IdentifierNormalizer`, register it by type in the config                                                                                      |
+| One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                                                               |
+| Further-factor code counts        | Implement `FactorCodeCounters` and bind it in the container (a further-factor package binds one)                                                         |
+| Breached-password checks          | Implement `BreachedPasswordChecker` and bind it in the container                                                                                         |
+| Password reset links              | Implement `PasswordResetLinkSender` and bind it in the container                                                                                         |
+| Identifier change notices         | Implement `IdentifierChangeNotifier` and bind it in the container                                                                                        |
+| Freshness of sensitive operations | Configure `freshness` per operation and guard, or implement `FreshnessPolicy` and bind it in the container                                               |
+| Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                                                                  |
+| Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                                                                   |
+| Authentication context keys       | Implement `AuthenticationContextContributor` and register it with `ContextContributors::register()`                                                      |
+| Authentication context source     | Type-hint `AuthenticationContexts` (rebind it in a test), or call `Auth::context()`                                                                      |
 
 The `password` method is the package's own: `attempt()`, `validate()` and the password rehash use it directly, so
 `extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a
@@ -457,9 +457,9 @@ seam has a default that works alone.
   (an additional verification, multifactor, a minimum assurance level, phishing resistance, each with an optional
   maximum age). It is asked about every admitted identity's sign-in, from `signIn()` and `start()`, before any principal
   is chosen, again whenever its pending session is acted on, and when a refresh or a switch returns the session to
-  pending under its destination tenant's policy or `factorRemoved()` judges the current session again (never on a
-  refresh or switch that tenant's policy lets through), inside `WriteConnection::during()` for the identity, with an
-  `AdditionalFactorContext`: the application, the identity, the first factor's whole recorded proof
+  pending under its destination tenant's policy or `factorRemoved()` or `factorChanged()` judges the current session
+  again (never on a refresh or switch that tenant's policy lets through), inside `WriteConnection::during()` for the
+  identity, with an `AdditionalFactorContext`: the application, the identity, the first factor's whole recorded proof
   (`Proofs\RecordedProof`: method, channel, observed properties, `amr` values, time), the client, and the session the
   client proved; it names no principal or tenant (see [Additional factors](signing-in.md#additional-factors)).
 - Bind `Contracts\RequirementCheck` (the default, `MeetNoRequirement`, meets nothing). It is the one judge of whether a
@@ -505,6 +505,32 @@ seam has a default that works alone.
   `Auth::sessions()->factorReset($identity)` ends every session and, once committed, the request's authentication as the
   identity. Both are mandatory: no setting turns them off, and they are called synchronously, never through a listener
   (see [Sign-in factors](sessions.md#sign-in-factors)). The identity must live on the storage connection.
+- After an addition to an identity's factors made from an active session (a further factor's enrolment confirmed, a
+  passkey associated as a factor, or any other change that removes no factor), inside the same transaction and after
+  the same locks: `Auth::sessions()->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $current)`, where
+  `$current` is `Auth::session()` once you have checked it is not `null` (a change made with no current session has
+  nothing to judge and does not call it). `Factors\Enums\FactorChangeMade` has `FACTOR_CONFIRMED`,
+  `PASSKEY_FACTOR_REGISTERED`, `FACTOR_REMOVED` and `OTHER`. It judges the current session again exactly as
+  `factorRemoved()` judges it, voiding no proof and touching no other session. A replacement removes the factor it
+  replaces, so it calls `factorRemoved()` for that factor, which voids its proofs and ends the other sessions. A new set
+  of recovery codes removes no factor, so it never goes through `factorRemoved()` (the session's proofs made with a
+  recovery code stay recorded and count), and goes through this call with `OTHER` only when your factor policy can
+  change with the codes. A removal needs nothing more than `factorRemoved()`, which has already judged the session:
+  `FACTOR_REMOVED` is only for a factor package that hands every change to this judgement once it is made, after
+  `factorRemoved()` and never in its place. There it judges a session the removal kept again at its own time, so it can
+  still return it to pending or revoke it (a maximum age lapsing between the two calls, say): hand the client the
+  credential of whichever result is pending, `FactorRemoval::$credential` or this call's. This call's
+  `Sessions\FactorChangeResult` says whether the session stayed `active`, returned to `pending` (carrying the pending
+  session and credential for the client), was `revoked` (`factor_changed`, or `factor_removed` for `FACTOR_REMOVED`) or
+  was `skipped` (no longer the session given, or no longer live and active). It locks the session's row after your
+  locks, writes its issuance guard before it reads the proofs, and runs as a savepoint of your transaction when that is
+  on the storage connection, so the return to pending commits or rolls back with the change; its events and the guard's
+  forgetting of the session follow the commit. Its reads of the proofs are plain ones, so on MySQL and MariaDB at
+  REPEATABLE READ make the call before any plain read in your transaction, or run the change at READ COMMITTED (see
+  [Sign-in factors](sessions.md#sign-in-factors)). The identity's other sessions are not judged: only the current
+  session's client can receive a pending credential, and an added factor ends nothing, so they keep running as they were
+  admitted; end them yourself in the same transaction (`revokeSessions(..., except: $current)`) if they must meet the
+  new requirement. The identity may live on any connection, since nothing of it is written.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
   `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
   the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows
@@ -514,7 +540,13 @@ seam has a default that works alone.
 - Bind a `Contracts\PasskeyFactorGate` to take part in the passkeys' lifecycle: `registering()` is asked inside the
   transaction that inserts a new passkey and may associate it as a factor (`PasskeyFactorAssociation`, carried in the
   `PasskeyRegistration`'s `factor`), and `removing()` inside the one that deletes it; either may refuse by throwing,
-  which rolls the change back whole. The default, `Passkeys\NoPasskeyFactors`, associates nothing and refuses nothing.
+  which rolls the change back whole. A gate that associates a passkey as a factor from an active session calls
+  `factorChanged(..., FactorChangeMade::PASSKEY_FACTOR_REGISTERED, ...)`, and one that removes a passkey factor calls
+  `factorRemoved()`; each may hand its completion of the change (the judgement, with any pending credential) back to the
+  passkey service's caller, uninterpreted: as the association's `completion`
+  (`PasskeyRegistration::$factor->completion`), or as what `removing()` returns (`PasskeyRemoval::$completion`). A
+  change rolled back (a credential registered meanwhile, a passkey removed meanwhile) answers no completion. The
+  default, `Passkeys\NoPasskeyFactors`, associates nothing, completes nothing and refuses nothing.
 - Every failed check of one of this package's challenges reports `AuthenticationFailed` with the challenge's id
   (`challengeId`), the id the factor package's own per-attempt events carry, so both can be followed per challenge; the
   context is plain values the factor package reads as scalars (see [Events](events.md#events)).

@@ -39,7 +39,8 @@ enum RevocationReason: string
 
     // A sign-in factor of the identity was removed: a first-factor credential,
     // `credentialRemoved()`, or one of the factor package's factors,
-    // `factorRemoved()`
+    // `factorRemoved()`, and `factorChanged()` judging the current session
+    // again after that removal
     case FACTOR_REMOVED = 'factor_removed';
 
     // The identity was deactivated: `identityDeactivated()`
@@ -63,6 +64,10 @@ enum RevocationReason: string
 
     // The identity's further factors were reset: `factorReset()`
     case FACTOR_RESET = 'factor_reset';
+
+    // An addition to the factor package's factors, a change that removes none,
+    // left the current session no longer admitted: `factorChanged()`
+    case FACTOR_CHANGED = 'factor_changed';
 
     // The connection the session was established through was disabled:
     // `connectionDisabled()`

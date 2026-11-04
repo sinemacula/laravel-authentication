@@ -98,9 +98,10 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * looks one session or principal up (`LooksUpSessions`), and signs out, revokes
  * sessions and ends sessions on security changes through `SessionRevocations`
  * (`EndsSessions`), which the guard's `logout()` and password changes use too,
- * signs out by refresh credential through `SessionSignOut`, and ends the
- * sessions a connection established through `ConnectionRevocations`
- * (`EndsConnectionSessions`).
+ * judges the current session again after the factor package's changes through
+ * `FactorRevocations`, signs out by refresh credential through
+ * `SessionSignOut`, and ends the sessions a connection established through
+ * `ConnectionRevocations` (`EndsConnectionSessions`).
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration

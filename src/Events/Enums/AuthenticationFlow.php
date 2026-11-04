@@ -68,6 +68,7 @@ enum AuthenticationFlow: string
     case PASSWORD_CHANGE = 'password_change';
 
     // A recheck of the current session after one of the factor package's
-    // factors was removed: the session service's factorRemoved()
+    // factors was removed or changed: the session service's factorRemoved() and
+    // factorChanged()
     case FACTOR_CHANGE = 'factor_change';
 }

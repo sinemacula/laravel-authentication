@@ -278,7 +278,7 @@ final class PasskeyRoutesTest extends TestCase
 
         assert($identity instanceof IntegrationIdentity);
 
-        abort_unless(Auth::passkeys('api')->remove($identity, $passkey), 404);
+        abort_unless(Auth::passkeys('api')->remove($identity, $passkey)->isRemoved(), 404);
 
         return response()->noContent();
     }
