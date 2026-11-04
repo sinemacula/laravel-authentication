@@ -1115,13 +1115,15 @@ final class FactorRevocationsTest extends TestCase
 
         self::assertNotNull($pending);
 
+        $changeId = hash('sha256', 'change-1');
+
         DB::table('identifier_changes')->insert([
-            'id'           => 'change-1',
+            'id'           => $changeId,
             'guard'        => 'api',
             'type'         => 'email',
             'previous'     => null,
             'identifier'   => 'ada@new.example.test',
-            'request_id'   => 'request-1',
+            'request_id'   => '0195f4a2-7b1c-4000-8000-000000000001',
             'requested_at' => '2026-04-06 12:00:00',
             'expires_at'   => '2026-04-06 13:00:00',
         ]);
@@ -1136,7 +1138,7 @@ final class FactorRevocationsTest extends TestCase
         self::assertSame($otherBefore, $this->columnsOf($other->record->getKey()));
         self::assertSame($pendingBefore, $this->columnsOf($pending->id));
         self::assertSame($identityBefore, IntegrationIdentity::query()->sole()->getAttributes());
-        self::assertSame(['change-1'], DB::table('identifier_changes')->pluck('id')->all());
+        self::assertSame([$changeId], DB::table('identifier_changes')->pluck('id')->all());
         self::assertSame(['factor-a' => null], $this->voidedOn($other->record->getKey()));
         self::assertSame(0, Session::query()->whereNotNull('revoked_at')->count());
         self::assertSame([SessionReturnedToPending::class], $this->recordedClasses());
