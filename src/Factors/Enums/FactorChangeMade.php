@@ -9,9 +9,11 @@ namespace SineMacula\Laravel\Authentication\Factors\Enums;
  * for which it judges the session the change was made from again
  * (`SessionService::factorChanged()`). The factor-change gate's `FactorChange`
  * names a change before it is made, by the freshness operation it must be fresh
- * for; this names it after, for the judgement. The case decides only the reason
- * a revocation of the session records: `factor_removed` for a removal,
- * `factor_changed` for every other change.
+ * for; this names it after, for the judgement. A change that removes a factor,
+ * a replacement included, goes through `factorRemoved()` for the factor it
+ * removes, which judges the session itself. The case decides only the reason a
+ * revocation of the session records: `factor_removed` for `FACTOR_REMOVED`,
+ * `factor_changed` for every other case.
  *
  * @api
  *
@@ -28,11 +30,13 @@ enum FactorChangeMade: string
     // gate's registering()
     case PASSKEY_FACTOR_REGISTERED = 'passkey_factor_registered';
 
-    // A factor removed, a passkey's included, once factorRemoved() has voided
-    // its proofs and ended the identity's other sessions; never in its place
+    // A factor removed, a passkey's included, for a factor package that hands
+    // every change to this judgement once factorRemoved() has voided its proofs
+    // and ended the identity's other sessions; never in its place, and the
+    // session is left as the removal left it
     case FACTOR_REMOVED = 'factor_removed';
 
-    // Any other change to the identity's factors that may leave the session
-    // short of what it is asked
+    // Any other change to the identity's factors that removes none of them and
+    // may leave the session short of what it is asked
     case OTHER = 'other';
 }

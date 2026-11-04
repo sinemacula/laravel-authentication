@@ -29,7 +29,7 @@ use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
  * whatever identity, principal or tenant they are given; signing out by refresh
  * credential, which `SessionSignOut` carries out; the removal and reset of the
  * factor package's factors, and the judgement of the current session again
- * after its other changes, which `FactorRevocations` carries out; and the
+ * after an addition to them, which `FactorRevocations` carries out; and the
  * application of a tenant's changed authentication policy, which
  * `TenantPolicyChanges` carries out.
  *
@@ -358,10 +358,9 @@ trait EndsSessions
 
     /**
      * The factor package made a change to the identity's factors from
-     * `$current` other than one only `factorRemoved()` or `factorReset()`
-     * stands for (a factor confirmed, a passkey associated as a factor, or a
-     * removal once `factorRemoved()` has run): judge `$current` again exactly
-     * as `factorRemoved()` judges it, without voiding any proof or touching any
+     * `$current` that removes none of them (a factor confirmed, a passkey
+     * associated as a factor): judge `$current` again exactly as
+     * `factorRemoved()` judges it, without voiding any proof or touching any
      * other session. It stays active while it still meets the identity's factor
      * policy and its tenant's policy (`active`); returns to pending (flow
      * `factor_change`) while it falls short of a further factor only, its
@@ -384,7 +383,10 @@ trait EndsSessions
      * events follow the commit. Called with no transaction on the storage
      * connection, it commits on its own. `$current` must be a session of this
      * guard the identity owns, or nothing is written and an exception is
-     * thrown. Never call it in place of `factorRemoved()` or `factorReset()`.
+     * thrown. Never call it in place of `factorRemoved()` or `factorReset()`: a
+     * replacement removes the factor it replaces, so it calls `factorRemoved()`
+     * for that factor, and a removal needs nothing more (`FACTOR_REMOVED`,
+     * after it, leaves the session as the removal left it).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade  $change
@@ -392,6 +394,7 @@ trait EndsSessions
      * @return \SineMacula\Laravel\Authentication\Sessions\FactorChangeResult
      *
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \Throwable
      */
     public function factorChanged(Identity $identity, FactorChangeMade $change, Session $current): FactorChangeResult

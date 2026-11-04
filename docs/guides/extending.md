@@ -18,7 +18,7 @@ inheritance:
 | Custom auth manager               | Extend `AuthManager` and bind it to `auth` in a `register()`; the package keeps it                                                                       |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                                                        |
 | Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use                                         |
-| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy`; call `factorRemoved()` or `factorReset()` when factors are removed, and `factorChanged()` after any other change |
+| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy`; call `factorRemoved()` (factor removed or replaced) or `factorReset()`, and `factorChanged()` after an addition  |
 | Gating factor changes             | Call `Auth::sessions()->factorChange()` before adding, replacing or removing a factor or making recovery codes                                           |
 | Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                                                           |
 | Passkeys registered as factors    | Bind your own `PasskeyFactorGate`; it is asked inside each passkey registration and removal, and may answer a completion                                 |
@@ -505,21 +505,26 @@ seam has a default that works alone.
   `Auth::sessions()->factorReset($identity)` ends every session and, once committed, the request's authentication as the
   identity. Both are mandatory: no setting turns them off, and they are called synchronously, never through a listener
   (see [Sign-in factors](sessions.md#sign-in-factors)). The identity must live on the storage connection.
-- After any other change to an identity's factors made from an active session (a further factor's enrolment confirmed, a
-  passkey associated as a factor, or a removal once `factorRemoved()` has run, never in its place), inside the same
-  transaction and after the same locks: `Auth::sessions()->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED,
-  Auth::session())` (`Factors\Enums\FactorChangeMade`: `FACTOR_CONFIRMED`, `PASSKEY_FACTOR_REGISTERED`,
-  `FACTOR_REMOVED`, `OTHER`) judges the current session again exactly as `factorRemoved()` judges it, voiding no proof
-  and touching no other session. Its `Sessions\FactorChangeResult` says whether it stayed `active`, returned to
-  `pending` (carrying the pending session and credential for the client), was `revoked` (`factor_changed`, or
-  `factor_removed` after a removal) or was `skipped` (no longer the session given, or no longer live and active). It
-  locks the session's row after your locks, writes its issuance guard before it reads the proofs, and runs as a
-  savepoint of your transaction when that is on the storage connection, so the return to pending commits or rolls back
-  with the change; its events and the guard's forgetting of the session follow the commit. The identity's other sessions
-  are not judged: only the current session's client can receive a pending credential, and an added factor ends nothing,
-  so they keep running as they were admitted; end them yourself in the same transaction
-  (`revokeSessions(..., except: $current)`) if they must meet the new requirement. The identity may live on any
-  connection, since nothing of it is written.
+- After an addition to an identity's factors made from an active session (a further factor's enrolment confirmed, a
+  passkey associated as a factor, or any other change that removes no factor), inside the same transaction and after
+  the same locks: `Auth::sessions()->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $current)`, where
+  `$current` is `Auth::session()` once you have checked it is not `null` (a change made with no current session has
+  nothing to judge and does not call it). `Factors\Enums\FactorChangeMade` has `FACTOR_CONFIRMED`,
+  `PASSKEY_FACTOR_REGISTERED`, `FACTOR_REMOVED` and `OTHER`. It judges the current session again exactly as
+  `factorRemoved()` judges it, voiding no proof and touching no other session. A replacement removes the factor it
+  replaces, so it calls `factorRemoved()` for that factor, which voids its proofs and ends the other sessions; and a
+  removal needs nothing more than `factorRemoved()`, which has already judged the session: `FACTOR_REMOVED` is only for
+  a factor package that hands every change to this judgement once it is made, after `factorRemoved()` and never in its
+  place, and there it leaves the session as the removal left it. Its `Sessions\FactorChangeResult` says whether the
+  session stayed `active`, returned to `pending` (carrying the pending session and credential for the client), was
+  `revoked` (`factor_changed`, or `factor_removed` for `FACTOR_REMOVED`) or was `skipped` (no longer the session given,
+  or no longer live and active). It locks the session's row after your locks, writes its issuance guard before it reads
+  the proofs, and runs as a savepoint of your transaction when that is on the storage connection, so the return to
+  pending commits or rolls back with the change; its events and the guard's forgetting of the session follow the
+  commit. The identity's other sessions are not judged: only the current session's client can receive a pending
+  credential, and an added factor ends nothing, so they keep running as they were admitted; end them yourself in the
+  same transaction (`revokeSessions(..., except: $current)`) if they must meet the new requirement. The identity may
+  live on any connection, since nothing of it is written.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
   `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
   the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows

@@ -65,8 +65,8 @@ enum RevocationReason: string
     // The identity's further factors were reset: `factorReset()`
     case FACTOR_RESET = 'factor_reset';
 
-    // One of the factor package's changes other than a removal left the current
-    // session no longer admitted: `factorChanged()`
+    // An addition to the factor package's factors, a change that removes none,
+    // left the current session no longer admitted: `factorChanged()`
     case FACTOR_CHANGED = 'factor_changed';
 
     // The connection the session was established through was disabled:

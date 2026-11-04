@@ -100,8 +100,8 @@ revoked, and when a session that ended is deleted. Starting a session is in
   ended or took back to pending (`factorRemoved()` with a current session) or to the identity (`factorReset()`, and
   `factorRemoved()` with none, since both end every session of it, through `GuardBinding::forgetIdentity()`).
   `credentialRemoved()` stays per event, the optional listener's or the application's.
-- After any other change to an identity's factors made from the current session (a further factor's enrolment
-  confirmed, a passkey associated as a factor, or a removal once `factorRemoved()` has run), the factor package calls
+- After an addition to an identity's factors made from the current session (a further factor's enrolment confirmed, a
+  passkey associated as a factor, or any other change that removes no factor), the factor package calls
   `factorChanged($identity, FactorChangeMade $change, $current)` the same way: synchronously, inside its transaction,
   after its own locks. It judges the current session again exactly as `factorRemoved()` does (`FactorRevocations`'
   shared `judge()`), but voids no proof, moves no cutoff and touches no other session: a savepoint on the session
@@ -113,7 +113,11 @@ revoked, and when a session that ended is deleted. Starting a session is in
   client can receive a pending credential (returning another session to pending would end it in all but name), an added
   factor is no sign of compromise, and judging every other session would lock their rows under the factor package's
   locks for no outcome but "leave"; a refresh asks the identity-level requirement only once the tenant's policy falls
-  short, so they run as admitted until they end, unless the application ends them in the same transaction.
+  short, so they run as admitted until they end, unless the application ends them in the same transaction. A replacement
+  removes the factor it replaces, so it goes through `factorRemoved()` for that factor, never this call;
+  `FACTOR_REMOVED` exists only for a factor package that hands every change, a removal included, to this judgement once
+  `factorRemoved()` has run, and there it judges the same row on the same proofs and so leaves the session as the
+  removal left it.
 - `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()` and `linkScopeWidened()`
   (`Sessions\ConnectionRevocations`, through `Concerns\EndsConnectionSessions`) revoke the live sessions, pending ones
   included, of every guard that a connection established (a link's: only that identity's, whose provenance records both
@@ -267,8 +271,8 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - `tests/Performance/SessionRevocationQueryBudgetTest.php`
 - `tests/Feature/Sessions/FactorRevocationsTest.php`, `tests/Integration/Sessions/FactorRevocationsTest.php`,
   `tests/Performance/FactorRevocationsQueryBudgetTest.php`: the factor package's removal, reset and judgement of the
-  current session again after any other change; `tests/Integration/Sessions/ConcurrentRefreshAndFactorChangeTest.php`:
-  that judgement against a concurrent refresh on PostgreSQL and MySQL
+  current session again after an addition; `tests/Integration/Sessions/ConcurrentRefreshAndFactorChangeTest.php`: that
+  judgement against a concurrent refresh on PostgreSQL and MySQL
 - `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`,
   `tests/Integration/Sessions/ReplicaRevokesOnSecurityChangesTest.php`,
   `tests/Feature/Listeners/RevokeSessionsOn*Test.php`, `tests/Unit/Sessions/Methods/RehashingTest.php`,

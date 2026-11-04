@@ -236,12 +236,12 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   the accepted evidence's (`Contracts\ExternalEvidencePolicy`) or its proofs' (`Contracts\RequirementCheck`) answer,
   each meeting nothing by default; the identity-level factor policy answers a `Requirement` too, judged the same way
   (`RequirementJudge`). Freshness uses neither, and so no provider's evidence: a proof carrying accepted evidence never
-  meets a multifactor freshness requirement. The factor-change gate
-  (`SessionService::factorChange()`) asks freshness for `factor_change`, or `first_additional_factor` for an identity's
-  first additional factor, excluding the factor a replacement or removal names, before the change; once it is made, a
-  removal judges the current session again with `factorRemoved()` and any other change with `factorChanged()`, which
-  reads the proofs as they stand under the session's issuance guard and voids none. A sibling that needs more rebinds
-  `FreshnessPolicy` until the value is extended.
+  meets a multifactor freshness requirement. The factor-change gate (`SessionService::factorChange()`) asks freshness
+  for `factor_change`, or `first_additional_factor` for an identity's first additional factor, excluding the factor a
+  replacement or removal names, before the change; once it is made, a removal or replacement judges the current session
+  again with `factorRemoved()` and an addition with `factorChanged()`, which reads the proofs as they stand under the
+  session's issuance guard and voids none. A sibling that needs more rebinds `FreshnessPolicy` until the value is
+  extended.
 - A pending session records its first factor and provenance as any session does, when it is written; the further
   factor `satisfy()` accepts is stored with them (the requirement check reads it when the policy is asked again), and
   none counts for a token until the session activates.

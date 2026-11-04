@@ -169,17 +169,17 @@ or the active tenant (with which in `principalChanged` and `tenantChanged`, and 
 or `SessionReturnedToPending` when its destination asks for a further factor, and no `Login` or `SignedIn`. Nor is a
 step-up or a reauthentication, which keep their session: each dispatches `SteppedUp` or `Reauthenticated` once
 committed, and a refusal `AuthenticationFailed`, never `Attempting`, `Failed`, `Login` or `SignedIn`. Nor is the factor
-package's removal of a factor the current session relied on, or any other change of its factors that the session is
-judged again after (`factorChanged()`): when that leaves it short, `SessionReturnedToPending` reports it with the flow
+package's removal of a factor the current session relied on, or an addition to its factors that the session is judged
+again after (`factorChanged()`): when that leaves it short, `SessionReturnedToPending` reports it with the flow
 `factor_change`, and when it is no longer admitted, `SessionRevoked` reports it with `factor_removed`, or
-`factor_changed` after a change other than a removal (see [Sign-in factors](sessions.md#sign-in-factors)). The event
-that reports a session's write (`SessionCreated`, `SignedIn`, `Refreshed` or `PrincipalSwitched`) is scheduled before
-the guard is bound to the session, so a listener that throws on `Validated`, `Login`, `Authenticated`,
-`PrincipalAssigned` or `SessionAuthenticated` cannot keep it from being reported (its exception still reaches the
-caller). Outside a transaction it is therefore dispatched before those bind events: read the event's context in its
-listener, not the guard, which may not be bound to the new session yet. The bind of a sign-in, a refresh or a switch
-itself waits for the session's commit, so inside your transaction its bind events follow the commit, after the events
-that report the session, and a rollback withdraws both.
+`factor_changed` after an addition (see [Sign-in factors](sessions.md#sign-in-factors)). The event that reports a
+session's write (`SessionCreated`, `SignedIn`, `Refreshed` or `PrincipalSwitched`) is scheduled before the guard is
+bound to the session, so a listener that throws on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or
+`SessionAuthenticated` cannot keep it from being reported (its exception still reaches the caller). Outside a
+transaction it is therefore dispatched before those bind events: read the event's context in its listener, not the
+guard, which may not be bound to the new session yet. The bind of a sign-in, a refresh or a switch itself waits for the
+session's commit, so inside your transaction its bind events follow the commit, after the events that report the
+session, and a rollback withdraws both.
 
 Every refusal is reported once: a guard settles and reports its request's credential at most once (asking
 `Auth::user()`, `Auth::context()`, `Auth::caller()` or `check()` again reports nothing more), each service call reports

@@ -60,14 +60,14 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * bound to it forgotten at once, and again once the removal commits or rolls
  * back, whether it stays active or not.
  *
- * Any other change the factor package makes (a factor confirmed, a passkey
- * associated as a factor, or a removal once the removal above has run) judges
- * the current session again in the same way, on the session model's connection
- * in one transaction, a savepoint inside the caller's: it voids no proof,
- * touches no other session and moves no cutoff, so the identity may live
- * anywhere. A current session that is no longer the session given, or no longer
- * live and active, is skipped; a pending one is judged at its next action. Its
- * revocation records `factor_changed`, or `factor_removed` after a removal.
+ * A change the factor package makes that removes no factor (a factor confirmed,
+ * a passkey associated as a factor) judges the current session again in the
+ * same way, on the session model's connection in one transaction, a savepoint
+ * inside the caller's: it voids no proof, touches no other session and moves no
+ * cutoff, so the identity may live anywhere. A current session that is no
+ * longer the session given, or no longer live and active, is skipped; a pending
+ * one is judged at its next action. Its revocation records `factor_changed`, or
+ * `factor_removed` for `FACTOR_REMOVED`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
