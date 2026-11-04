@@ -60,8 +60,13 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * the session changed and fails as `pending_invalid`. Each runs the gate
  * (`PendingEvaluation`) under the lock: the identity, the method, the principal
  * and its tenant are admitted again, and what the session still waits on is
- * judged again, so the session activates, stays pending, or moves on to the
- * choice. A refusal writes nothing (a proof given with it is not stored) and
+ * judged again, its proofs and provenance read current (`SessionProofs`), so
+ * the session activates, stays pending, or moves on to the choice. Satisfying
+ * and choosing, once the action is admitted, also lock the session the
+ * sign-in's client proved it holds, when there is one an activation may
+ * supersede, before the session's issuance guard and any read of its proofs:
+ * every session row is locked before any proof row, as the package's lock order
+ * puts them. A refusal writes nothing (a proof given with it is not stored) and
  * never revokes the session, which waits until its credential expires; only
  * `discard()` ends one early. Once a proof `satisfy()` stored commits, or rolls
  * back, every resolved guard bound to the session forgets the authentication
@@ -206,13 +211,15 @@ final readonly class PendingSessions
                 return $admitted;
             }
 
+            $proven = $this->proven($session, true);
+
             IssuanceGuard::hold($session);
 
             ProofWriter::record($session, $this->context->name(), NewProof::fromResult($proof));
 
             ContextForgetting::onSettle($this->afterCommit, $session);
 
-            return $this->settle($session, $identity, $principal, $admitted, $now, $this->proven($session));
+            return $this->settle($session, $identity, $principal, $admitted, $now, $proven);
         });
     }
 
@@ -260,7 +267,7 @@ final readonly class PendingSessions
 
             [$principal, $tenant] = $chosenAs;
 
-            return $this->settle($session, $identity, $principal, $tenant, $now, $this->proven($session));
+            return $this->settle($session, $identity, $principal, $tenant, $now, $this->proven($session, true));
         });
     }
 
@@ -437,14 +444,14 @@ final readonly class PendingSessions
         CarbonImmutable $now,
         (EloquentSession&Model)|null $proven,
     ): Refused|SignInResult {
-        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, $session, $now);
+        $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, $session, $now, current: true);
 
         if ($policy->standing === TenantPolicyStanding::SSO_REQUIRED) {
             return new Refused(FailureReason::SSO_REQUIRED, $identity, $principal, $tenant, $session);
         }
 
-        $first       = PendingTransitions::firstFactorOf($session, $policy);
-        $outstanding = Requirement::strictest($this->evaluation->owedFactorOn($session, $identity, $first, $proven, $now), $policy->factor);
+        $first       = PendingTransitions::firstFactorOf($session, $policy, current: true);
+        $outstanding = Requirement::strictest($this->evaluation->owedFactorOn($session, $identity, $first, $proven, $now, current: true), $policy->factor);
         $requires    = PendingEvaluation::requirements($outstanding, $principal);
 
         if ($principal !== null && $requires === []) {
@@ -692,18 +699,28 @@ final readonly class PendingSessions
      * The session the sign-in's client proved it holds, when it still is that
      * session as proven: of this guard and owner, active, unrevoked, and
      * holding the refresh digest it was proven against; else `null`. One that
-     * returned to pending keeps that digest, so its status is checked too.
+     * returned to pending keeps that digest, so its status is checked too. With
+     * `$lock`, its row is read locked until the transaction ends (a pending
+     * action's, before it reads the pending session's proofs), so the
+     * activation's supersede that may follow takes no row after them; a session
+     * that proved none locks nothing.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  bool  $lock
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
      *
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function proven(EloquentSession&Model $session): (EloquentSession&Model)|null
+    private function proven(EloquentSession&Model $session, bool $lock = false): (EloquentSession&Model)|null
     {
         $digest = $session->getAttribute($session->getSupersedesRefreshKeyName());
-        $proven = is_string($digest) ? SessionLookup::find($session->getAttribute($session->getSupersedesSessionIdName())) : null;
+        $id     = $session->getAttribute($session->getSupersedesSessionIdName());
+        $proven = match (true) {
+            !is_string($digest) => null,
+            $lock               => SessionLookup::lock($id),
+            default             => SessionLookup::find($id),
+        };
 
         if ($proven === null) {
             return null;

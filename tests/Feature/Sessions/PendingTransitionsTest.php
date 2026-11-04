@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -39,7 +40,9 @@ use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
 
@@ -57,7 +60,7 @@ use Tests\TestCase;
 #[CoversClass(ReturnedToPending::class)]
 final class PendingTransitionsTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithSessions, MarksSharedLocks;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -184,6 +187,39 @@ final class PendingTransitionsTest extends TestCase
 
         self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $outstanding->kinds());
         self::assertSame(300, $outstanding->multifactor?->maxAgeSeconds);
+    }
+
+    /**
+     * Asked to read current, as a caller holding the session's row locked asks,
+     * the first factor a return to pending is judged on, when the verdict
+     * carries none, and the proofs what the session falls short of is judged on
+     * are read with a shared lock where the engine takes one; asked nothing,
+     * they are read plainly.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSessionsProofsAreReadCurrentOnlyWhenAsked(): void
+    {
+        self::markSharedLocks();
+
+        [$member] = $this->seedMember();
+
+        $session = $this->signedIn();
+        $first   = self::firstFactorOf($session);
+        $met     = new TenantPolicyVerdict(TenantPolicyStanding::MET, 'v1');
+        $locked  = self::takesSharedLocks();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $transitions = $this->transitions();
+
+        self::assertSame([$locked], self::proofReadLocks(static fn (): mixed => PendingTransitions::firstFactorOf($session, $met, true)));
+        self::assertSame([false], self::proofReadLocks(static fn (): mixed => PendingTransitions::firstFactorOf($session, $met)));
+        self::assertSame([$locked], self::proofReadLocks(fn (): mixed => $transitions->outstanding($session, $member, new Requirement, $first, $this->now, true)));
+        self::assertSame([false], self::proofReadLocks(fn (): mixed => $transitions->outstanding($session, $member, new Requirement, $first, $this->now)));
     }
 
     /**

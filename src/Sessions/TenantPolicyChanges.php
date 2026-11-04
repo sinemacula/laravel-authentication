@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
+use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
@@ -29,17 +30,25 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
  * in the tenant, at once and outside any request.
  *
  * Every live session whose active tenant is the tenant (unrevoked and before
- * both its deadlines), on every guard, pending ones included, is read on the
- * write connection in key order, a chunk at a time, each chunk with a locking
- * read, in one transaction on the session model's connection (a savepoint
- * inside a caller's transaction there, so it commits or rolls back with the
- * caller's own work). Each session is judged against the policy as it answers
- * for that session's application, identity and principal: a session recorded at
- * the very version answered, neither `null`, is skipped; an active one that
- * falls short is revoked (`tenant_policy_changed`) and one that meets it
- * records the version; a pending one is revoked only when it would need another
- * connection, since its activation judges a further factor itself. A session
- * whose owner or principal no longer loads is revoked when active. Each
+ * both its deadlines), on every guard, pending ones included, is judged in one
+ * transaction on the session model's connection (a savepoint inside a caller's
+ * transaction there, so it commits or rolls back with the caller's own work),
+ * in two passes, so every session row is locked before any proof row, as the
+ * package's lock order puts them: the first reads only their keys, in key
+ * order, a chunk at a time, each chunk with a locking read on the write
+ * connection; the second reads those sessions again, a chunk at a time, with a
+ * locking read of the rows the first already holds, and judges each, reading
+ * its proofs and provenance current (`SessionProofs`), so on MySQL and MariaDB
+ * at REPEATABLE READ a session is judged on what is committed, not on the
+ * snapshot an earlier read of the transaction took. The sessions judged are the
+ * ones the first pass found; the keys are held in memory for the call, the
+ * sessions only a chunk at a time. Each session is judged against the policy as
+ * it answers for that session's application, identity and principal: a session
+ * recorded at the very version answered, neither `null`, is skipped; an active
+ * one that falls short is revoked (`tenant_policy_changed`) and one that meets
+ * it records the version; a pending one is revoked only when it would need
+ * another connection, since its activation judges a further factor itself. A
+ * session whose owner or principal no longer loads is revoked when active. Each
  * revocation is one conditional update on the session still being active in the
  * tenant and unrevoked, and is reported with `SessionRevoked` once committed.
  *
@@ -90,48 +99,73 @@ final readonly class TenantPolicyChanges
         return $model->getConnection()->transaction(function () use ($model, $tenant, $tenantId, $now): int {
 
             $revoked = 0;
-            $after   = null;
 
-            do {
-                $chunk = $this->chunk($model, $tenantId, $after, $now);
-
-                foreach ($chunk as $session) {
+            foreach (array_chunk(self::keys($model, $tenantId, $now), self::CHUNK) as $keys) {
+                foreach (self::locked($model, $keys) as $session) {
                     $revoked += $this->revokeIfShort($session, $tenant, $tenantId, $now) ? 1 : 0;
-                    $after = $session->getKey();
                 }
-            } while (count($chunk) === self::CHUNK);
+            }
 
             return $revoked;
         });
     }
 
     /**
-     * The next chunk of the tenant's live sessions after the key given, in key
-     * order, read with a locking read on the write connection: unrevoked, and
-     * before both deadlines at `$now`, so a session that has already ended
-     * (waiting to be pruned) is neither judged, revoked nor counted.
+     * The keys of the tenant's live sessions, in key order, read a chunk at a
+     * time with a locking read on the write connection, which holds their rows
+     * until the transaction ends: unrevoked, and before both deadlines at
+     * `$now`, so a session that has already ended (waiting to be pruned) is
+     * neither judged, revoked nor counted.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
      * @param  string  $tenantId
-     * @param  mixed  $after
      * @param  \Carbon\CarbonImmutable  $now
-     * @return list<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>
+     * @return list<mixed>
      */
-    private function chunk(EloquentSession&Model $model, string $tenantId, mixed $after, CarbonImmutable $now): array
+    private static function keys(EloquentSession&Model $model, string $tenantId, CarbonImmutable $now): array
     {
         $at       = $model->fromDateTime($now);
         $absolute = $model->getAbsoluteExpiresAtName();
+        $name     = $model->getKeyName();
+        $keys     = [];
+        $after    = null;
 
+        do {
+            $query = WriteConnection::query($model->newQuery())
+                ->where($model->getTenantIdName(), $tenantId)
+                ->whereNull($model->getRevokedAtName())
+                ->where($model->getIdleExpiresAtName(), '>', $at)
+                ->where(static function ($query) use ($absolute, $at): void {
+                    $query->whereNull($absolute)->orWhere($absolute, '>', $at);
+                })
+                ->when($after !== null, static fn ($query) => $query->where($name, '>', $after))
+                ->orderBy($name)
+                ->limit(self::CHUNK)
+                ->lockForUpdate();
+
+            $chunk = array_values(WriteConnection::during($model, static fn (): array => $query->toBase()->pluck($name)->all()));
+            $keys  = [...$keys, ...$chunk];
+            $after = $chunk[count($chunk) - 1] ?? null;
+        } while (count($chunk) === self::CHUNK);
+
+        return $keys;
+    }
+
+    /**
+     * The sessions under the keys given, in key order, read again on the write
+     * connection with a locking read of the rows this transaction already
+     * holds, so each is read as committed whatever snapshot the transaction
+     * took first.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $model
+     * @param  list<mixed>  $keys
+     * @return list<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>
+     */
+    private static function locked(EloquentSession&Model $model, array $keys): array
+    {
         $query = WriteConnection::query($model->newQuery())
-            ->where($model->getTenantIdName(), $tenantId)
-            ->whereNull($model->getRevokedAtName())
-            ->where($model->getIdleExpiresAtName(), '>', $at)
-            ->where(static function ($query) use ($absolute, $at): void {
-                $query->whereNull($absolute)->orWhere($absolute, '>', $at);
-            })
-            ->when($after !== null, static fn ($query) => $query->where($model->getKeyName(), '>', $after))
+            ->whereIn($model->getKeyName(), $keys)
             ->orderBy($model->getKeyName())
-            ->limit(self::CHUNK)
             ->lockForUpdate();
 
         /** @var list<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession> */
@@ -208,7 +242,7 @@ final readonly class TenantPolicyChanges
 
         return $recorded !== null && $recorded === $requirement->version
             ? null
-            : TenantPolicyCheck::judge($requirement, $tenant, $guard, $identity, $session, $now, null);
+            : TenantPolicyCheck::judge($requirement, $tenant, $guard, $identity, $session, $now, new ProofSource(current: true));
     }
 
     /**

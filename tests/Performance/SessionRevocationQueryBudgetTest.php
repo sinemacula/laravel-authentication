@@ -253,15 +253,15 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
      */
     public static function provideTenantSessions(): iterable
     {
-        yield 'one session' => [1, 4, 1];
-        yield 'three sessions' => [3, 10, 3];
+        yield 'one session' => [1, 5, 1];
+        yield 'three sessions' => [3, 11, 3];
     }
 
     /**
-     * A tenant policy change that every session falls short of reads the
-     * tenant's sessions in one locked chunk, and for each its owner, its
-     * principal and its provenance, and writes each revocation: linear in the
-     * tenant's sessions.
+     * A tenant policy change that every session falls short of reads the keys
+     * of the tenant's sessions in one locked chunk, then those sessions again
+     * in one locked read, and for each its owner, its principal and its
+     * provenance, and writes each revocation: linear in the tenant's sessions.
      *
      * @param  int  $count
      * @param  int  $reads

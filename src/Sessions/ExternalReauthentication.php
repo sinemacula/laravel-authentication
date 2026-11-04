@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionGeneration;
@@ -332,11 +333,11 @@ final readonly class ExternalReauthentication
     }
 
     /**
-     * Why the session, with the proof just recorded, no longer meets its
-     * tenant's authentication policy, as a refresh judges it but writing
-     * nothing: `sso_required` for a session the next refresh would revoke,
-     * `additional_factor_required` for one it would return to pending; `null`
-     * when it meets it.
+     * Why the locked session, with the proof just recorded, no longer meets its
+     * tenant's authentication policy, as a refresh judges it, its proofs and
+     * provenance read current, but writing nothing: `sso_required` for a
+     * session the next refresh would revoke, `additional_factor_required` for
+     * one it would return to pending; `null` when it meets it.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
@@ -349,7 +350,7 @@ final readonly class ExternalReauthentication
      */
     private static function shortfall(string $guard, Admitted $admitted, EloquentSession&Model $session, CarbonImmutable $now): ?FailureReason
     {
-        return match (TenantPolicyCheck::check($guard, $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now)->standing) {
+        return match (TenantPolicyCheck::check($guard, $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now, new ProofSource(current: true))->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => FailureReason::SSO_REQUIRED,
             TenantPolicyStanding::FACTOR_REQUIRED => FailureReason::ADDITIONAL_FACTOR_REQUIRED,
             TenantPolicyStanding::MET             => null,

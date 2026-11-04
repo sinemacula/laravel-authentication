@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -47,7 +48,7 @@ use Tests\TestCase;
 #[CoversClass(SessionService::class)]
 final class TenantPolicyChangesTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithSessions, MarksSharedLocks;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -261,6 +262,58 @@ final class TenantPolicyChangesTest extends TestCase
         self::assertNull($row->getTenantPolicyVersion());
         self::assertSame('elsewhere', $row->getTenantId());
         self::assertNull($row->getRevokedAt());
+    }
+
+    /**
+     * Every session row is locked before any proof is read: the keys of the
+     * tenant's live sessions are read with a locking read, then those sessions
+     * again with one, and only then is each judged, every read of its proofs
+     * taking a shared lock where the engine takes one. The sessions judged are
+     * those the keys named: one that enters the tenant after they were read is
+     * left as it is.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEverySessionIsLockedBeforeAnyProofIsRead(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $judged  = [$this->signedIn(), $this->signedIn()];
+        $entered = $this->signedIn()->record->getKey();
+
+        DB::table('authentication_sessions')->where('id', $entered)->update(['tenant_id' => 'elsewhere']);
+
+        $this->policy->requirement = new TenantRequirement('v2', new Requirement(new RequirementPart));
+
+        self::markSharedLocks();
+
+        $entering = true;
+
+        DB::listen(static function (QueryExecuted $query) use ($entered, $tenant, &$entering): void {
+            if (!$entering || preg_match('/^select [`"]id[`"] from [`"]authentication_sessions[`"]/i', $query->sql) !== 1) {
+                return;
+            }
+
+            $entering = false;
+
+            DB::table('authentication_sessions')->where('id', $entered)->update(['tenant_id' => IdentifierCoercion::stringify($tenant->getKey())]);
+        });
+
+        $statements = self::statementsDuring(fn (): int => $this->sessions('members')->tenantPolicyChanged($tenant));
+
+        $rows   = array_keys(array_filter($statements, static fn (string $sql): bool => preg_match('/^select .* from [`"]authentication_sessions[`"]/', $sql) === 1));
+        $proofs = array_keys(array_filter($statements, self::readsProofs(...)));
+
+        self::assertCount(2, $rows);
+        self::assertSame([true, true], array_map(static fn (int $read): bool => self::locksForUpdate($statements[$read]), $rows));
+        self::assertLessThan($proofs[0], $rows[1]);
+        self::assertSame(array_fill(0, 4, self::takesSharedLocks()), array_map(static fn (int $read): bool => self::sharesLock($statements[$read]), $proofs));
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, $this->rowOf($judged[0]->record->getKey())->getRevokedReason());
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, $this->rowOf($judged[1]->record->getKey())->getRevokedReason());
+        self::assertNull($this->rowOf($entered)->getRevokedAt());
+        self::assertNull($this->rowOf($entered)->getTenantPolicyVersion());
     }
 
     /**

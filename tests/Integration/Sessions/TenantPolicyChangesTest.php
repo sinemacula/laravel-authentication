@@ -104,11 +104,12 @@ final class TenantPolicyChangesTest extends TestCase
     }
 
     /**
-     * More sessions than two chunks are each judged once, in three locking
-     * reads that page by key: every one records the version answered, and a
-     * second call skips them all, writing nothing. The policy counts what it is
-     * asked rather than keeping every context, so the test holds no session it
-     * judged once the helper is done with it.
+     * More sessions than two chunks are each judged once: their keys are read
+     * in three locking reads that page by key, and only then the sessions, in
+     * three locking reads of those keys; every one records the version
+     * answered, and a second call skips them all, writing nothing. The policy
+     * counts what it is asked rather than keeping every context, so the test
+     * holds no session it judged once the helper is done with it.
      *
      * @return void
      *
@@ -125,10 +126,12 @@ final class TenantPolicyChangesTest extends TestCase
         $policy = self::countingPolicy(new TenantRequirement('v1'));
 
         $chunk = 'limit ' . TenantPolicyChanges::CHUNK;
-        $reads = $this->countQueries(static fn (string $sql): bool => str_starts_with($sql, 'select') && str_contains($sql, 'sessions') && str_contains($sql, $chunk));
+        $reads = $this->countQueries(static fn (string $sql): bool => str_starts_with($sql, 'select') && str_contains($sql, 'from ' . self::quoted('authentication_sessions')));
 
         self::assertSame(0, $this->sessions('members')->tenantPolicyChanged($tenant));
-        self::assertCount(3, $reads);
+        self::assertCount(6, $reads);
+        self::assertSame([true, true, true, false, false, false], array_map(static fn (string $sql): bool => str_contains($sql, $chunk), $reads->getArrayCopy()));
+        self::assertSame([false, false, false, true, true, true], array_map(static fn (string $sql): bool => str_contains($sql, ' in ('), $reads->getArrayCopy()));
         self::assertSame($count, $policy->judged);
         self::assertSame($count, DB::table('authentication_sessions')->where('tenant_policy_version', 'v1')->count());
 
@@ -492,6 +495,18 @@ final class TenantPolicyChangesTest extends TestCase
         app()->instance(TenantAuthenticationPolicy::class, $policy);
 
         return $policy;
+    }
+
+    /**
+     * The table's name as the default connection's grammar quotes it, in lower
+     * case as the statements are compared.
+     *
+     * @param  string  $table
+     * @return string
+     */
+    private static function quoted(string $table): string
+    {
+        return strtolower(DB::connection()->getQueryGrammar()->wrapTable($table));
     }
 
     /**

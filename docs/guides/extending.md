@@ -525,12 +525,16 @@ seam has a default that works alone.
   was `skipped` (no longer the session given, or no longer live and active). It locks the session's row after your
   locks, writes its issuance guard before it reads the proofs, and runs as a savepoint of your transaction when that is
   on the storage connection, so the return to pending commits or rolls back with the change; its events and the guard's
-  forgetting of the session follow the commit. Its reads of the proofs are plain ones, so on MySQL and MariaDB at
-  REPEATABLE READ make the call before any plain read in your transaction, or run the change at READ COMMITTED (see
-  [Sign-in factors](sessions.md#sign-in-factors)). The identity's other sessions are not judged: only the current
-  session's client can receive a pending credential, and an added factor ends nothing, so they keep running as they were
-  admitted; end them yourself in the same transaction (`revokeSessions(..., except: $current)`) if they must meet the
-  new requirement. The identity may live on any connection, since nothing of it is written.
+  forgetting of the session follow the commit. It reads the proofs current, so whatever your transaction read before
+  the call, a step-up committed before it counts and a proof voided before it never does; on MySQL and MariaDB at
+  REPEATABLE READ those reads hold shared locks until you commit, so keep the transaction short, and at PostgreSQL's
+  REPEATABLE READ a change of the session's proofs committed after your snapshot fails the call to serialise. On a lock
+  wait timeout, a deadlock or a serialisation failure roll your whole transaction back and retry it whole (see [Issuance
+  order](sessions.md#issuance-order)). The identity's other sessions are not judged: only the current session's client
+  can receive a pending credential, and an added factor ends nothing, so they keep running as they were admitted; end
+  them yourself in the same transaction, before the call (`revokeSessions(..., except: $current)`), if they must meet
+  the new requirement: the call has read the current session's proofs under shared locks, and the package takes every
+  session row before any proof. The identity may live on any connection, since nothing of it is written.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
   `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
   the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows

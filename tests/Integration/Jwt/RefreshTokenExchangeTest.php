@@ -11,6 +11,8 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
@@ -22,6 +24,8 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\PendingTransitions;
@@ -33,8 +37,12 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
+use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Tenancy\DescendantTenants;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\TestCase;
@@ -63,7 +71,7 @@ use Tests\TestCase;
 #[CoversClass(PendingTransitions::class)]
 final class RefreshTokenExchangeTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions, MarksSharedLocks;
 
     /** @var string Guard over `ActivatableTenantMember`. */
     private const string GUARD = 'members';
@@ -479,6 +487,94 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame('pending', $row->status);
         self::assertSame($loaded->refresh_key, $row->refresh_key);
         self::assertNull($row->revoked_at);
+    }
+
+    /**
+     * An exchange judges the session against its tenant's policy under the
+     * row's lock, so every read of the session's proofs it makes takes a shared
+     * lock where the engine takes one: the first factor and proofs the
+     * judgement reads and the proofs the token is issued from, when it rotates;
+     * the judgement's and the proofs the identity's own requirement is judged
+     * on, when the session falls short and returns to pending.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExchangeReadsTheSessionsProofsCurrent(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $session = $this->signIn();
+
+        $this->requirements[self::keyOf($tenant)] = new TenantRequirement('v2', new Requirement(new RequirementPart));
+
+        self::recordProof($session->record, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, false));
+        self::markSharedLocks();
+
+        $locked    = self::takesSharedLocks();
+        $refreshed = null;
+
+        $rotation = self::proofReadLocks(function () use ($session, &$refreshed): void {
+            $refreshed = $this->refresh((string) $session->tokens->refreshToken?->reveal());
+        });
+
+        self::assertInstanceOf(RefreshResult::class, $refreshed);
+        self::assertTrue($refreshed->isRefreshed());
+        self::assertSame([$locked, $locked, $locked], $rotation);
+
+        DB::table('authentication_proofs')->where('kind', ProofKind::ADDITIONAL_FACTOR->value)->update(['voided_at' => $this->now]);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $returned = null;
+
+        $shortfall = self::proofReadLocks(function () use ($refreshed, &$returned): void {
+            $returned = $this->refresh((string) $refreshed->session?->tokens->refreshToken?->reveal());
+        });
+
+        self::assertInstanceOf(RefreshResult::class, $returned);
+        self::assertTrue($returned->isPending());
+        self::assertSame([$locked, $locked, $locked], $shortfall);
+    }
+
+    /**
+     * A session that records no first factor cannot be returned to pending: the
+     * judgement finds none, the exchange reads it once more for the return,
+     * each read current, and fails loudly, issuing nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExchangeOfASessionWithoutAFirstFactorFailsLoudly(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $session = $this->signIn();
+
+        $this->requirements[self::keyOf($tenant)] = new TenantRequirement('v2', new Requirement(new RequirementPart));
+
+        DB::table('authentication_proofs')->delete();
+
+        self::markSharedLocks();
+
+        $locked = self::takesSharedLocks();
+        $failed = null;
+
+        $reads = self::proofReadLocks(function () use ($session, &$failed): void {
+            try {
+                $this->refresh((string) $session->tokens->refreshToken?->reveal());
+            } catch (\LogicException $exception) {
+                $failed = $exception->getMessage();
+            }
+        });
+
+        self::assertSame('A session the package wrote always records the proof of its first factor.', $failed);
+        self::assertSame([$locked, $locked, $locked], $reads);
+        self::assertSame('active', DB::table('authentication_sessions')->value('status'));
     }
 
     /**

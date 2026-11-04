@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
@@ -59,7 +60,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * policy.
  *
  * It decides; it writes nothing. Every read and every contract is asked on the
- * write connection.
+ * write connection. A caller that holds the session's row locked asks for its
+ * proofs and provenance to be read current (`$current`, see `SessionProofs`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -330,7 +332,8 @@ final readonly class PendingEvaluation
      * requirement while the session (or, at sign-in, the sign-in's evidence,
      * with the session `null`) does not meet it, as `RequirementJudge` judges
      * it, and an empty requirement once it does. A requirement that asks for
-     * nothing is owed by no one and costs no query.
+     * nothing is owed by no one and costs no query. Pass `$current` only for a
+     * session whose row this transaction holds locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
@@ -341,6 +344,7 @@ final readonly class PendingEvaluation
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @param  bool  $current
      * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -356,23 +360,27 @@ final readonly class PendingEvaluation
         ?Session $session,
         CarbonImmutable $now,
         ?SessionEvidence $evidence = null,
+        bool $current = false,
     ): Requirement {
         $requirement = $this->factorRequirement($identity, $firstFactor, $client, $clientName, $platform, $proven);
+        $source      = new ProofSource($evidence, $current);
 
-        return RequirementJudge::isMet($this->context->name(), $identity, $session, $firstFactor, $now, $evidence, $requirement) ? new Requirement : $requirement;
+        return RequirementJudge::isMet($this->context->name(), $identity, $session, $firstFactor, $now, $source, $requirement) ? new Requirement : $requirement;
     }
 
     /**
      * What the identity still owes on the stored session, asked as its sign-in
      * was: with the first factor the session records (`firstFactorOf()`), the
      * client it came from, the name and platform it gave, and the session its
-     * client proved it holds (see `owedFactor()`).
+     * client proved it holds (see `owedFactor()`). Pass `$current` only for a
+     * session whose row this transaction holds locked.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  bool  $current
      * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -384,31 +392,37 @@ final readonly class PendingEvaluation
         RecordedProof $firstFactor,
         (EloquentSession&Model)|null $proven,
         CarbonImmutable $now,
+        bool $current = false,
     ): Requirement {
         $origin   = new ClientContext(self::described($session, $session->getCreatedIpName()), self::described($session, $session->getCreatedUserAgentName()));
         $client   = self::described($session, $session->getClientNameName());
         $platform = self::described($session, $session->getPlatformName());
 
-        return $this->owedFactor($identity, $firstFactor, $origin, $client, $platform, $proven, $session, $now);
+        return $this->owedFactor($identity, $firstFactor, $origin, $client, $platform, $proven, $session, $now, current: $current);
     }
 
     /**
-     * The first factor the session signed in with, as it records it.
+     * The first factor the session signed in with, as it records it, read
+     * current when asked. Pass `$current` only for a session whose row this
+     * transaction holds locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  bool  $current
      * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
      * @throws \LogicException
      */
-    public static function firstFactorOf(Session $session): RecordedProof
+    public static function firstFactorOf(Session $session, bool $current = false): RecordedProof
     {
-        return SessionProofs::firstFactor($session) ?? throw new \LogicException('A session the package wrote always records the proof of its first factor.');
+        return SessionProofs::firstFactor($session, $current) ?? throw new \LogicException('A session the package wrote always records the proof of its first factor.');
     }
 
     /**
      * How the session, or the sign-in's evidence, stands against the
      * authentication policy of the tenant the principal is to act in; with no
      * principal selected yet there is none to ask, and nothing falls short.
+     * Pass `$current` only for a session whose row this transaction holds
+     * locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -416,6 +430,7 @@ final readonly class PendingEvaluation
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @param  bool  $current
      * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -428,10 +443,11 @@ final readonly class PendingEvaluation
         ?Session $session,
         CarbonImmutable $now,
         ?SessionEvidence $evidence = null,
+        bool $current = false,
     ): TenantPolicyVerdict {
         return $principal === null
             ? new TenantPolicyVerdict(TenantPolicyStanding::MET, null)
-            : TenantPolicyCheck::check($this->context->name(), $identity, $principal, $tenant, $session, $now, $evidence);
+            : TenantPolicyCheck::check($this->context->name(), $identity, $principal, $tenant, $session, $now, new ProofSource($evidence, $current));
     }
 
     /**

@@ -43,6 +43,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Concerns\PretendsStorageEngines;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainSessionFixture;
@@ -67,7 +68,7 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 #[CoversClass(RecordedProof::class)]
 final class SessionProofsTest extends TestCase
 {
-    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions, PretendsStorageEngines;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions, MarksSharedLocks, PretendsStorageEngines;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -421,6 +422,92 @@ final class SessionProofsTest extends TestCase
         self::assertStringContainsString('group by', $current[0]);
         self::assertSame(in_array($driver, ['mysql', 'mariadb'], true), str_ends_with($current[0], ' lock in share mode'));
         self::assertSame(str_replace(' lock in share mode', '', $current[0]), $plain[0]);
+    }
+
+    /**
+     * A current read of a session's proofs as a requirement judgement makes
+     * them (a page for the requirement check, the first factor, the accepted
+     * evidence and the provenance's connection), as one made under the
+     * session's lock asks, takes a shared lock on MySQL and MariaDB and on no
+     * other engine; the plain read, asked for or by default, never takes one,
+     * and is otherwise the same statement.
+     *
+     * @param  string  $driver
+     * @return void
+     */
+    #[DataProvider('provideStorageEngines')]
+    public function testOnlyACurrentJudgementReadOnMysqlOrMariadbTakesASharedLock(string $driver): void
+    {
+        $session = new PlainSessionFixture('0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70');
+        $kinds   = [ProofKind::ADDITIONAL_FACTOR];
+
+        $reads = [
+            'page'              => static fn (bool ...$current): array => SessionProofs::query($session, null, $kinds, 5, ...$current),
+            'first factor'      => static fn (bool ...$current): ?RecordedProof => SessionProofs::firstFactor($session, ...$current),
+            'accepted evidence' => static fn (bool ...$current): array => SessionProofs::acceptedEvidence($session, ...$current),
+            'connection'        => static fn (bool ...$current): ?string => SessionProofs::connectionId($session, ...$current),
+        ];
+
+        foreach ($reads as $name => $read) {
+            [$current, $plain, $default] = array_map(static fn (array $mode): array => self::statementsOn($driver, static function () use ($read, $mode): void {
+                self::assertEmpty($read(...$mode));
+            }), [[true], [false], []]);
+
+            self::assertCount(1, $current, $name);
+            self::assertSame(in_array($driver, ['mysql', 'mariadb'], true), str_ends_with($current[0], ' lock in share mode'), $name);
+            self::assertSame([str_replace(' lock in share mode', '', $current[0])], $plain, $name);
+            self::assertSame($plain, $default, $name);
+        }
+    }
+
+    /**
+     * Read current, a session's page of proofs, first factor, accepted evidence
+     * and connection are what the plain reads return, each read taking a shared
+     * lock where the engine takes one (MySQL, and SQLite marked as it), and
+     * none read plainly.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACurrentReadReadsWhatAPlainReadReads(): void
+    {
+        self::markSharedLocks();
+
+        $record   = $this->signedIn()->record;
+        $identity = $record->authenticatable()->first();
+
+        self::assertInstanceOf(Identity::class, $identity);
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinute(), ['otp'], new Evaluation(true, false));
+        self::recordExternal($record, $this->now->addMinutes(2), new ExternalEvidence(['hwk'], 'phrh', $this->now->addMinutes(2)));
+
+        $external = $this->sessions()->signInExternally($this->linkedResult($identity, 'conn-a'))->session?->record;
+
+        self::assertNotNull($external);
+
+        $since = $this->now->addMinute();
+        $read  = static fn (bool $current): array => [
+            SessionProofs::query($record, null, null, 5, $current),
+            SessionProofs::query($record, $since, [ProofKind::ADDITIONAL_FACTOR], 5, $current),
+            SessionProofs::firstFactor($record, $current),
+            SessionProofs::acceptedEvidence($record, $current),
+            SessionProofs::connectionId($record, $current),
+            SessionProofs::connectionId($external, $current),
+        ];
+
+        $plain   = [];
+        $current = [];
+
+        self::assertSame(array_fill(0, 6, false), self::proofReadLocks(static function () use ($read, &$plain): void {
+            $plain = $read(false);
+        }));
+        self::assertSame(array_fill(0, 6, self::takesSharedLocks()), self::proofReadLocks(static function () use ($read, &$current): void {
+            $current = $read(true);
+        }));
+        self::assertEquals($plain, $current);
+        self::assertCount(3, $plain[0]);
+        self::assertSame(['conn-a', null], [$plain[5], $plain[4]]);
     }
 
     /**

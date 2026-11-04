@@ -45,6 +45,7 @@ use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
@@ -72,6 +73,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Sessions\TwoSecretSignIn;
@@ -105,7 +107,7 @@ use Tests\TestCase;
 #[CoversClass(SessionActivation::class)]
 final class PendingSessionsTest extends TestCase
 {
-    use InspectsIssuanceGuards, InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessionRecords, InteractsWithSessions;
+    use InspectsIssuanceGuards, InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessionRecords, InteractsWithSessions, MarksSharedLocks;
 
     /** @var string Guard over `ChoosingMember`, whose sign-ins wait for a choice of principal. */
     private const string CHOOSERS = 'choosers';
@@ -1254,6 +1256,133 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
+     * Satisfying and choosing judge the pending session under its row's lock,
+     * so every read of its proofs either makes, the gate's (the tenant's
+     * policy's included) and the activation's, takes a shared lock where the
+     * engine takes one; looking it up reads them plainly.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnActionReadsTheProofsCurrentAndALookUpPlainly(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        [, $first] = $this->seedChooser();
+
+        $this->factorRequired = false;
+
+        $choosing = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'))->credential?->reveal();
+        $waiting  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'))->credential?->reveal();
+
+        self::assertNotNull($choosing);
+        self::assertNotNull($waiting);
+        self::markSharedLocks();
+
+        $locked = self::takesSharedLocks();
+
+        $this->factorRequired = true;
+
+        $lookUp    = self::proofReadLocks(fn (): mixed => $this->sessions()->pending($credential, null));
+        $satisfied = self::proofReadLocks(function () use ($identity, $credential, $pending): void {
+            self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->isSignedIn());
+        });
+
+        $this->factorRequired = false;
+
+        $chosen = self::proofReadLocks(function () use ($choosing, $first): void {
+            self::assertTrue($this->sessions(self::CHOOSERS)->choose($choosing, $first)->isSignedIn());
+        });
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
+
+        $asked = self::proofReadLocks(function () use ($waiting, $first): void {
+            self::assertSame([PendingRequirement::MFA], $this->sessions(self::CHOOSERS)->choose($waiting, $first)->pending?->requires);
+        });
+
+        self::assertSame([false, false], $lookUp);
+        self::assertSame([$locked, $locked, $locked], $satisfied);
+        self::assertSame([$locked, $locked], $chosen);
+        self::assertSame([$locked, $locked], $asked);
+    }
+
+    /**
+     * Rows of `[action]`: the actions that may activate a pending session whose
+     * sign-in proved the session its client holds.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideActivatingActions(): iterable
+    {
+        yield 'satisfy' => ['satisfy'];
+
+        yield 'choose' => ['choose'];
+    }
+
+    /**
+     * Once the action is admitted, satisfying and choosing read the session the
+     * sign-in's client proved it holds locked for update, before the pending
+     * session's issuance guard and before any read of its proofs, so the
+     * supersede an activation makes takes no session row after them; a refused
+     * action never reads it, and looking a pending session that waits on a
+     * further factor up reads it without a lock.
+     *
+     * @param  string  $action
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideActivatingActions')]
+    public function testAnAdmittedActionLocksTheProvenSessionBeforeTheProofs(string $action): void
+    {
+        [, $first] = $this->seedChooser();
+
+        $this->factorRequired = false;
+
+        $client = new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT);
+        $guard  = $action === 'satisfy' ? 'api' : self::CHOOSERS;
+        $email  = $action === 'satisfy' ? 'ada@example.test' : 'chooser@example.test';
+        $proved = $action === 'satisfy' ? new SignInContext($client) : new SignInContext($client, principal: $first);
+
+        $identity = $this->seedIdentity();
+        $active   = $this->sessions($guard)->signIn('password', self::credentials($email), $proved)->session;
+
+        self::assertNotNull($active);
+
+        $this->factorRequired = $action === 'satisfy';
+
+        $result = $this->sessions($guard)->signIn('password', self::credentials($email), new SignInContext($client, refreshToken: $active->tokens->refreshToken?->reveal()));
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        self::markSharedLocks();
+
+        $proven     = (string) IdentifierCoercion::stringify($active->record->getKey());
+        $credential = $result->credential->reveal();
+        $pendingId  = $result->pending->id;
+        $proof      = static fn (bool $admitted): ProofResult => self::adapterProof($identity, 'api', $admitted ? $pendingId : 'another', Purpose::SIGN_IN);
+        $act        = $action === 'satisfy'
+            ? fn (bool $admitted): mixed => $this->sessions($guard)->satisfy($credential, $proof($admitted))
+            : fn (bool $admitted): mixed => $this->sessions($guard)->choose($credential, $admitted ? $first : new ChoosingMembership);
+
+        self::assertSame([], self::provenReads(static fn (): mixed => $act(false), $proven));
+        self::assertSame($action === 'satisfy' ? ['plain'] : [], self::provenReads(fn (): mixed => $this->sessions($guard)->pending($credential, null), $proven));
+
+        $statements = self::provenReads(static fn (): mixed => $act(true), $proven, true);
+        $read       = array_search('locked', $statements, true);
+
+        self::assertIsInt($read);
+        self::assertNotContains('plain', $statements);
+        self::assertLessThan(array_search('guard', $statements, true) ?: PHP_INT_MAX, $read);
+        self::assertLessThan(array_search('proofs', $statements, true), $read);
+        self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $active->record->getKey())->value('revoked_reason'));
+    }
+
+    /**
      * Looking a pending session up reads its row without a lock, while every
      * action on it (satisfying, choosing, discarding) reads it locked for
      * update first, so a revocation or another action waits for it. On SQLite,
@@ -1993,6 +2122,35 @@ final class PendingSessionsTest extends TestCase
         self::assertNotNull($result->credential);
 
         return [$result->credential->reveal(), $result->pending];
+    }
+
+    /**
+     * Run the callback and return what each statement it sent did, in order:
+     * `locked` for a read of the proven session's row locked for update and
+     * `plain` for one without a lock; with `$around`, also `guard` for a write
+     * of an issuance guard and `proofs` for a read of a session's proofs.
+     *
+     * @param  \Closure(): mixed  $callback
+     * @param  string  $proven
+     * @param  bool  $around
+     * @return list<string>
+     */
+    private static function provenReads(\Closure $callback, string $proven, bool $around = false): array
+    {
+        $labels = array_map(static function (array $query) use ($proven, $around): ?string {
+            [$sql, $bindings] = $query;
+
+            $read = str_starts_with($sql, 'select') && str_contains($sql, 'authentication_sessions') && in_array($proven, $bindings, true);
+
+            return match (true) {
+                $read                                                                                 => self::locksForUpdate($sql) ? 'locked' : 'plain',
+                $around && str_starts_with($sql, 'update') && str_contains($sql, 'issuance_sequence') => 'guard',
+                $around && self::readsProofs($sql)                                                    => 'proofs',
+                default                                                                               => null,
+            };
+        }, self::queriesDuring($callback));
+
+        return array_values(array_filter($labels, static fn (?string $label): bool => $label !== null));
     }
 
     /**

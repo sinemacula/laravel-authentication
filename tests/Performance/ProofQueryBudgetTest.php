@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
+use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
@@ -349,7 +350,7 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
         self::assertLessThan(self::READ_CEILING_SECONDS, $read);
         $requirement = new Requirement(multifactor: new RequirementPart);
 
-        self::assertTrue($this->assertQueryBudget(2, 0, static fn (): bool => RequirementJudge::isMet('api', $identity, $record, null, $now, null, $requirement)));
+        self::assertTrue($this->assertQueryBudget(2, 0, static fn (): bool => RequirementJudge::isMet('api', $identity, $record, null, $now, new ProofSource, $requirement)));
     }
 
     /**

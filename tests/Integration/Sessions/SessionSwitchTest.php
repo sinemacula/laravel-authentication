@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -23,6 +25,8 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
@@ -34,7 +38,11 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
+use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
@@ -60,7 +68,7 @@ use Tests\TestCase;
 #[CoversClass(RefreshRotationStore::class)]
 final class SessionSwitchTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions, MarksSharedLocks;
 
     /** @var string Guard over `ActivatableTenantMember`. */
     private const string GUARD = 'members';
@@ -523,6 +531,96 @@ final class SessionSwitchTest extends TestCase
         self::assertSame(RevocationReason::REVOKED->value, $row->revoked_reason);
         self::assertNull($row->pending_key);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), IdentifierCoercion::stringify($row->principal_id));
+    }
+
+    /**
+     * A switch judges the session against the destination's policy under the
+     * row's lock, so every read of the session's proofs it makes takes a shared
+     * lock where the engine takes one: the first factor and proofs the
+     * judgement reads and the proofs the token is issued from, when it switches
+     * and when a grace retry of it is answered; the judgement's and the proofs
+     * the identity's own requirement is judged on, when the session falls short
+     * and returns to pending.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchReadsTheSessionsProofsCurrent(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        self::recordProof($session->record, ProofKind::ADDITIONAL_FACTOR, $this->now, ['otp'], new Evaluation(true, false));
+        self::markSharedLocks();
+
+        $this->advance(5);
+
+        $locked   = self::takesSharedLocks();
+        $results  = [];
+        $switched = self::proofReadLocks(function () use ($session, $second, &$results): void {
+            $results[] = $this->switch($session, $second);
+        });
+        $retried = self::proofReadLocks(function () use ($session, $second, &$results): void {
+            $results[] = $this->switch($session, $second);
+        });
+
+        DB::table('authentication_proofs')->where('kind', ProofKind::ADDITIONAL_FACTOR->value)->update(['voided_at' => $this->now]);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $returned = self::proofReadLocks(function () use ($first, &$results): void {
+            $results[] = $this->sessions(self::GUARD)->switchTo((string) $results[1]->session?->tokens->refreshToken?->reveal(), SwitchTarget::principal($first));
+        });
+
+        self::assertSame([true, true, false], array_map(static fn (SwitchResult $result): bool => $result->isSwitched(), $results));
+        self::assertTrue($results[2]->isPending());
+        self::assertSame([$locked, $locked, $locked], $switched);
+        self::assertSame([$locked, $locked, $locked], $retried);
+        self::assertSame([$locked, $locked, $locked], $returned);
+    }
+
+    /**
+     * A session that records no first factor cannot be returned to pending: the
+     * judgement finds none, the switch reads it once more for the return, each
+     * read current, and fails loudly, switching nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchOfASessionWithoutAFirstFactorFailsLoudly(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
+
+        DB::table('authentication_proofs')->delete();
+
+        self::markSharedLocks();
+
+        $this->advance(5);
+
+        $locked = self::takesSharedLocks();
+        $failed = null;
+
+        $reads = self::proofReadLocks(function () use ($session, $second, &$failed): void {
+            try {
+                $this->switch($session, $second);
+            } catch (\LogicException $exception) {
+                $failed = $exception->getMessage();
+            }
+        });
+
+        self::assertSame('A session the package wrote always records the proof of its first factor.', $failed);
+        self::assertSame([$locked, $locked, $locked], $reads);
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('principal_id')));
     }
 
     /**

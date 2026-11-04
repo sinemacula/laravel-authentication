@@ -21,15 +21,18 @@ use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
+use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
@@ -49,7 +52,7 @@ use Tests\TestCase;
 #[CoversClass(SessionProofs::class)]
 final class TenantPolicyCheckTest extends TestCase
 {
-    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions, MarksSharedLocks;
 
     /** @var \Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy The policy the tenant answers with. */
     private ScriptedTenantAuthenticationPolicy $policy;
@@ -209,8 +212,8 @@ final class TenantPolicyCheckTest extends TestCase
 
         DB::enableQueryLog();
 
-        self::assertTrue(TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, $external)->isMet());
-        self::assertSame(TenantPolicyStanding::SSO_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, $password)->standing);
+        self::assertTrue(TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, new ProofSource($external))->isMet());
+        self::assertSame(TenantPolicyStanding::SSO_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, new ProofSource($password))->standing);
         self::assertSame([], DB::getQueryLog());
     }
 
@@ -234,8 +237,8 @@ final class TenantPolicyCheckTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement(connections: ['conn-b']);
 
-        $met     = TenantPolicyCheck::judge($answered, $tenant, 'members', $member, null, $now, $external);
-        $refused = TenantPolicyCheck::judge($answered, $tenant, 'members', $member, null, $now, $password);
+        $met     = TenantPolicyCheck::judge($answered, $tenant, 'members', $member, null, $now, new ProofSource($external));
+        $refused = TenantPolicyCheck::judge($answered, $tenant, 'members', $member, null, $now, new ProofSource($password));
 
         self::assertSame([TenantPolicyStanding::MET, 'v3'], [$met->standing, $met->version]);
         self::assertSame([TenantPolicyStanding::SSO_REQUIRED, 'v3'], [$refused->standing, $refused->version]);
@@ -296,6 +299,47 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
+     * A check made under the session's lock reads its provenance and proofs
+     * current: the connection, the first factor, the accepted evidence and the
+     * check's proofs, each with a shared lock where the engine takes one,
+     * through `check()` and `judge()` alike; a plain check takes none, and a
+     * policy that asks for nothing reads nothing either way.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACheckUnderTheLockReadsTheProvenanceAndProofsCurrent(): void
+    {
+        self::markSharedLocks();
+
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a'), self::asPrincipal($membership))->session?->record;
+        $now     = CarbonImmutable::now();
+
+        self::assertNotNull($session);
+
+        $this->policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart), ['conn-a']);
+
+        $checked = static fn (ProofSource $source): TenantPolicyVerdict => TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now, $source);
+        $judged  = fn (ProofSource $source): TenantPolicyVerdict => TenantPolicyCheck::judge($this->policy->requirement, $tenant, 'members', $member, $session, $now, $source);
+        $check   = static fn (ProofSource $source): array => self::proofReadLocks(static fn (): mixed => $checked($source));
+        $judge   = static fn (ProofSource $source): array => self::proofReadLocks(static fn (): mixed => $judged($source));
+
+        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, $checked(new ProofSource(current: true))->standing);
+
+        self::assertSame(array_fill(0, 4, self::takesSharedLocks()), $check(new ProofSource(current: true)));
+        self::assertSame(array_fill(0, 4, self::takesSharedLocks()), $judge(new ProofSource(current: true)));
+        self::assertSame(array_fill(0, 4, false), $check(new ProofSource));
+        self::assertSame(array_fill(0, 4, false), self::proofReadLocks(static fn (): mixed => TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now)));
+
+        $this->policy->requirement = new TenantRequirement('v2');
+
+        self::assertSame([], $check(new ProofSource(current: true)));
+    }
+
+    /**
      * A sign-in's evidence is read in place of the session's stored proofs when
      * both are given: a further factor the session stores does not meet a
      * requirement the sign-in's own proofs do not.
@@ -319,7 +363,9 @@ final class TenantPolicyCheckTest extends TestCase
 
         $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
 
-        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now, $evidence)->standing);
+        $judged = TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now, new ProofSource($evidence));
+
+        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, $judged->standing);
         self::assertSame([$evidence->firstFactor], $this->check->judged[1]->proofs());
     }
 
@@ -343,14 +389,16 @@ final class TenantPolicyCheckTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement('v4', new Requirement(multifactor: new RequirementPart), ['conn-a']);
 
-        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, $evidence)->standing);
+        $judged = TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, new ProofSource($evidence));
+
+        self::assertSame(TenantPolicyStanding::FACTOR_REQUIRED, $judged->standing);
         self::assertCount(1, $this->check->judged);
 
         $policy = new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]);
 
         app()->instance(ExternalEvidencePolicy::class, $policy);
 
-        $verdict = TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, $evidence);
+        $verdict = TenantPolicyCheck::check('members', $member, $membership, $tenant, null, $now, new ProofSource($evidence));
 
         self::assertSame([TenantPolicyStanding::MET, 'v4'], [$verdict->standing, $verdict->version]);
         self::assertSame($accepted, $policy->asked[0]['evidence']);

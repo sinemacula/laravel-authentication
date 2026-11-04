@@ -56,6 +56,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
@@ -86,7 +87,7 @@ use Tests\Unit\Stubs\StubNonModelSession;
 #[CoversTrait(EndsSessions::class)]
 final class FactorRevocationsTest extends TestCase
 {
-    use InspectsIssuanceGuards, InteractsWithSessions;
+    use InspectsIssuanceGuards, InteractsWithSessions, MarksSharedLocks;
 
     /** @var string Guard over `ChoosingMember`, whose members choose between their memberships. */
     private const string CHOOSERS = 'choosers';
@@ -1076,6 +1077,53 @@ final class FactorRevocationsTest extends TestCase
         self::assertTrue($change->isPending());
         self::assertSame('pending', $this->rowOf($current->record->getKey())->status);
         self::assertSame('v3', $this->rowOf($current->record->getKey())->tenant_policy_version);
+    }
+
+    /**
+     * A change and a removal judge the current session under its row's lock, so
+     * every read of its proofs either makes, the first factor and the proofs
+     * both its tenant's further factor and the identity's own are judged on,
+     * takes a shared lock where the engine takes one; the first factor is read
+     * so too when the tenant asks for no further factor.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeAndARemovalReadTheProofsCurrent(): void
+    {
+        $policy = new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart)));
+
+        app()->instance(TenantAuthenticationPolicy::class, $policy);
+
+        $this->requireAFurtherFactor();
+        $this->seedMember();
+
+        $current = $this->satisfied('factor-1', 'members', 'member@example.test');
+
+        $this->stepUp($current, 'factor-2');
+
+        self::markSharedLocks();
+
+        $locked = self::takesSharedLocks();
+
+        $change = self::proofReadLocks(static function () use ($current): void {
+            self::assertTrue(Auth::sessions('members')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record)->isActive());
+        });
+
+        $removal = self::proofReadLocks(static function () use ($current): void {
+            self::assertFalse(Auth::sessions('members')->factorRemoved($current->identity, 'factor-1', $current->record)->isPending());
+        });
+
+        $policy->requirement = new TenantRequirement('v2');
+
+        $unasked = self::proofReadLocks(static function () use ($current): void {
+            self::assertTrue(Auth::sessions('members')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record)->isActive());
+        });
+
+        self::assertSame([$locked, $locked, $locked], $change);
+        self::assertSame([$locked, $locked, $locked], $removal);
+        self::assertSame([$locked, $locked], $unasked);
     }
 
     /**

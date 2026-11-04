@@ -28,14 +28,17 @@ use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
+use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantFactor;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\External\MethodTrustingEvidencePolicy;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
@@ -55,7 +58,7 @@ use Tests\TestCase;
 #[CoversClass(RequirementJudge::class)]
 final class RequirementJudgeTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions, MarksSharedLocks;
 
     /** @var \Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck The check judging further factors. */
     private ProofJudgingRequirementCheck $check;
@@ -106,8 +109,8 @@ final class RequirementJudgeTest extends TestCase
 
         DB::enableQueryLog();
 
-        self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, CarbonImmutable::now(), null, new Requirement));
-        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, CarbonImmutable::now(), null, new Requirement));
+        self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, CarbonImmutable::now(), new ProofSource, new Requirement));
+        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, CarbonImmutable::now(), new ProofSource, new Requirement));
         self::assertSame([], DB::getQueryLog());
         self::assertSame([], $this->check->judged);
     }
@@ -130,7 +133,7 @@ final class RequirementJudgeTest extends TestCase
         $now         = CarbonImmutable::now();
         $requirement = new Requirement(new RequirementPart(600));
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, null, $requirement));
+        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, new ProofSource, $requirement));
 
         [$subject] = $this->check->judged;
 
@@ -142,12 +145,12 @@ final class RequirementJudgeTest extends TestCase
 
         self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $now, ['otp'], new Evaluation(true, true));
 
-        self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, $now, null, $requirement));
+        self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, $now, new ProofSource, $requirement));
         self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], array_column($this->check->judged[1]->proofs(null, null, 2), 'kind'));
 
         app()->instance(RequirementCheck::class, new MeetNoRequirement);
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, null, $requirement));
+        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, new ProofSource, $requirement));
     }
 
     /**
@@ -167,8 +170,8 @@ final class RequirementJudgeTest extends TestCase
         $given    = SignInProof::unattested('sso', $now)->recorded();
         $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
 
-        RequirementJudge::isMet('members', $member, $session, $given, $now, null, new Requirement(new RequirementPart));
-        RequirementJudge::isMet('members', $member, null, $given, $now, $evidence, new Requirement(new RequirementPart));
+        RequirementJudge::isMet('members', $member, $session, $given, $now, new ProofSource, new Requirement(new RequirementPart));
+        RequirementJudge::isMet('members', $member, null, $given, $now, new ProofSource($evidence), new Requirement(new RequirementPart));
 
         self::assertSame($given, $this->check->judged[0]->firstFactor);
         self::assertSame($given, $this->check->judged[1]->firstFactor);
@@ -199,12 +202,12 @@ final class RequirementJudgeTest extends TestCase
             $statements->append($query->sql);
         });
 
-        self::assertSame($given, RequirementJudge::firstFactor($session, $given, $evidence));
-        self::assertSame($evidence->firstFactor, RequirementJudge::firstFactor($session, null, $evidence));
-        self::assertNull(RequirementJudge::firstFactor(null, null, null));
+        self::assertSame($given, RequirementJudge::firstFactor($session, $given, new ProofSource($evidence)));
+        self::assertSame($evidence->firstFactor, RequirementJudge::firstFactor($session, null, new ProofSource($evidence)));
+        self::assertNull(RequirementJudge::firstFactor(null, null, new ProofSource));
         self::assertCount(0, $statements);
 
-        $recorded = RequirementJudge::firstFactor($session, null, null);
+        $recorded = RequirementJudge::firstFactor($session, null, new ProofSource);
 
         self::assertSame([ProofKind::FIRST_FACTOR, 'password'], [$recorded?->kind, $recorded?->method]);
         self::assertCount(1, $statements);
@@ -230,7 +233,7 @@ final class RequirementJudgeTest extends TestCase
 
         DB::enableQueryLog();
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, $evidence, new Requirement(new RequirementPart)));
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource($evidence), new Requirement(new RequirementPart)));
         self::assertSame([], DB::getQueryLog());
 
         [$subject] = $this->check->judged;
@@ -245,7 +248,7 @@ final class RequirementJudgeTest extends TestCase
         $first  = SignInProof::unattested('password', $now)->recorded();
         $newest = SignInProof::unattested('password', $now)->recorded();
 
-        RequirementJudge::isMet('members', $member, null, null, $now, new SessionEvidence($first, [$newest, $first], null), new Requirement(new RequirementPart));
+        RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource(new SessionEvidence($first, [$newest, $first], null)), new Requirement(new RequirementPart));
 
         self::assertSame([$newest], $this->check->judged[1]->proofs(null, null, 1));
         self::assertSame([$newest, $first], $this->check->judged[1]->proofs(null, null, 2));
@@ -271,8 +274,8 @@ final class RequirementJudgeTest extends TestCase
 
         $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
 
-        self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, $now, null, new Requirement(new RequirementPart)));
-        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, $evidence, new Requirement(new RequirementPart)));
+        self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, $now, new ProofSource, new Requirement(new RequirementPart)));
+        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, new ProofSource($evidence), new Requirement(new RequirementPart)));
         self::assertSame([$evidence->firstFactor], $this->check->judged[1]->proofs());
     }
 
@@ -296,12 +299,12 @@ final class RequirementJudgeTest extends TestCase
         $accepted = new ExternalEvidence(['hwk'], null, $now);
         $external = SignInProof::external('sso', new Provenance('conn-a', evidence: $accepted), $now, new Evaluation(true, true))->recorded();
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, null, $first, $now, null, new Requirement(new RequirementPart)));
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, $first, $now, new ProofSource, new Requirement(new RequirementPart)));
         self::assertSame([], $this->check->judged[0]->proofs());
 
         DB::enableQueryLog();
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, null, $external, $now, null, new Requirement(new RequirementPart)));
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, $external, $now, new ProofSource, new Requirement(new RequirementPart)));
         self::assertSame([], DB::getQueryLog());
         self::assertSame([], $policy->asked);
         self::assertSame(2, $this->judgedCount());
@@ -325,8 +328,8 @@ final class RequirementJudgeTest extends TestCase
 
         DB::table('authentication_proofs')->delete();
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, CarbonImmutable::now(), null, new Requirement(new RequirementPart)));
-        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, CarbonImmutable::now(), null, new Requirement(new RequirementPart)));
+        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, CarbonImmutable::now(), new ProofSource, new Requirement(new RequirementPart)));
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, CarbonImmutable::now(), new ProofSource, new Requirement(new RequirementPart)));
         self::assertSame([], $this->check->judged);
     }
 
@@ -356,7 +359,7 @@ final class RequirementJudgeTest extends TestCase
 
         DB::enableQueryLog();
 
-        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, $now, $evidence, $requirement));
+        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource($evidence), $requirement));
         self::assertSame([], DB::getQueryLog());
         self::assertSame(0, $this->judgedCount());
 
@@ -369,7 +372,9 @@ final class RequirementJudgeTest extends TestCase
         self::assertSame([['hwk'], $now->getTimestamp()], [$asked['evidence']->methods, $asked['evidence']->authenticatedAt->getTimestamp()]);
         self::assertTrue($asked['pinned']);
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, $evidence, new Requirement(new RequirementPart, phishingResistance: new RequirementPart)));
+        $resistant = new Requirement(new RequirementPart, phishingResistance: new RequirementPart);
+
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource($evidence), $resistant));
         self::assertCount(2, $policy->asked);
         self::assertSame(1, $this->judgedCount());
     }
@@ -393,9 +398,9 @@ final class RequirementJudgeTest extends TestCase
         $evidence    = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a', evidence: $accepted), $now, new Evaluation(true, true)));
         $requirement = new Requirement(multifactor: new RequirementPart);
 
-        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, $now, $evidence, new TenantFactor($tenant, $requirement)));
-        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, $now, $evidence, $requirement));
-        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, $now, null, new TenantFactor($tenant, new Requirement)));
+        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource($evidence), new TenantFactor($tenant, $requirement)));
+        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource($evidence), $requirement));
+        self::assertTrue(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource, new TenantFactor($tenant, new Requirement)));
 
         self::assertCount(2, $policy->asked);
         self::assertSame([$requirement, $tenant], [$policy->asked[0]['requirement'], $policy->asked[0]['subject']->tenant]);
@@ -425,8 +430,8 @@ final class RequirementJudgeTest extends TestCase
         $unaccepted = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a'), $now));
         $password   = SessionEvidence::of(SignInProof::unattested('password', $now));
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, $unaccepted, $requirement));
-        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, $password, $requirement));
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource($unaccepted), $requirement));
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource($password), $requirement));
         self::assertCount(0, $policy->asked);
         self::assertSame(2, $this->judgedCount());
 
@@ -435,7 +440,7 @@ final class RequirementJudgeTest extends TestCase
         $accepted = new ExternalEvidence(['hwk'], null, $now);
         $evidence = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a', evidence: $accepted), $now, new Evaluation(true, false)));
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, $evidence, $requirement));
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource($evidence), $requirement));
         self::assertSame(3, $this->judgedCount());
     }
 
@@ -473,7 +478,7 @@ final class RequirementJudgeTest extends TestCase
             $statements->append($query->sql);
         });
 
-        self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, $now, null, new Requirement(multifactor: new RequirementPart)));
+        self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, $now, new ProofSource, new Requirement(multifactor: new RequirementPart)));
         self::assertCount(2, $statements);
         self::assertEquals($newest, $policy->asked[0]['evidence']);
         self::assertSame('conn-a', $policy->asked[0]['subject']->connectionId);
@@ -481,11 +486,58 @@ final class RequirementJudgeTest extends TestCase
 
         $statements->exchangeArray([]);
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, $password, null, $now, null, new Requirement(multifactor: new RequirementPart)));
+        self::assertFalse(RequirementJudge::isMet('members', $member, $password, null, $now, new ProofSource, new Requirement(multifactor: new RequirementPart)));
         self::assertCount(2, $statements);
         self::assertStringNotContainsString('evidence', implode(' ', $statements->getArrayCopy()));
         self::assertCount(1, $policy->asked);
         self::assertSame(1, $this->judgedCount());
+    }
+
+    /**
+     * A judgement made under the session's lock reads each of the session's
+     * proofs it reads current: its first factor, its accepted evidence and
+     * every query the check makes of the subject, a later one included, each
+     * with a shared lock where the engine takes one. A plain judgement takes
+     * none, and one of a sign-in's evidence, or of no session, reads nothing
+     * either way.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAJudgementUnderTheLockReadsTheSessionsProofsCurrent(): void
+    {
+        self::markSharedLocks();
+
+        [$member] = $this->seedMember();
+
+        $now         = CarbonImmutable::now()->startOfSecond();
+        $session     = $this->signedIn();
+        $requirement = new Requirement(multifactor: new RequirementPart);
+
+        $this->trustEvidenceFor([]);
+
+        DB::table('authentication_proofs')->where('session_id', IdentifierCoercion::stringify($session->getKey()))->delete();
+
+        self::recordExternal($session, ProofKind::FIRST_FACTOR, $now->subMinutes(5), new ExternalEvidence(['pwd'], null, $now->subMinutes(5)));
+
+        $judge = fn (?Session $judged, ProofSource $source): array => self::proofReadLocks(function () use ($member, $judged, $now, $source, $requirement): void {
+            self::assertFalse(RequirementJudge::isMet('members', $member, $judged, null, $now, $source, $requirement));
+
+            $subject = end($this->check->judged);
+
+            self::assertInstanceOf(RequirementSubject::class, $subject);
+
+            $subject->proofs();
+        });
+
+        self::assertSame(array_fill(0, 4, self::takesSharedLocks()), $judge($session, new ProofSource(current: true)));
+        self::assertSame(array_fill(0, 4, false), $judge($session, new ProofSource));
+        self::assertSame([], $judge($session, new ProofSource(SessionEvidence::of(SignInProof::unattested('password', $now)), true)));
+        $current = new ProofSource(current: true);
+
+        self::assertSame([], self::proofReadLocks(static fn (): bool => RequirementJudge::isMet('members', $member, null, null, $now, $current, $requirement)));
+        self::assertSame(3, $this->judgedCount());
     }
 
     /**
@@ -513,13 +565,13 @@ final class RequirementJudgeTest extends TestCase
         self::recordExternal($session, ProofKind::FIRST_FACTOR, $now->subMinutes(5), new ExternalEvidence(['mfa'], null, $now->subMinutes(5)));
         self::recordExternal($session, ProofKind::EXTERNAL_REAUTHENTICATION, $now->subMinute(), new ExternalEvidence(['hwk'], null, $now->subMinute()));
 
-        self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, $now, null, new Requirement(multifactor: new RequirementPart)));
+        self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, $now, new ProofSource, new Requirement(multifactor: new RequirementPart)));
         self::assertSame([['hwk'], ['mfa']], $policy->judged);
         self::assertSame(0, $this->judgedCount());
 
         $policy->judged = [];
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, null, new Requirement(additionalVerification: new RequirementPart)));
+        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, new ProofSource, new Requirement(additionalVerification: new RequirementPart)));
         self::assertSame([['hwk'], ['mfa']], $policy->judged);
     }
 
@@ -551,8 +603,8 @@ final class RequirementJudgeTest extends TestCase
 
         $signIn = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a', evidence: $stale), $now, new Evaluation(true, true)));
 
-        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, null, $requirement));
-        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, $signIn, $requirement));
+        self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, new ProofSource, $requirement));
+        self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource($signIn), $requirement));
         self::assertSame(2, $this->judgedCount());
 
         foreach ($this->check->judged as $subject) {

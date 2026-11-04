@@ -19,7 +19,9 @@ use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
  *
  * The package builds every subject: at sign-in its proofs are the ones the
  * sign-in is about to record, held in memory; otherwise each query is one
- * indexed read on the write connection.
+ * indexed read on the write connection, and, when the package judges the
+ * session under its row's lock, a current read of what is committed rather than
+ * of the snapshot the transaction took first.
  *
  * @api
  *

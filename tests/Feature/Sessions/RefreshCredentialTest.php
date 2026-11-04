@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -35,6 +36,8 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
 
@@ -57,7 +60,7 @@ use Tests\TestCase;
 #[CoversTrait(RefreshesSessions::class)]
 final class RefreshCredentialTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithSessions, MarksSharedLocks;
 
     /** @var list<class-string> Every event a refresh or a sign-out could dispatch. */
     private const array EVENTS = [Attempting::class, Failed::class, AuthenticationFailed::class, SessionRevoked::class, Logout::class];
@@ -218,6 +221,34 @@ final class RefreshCredentialTest extends TestCase
         );
         self::assertSame([], $this->recordedClasses());
         self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
+    }
+
+    /**
+     * A credential is judged against its tenant's policy holding no lock on the
+     * session, so the session's proofs are read plainly, never with a shared
+     * lock, even where a judgement under the lock takes one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACredentialIsJudgedOnPlainReads(): void
+    {
+        $this->seedMember();
+
+        $session = $this->signedIn('members', 'member@example.test');
+
+        $this->tenantPolicy(new TenantRequirement('v2', new Requirement(new RequirementPart)));
+
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        self::markSharedLocks();
+
+        $service = $this->serving(body: ['refresh_token' => self::refreshOf($session)], guard: 'members');
+
+        self::assertSame([false, false], self::proofReadLocks(static function () use ($service): void {
+            self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $service->refreshCredentialFromRequest());
+        }));
     }
 
     /**

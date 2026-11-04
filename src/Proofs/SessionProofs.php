@@ -37,8 +37,32 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * recorded. `newestMeeting()` reads the newest one a freshness requirement
  * takes, with `LIMIT 1`, on the proofs' session, kind and time index. `query()`
  * reads a bounded page of them for a requirement check, `firstFactor()` the
- * first factor the session signed in with, `connectionId()` the connection its
+ * first factor the session signed in with, `acceptedEvidence()` the external
+ * evidence its proofs hold accepted, `connectionId()` the connection its
  * provenance records, and `provenance()` the whole provenance.
+ *
+ * `history()`, `query()`, `firstFactor()`, `acceptedEvidence()` and
+ * `connectionId()` read current when asked (`$current`): what is committed now
+ * rather than what the transaction's snapshot holds. They are asked so only by
+ * a caller that holds the session's row locked in the transaction (an issuance
+ * once it has written the session's issuance guard, and every requirement
+ * judgement made under the row's lock), and only MySQL and MariaDB need it:
+ * their plain reads inside a REPEATABLE READ transaction return the snapshot of
+ * its first read, so a current read there takes a shared lock on the rows it
+ * reads, held until the transaction ends (outside one, until the statement
+ * ends). At REPEATABLE READ that lock also takes the gaps on either side of the
+ * session's proofs in their session index, so another transaction's proof that
+ * falls there waits for this one to end: a new session's, after the newest
+ * session's proofs, and a step-up's or a reauthentication's of the session
+ * whose proofs border these, keys being time-ordered; on the provenance, it
+ * takes the session's provenance row, or, for a session with none, the gap its
+ * key falls in, where only an external sign-in's provenance can fall. Every
+ * other engine reads as it does without: PostgreSQL refuses a shared lock on a
+ * grouped read, and needs none, since at READ COMMITTED each statement reads
+ * what is committed once the row's lock or guard has waited for any writer of
+ * the session still in flight, and at REPEATABLE READ the lock or guard fails
+ * to serialise when one committed after the snapshot; SQLite lets one writer in
+ * at a time.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,23 +80,9 @@ final class SessionProofs
     private function __construct() {}
 
     /**
-     * What the session's counting proofs say about its authentication.
-     *
-     * `$current` reads what is committed now rather than what the transaction's
-     * snapshot holds, for an issuance that has written the session's issuance
-     * guard: on MySQL and MariaDB, whose plain reads inside a REPEATABLE READ
-     * transaction return the snapshot of its first read, with a shared lock on
-     * the rows read, held until the transaction ends. At REPEATABLE READ that
-     * lock also takes the gaps on either side of the session's proofs in their
-     * session index, so another transaction's proof that falls there waits for
-     * this one to end: a new session's, after the newest session's proofs, and
-     * a step-up's or a reauthentication's of the session whose proofs border
-     * these, keys being time-ordered. Every other engine reads as it does
-     * without: PostgreSQL refuses a shared lock on a grouped read, and needs
-     * none, since at READ COMMITTED each statement reads what is committed once
-     * the guard has waited for any writer of the session still in flight, and
-     * at REPEATABLE READ the guard fails to serialise when one committed after
-     * the snapshot; SQLite lets one writer in at a time.
+     * What the session's counting proofs say about its authentication, read
+     * current when asked, as the class describes: an issuance asks once it has
+     * written the session's issuance guard.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current
@@ -84,7 +94,7 @@ final class SessionProofs
     {
         $model  = new SessionProof;
         $at     = $model->getConnection()->getQueryGrammar()->wrap('authenticated_at');
-        $shared = $current && in_array($model->getConnection()->getDriverName(), ['mysql', 'mariadb'], true);
+        $shared = self::sharesLock($model, $current);
 
         $rows = WriteConnection::during($model, static fn (): array => self::counting($session)
             ->toBase()
@@ -143,19 +153,23 @@ final class SessionProofs
      * The session's counting proofs, newest first by time and then by id, only
      * those made at or after `$since` when it is given and of the given kinds
      * when they are, at most `$limit` of them: one `LIMIT` query on the proofs'
-     * session, kind and time index.
+     * session, kind and time index, read current when asked, as the class
+     * describes. Pass `$current` only for a session whose row this transaction
+     * holds locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\Carbon\CarbonImmutable  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
      * @param  int  $limit
+     * @param  bool  $current
      * @return list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>
      *
      * @throws \InvalidArgumentException
      */
-    public static function query(Session $session, ?CarbonImmutable $since, ?array $kinds, int $limit): array
+    public static function query(Session $session, ?CarbonImmutable $since, ?array $kinds, int $limit, bool $current = false): array
     {
-        $model = new SessionProof;
+        $model  = new SessionProof;
+        $shared = self::sharesLock($model, $current);
 
         $proofs = WriteConnection::during($model, static fn (): array => self::counting($session)
             ->when($since !== null, static fn (Builder $query): Builder => $query->where('authenticated_at', '>=', $model->fromDateTime($since)))
@@ -163,6 +177,7 @@ final class SessionProofs
             ->orderByDesc('authenticated_at')
             ->orderByDesc('id')
             ->limit($limit)
+            ->when($shared, static fn (Builder $query): Builder => $query->sharedLock())
             ->get()
             ->all());
 
@@ -171,19 +186,26 @@ final class SessionProofs
 
     /**
      * The first factor the session signed in with: its oldest counting
-     * first-factor proof, or `null` for a session that records none.
+     * first-factor proof, or `null` for a session that records none; read
+     * current when asked, as the class describes. Pass `$current` only for a
+     * session whose row this transaction holds locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  bool  $current
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
      * @throws \InvalidArgumentException
      */
-    public static function firstFactor(Session $session): ?RecordedProof
+    public static function firstFactor(Session $session, bool $current = false): ?RecordedProof
     {
-        $proof = WriteConnection::during(new SessionProof, static fn (): mixed => self::counting($session)
+        $model  = new SessionProof;
+        $shared = self::sharesLock($model, $current);
+
+        $proof = WriteConnection::during($model, static fn (): mixed => self::counting($session)
             ->where('kind', ProofKind::FIRST_FACTOR->value)
             ->orderBy('authenticated_at')
             ->orderBy('id')
+            ->when($shared, static fn (Builder $query): Builder => $query->sharedLock())
             ->first());
 
         return $proof instanceof SessionProof ? self::recorded($proof) : null;
@@ -196,20 +218,26 @@ final class SessionProofs
      * evidence's own time first, and of evidence asserting the same methods and
      * context only the newest, which an older copy can never better: one
      * bounded read of at most `EVIDENCE_LIMIT` of those proofs, newest first,
-     * on the proofs' session index. Evidence a row holds malformed is no
-     * evidence.
+     * on the proofs' session index, read current when asked, as the class
+     * describes. Evidence a row holds malformed is no evidence. Pass `$current`
+     * only for a session whose row this transaction holds locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  bool  $current
      * @return list<\SineMacula\Laravel\Authentication\External\ExternalEvidence>
      */
-    public static function acceptedEvidence(Session $session): array
+    public static function acceptedEvidence(Session $session, bool $current = false): array
     {
-        $stored = WriteConnection::during(new SessionProof, static fn (): array => self::counting($session)
+        $model  = new SessionProof;
+        $shared = self::sharesLock($model, $current);
+
+        $stored = WriteConnection::during($model, static fn (): array => self::counting($session)
             ->whereIn('kind', [ProofKind::FIRST_FACTOR->value, ProofKind::EXTERNAL_REAUTHENTICATION->value])
             ->whereNotNull('evidence')
             ->orderByDesc('authenticated_at')
             ->orderByDesc('id')
             ->limit(self::EVIDENCE_LIMIT)
+            ->when($shared, static fn (Builder $query): Builder => $query->sharedLock())
             ->get(['evidence'])
             ->all());
 
@@ -235,17 +263,25 @@ final class SessionProofs
 
     /**
      * The connection the session's provenance records it was established
-     * through, or `null` for a session no external provider established.
+     * through, or `null` for a session no external provider established; read
+     * current when asked, as the class describes. Pass `$current` only for a
+     * session whose row this transaction holds locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  bool  $current
      * @return ?string
      */
-    public static function connectionId(Session $session): ?string
+    public static function connectionId(Session $session, bool $current = false): ?string
     {
-        $key = IdentifierCoercion::stringify($session->getSessionIdentifier()) ?? '';
+        $key    = IdentifierCoercion::stringify($session->getSessionIdentifier()) ?? '';
+        $model  = new SessionProvenance;
+        $shared = self::sharesLock($model, $current);
 
-        return WriteConnection::during(new SessionProvenance, static fn (): ?string => IdentifierCoercion::stringify(
-            WriteConnection::query(SessionProvenance::query())->whereKey($key)->value('connection_id'),
+        return WriteConnection::during($model, static fn (): ?string => IdentifierCoercion::stringify(
+            WriteConnection::query(SessionProvenance::query())
+                ->whereKey($key)
+                ->when($shared, static fn (Builder $query): Builder => $query->sharedLock())
+                ->value('connection_id'),
         ));
     }
 
@@ -274,6 +310,19 @@ final class SessionProofs
             ExternalEvidence::fromStored($row->accepted_evidence),
             ProviderContext::fromStored($row->provider_context),
         ) : null;
+    }
+
+    /**
+     * Whether a read asked to be current takes a shared lock: on MySQL and
+     * MariaDB only, as the class describes.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $model
+     * @param  bool  $current
+     * @return bool
+     */
+    private static function sharesLock(Model $model, bool $current): bool
+    {
+        return $current && in_array($model->getConnection()->getDriverName(), ['mysql', 'mariadb'], true);
     }
 
     /**
