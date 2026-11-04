@@ -1564,9 +1564,10 @@ final class PasskeyServiceTest extends TestCase
      * registration hands back as it is: a session now short of a further factor
      * returns to pending with the registration, the completion carrying the
      * pending session and its credential, and that credential takes a further
-     * factor; a credential registered concurrently, found only by the insert,
-     * rolls the return back with the rest, so the session stays active, nothing
-     * is reported and no association is answered.
+     * factor. A duplicate of the credential the gate itself inserts, an
+     * injected conflict in the same transaction found only by the passkey's own
+     * insert, rolls the return back with the rest, so the session stays active,
+     * nothing is reported and no association is answered.
      *
      * @return void
      *
@@ -1647,9 +1648,11 @@ final class PasskeyServiceTest extends TestCase
      * completion, which the passkey's removal hands back as it is: the current
      * session, short of a further factor without that factor, returns to
      * pending, the completion carrying its new pending credential, which takes
-     * another factor; a passkey removed by another while the gate runs rolls
-     * the return back with the rest, so the session stays active, nothing is
-     * reported and no completion is answered.
+     * another factor. A delete of the passkey the gate itself makes, an
+     * injected conflict in the same transaction found by the removal's own
+     * delete, rolls the return back with the rest, the passkey's row included,
+     * so the session stays active, nothing is reported and no completion is
+     * answered.
      *
      * @return void
      *
@@ -1721,9 +1724,9 @@ final class PasskeyServiceTest extends TestCase
      * passkey's id and canonical credential id: a gate that refuses throws,
      * keeping the passkey and reporting nothing; one that lets it go ahead
      * removes it, reported once, and the removal hands back the completion it
-     * answered, as it is; a passkey removed by another while the gate runs
-     * rolls the gate's work back and is answered not removed, the completion
-     * dropped with it.
+     * answered, as it is; a delete of the passkey the gate itself makes, an
+     * injected conflict in the same transaction, rolls the gate's work back and
+     * is answered not removed, the completion dropped with it.
      *
      * @return void
      *
