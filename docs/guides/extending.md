@@ -585,7 +585,13 @@ seam has a default that works alone.
   the factor that confirms a bootstrap enrolment (see [Satisfying a further
   factor](signing-in.md#satisfying-a-further-factor)). Called inside the factor package's own transaction, on the
   storage connection, the activation commits with it: the guard is bound, and the sign-in's slots given back, only once
-  that transaction commits, and never when it rolls back. Nothing a factor package keeps about a session survives a
+  that transaction commits, and never when it rolls back. It reads the pending session's proofs current, and locks the
+  session the sign-in proved before them, whenever the sign-in recorded one, whatever it then decides; on MySQL and
+  MariaDB at REPEATABLE READ those reads hold shared locks until you commit, so keep the transaction short and take any
+  session row your transaction needs before the call (a bulk revocation over both sessions, `revokeSessions()` or
+  `factorReset()` among them, locks the older first and can deadlock with it). On a lock wait timeout, a deadlock or a
+  serialisation failure, which reaches you as Laravel's `DeadlockException`, roll your whole transaction back and retry
+  it whole (see [Issuance order](sessions.md#issuance-order)). Nothing a factor package keeps about a session survives a
   sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the client proved
   (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it when the new one first activates.
 - Step a signed-in session up with a factor the factor package has just verified: `Auth::sessions()->stepUp($proof)`,
@@ -756,8 +762,9 @@ contributor could give) or binds a fake `AuthenticationContexts`.
   evidence policy are then asked under that lock, so neither may take a lock the adapter takes after the session's row.
   An adapter that must answer a session's standing (`laravel-sso`'s re-authentication sessions) asks
   `externalStanding($sessionId, $identity, $connectionId, $linkId)`: with no link id and outside a transaction when a
-  flow starts, which locks nothing, and with the link id inside the redemption's transaction, which locks the row; it
-  answers `null` or the reason.
+  flow starts, which locks nothing, and with the link id inside the redemption's transaction, which locks the row and
+  reads its provenance current (see [Issuance order](sessions.md#issuance-order)), so a key another sign-in reused
+  after the transaction's first read is answered on its own provenance; it answers `null` or the reason.
 - When a link is removed, or its scope widened so it may act for more than its sessions were established for, the
   adapter calls `linkRemoved($identity, $connectionId, $linkId)` or `linkScopeWidened(...)` in the same transaction (see
   [Connections and links](sessions.md#connections-and-links)): each ends only the identity's sessions established

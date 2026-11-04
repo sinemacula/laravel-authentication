@@ -884,7 +884,10 @@ new credential and the principals listed), and otherwise it stays pending. The a
 values, and `mfa` when its evaluation reports multifactor authentication. A refusal stores nothing and never revokes the
 session, which waits until its credential expires; every refusal reports `Failed` and `AuthenticationFailed`, and a
 credential that names nothing is `pending_invalid`. An activation's result carries the session and its pair as a
-sign-in's does, answered the same way (`access_token`, `expires_in`, `refresh_token`).
+sign-in's does, answered the same way (`access_token`, `expires_in`, `refresh_token`). The judgement reads the stored
+proofs current, after locking the session the sign-in proved, if it recorded one, so inside your own transaction take
+any session row you need before the call, and on a lock wait timeout, a deadlock or a serialisation failure roll back
+and retry the whole transaction (see [Issuance order](sessions.md#issuance-order)).
 
 ### Choosing a principal
 
@@ -901,7 +904,9 @@ is asked next: one that requires a connection refuses this principal as `sso_req
 another choice. The identity-level factor policy is then asked again: a further factor it or the tenant now asks for
 records the principal and tenant and leaves the session waiting for it, with the same credential; otherwise the session
 activates as the principal. A refused choice leaves the session pending for another; `pending_action_not_allowed` while
-a factor is outstanding.
+a factor is outstanding. As with `satisfy()`, the judgement reads the session's proofs current after locking the session
+the sign-in proved, if any, and a lock wait timeout, a deadlock or a serialisation failure is for you to roll back and
+retry whole (see [Issuance order](sessions.md#issuance-order)).
 
 ### Discarding
 

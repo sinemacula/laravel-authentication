@@ -149,8 +149,10 @@ order across calls, though. A call that ends or judges several sessions locks th
 `factorRemoved()`, `factorReset()`, a deactivation, `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()` and
 `linkScopeWidened()`). `satisfy()` and `choose()` on a pending session whose sign-in proved it holds another session
 lock the pending session and then that older one, whatever the action goes on to decide. So such a call over both can
-deadlock with the pending action, the database failing one for its caller to roll back and retry whole. At READ
-COMMITTED MySQL locks no gap, and PostgreSQL takes no shared lock, so nothing waits there.
+deadlock with the pending action, the database failing one for its caller to roll back and retry whole. At PostgreSQL's
+REPEATABLE READ the lock on that older session also fails to serialise when it was written after your transaction's
+snapshot (a refresh of it from the client's other tab, say), whatever the action then decides; roll back and retry the
+whole transaction. At READ COMMITTED MySQL locks no gap, and PostgreSQL takes no shared lock, so nothing waits there.
 
 ## Stepping up
 

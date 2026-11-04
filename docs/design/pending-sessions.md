@@ -71,7 +71,9 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   recorded one, is read locked for update before it is checked (it is superseded only while it is still active,
   unrevoked, of the guard and owner, and holding the digest proven), before `satisfy()`'s issuance guard and proof and
   before any read of the pending session's proofs, so the supersede takes no session row after a proof row; `pending()`
-  reads it, and the proofs, plainly.
+  reads it, and the proofs, plainly. At PostgreSQL's REPEATABLE READ that lock also fails to serialise when the proven
+  session was written after the caller's snapshot (a refresh of it, say), whatever the action then decides, and the
+  caller rolls back and retries the whole transaction.
 - `satisfy()` accepts a proof only as `ProofAcceptance::forPendingSession()` decides: an `additional_factor` or a
   `recovery_code`, for `sign_in` (or `enrollment` for an `additional_factor`, a bootstrap enrolment's confirming proof),
   accepted, timed no earlier than when the session began waiting (the later of its start and `switched_at`) and no

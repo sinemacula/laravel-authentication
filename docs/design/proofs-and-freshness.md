@@ -263,23 +263,22 @@ session holds; the token's claims and every freshness answer are worked out from
 
   Each next-key lock comes with a record lock on the proof's row. In the last row no session had provenance, so the gap
   before the next provenance key ran to the supremum for the middle session too; when a later session was established
-  externally, that gap ends at its key, and a new external sign-in, whose key comes after it, does not wait. Before,
-  the judgement took none of these. A refresh's
-  issuance (`history(true)`) of the same session takes the same records and the same edge gap, so a judgement before a
-  refresh's, a switch's, a step-up's, a reauthentication's or an activation's issuance takes early what the issuance
-  holds later, and adds only the provenance lock where the policy names connections; `factorChanged()`,
-  `factorRemoved()`, a pending action that leaves the session pending, a refresh or a switch that returns it to pending,
-  and a reauthentication at the provider its tenant refuses hold them without an issuance. `tenantPolicyChanged()` over
-  three sessions holds every judged session's records, the gap after the newest and the gaps between them (and with a
-  named connection the provenance gap) until it commits; it also holds every key of the tenant's live sessions in
-  memory for the call (for a thousand and one sessions its peak memory rose by about 70 KB, to 21.6 MB, measured on
-  SQLite). The trade is right: the reads judge security state (whether a session keeps acting or returns to pending,
-  whether a voided factor still counts, whether a reused key still establishes through the tenant's connection), and a
-  stale read fails open in the void and reuse cases; the added waits fall where an issuance's already do (the edges of
-  each judged session's range, and the provenance only when connections are named), happen only on MySQL and MariaDB
-  at REPEATABLE READ, last as long as the judging transaction, and are of the class the sessions guide already
-  documents for an issuance inside a caller's transaction; and InnoDB gives no narrower current read at REPEATABLE
-  READ.
+  externally, that gap ends at its key, and a new external sign-in, whose key comes after it, does not wait. Before, the
+  judgement took none of these. A refresh's issuance (`history(true)`) of the same session takes the same records and
+  the same edge gap, so a judgement before a refresh's, a switch's, a step-up's, a reauthentication's or an activation's
+  issuance takes early what the issuance holds later, and adds only the provenance lock where the policy names
+  connections; `factorChanged()`, `factorRemoved()`, a pending action that leaves the session pending, a refresh or a
+  switch that returns it to pending, and a reauthentication at the provider its tenant refuses hold them without an
+  issuance. `tenantPolicyChanged()` over three sessions holds every judged session's records, the gap after the newest
+  and the gaps between them (and with a named connection the provenance gap) until it commits; it also holds every key
+  of the tenant's live sessions in memory for the call (for a thousand and one sessions its peak memory rose by about 70
+  KB, to 21.6 MB, measured on SQLite). The trade is right: the reads judge security state (whether a session keeps
+  acting or returns to pending, whether a voided factor still counts, whether a reused key still establishes through the
+  tenant's connection), and a stale read fails open in the void and reuse cases; the added waits fall where an
+  issuance's already do (the edges of each judged session's range, and the provenance only when connections are named),
+  happen only on MySQL and MariaDB at REPEATABLE READ, last as long as the judging transaction, and are of the class the
+  sessions guide already documents for an issuance inside a caller's transaction; and InnoDB gives no narrower current
+  read at REPEATABLE READ.
 - An exception from the evidence policy or the link contract, and a database error (a serialization failure, a lock
   wait timeout or a deadlock included), propagates, and the package never retries. Laravel rethrows a concurrency error
   raised inside a savepoint without rolling the caller's transaction back, and MySQL rolls back only the statement on a
