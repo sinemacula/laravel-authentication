@@ -59,7 +59,8 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   `MET`. The judge asks the bound `ExternalEvidencePolicy` first, for a session an external provider established that
   holds accepted evidence (any of it, the newest first, and each piece must meet the whole requirement), then
   `RequirementCheck::evaluate()`. The evidence is the sign-in's own in memory, or the session's provenance and proofs,
-  read only when the answer needs them, so the default policy costs no query. The defaults (`InsufficientEvidence`,
+  read only when the answer needs them, so the default policy costs no query, and read current when the session's row is
+  held locked (`Requirements\ProofSource`; see `proofs-and-freshness.md`). The defaults (`InsufficientEvidence`,
   `MeetNoRequirement`) meet nothing: a further factor fails closed until an application trusts a provider's evidence or
   a further-factor package binds its check.
 - Where it is asked, and what a shortfall does: at sign-in with a selected principal (`sso_required` refuses and writes
@@ -74,12 +75,14 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   and is part of the refresh's and the switch's compare-and-swap, so a version written by the helper in between makes
   them judge the session again.
 - `tenantPolicyChanged($tenant)` applies a change at once and outside any request: every live session (unrevoked, before
-  both deadlines) acting in the tenant, on every guard, pending ones included, is read in key order a chunk at a time
-  with a locking read, in one transaction on the session model's connection (a savepoint inside a caller's transaction
-  there). A session recorded at the very version answered, neither `null`, is skipped; an active one that falls short is
-  revoked (`tenant_policy_changed`) and one that meets it records the version; a pending one is revoked only when it
-  would need another connection, since its activation judges a further factor itself. Each revocation is one conditional
-  update on the session still acting in the tenant and unrevoked, reported by `SessionRevoked` once committed.
+  both deadlines) acting in the tenant, on every guard, pending ones included, is locked first, its key read in key
+  order a chunk at a time with a locking read, and only then read again by key, a chunk at a time, and judged, its
+  proofs and provenance read current, so every session row is locked before any proof row; all in one transaction on the
+  session model's connection (a savepoint inside a caller's transaction there). A session recorded at the very version
+  answered, neither `null`, is skipped; an active one that falls short is revoked (`tenant_policy_changed`) and one that
+  meets it records the version; a pending one is revoked only when it would need another connection, since its
+  activation judges a further factor itself. Each revocation is one conditional update on the session still acting in
+  the tenant and unrevoked, reported by `SessionRevoked` once committed.
 - `tenantDeactivated()` ends every session acting in the tenant, whatever its principal, as well as the sessions of the
   principals listed for it, each session counted once.
 
@@ -142,6 +145,10 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
   `tests/Unit/Tenancy/TenantRequirementTest.php`, `tests/Unit/Requirements/RequirementTest.php`,
   `tests/Unit/Requirements/RequirementSubjectTest.php`
 - `tests/Feature/Sessions/RevocationScopeTest.php` `testATenantsScopeHoldsTheSessionsActingInIt`
+- `tests/Feature/Sessions/TenantPolicyChangesTest.php`, `tests/Integration/Sessions/TenantPolicyChangesTest.php` (the
+  two passes: every session locked before the first proof read, only the sessions the first pass found judged)
+- `tests/Integration/Sessions/CurrentProofReadsTest.php` `testAPolicyChangeCountsAStepUpCommittedMeanwhile`,
+  `testAPolicyChangeJudgesAReusedKeyOnItsOwnProvenance`
 - `tests/Performance/SessionRevocationQueryBudgetTest.php` `testATenantPolicyChangeIsLinearInTheTenantsSessions`
 
 ## Change Triggers

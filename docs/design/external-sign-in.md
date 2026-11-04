@@ -129,11 +129,12 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   another link, another connection, another identity, or on a session no link established, `link_mismatch`.
 - A change committed while the reauthentication waits for the session's lock (a revocation, a reissued key, a
   rewritten owner) is judged under the lock: `session_revoked`, `session_unknown` or `link_mismatch`.
-- A reauthentication whose session, with its proof recorded, no longer meets its tenant's authentication policy is
-  `sso_required` (a connection the tenant no longer admits) or `additional_factor_required` (a further factor the
-  session, this proof's accepted evidence included, does not meet): the proof rolls back in a savepoint
-  (`Sessions\IssuanceRefused`, caught by `ProofIssuance`) and the row is not written, so no version is recorded and the
-  next refresh revokes the session or returns it to pending. A first-factor reauthentication asks no tenant policy.
+- A reauthentication whose session, with its proof recorded, no longer meets its tenant's authentication policy, judged
+  under the session's lock on its proofs and provenance read current, is `sso_required` (a connection the tenant no
+  longer admits) or `additional_factor_required` (a further factor the session, this proof's accepted evidence included,
+  does not meet): the proof rolls back in a savepoint (`Sessions\IssuanceRefused`, caught by `ProofIssuance`) and the
+  row is not written, so no version is recorded and the next refresh revokes the session or returns it to pending. A
+  first-factor reauthentication asks no tenant policy.
 - A sign-in through a link racing that link's revocation is serialised by the adapter's own lock on the link, taken
   before the session's row; the package documents the order and does not enforce it. The revocation finds the link's
   sessions and their provenance (and a connection's, its provenance) with locking reads, which see what is committed

@@ -100,13 +100,13 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   (`PendingTransitions::outstanding()`), so the pending session names the strictest of both.
 - With the current rotation id, the token's `principal` must be the principal the session records
   (`session_principal_mismatch`). Then the destination tenant's authentication policy judges the session against its own
-  proofs and provenance (`TenantPolicyCheck::check()`, inside the switch's transaction, with the session's row held
-  after its issuance guard): connections the session was not established through refuse the switch (`sso_required`, with
-  only the issuance guard written and no switch or rotation applied); a further factor the session lacks returns it to
-  pending with the destination recorded (`PendingTransitions::returnToPending()`, flow `switch`), a missed
-  compare-and-swap there judged as a missed switch swap is. A return forgets a binding of the guard to the session
-  (`GuardBinding::forgetSession()`, no event), as a refresh's return does, so nothing later in the request acts in the
-  context it left.
+  proofs and provenance, read current (`TenantPolicyCheck::check()`, inside the switch's transaction, with the session's
+  row held after its issuance guard; see `proofs-and-freshness.md`): connections the session was not established through
+  refuse the switch (`sso_required`, with only the issuance guard written and no switch or rotation applied); a further
+  factor the session lacks returns it to pending with the destination recorded (`PendingTransitions::returnToPending()`,
+  flow `switch`), a missed compare-and-swap there judged as a missed switch swap is. A return forgets a binding of the
+  guard to the session (`GuardBinding::forgetSession()`, no event), as a refresh's return does, so nothing later in the
+  request acts in the context it left.
 - The absolute deadline stays the session's, held to `signed_in_at` plus the guard's absolute lifetime
   (`session_expired` when that has passed), so a lifetime shortened or set since the sign-in applies and a switch never
   extends the session or lifts its deadline; a session with no absolute deadline under a guard with no absolute limit
