@@ -155,8 +155,7 @@ final class SessionProofs
      * those made at or after `$since` when it is given and of the given kinds
      * when they are, at most `$limit` of them: one `LIMIT` query on the proofs'
      * session, kind and time index, read current when asked, as the class
-     * describes. Pass `$current` only for a session whose row this transaction
-     * holds locked.
+     * describes.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\Carbon\CarbonImmutable  $since
@@ -188,8 +187,7 @@ final class SessionProofs
     /**
      * The first factor the session signed in with: its oldest counting
      * first-factor proof, or `null` for a session that records none; read
-     * current when asked, as the class describes. Pass `$current` only for a
-     * session whose row this transaction holds locked.
+     * current when asked, as the class describes.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current
@@ -220,8 +218,7 @@ final class SessionProofs
      * context only the newest, which an older copy can never better: one
      * bounded read of at most `EVIDENCE_LIMIT` of those proofs, newest first,
      * on the proofs' session index, read current when asked, as the class
-     * describes. Evidence a row holds malformed is no evidence. Pass `$current`
-     * only for a session whose row this transaction holds locked.
+     * describes. Evidence a row holds malformed is no evidence.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current
@@ -265,8 +262,7 @@ final class SessionProofs
     /**
      * The connection the session's provenance records it was established
      * through, or `null` for a session no external provider established; read
-     * current when asked, as the class describes. Pass `$current` only for a
-     * session whose row this transaction holds locked.
+     * current when asked, as the class describes.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current
@@ -289,8 +285,7 @@ final class SessionProofs
     /**
      * The provenance the session records, read on the write connection, or
      * `null` for a session no external provider established; read current when
-     * asked, as the class describes. Pass `$current` only for a session whose
-     * row this transaction holds locked.
+     * asked, as the class describes.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  bool  $current

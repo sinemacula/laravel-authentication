@@ -425,13 +425,10 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A current read of a session's proofs as a requirement judgement makes
-     * them (a page for the requirement check, the first factor, the accepted
-     * evidence and the provenance's connection), or of its whole provenance as
-     * a standing answered under the session's lock reads it, as one made under
-     * that lock asks, takes a shared lock on MySQL and MariaDB and on no other
-     * engine; the plain read, asked for or by default, never takes one, and is
-     * otherwise the same statement.
+     * A current read of a session's page of proofs, first factor, accepted
+     * evidence, connection or provenance takes a shared lock on MySQL and
+     * MariaDB and on no other engine; the plain read, asked for or by default,
+     * never takes one, and is otherwise the same statement.
      *
      * @param  string  $driver
      * @return void

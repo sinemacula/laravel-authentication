@@ -700,8 +700,7 @@ final readonly class PendingSessions
      * session as proven: of this guard and owner, active, unrevoked, and
      * holding the refresh digest it was proven against; else `null`. One that
      * returned to pending keeps that digest, so its status is checked too. With
-     * `$lock`, its row is read locked until the transaction ends (a pending
-     * action's, before it reads the pending session's proofs), before any of
+     * `$lock`, its row is read locked until the transaction ends, before any of
      * these checks, so the activation's supersede that may follow takes no row
      * after them; a session that proved none locks nothing.
      *

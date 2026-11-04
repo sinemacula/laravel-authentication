@@ -661,9 +661,9 @@ final class CurrentProofReadsTest extends TestCase
     /**
      * Run the work in the caller's open transaction, expecting it to fail to
      * serialise, roll the whole transaction back, and return the SQLSTATE it
-     * failed with, or `null`: a pending action's own transaction rethrows the
-     * database's error as it is, every other the concurrency error Laravel
-     * raises inside a caller's transaction.
+     * failed with, or `null`: a standing, which runs no transaction of its own,
+     * throws the database's error as it is; every other call throws the
+     * `DeadlockException` Laravel raises inside a caller's transaction.
      *
      * @param  \Closure(): mixed  $work
      * @return ?string
