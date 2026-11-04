@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\PrincipalListing;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -36,10 +39,11 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * Feature tests of listing an identity's principals for admission against a
- * real database: the principals judged have their tenants read together in one
- * query per principal class, after the principals' own query and as a lazy load
- * would read them, and are judged as stored with only that tenant carried; a
- * principal the resolver supplied carries nothing.
+ * real database: the active principals judged have their tenants read together
+ * in one query per principal class, after the principals' own query and as a
+ * lazy load would read them, and are judged as stored with only that tenant
+ * carried; an inactive principal is refused without its tenant being read, and
+ * a principal the resolver supplied carries nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -78,6 +82,7 @@ final class PrincipalListingTest extends TestCase
             $blueprint->unsignedInteger('identity_id');
             $blueprint->string('tenant_type')->nullable();
             $blueprint->unsignedInteger('tenant_id')->nullable();
+            $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
         });
     }
@@ -402,7 +407,9 @@ final class PrincipalListingTest extends TestCase
      * Nothing is loaded for a principal the package cannot know the tenant
      * relation of: one without a tenant relation, one that implements the
      * contract itself, and one that is no model. Each is judged as before: the
-     * one that reads its own relation reads it on its stored copy.
+     * one that reads its own relation reads it on its stored copy. The
+     * principals listed after them whose relation is known still have their
+     * tenants read together.
      *
      * @return void
      *
@@ -410,26 +417,80 @@ final class PrincipalListingTest extends TestCase
      */
     public function testNothingIsLoadedForAPrincipalWhoseTenantRelationIsUnknown(): void
     {
-        [$member, [$membership]] = $this->seedChooser(1);
+        [$member, $memberships] = $this->seedChooser(2);
 
-        $custom = CustomTenantMembership::query()->whereKey($membership->getKey())->firstOrFail();
+        $custom = CustomTenantMembership::query()->whereKey($memberships[0]->getKey())->firstOrFail();
         $plain  = new PlainPrincipalFixture('plain');
         $bare   = new class extends Model implements Principal {
             use ActsAsPrincipal;
         };
 
-        $candidates = [$custom, $plain, $bare];
+        $candidates = [$custom, $plain, $bare, ...$memberships];
         $listing    = PrincipalListing::of($this->identityListing($this->builderListing($candidates)));
         $refusals   = null;
         $queries    = $this->queries(static function () use ($listing, $candidates, &$refusals): void {
             $refusals = $listing->refusals(self::GUARD, $candidates);
         });
 
-        self::assertSame([null, null, null], $refusals);
-        self::assertCount(1, $queries);
+        self::assertSame([null, null, null, null, null], $refusals);
+        self::assertCount(2, $queries);
         self::assertStringContainsString('"activatable_tenants"', $queries[0]);
+        self::assertStringContainsString('"activatable_tenants"', $queries[1]);
         self::assertFalse($custom->relationLoaded('tenant'));
         self::assertSame($member->getKey(), $custom->getIdentity()->getAuthIdentifier());
+        self::assertSame(array_map(static fn (ChoosingMembership $membership): int => $membership->tenant_id, $memberships), array_map(self::tenantKeyOf(...), $memberships));
+    }
+
+    /**
+     * An inactive principal is refused without its tenant being read, as when
+     * each principal was judged alone: one whose polymorphic type names a
+     * tenant class that no longer exists is refused as `principal_inactive` and
+     * the others are judged, only the active ones' tenants loaded.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnInactivePrincipalIsRefusedWithoutItsTenantBeingRead(): void
+    {
+        $tenant     = ActivatableTenant::query()->create(['name' => 'Kept', 'is_active' => true]);
+        $membership = new class extends Model implements CanBeActive, Principal {
+            use ActsAsPrincipal, ProvidesActiveState;
+
+            /** @var string|null The table associated with the model. */
+            protected $table = 'morph_tenant_memberships';
+
+            /** @var array<string> The attributes that aren't mass assignable. */
+            protected $guarded = [];
+
+            /**
+             * Acting tenant relation, typed by `tenant_type`.
+             *
+             * @formatter:off
+             *
+             * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, covariant $this>
+             *
+             * @formatter:on
+             */
+            public function tenant(): MorphTo
+            {
+                return $this->morphTo();
+            }
+        };
+
+        $membership->newQuery()->create(['identity_id' => 1, 'tenant_type' => 'Tests\Retired\Tenant', 'tenant_id' => $tenant->getKey(), 'is_active' => false]);
+        $membership->newQuery()->create(['identity_id' => 1, 'tenant_type' => ActivatableTenant::class, 'tenant_id' => $tenant->getKey(), 'is_active' => true]);
+
+        $listing    = PrincipalListing::of($this->identityListing($membership->newQuery()->orderBy('id')));
+        $candidates = self::principalsOf($listing);
+        $refusals   = null;
+        $queries    = $this->queries(static function () use ($listing, $candidates, &$refusals): void {
+            $refusals = $listing->refusals(self::GUARD, $candidates);
+        });
+
+        self::assertSame([FailureReason::PRINCIPAL_INACTIVE, null], $refusals);
+        self::assertCount(1, $queries);
+        self::assertSame([false, true], array_map(static fn (Model $candidate): bool => $candidate->relationLoaded('tenant'), $candidates));
     }
 
     /**

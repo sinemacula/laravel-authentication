@@ -492,12 +492,18 @@ resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
 
 Where the package lists an identity's principals for admission (a sign-in, a pending session, `Auth::sessions()`'s
 `principals()` for a choice or switch screen, and `principal()` for a lookup by identifier), it loads their tenants
-itself: once the identity's `principals()` has been read on the write connection, the tenant relation of every principal
-judged that uses `ActsAsPrincipal` (the one `getTenantRelationName()` names) is loaded in one query per principal
-class, on the writer of the tenant's own connection. So listing any number of principals reads their tenants once, and
-the listing works under `Model::preventLazyLoading()`, which forbids a lazy load on models read together; you need not
-eager-load the tenant in `principals()`. Whatever `principals()` eager-loaded under that name, through `with()` or a
-global scope, is replaced by the relation as a lazy load would read it, so a constraint there cannot change which tenant
-is checked. The tenants loaded allow lazy loading as a tenant read on its own does, so a tenant whose `isActive()` reads
-a relation of its own keeps working under strict mode. A `Principal` that implements `getTenant()` itself has no
-relation the package can know: eager-load its tenant in `principals()`.
+itself: once the identity's `principals()` has been read on the write connection and each principal's own activity
+checked, the tenant relation of every active principal judged that uses `ActsAsPrincipal` (the one
+`getTenantRelationName()` names) is loaded on the writer of the tenant's own connection, in one query per principal
+class (one per tenant type for a polymorphic relation, plus whatever the tenant model's own `$with` loads), however many
+principals there are. An inactive principal is refused without its tenant being read. So listing any number of
+principals reads their tenants once, and the listing works under `Model::preventLazyLoading()`, which forbids a lazy
+load on models read together; you need not eager-load the tenant in `principals()`. Whatever `principals()`
+eager-loaded under that name, through `with()` or a global scope, is replaced by the relation as a lazy load would read
+it, so a constraint there cannot change which tenant is checked. Relations nested under the name are replaced with it: a
+`with('tenant.plan')` on `principals()` no longer leaves `plan` loaded on the listed principals' tenants, so eager-load
+what you read on a listed tenant in the tenant model's `$with`, which the package's load applies. The tenants loaded
+allow lazy loading as a tenant read on its own does, so a tenant whose `isActive()` reads a relation of its own keeps
+working under strict mode, and a relation you read on a listed tenant without putting it in `$with` is read once per
+tenant rather than refused. A `Principal` that implements `getTenant()` itself has no relation the package can know:
+eager-load its tenant in `principals()`.

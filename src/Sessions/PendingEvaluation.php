@@ -120,8 +120,8 @@ final readonly class PendingEvaluation
      * the last one left out was refused, if any. With an identifier type, the
      * application policy must admit the identity with it first, or none is
      * listed (not even which there are) and its reason is returned. Each
-     * principal is judged as it is stored, after the tenants of those that use
-     * `ActsAsPrincipal` are loaded together on the write connection
+     * principal is judged as it is stored, after the tenants of the active ones
+     * that use `ActsAsPrincipal` are loaded together on the write connection
      * (`PrincipalListing`), so a principal listed holds its tenant even when
      * the list hydrated it with lazy loading prevented (Eloquent strict mode),
      * and listing many principals reads their tenants once.

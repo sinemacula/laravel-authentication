@@ -20,17 +20,20 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  *
  * An identity's `principals()` hydrates its rows together, so Eloquent's strict
  * mode forbids each of them a lazy load, and reading each principal's tenant on
- * its own would be one query per principal. So before the listed principals are
- * judged, the tenant relation of each that uses `ActsAsPrincipal` (the relation
- * its `getTenantRelationName()` names, when that is a relation of the model) is
- * loaded on them in one query per principal class, on the write connection,
- * after their own query: no global scope or eager load the application put on
- * `principals()` can constrain it, and whatever was loaded under that name is
- * replaced, so each principal holds the very tenant a lazy load would read. The
- * tenants loaded allow lazy loading, as a tenant read on its own does, while
- * the principals keep the strictness their query gave them. A principal that
- * implements `getTenant()` itself has no relation the package can know, and is
- * read as it always was.
+ * its own would be one query per principal. So once the listed principals' own
+ * activity is judged, the tenant relation of each active one that uses
+ * `ActsAsPrincipal` (the relation its `getTenantRelationName()` names, when
+ * that is a relation of the model) is loaded on them together, on the write
+ * connection, after their own query: one query per principal class (one per
+ * tenant type for a polymorphic relation, and those of the tenant model's own
+ * `$with`), however many principals there are. No global scope or eager load
+ * the application put on `principals()` can constrain it, and whatever was
+ * loaded under that name, nested relations included, is replaced, so each
+ * principal holds the very tenant a lazy load would read. The tenants loaded
+ * allow lazy loading, as a tenant read on its own does, while the principals
+ * keep the strictness their query gave them. An inactive principal is refused
+ * without its tenant being read. A principal that implements `getTenant()`
+ * itself has no relation the package can know, and is read as it always was.
  *
  * Each principal is still judged as it is stored (`WriteConnection::stored()`),
  * with only the tenant loaded here carried onto the copy; a principal the
@@ -87,8 +90,10 @@ final readonly class PrincipalListing
     /**
      * Why each of the principals, taken from this listing, may not hold a
      * session of the guard's application (`PrincipalAdmission::refusal()`), in
-     * their order, `null` for each that may: judged as stored, after their
-     * tenants are loaded together on the write connection.
+     * their order, `null` for each that may: judged as stored, the tenants of
+     * those that are active loaded together on the write connection before any
+     * tenant is judged. An inactive principal is refused without its tenant
+     * being read, as when each was judged alone.
      *
      * @param  string  $guard
      * @param  list<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
@@ -98,46 +103,66 @@ final readonly class PrincipalListing
      */
     public function refusals(string $guard, array $principals): array
     {
-        $loaded = $this->identity === null ? [] : self::loadTenants($this->identity, $principals);
+        $stored = array_map(static fn (Principal $principal): ?Principal => self::activeCopy($principal), $principals);
+        $active = array_filter($principals, static fn (int $index): bool => $stored[$index] !== null, ARRAY_FILTER_USE_KEY);
+        $loaded = $this->identity === null ? [] : self::loadTenants($this->identity, $active);
 
-        return array_map(static fn (Principal $principal): ?FailureReason => self::refusal($guard, $principal, $loaded[spl_object_id($principal)] ?? null), $principals);
+        return array_map(
+            static fn (Principal $principal, ?Principal $copy): ?FailureReason => self::refusal($guard, $copy, $loaded[spl_object_id($principal)] ?? null),
+            $principals,
+            $stored,
+        );
     }
 
     /**
-     * Why the principal may not hold a session of the guard's application,
-     * judged on its stored copy with the tenant relation loaded for it, if any,
-     * set on the copy.
+     * The principal's stored copy (`WriteConnection::stored()`) when it is
+     * active, or `null` when it is not.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
+    private static function activeCopy(Principal $principal): ?Principal
+    {
+        return WriteConnection::stored($principal, static fn (Principal $stored): ?Principal => ActivationPolicy::isActive($stored) ? $stored : null);
+    }
+
+    /**
+     * Why the principal may not hold a session of the guard's application:
+     * `principal_inactive` when it has no active stored copy, otherwise judged
+     * on that copy with the tenant relation loaded for it, if any, set on it.
      *
      * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $stored
      * @param  ?array{0: string, 1: mixed}  $tenant
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private static function refusal(string $guard, Principal $principal, ?array $tenant): ?FailureReason
+    private static function refusal(string $guard, ?Principal $stored, ?array $tenant): ?FailureReason
     {
-        return WriteConnection::stored($principal, static function (Principal $stored) use ($guard, $tenant): ?FailureReason {
+        if ($stored === null) {
+            return FailureReason::PRINCIPAL_INACTIVE;
+        }
 
-            if ($tenant !== null) {
+        if ($tenant !== null) {
 
-                assert($stored instanceof Model);
+            assert($stored instanceof Model);
 
-                $stored->setRelation(...$tenant);
-            }
+            $stored->setRelation(...$tenant);
+        }
 
-            return PrincipalAdmission::refusal($guard, $stored);
-        });
+        return PrincipalAdmission::refusalOfActive($guard, $stored);
     }
 
     /**
      * Load the tenant relation of each principal model that uses
-     * `ActsAsPrincipal`, one query per principal class and relation, inside
+     * `ActsAsPrincipal`, together for each principal class and relation (one
+     * query, or one per tenant type for a polymorphic relation), inside
      * `WriteConnection::during()` for the identity, and return the relation
      * name and what it loaded for each, by the principal's object id.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  list<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
+     * @param  array<int, \SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
      * @return array<int, array{0: string, 1: mixed}>
      */
     private static function loadTenants(Identity $identity, array $principals): array
@@ -160,7 +185,7 @@ final readonly class PrincipalListing
      * The principal models whose tenant relation the package knows, grouped by
      * class and relation, each group with the relation's name.
      *
-     * @param  list<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
+     * @param  array<int, \SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
      * @return array<string, array{0: string, 1: list<\Illuminate\Database\Eloquent\Model>}>
      */
     private static function groups(array $principals): array
@@ -185,7 +210,7 @@ final readonly class PrincipalListing
     }
 
     /**
-     * Load the relation on the models in one query, let the tenants it loads
+     * Load the relation on the models together, let the tenants it loads
      * lazy-load as a tenant read on its own may, and return the relation name
      * and what it loaded for each model, by the model's object id.
      *

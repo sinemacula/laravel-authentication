@@ -116,8 +116,8 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
 - `src/Contracts/ApplicationAccess.php`, `src/Contracts/TenantAccess.php`, `src/Contracts/TenantResolver.php` and
   their defaults `src/Applications/AdmitAnyPrincipal.php`, `src/Tenancy/OwnTenantOnly.php`,
   `src/Tenancy/ResolveNoTenant.php`.
-- `src/Admission/PrincipalAdmission.php` (`refusal()`, `mayUse()`), `src/Admission/TenantAdmission.php` (`select()`,
-  `recorded()`), `src/Tenancy/TenantSelection.php`.
+- `src/Admission/PrincipalAdmission.php` (`refusal()`, `refusalOfActive()`, `mayUse()`),
+  `src/Admission/TenantAdmission.php` (`select()`, `recorded()`), `src/Tenancy/TenantSelection.php`.
 - `src/Guards/BearerAuthentication.php`: `onSession()`; `src/SessionRecords/OwnedSession.php`: `actsIn()`;
   `src/Guards/Concerns/BindsContextualState.php`: `tenant()`; `src/Jwt/TokenProfile.php`: `sessionTenant()`.
 - `src/Sessions/SessionSwitch.php`, `src/Sessions/SwitchTarget.php`, `src/Jwt/RefreshRotationStore.php`
