@@ -25,18 +25,18 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   `reason` (`?FailureReason`, the reason the flow reports, concealed where the flow conceals it), and a flow that can be
   throttled carries `retryAfter` (`?int`). A result with more than two outcomes exposes `status`, a string-backed enum
   naming every outcome, success included. `SignInResult`, `RefreshResult`, `SwitchResult`, `CodeRequest`, `ResetResult`,
-  `PasswordResult`, `IdentifierChangeRequest`, `PasskeyRegistration` and `PasskeyFactorResult` take this shape. A flow
-  whose outcomes an enum already names and that came to be throttled (a check of a verification code, a confirmation of
-  a change of identifier) answers a result carrying that enum as `outcome` with `retryAfter` (`LimitedOutcome`, generic
-  over the enum, with `is()`; and `FactorCodeCheck` for a factor code), so the enum stays the one place its outcomes are
-  named.
+  `PasswordResult`, `IdentifierChangeRequest`, `PasskeyRegistration`, `PasskeyRemoval`, `PasskeyFactorResult` and
+  `FactorChangeResult` take this shape. A flow whose outcomes an enum already names and that came to be throttled (a
+  check of a verification code, a confirmation of a change of identifier) answers a result carrying that enum as
+  `outcome` with `retryAfter` (`LimitedOutcome`, generic over the enum, with `is()`; and `FactorCodeCheck` for a factor
+  code), so the enum stays the one place its outcomes are named.
 - **An outcome enum when success carries nothing and the flow cannot be throttled.** It is string-backed and names its
   success case (`VerificationLinkOutcome::VERIFIED`), so matching on the enum, not on a type, tells success from
   refusal.
 - **`bool` only for "did this call change something"** on an idempotent operation (`discard()`, `signOut()`,
-  `revokeSession()`, `apiKeys()->revoke()`, `passkeys()->remove()`, `identifierChanges()->cancel()`), and `int` for how
-  many it changed (`signOutEverywhere()`, `revokeSessions()`, the security-change methods). `false` and `0` are not
-  refusals: the thing was already as asked.
+  `revokeSession()`, `apiKeys()->revoke()`, `identifierChanges()->cancel()`), and `int` for how many it changed
+  (`signOutEverywhere()`, `revokeSessions()`, the security-change methods). `false` and `0` are not refusals: the thing
+  was already as asked.
 - **No union of a success type with a failure type** in a return, and no enum of another seam's outcomes mixed with a
   failure reason: one type answers every outcome.
 - **Throttling is an outcome.** A throttled operation returns `rate_limited`, as its status or its reason, with
@@ -57,7 +57,14 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   its observed properties and its summary as its use left it), or failed with the reason (not concealed: the caller
   already holds the identity).
 - `passkeys()->register()` answers a `PasskeyRegistration`: `registered` with the passkey's summary and the factor
-  gate's association, if any, or `challenge_invalid`, `response_invalid` or `already_registered`.
+  gate's association, if any, or `challenge_invalid`, `response_invalid` or `already_registered`. The association may
+  carry the factor package's completion of the registration (`completion`, an opaque `?object`).
+- `passkeys()->remove()` answers a `PasskeyRemoval`: removed by this call (`isRemoved()`), with the factor gate's
+  completion of the removal, if any (an opaque `?object`, such as the factor package's own result carrying a new
+  pending credential), or not removed, with none: it would be a `bool`, but its success carries a payload.
+- `sessions()->factorChanged()` answers a `FactorChangeResult` whose `status` (`FactorChangeStatus`) is `active`,
+  `pending` (with the pending session and its credential), `revoked` or `skipped` (this call neither kept, returned nor
+  revoked the session, which says nothing of whether it is usable).
 - `codes()->verify()` answers a `LimitedOutcome` whose `outcome`, a `VerificationOutcome`, is `verified`,
   `already_verified` or `mismatch` as the `IdentifierVerifier` answered an accepted code, `invalid`, `expired` or
   `exhausted` for a code that was not, or `rate_limited` with `retryAfter`. `AuthenticationFailed` still carries the
@@ -99,9 +106,10 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 - `src/Sessions/SignInResult.php`, `src/Sessions/RefreshResult.php`, `src/Sessions/SwitchResult.php`,
   `src/Codes/CodeRequest.php`, `src/Passwords/ResetResult.php`, `src/Passwords/PasswordResult.php`,
   `src/IdentifierChanges/IdentifierChangeRequest.php`, `src/ClientCredentials/ClientCredentialsResult.php`.
-- `src/Passkeys/PasskeyRegistration.php`, `src/Passkeys/Enums/PasskeyRegistrationStatus.php`,
-  `src/Passkeys/PasskeyFactorResult.php`, `src/Passkeys/PasskeyService.php` (`register()`, `verifyFactor()`,
-  `signInOptions()`).
+- `src/Sessions/FactorChangeResult.php`, `src/Sessions/Enums/FactorChangeStatus.php`.
+- `src/Passkeys/PasskeyRegistration.php`, `src/Passkeys/PasskeyRemoval.php`,
+  `src/Passkeys/Enums/PasskeyRegistrationStatus.php`, `src/Passkeys/PasskeyFactorResult.php`,
+  `src/Passkeys/PasskeyService.php` (`register()`, `verifyFactor()`, `signInOptions()`).
 - `src/Sessions/SessionRefresh.php` (every refusal returned, `rate_limited` with its wait), `src/Jwt/TokenPair.php`.
 - `src/RateLimiting/LimitedOutcome.php`, `src/Codes/Enums/VerificationOutcome.php`, `src/Codes/CodeService.php`
   (`verify()`),
@@ -110,6 +118,7 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 
 ## Authoritative Tests
 
+- `tests/Unit/Sessions/FactorChangeResultTest.php`, `tests/Unit/Passkeys/PasskeyRemovalTest.php`.
 - `tests/Unit/Passkeys/PasskeyRegistrationTest.php`, `tests/Unit/Passkeys/PasskeyFactorResultTest.php`,
   `tests/Unit/Passkeys/EnumsTest.php`, `tests/Unit/Codes/VerificationOutcomeTest.php`,
   `tests/Unit/Verification/VerificationLinkOutcomeTest.php`.

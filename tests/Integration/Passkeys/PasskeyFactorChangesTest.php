@@ -75,8 +75,10 @@ final class PasskeyFactorChangesTest extends TestCase
 
                 return new PasskeyFactorAssociation('factor-1');
             },
-            static function (string $passkeyId, string $credentialId): void {
+            static function (string $passkeyId, string $credentialId): null {
                 DB::table(self::FACTORS)->where('credential_id', $credentialId)->delete();
+
+                return null;
             },
         ));
     }
@@ -157,7 +159,7 @@ final class PasskeyFactorChangesTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($passkeys->remove($identity, $passkey->id));
+        self::assertTrue($passkeys->remove($identity, $passkey->id)->isRemoved());
 
         DB::rollBack();
 
@@ -165,7 +167,7 @@ final class PasskeyFactorChangesTest extends TestCase
 
         Event::assertNotDispatched(PasskeyRemoved::class);
 
-        self::assertTrue(DB::transaction(static fn (): bool => $passkeys->remove($identity, $passkey->id)));
+        self::assertTrue(DB::transaction(static fn (): bool => $passkeys->remove($identity, $passkey->id)->isRemoved()));
         self::assertSame([0, 0], [Passkey::query()->count(), DB::table(self::FACTORS)->count()]);
 
         Event::assertDispatchedTimes(PasskeyRemoved::class, 1);

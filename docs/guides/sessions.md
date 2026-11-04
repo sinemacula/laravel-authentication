@@ -82,12 +82,12 @@ direct `issueAccessToken()` with a session) writes the session's issuance guard,
 `issuance_sequence`, before it reads the session's proofs, unless it writes the session's row itself (an activation, a
 sign-in's insert): a refresh, a switch and a direct `issueAccessToken()` write it first, a step-up or a reauthentication
 under its lock of the row, before its proof. Every change of a session's proofs (`satisfy()`, a step-up, a
-reauthentication, `factorRemoved()`) writes it before the change. The issuance takes its time once it holds the row (an
-activation issues at its operation's time: no other token of a pending session can have committed meanwhile; a direct
-`issueAccessToken()` given an `$issuedAt` uses it as given, so take it after you lock the session in your transaction
-around the call, or the guarantee does not hold for that token), and then reads the proofs current, in the same
-transaction on the session's connection, which holds the row until it commits. So two of them on one session never read
-the proofs past each other:
+reauthentication, `factorRemoved()`) writes it before the change, and `factorChanged()` before it judges the session
+again. The issuance takes its time once it holds the row (an activation issues at its operation's time: no other token
+of a pending session can have committed meanwhile; a direct `issueAccessToken()` given an `$issuedAt` uses it as given,
+so take it after you lock the session in your transaction around the call, or the guarantee does not hold for that
+token), and then reads the proofs current, in the same transaction on the session's connection, which holds the row
+until it commits. So two of them on one session never read the proofs past each other:
 
 - At READ COMMITTED, on PostgreSQL and MySQL, and at MySQL's REPEATABLE READ, the later waits on the row the earlier
   wrote, and then reads what it committed (on MySQL with a shared lock, since its plain reads inside a REPEATABLE READ
@@ -349,8 +349,8 @@ a removal names the factor it acts on (and only those name one: an `InvalidArgum
 proofs never count. A requirement of the factor package's own is passed as the third argument, and the stricter
 applies. An allowed `FactorChangeVerdict` carries the fresh `proof` and `freshUntil`, the second the session stops being
 fresh for the change; a refused one carries the `reason`. The gate writes nothing and reports nothing: once a removal
-is made, in that same transaction, the factor package ends the sessions it affects with `factorRemoved()` (see [Sign-in
-factors](#sign-in-factors)).
+is made, in that same transaction, the factor package ends the sessions it affects with `factorRemoved()`, and after any
+other change it judges the current session again with `factorChanged()` (see [Sign-in factors](#sign-in-factors)).
 
 A pending session never goes through the gate: its first factor is enrolled through its pending credential's
 `PendingAction::START_BOOTSTRAP_ENROLLMENT` and `CONFIRM_BOOTSTRAP_ENROLLMENT` actions
@@ -780,13 +780,15 @@ With no `jwt` guard configured at all, a listener throws an `InvalidArgumentExce
 A sign-in factor is anything the identity signs in with: a first-factor credential (a passkey, or a phone number or
 email address it signs in with) or one of the factor package's further factors. A removed first-factor credential is
 yours to answer, per event, with `credentialRemoved()` or `RevokeSessionsOnPasskeyRemoval` (see above). The factor
-package's two triggers are mandatory: no setting turns them off, and the factor package calls them itself, inside the
-transaction that makes its change and after its own locks, never through a listener:
+package calls these itself, inside the transaction that makes its change and after its own locks, never through a
+listener. Its two triggers, `factorRemoved()` and `factorReset()`, are mandatory, and no setting turns them off;
+`factorChanged()` judges the current session again after any other change of its factors:
 
-| Method                                                        | Ends                                                                                  | Reason           |
-|---------------------------------------------------------------|---------------------------------------------------------------------------------------|------------------|
-| `factorRemoved($identity, string $factor, ?Session $current)` | The identity's sessions, pending ones included, but `$current`, which is judged again | `factor_removed` |
-| `factorReset($identity)`                                      | Every session of the identity, the current one included                               | `factor_reset`   |
+| Method                                                                 | Ends                                                                                  | Reason           |
+|------------------------------------------------------------------------|---------------------------------------------------------------------------------------|------------------|
+| `factorRemoved($identity, string $factor, ?Session $current)`          | The identity's sessions, pending ones included, but `$current`, which is judged again | `factor_removed` |
+| `factorReset($identity)`                                               | Every session of the identity, the current one included                               | `factor_reset`   |
+| `factorChanged($identity, FactorChangeMade $change, Session $current)` | No other session: `$current` alone, judged again, when it is no longer admitted       | `factor_changed` |
 
 ```php
 DB::transaction(function () use ($user, $factor) {
@@ -825,9 +827,86 @@ and an `InvalidArgumentException` or a `LogicException` is thrown. Everything ru
 connection, a savepoint in the factor package's, and is reported once that commits.
 
 A passkey the factor package associated as a factor is removed through `PasskeyService::remove()`, which asks the factor
-package first, and the factor package then calls `factorRemoved()`. `RevokeSessionsOnPasskeyRemoval` still ends every
-session on any passkey's removal, the current one included, once committed: with the factor package, register it only
-if that is what you want.
+package's gate first (`PasskeyFactorGate::removing()`), and the factor package calls `factorRemoved()` from there. What
+the gate answers, the factor package's completion of the removal (its `FactorRemoval`, say, with the pending
+credential), comes back uninterpreted as `PasskeyRemoval::$completion`, so hand any credential it carries to the client.
+`RevokeSessionsOnPasskeyRemoval` still ends every session on any passkey's removal, the current one included, once
+committed: with the factor package, register it only if that is what you want.
+
+After any other change to the identity's factors made from the current session, the factor package calls
+`factorChanged()` with what it changed (`Factors\Enums\FactorChangeMade`): `FACTOR_CONFIRMED`, a further factor's
+enrolment confirmed; `PASSKEY_FACTOR_REGISTERED`, a passkey registered and associated as a factor (from the passkey
+gate's `registering()`); `FACTOR_REMOVED`, a removal once `factorRemoved()` has run, never in its place; or `OTHER`.
+Under a factor policy that asks a further factor of an identity once it has one, the first factor confirmed leaves the
+session it was confirmed from short of it:
+
+```php
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
+
+DB::connection(config('authentication.storage.connection'))->transaction(function () use ($user, $enrolment) {
+    $enrolment->newQuery()->whereKey($enrolment->getKey())->lockForUpdate()->first();
+    $enrolment->confirm();
+
+    $change = Auth::sessions()->factorChanged($user, FactorChangeMade::FACTOR_CONFIRMED, Auth::session());
+
+    if ($change->isPending()) {
+        // Hand $change->credential to the client in the response body.
+    }
+});
+```
+
+A removal judges the session again after `factorRemoved()` has done its part, and the client's credential is the
+removal's:
+
+```php
+DB::connection(config('authentication.storage.connection'))->transaction(function () use ($user, $factor) {
+    $factor->newQuery()->whereKey($factor->getKey())->lockForUpdate()->first();
+    $factor->delete();
+
+    $removal = Auth::sessions()->factorRemoved($user, $factor->reference(), Auth::session());
+
+    Auth::sessions()->factorChanged($user, FactorChangeMade::FACTOR_REMOVED, Auth::session());
+
+    if ($removal->isPending()) {
+        // Hand $removal->credential to the client in the response body.
+    }
+});
+```
+
+`$current` is judged again exactly as `factorRemoved()` judges it, but no proof is voided and no other session is
+touched. The answer, a `Sessions\FactorChangeResult`, says what it did (`status`, a
+`Sessions\Enums\FactorChangeStatus`):
+
+- `active`: it still meets the identity's factor policy and its tenant's policy, and stays active;
+- `pending`: it falls short of a further factor only, so it returned to pending (`SessionReturnedToPending`, flow
+  `factor_change`): its access and refresh tokens stop once the change commits, and `$pending` and `$credential` carry
+  what the client needs to satisfy it again;
+- `revoked`: it is no longer admitted as a refresh admits it, or its tenant now requires a connection, so it was revoked
+  (`factor_changed`, or `factor_removed` for `FACTOR_REMOVED`);
+- `skipped`: this call neither kept, returned nor revoked it, because it was no longer the session given, no longer a
+  live, active session (a pending one is judged at its next action, `satisfy()` or `choose()`), or another writer
+  revoked it meanwhile. It says nothing of whether the session is usable.
+
+Called after `factorRemoved()` in the same change, a session the removal returned to pending or revoked comes back
+`skipped`, and one it kept stays `active`. The call locks the session's row and writes its issuance guard before it
+reads the proofs, so it and any refresh or step-up of the session wait on each other rather than read the proofs past
+each other. When the request's guard is bound to the session and it returned to pending or was revoked, the guard
+forgets it once the change commits, before anything is reported. `$current` must be a session of this guard the
+identity owns (an `InvalidArgumentException` otherwise, before anything is written); the identity may live on any
+connection, since nothing of it is written. Open the factor package's transaction on the storage connection, as above,
+so the call is a savepoint of it and commits or rolls back with the change: on any other connection, or with no
+transaction, it commits on its own. If the change rolls back, the session stays active and the credential matches
+nothing. A change made with no current session (an administrator's, a queued job's) has nothing to judge, so it does not
+call `factorChanged()`.
+
+The identity's other sessions are not judged. Only the current session's client is in the request to receive a pending
+credential, so returning another session to pending would mint a credential nobody holds, which is a revocation in
+disguise; and a factor added is no sign of compromise, so nothing revokes them either (a removal has already ended them,
+through `factorRemoved()`). A refresh asks the identity's factor policy only once its tenant's policy already falls
+short, so those sessions keep running as they were admitted until they end. To have them meet the new requirement, end
+them yourself in the same transaction:
+`Auth::sessions()->revokeSessions($user, RevocationReason::REVOKED, except: Auth::session())` or
+`signOutEverywhere(keepCurrentSession: true)`.
 
 ### Connections and links
 
@@ -996,6 +1075,7 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | `tenant_deactivated`    | `tenantDeactivated()`                                                                                                                      |
 | `tenant_policy_changed` | `tenantPolicyChanged()`, or a refresh that finds the tenant now requires a connection the session was not established through              |
 | `factor_reset`          | The factor package's `factorReset()`: every session of the identity                                                                        |
+| `factor_changed`        | The factor package's `factorChanged()`: the current session, no longer admitted after a change (after a removal, `factor_removed`)         |
 | `connection_disabled`   | `connectionDisabled()`: the sessions the connection established                                                                            |
 | `connection_deleted`    | `connectionDeleted()`: the sessions the connection established                                                                             |
 | `link_removed`          | `linkRemoved()`: the identity's sessions established through the link                                                                      |

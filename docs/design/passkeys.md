@@ -97,17 +97,25 @@ package's.
 - Factor gate: registration and removal ask the bound `Contracts\PasskeyFactorGate` inside the transaction on the
   storage connection that inserts or deletes the passkey's row, before the write: `registering()` with a
   `RegisteredPasskey` (id, credential id, relying party id, observed properties, time) and the binding the options were
-  issued with, which may answer a `PasskeyFactorAssociation`; `removing()` with the passkey's id and credential id. A
-  gate that throws refuses the change, rolled back whole. A credential inserted by another while the gate ran rolls the
-  change back and answers `already_registered`; a passkey deleted by another answers `false`. The default,
-  `Passkeys\NoPasskeyFactors`, associates nothing and refuses nothing.
+  issued with, which may answer a `PasskeyFactorAssociation`; `removing()` with the passkey's id and credential id,
+  which may answer the factor package's completion of the removal. A gate that throws refuses the change, rolled back
+  whole. The association may carry the factor package's completion of the registration (`completion`), and both
+  completions reach the caller untouched (`PasskeyRegistration::$factor->completion`, `PasskeyRemoval::$completion`):
+  they are opaque `?object`s, so the factor package's own result (its judgement of the current session again through
+  `factorChanged()` after a registration under a policy that now asks for a further factor, or `factorRemoved()`'s
+  `FactorRemoval` after a removal, each with any new pending credential) reaches its client without this package naming
+  its type. A credential inserted by another while the gate ran rolls the change back and answers `already_registered`
+  with no association; a passkey deleted by another answers `PasskeyRemoval::notRemoved()`, with no completion. The
+  default, `Passkeys\NoPasskeyFactors`, associates nothing, completes nothing and refuses nothing.
 - Management: `passkeys($identity)` lists summaries oldest first; `remove($identity, $id)` finds the identity's passkey
   of the relying party, asks the gate, deletes it with one conditional `DELETE` and reports `PasskeyRemoved` from the
-  call that removed it. The optional `Listeners\RevokeSessionsOnPasskeyRemoval` then ends the identity's sessions
-  (`factor_removed`, through `credentialRemoved()`). A passkey the factor package associated as a factor is removed the
-  same way, and the factor package then calls the session service's mandatory `factorRemoved()` in the same change,
-  which judges the current session again without that factor; registered alongside it, the listener still ends every
-  session on any passkey's removal, so an application with a factor package registers it only if it wants that.
+  call that removed it, answering a `PasskeyRemoval` (`isRemoved()`, and the gate's `completion`). The optional
+  `Listeners\RevokeSessionsOnPasskeyRemoval` then ends the identity's sessions (`factor_removed`, through
+  `credentialRemoved()`). A passkey the factor package associated as a factor is removed the same way, and the factor
+  package then calls the session service's mandatory `factorRemoved()` in the same change (from its gate's
+  `removing()`), which judges the current session again without that factor; registered alongside it, the listener still
+  ends every session on any passkey's removal, so an application with a factor package registers it only if it wants
+  that.
 
 ## Failure / Edge Cases
 
@@ -147,7 +155,8 @@ package's.
 - `src/Passkeys/PasskeyChallenges.php`, `src/Passkeys/PasskeyCredentials.php`, `src/Passkeys/PasskeyOwner.php`,
   `src/Passkeys/RelyingParty.php`.
 - `src/Contracts/PasskeyFactorGate.php`, `src/Passkeys/NoPasskeyFactors.php`, `src/Passkeys/RegisteredPasskey.php`,
-  `src/Passkeys/PasskeyFactorAssociation.php`, `src/Passkeys/PasskeyFactorAssertion.php`.
+  `src/Passkeys/PasskeyFactorAssociation.php`, `src/Passkeys/PasskeyRemoval.php`,
+  `src/Passkeys/PasskeyFactorAssertion.php`.
 - `src/Models/Passkey.php`, `src/Models/PasskeyChallenge.php`,
   `database/migrations/2026_04_06_000004_create_passkeys_table.php`,
   `database/migrations/2026_04_06_000005_create_passkey_challenges_table.php`.
@@ -163,6 +172,7 @@ package's.
   `tests/Unit/Passkeys/SignCounterTest.php`, with the software authenticator
   `tests/Fixtures/Passkeys/VirtualAuthenticator.php`.
 - `tests/Unit/Passkeys/PasskeyRegistrationTest.php`, `tests/Unit/Passkeys/PasskeyFactorResultTest.php`,
+  `tests/Unit/Passkeys/PasskeyRemovalTest.php`, `tests/Unit/Passkeys/PasskeyFactorAssociationTest.php`,
   `tests/Integration/Passkeys/PasskeyOutcomesTest.php` (what each outcome wrote).
 - `tests/Integration/Passkeys/PasskeyFactorChangesTest.php` (the gate's work and the passkey's row as one change),
   `tests/Fixtures/Passkeys/RecordingPasskeyFactorGate.php`.

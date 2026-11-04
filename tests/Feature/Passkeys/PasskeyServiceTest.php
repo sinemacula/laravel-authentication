@@ -26,7 +26,9 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasskeyAdded;
 use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
 use SineMacula\Laravel\Authentication\Events\PasskeyUsed;
+use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
@@ -44,6 +46,8 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
+use SineMacula\Laravel\Authentication\Sessions\FactorChangeResult;
+use SineMacula\Laravel\Authentication\Sessions\FactorRemoval;
 use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithProofs;
@@ -1136,8 +1140,9 @@ final class PasskeyServiceTest extends TestCase
 
     /**
      * Removing an identity's passkey deletes it and reports `PasskeyRemoved`
-     * with the passkey's id and the client given; removing it again removes
-     * nothing and reports nothing.
+     * with the passkey's id and the client given, with no completion while no
+     * factor package is bound; removing it again removes nothing and reports
+     * nothing.
      *
      * @return void
      *
@@ -1150,7 +1155,10 @@ final class PasskeyServiceTest extends TestCase
 
         $this->recordEvents([PasskeyRemoved::class]);
 
-        self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id, new ClientContext('198.51.100.3', 'Remover/1')));
+        $removal = Auth::passkeys('api')->remove($identity, $passkey->id, new ClientContext('198.51.100.3', 'Remover/1'));
+
+        self::assertTrue($removal->isRemoved());
+        self::assertNull($removal->completion);
         self::assertSame(0, Passkey::query()->count());
 
         $event = $this->recordedEvent(PasskeyRemoved::class);
@@ -1163,7 +1171,7 @@ final class PasskeyServiceTest extends TestCase
             $event->context->client->ip,
         ]);
 
-        self::assertFalse(Auth::passkeys('api')->remove($identity, $passkey->id));
+        self::assertFalse(Auth::passkeys('api')->remove($identity, $passkey->id)->isRemoved());
         self::assertCount(1, $this->recorded);
     }
 
@@ -1191,10 +1199,10 @@ final class PasskeyServiceTest extends TestCase
 
         $this->recordEvents([PasskeyRemoved::class]);
 
-        self::assertFalse(Auth::passkeys('api')->remove($identity, $foreign->id));
-        self::assertFalse(Auth::passkeys('api')->remove($identity, $namesakes));
-        self::assertFalse(Auth::passkeys('api')->remove($identity, $elsewhere->id));
-        self::assertFalse(Auth::passkeys('api')->remove($identity, '0192f6b2-0000-7000-8000-000000000001'));
+        self::assertFalse(Auth::passkeys('api')->remove($identity, $foreign->id)->isRemoved());
+        self::assertFalse(Auth::passkeys('api')->remove($identity, $namesakes)->isRemoved());
+        self::assertFalse(Auth::passkeys('api')->remove($identity, $elsewhere->id)->isRemoved());
+        self::assertFalse(Auth::passkeys('api')->remove($identity, '0192f6b2-0000-7000-8000-000000000001')->isRemoved());
 
         $queries = 0;
 
@@ -1202,7 +1210,7 @@ final class PasskeyServiceTest extends TestCase
             $queries++;
         });
 
-        self::assertFalse(Auth::passkeys('api')->remove($identity, 'not-a-uuid'));
+        self::assertFalse(Auth::passkeys('api')->remove($identity, 'not-a-uuid')->isRemoved());
         self::assertSame(0, $queries);
         self::assertSame(4, Passkey::query()->count());
         self::assertSame([], $this->recorded);
@@ -1221,7 +1229,7 @@ final class PasskeyServiceTest extends TestCase
         $removed  = $this->registerPasskey($identity);
         $kept     = $this->registerPasskey($identity, authenticator: new VirtualAuthenticator(self::ORIGIN));
 
-        self::assertTrue(Auth::passkeys('api')->remove($identity, $removed->id));
+        self::assertTrue(Auth::passkeys('api')->remove($identity, $removed->id)->isRemoved());
         self::assertSame([$kept->id], array_map(static fn (PasskeySummary $summary): string => $summary->id, Auth::passkeys('api')->passkeys($identity)));
     }
 
@@ -1242,7 +1250,7 @@ final class PasskeyServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id));
+        self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id)->isRemoved());
         self::assertSame([], $this->recorded);
 
         DB::rollBack();
@@ -1297,7 +1305,7 @@ final class PasskeyServiceTest extends TestCase
 
             self::assertTrue($passkeys->verifyFactor($identity, self::factorBinding($identity), $factor->challengeId, $this->authenticator()->get($factor->options))->isVerified());
             self::assertNotNull($registered->passkey);
-            self::assertTrue($passkeys->remove($identity, $registered->passkey->id));
+            self::assertTrue($passkeys->remove($identity, $registered->passkey->id)->isRemoved());
 
             $guard->setDispatcher($last);
         });
@@ -1530,7 +1538,10 @@ final class PasskeyServiceTest extends TestCase
 
         $this->recordEvents([PasskeyAdded::class, Login::class]);
 
-        self::assertSame(PasskeyRegistrationStatus::ALREADY_REGISTERED, $passkeys->register($identity, $options->challengeId, $answer)->status);
+        $refused = $passkeys->register($identity, $options->challengeId, $answer);
+
+        self::assertSame(PasskeyRegistrationStatus::ALREADY_REGISTERED, $refused->status);
+        self::assertNull($refused->factor);
         self::assertSame(0, Passkey::query()->count());
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
         self::assertFalse($guard->hasUser());
@@ -1547,11 +1558,172 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
+     * A gate that judges an active current session again once the passkey
+     * counts as a factor (`factorChanged()` with `PASSKEY_FACTOR_REGISTERED`)
+     * answers the judgement as its association's completion, which the
+     * registration hands back as it is: a session now short of a further factor
+     * returns to pending with the registration, the completion carrying the
+     * pending session and its credential, and that credential takes a further
+     * factor; a credential registered concurrently, found only by the insert,
+     * rolls the return back with the rest, so the session stays active, nothing
+     * is reported and no association is answered.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGateThatJudgesTheCurrentSessionAgainHandsItsCompletionBackWithTheRegistration(): void
+    {
+        $identity = $this->seedIdentity();
+        $signedIn = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($signedIn);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $record    = $signedIn->record;
+        $duplicate = new \ArrayObject(['insert' => true]);
+
+        $registering = static function (RegisteredPasskey $passkey) use ($identity, $record, $duplicate): PasskeyFactorAssociation {
+            $judgement = Auth::sessions('api')->factorChanged($identity, FactorChangeMade::PASSKEY_FACTOR_REGISTERED, $record);
+
+            if ($duplicate['insert'] === true) {
+                DB::table('passkeys')->insert([
+                    'id'                   => (string) Str::uuid(),
+                    'credential_id_hash'   => hash('sha256', VirtualAuthenticator::decode($passkey->credentialId)),
+                    'credential_id'        => $passkey->credentialId,
+                    'authenticatable_type' => MachineClient::class,
+                    'authenticatable_id'   => '1',
+                    'rp_id'                => self::RP_ID,
+                    'user_handle'          => 'aGFuZGxl',
+                    'public_key'           => 'a2V5',
+                    'transports'           => '[]',
+                ]);
+            }
+
+            return new PasskeyFactorAssociation('factor-1', $judgement);
+        };
+
+        app()->instance(PasskeyFactorGate::class, new RecordingPasskeyFactorGate($registering));
+
+        $passkeys = Auth::passkeys('api');
+        $options  = $passkeys->registrationOptions($identity, self::USER_NAME);
+        $answer   = $this->authenticator()->create($options->options);
+
+        $this->recordEvents([PasskeyAdded::class, SessionReturnedToPending::class]);
+
+        $refused = $passkeys->register($identity, $options->challengeId, $answer);
+
+        self::assertSame(PasskeyRegistrationStatus::ALREADY_REGISTERED, $refused->status);
+        self::assertNull($refused->factor);
+        self::assertSame(0, Passkey::query()->count());
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+        self::assertSame([], $this->recorded);
+
+        $duplicate['insert'] = false;
+
+        $options      = $passkeys->registrationOptions($identity, self::USER_NAME);
+        $registration = $passkeys->register($identity, $options->challengeId, $this->authenticator()->create($options->options));
+        $judgement    = $registration->factor?->completion;
+
+        self::assertTrue($registration->isRegistered());
+        self::assertInstanceOf(FactorChangeResult::class, $judgement);
+        self::assertTrue($judgement->isPending());
+        self::assertSame($record->getKey(), $judgement->pending?->id);
+        self::assertNotNull($judgement->credential);
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+        self::assertSame([SessionReturnedToPending::class, PasskeyAdded::class], $this->recordedClasses());
+
+        $proof = self::adapterProof($identity, 'api', $record->getKey(), Purpose::SIGN_IN);
+
+        self::assertTrue($this->sessions()->satisfy($judgement->credential, $proof)->isSignedIn());
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+    }
+
+    /**
+     * A gate that removes a passkey factor through the factor package's own
+     * removal (`factorRemoved()` for its factor) answers that removal as its
+     * completion, which the passkey's removal hands back as it is: the current
+     * session, short of a further factor without that factor, returns to
+     * pending, the completion carrying its new pending credential, which takes
+     * another factor; a passkey removed by another while the gate runs rolls
+     * the return back with the rest, so the session stays active, nothing is
+     * reported and no completion is answered.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGateThatRemovesThePasskeysFactorHandsItsCompletionBackWithTheRemoval(): void
+    {
+        $identity = $this->seedIdentity();
+        $passkey  = $this->registerPasskey($identity);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $pending = $this->sessions()->signIn('password', self::credentials());
+
+        self::assertNotNull($pending->pending);
+        self::assertNotNull($pending->credential);
+
+        $record = $this->sessions()->satisfy($pending->credential, self::adapterProof($identity, 'api', $pending->pending->id, Purpose::SIGN_IN))->session?->record;
+
+        self::assertNotNull($record);
+
+        $concurrent = new \ArrayObject(['delete' => true]);
+
+        $removing = static function (string $id) use ($identity, $record, $concurrent): FactorRemoval {
+            $removal = Auth::sessions('api')->factorRemoved($identity, 'factor-1', $record);
+
+            if ($concurrent['delete'] === true) {
+                DB::table('passkeys')->where('id', $id)->delete();
+            }
+
+            return $removal;
+        };
+
+        app()->instance(PasskeyFactorGate::class, new RecordingPasskeyFactorGate(onRemoving: $removing));
+
+        $this->recordEvents([PasskeyRemoved::class, SessionReturnedToPending::class]);
+
+        $missed = Auth::passkeys('api')->remove($identity, $passkey->id);
+
+        self::assertFalse($missed->isRemoved());
+        self::assertNull($missed->completion);
+        self::assertSame(1, Passkey::query()->count());
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+        self::assertSame([], $this->recorded);
+
+        $concurrent['delete'] = false;
+
+        $removal    = Auth::passkeys('api')->remove($identity, $passkey->id);
+        $completion = $removal->completion;
+
+        self::assertTrue($removal->isRemoved());
+        self::assertInstanceOf(FactorRemoval::class, $completion);
+        self::assertTrue($completion->isPending());
+        self::assertSame($record->getKey(), $completion->pending?->id);
+        self::assertNotNull($completion->credential);
+        self::assertSame(0, Passkey::query()->count());
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+        self::assertSame([SessionReturnedToPending::class, PasskeyRemoved::class], $this->recordedClasses());
+
+        $proof = self::adapterProof($identity, 'api', $record->getKey(), Purpose::SIGN_IN);
+
+        self::assertTrue($this->sessions()->satisfy($completion->credential, $proof)->isSignedIn());
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+    }
+
+    /**
      * Inside the removal's transaction the gate is asked first, with the
      * passkey's id and canonical credential id: a gate that refuses throws,
      * keeping the passkey and reporting nothing; one that lets it go ahead
-     * removes it, reported once; a passkey removed by another while the gate
-     * runs rolls the gate's work back and is answered `false`.
+     * removes it, reported once, and the removal hands back the completion it
+     * answered, as it is; a passkey removed by another while the gate runs
+     * rolls the gate's work back and is answered not removed, the completion
+     * dropped with it.
      *
      * @return void
      *
@@ -1580,23 +1752,32 @@ final class PasskeyServiceTest extends TestCase
         self::assertSame(1, Passkey::query()->count());
         self::assertSame([], $this->recorded);
 
-        $concurrent = new RecordingPasskeyFactorGate(onRemoving: static function (string $id): void {
+        $concurrent = new RecordingPasskeyFactorGate(onRemoving: static function (string $id): object {
             DB::table('integration_identities')->update(['email' => 'changed@example.test']);
             DB::table('passkeys')->where('id', $id)->delete();
+
+            return new \stdClass;
         });
 
         app()->instance(PasskeyFactorGate::class, $concurrent);
 
-        self::assertFalse(Auth::passkeys('api')->remove($identity, $passkey->id));
+        $missed = Auth::passkeys('api')->remove($identity, $passkey->id);
+
+        self::assertFalse($missed->isRemoved());
+        self::assertNull($missed->completion);
         self::assertSame(1, Passkey::query()->count());
         self::assertSame('ada@example.test', DB::table('integration_identities')->value('email'));
         self::assertSame([], $this->recorded);
 
-        $gate = new RecordingPasskeyFactorGate;
+        $completion = new \stdClass;
+        $gate       = new RecordingPasskeyFactorGate(onRemoving: static fn (): object => $completion);
 
         app()->instance(PasskeyFactorGate::class, $gate);
 
-        self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id));
+        $removal = Auth::passkeys('api')->remove($identity, $passkey->id);
+
+        self::assertTrue($removal->isRemoved());
+        self::assertSame($completion, $removal->completion);
         self::assertSame(0, Passkey::query()->count());
         self::assertSame([[$identity, 'api', $passkey->id, $stored->credential_id]], array_map(static fn (array $removal): array => array_values($removal), $gate->removals));
         self::assertSame([PasskeyRemoved::class], $this->recordedClasses());

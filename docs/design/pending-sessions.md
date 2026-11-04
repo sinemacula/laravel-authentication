@@ -84,8 +84,9 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   The session keeps its key throughout, so the proofs and provenance written while it waited carry over unchanged.
 - `PendingTransitions::returnToPending()` takes an active session back to pending, recording the destination its caller
   admitted, when a refresh or a switch finds the tenant's policy asking for a factor the session lacks, or the factor
-  package's removal of a factor leaves the session short of the identity's requirement or its tenant's
-  (`Sessions\FactorRevocations`, flow `factor_change`, with the outstanding requirement): one compare-and-swap on the
+  package's removal of a factor, or any other change of its factors (`factorChanged()`), leaves the session short of the
+  identity's requirement or its tenant's (`Sessions\FactorRevocations`, flow `factor_change`, with the outstanding
+  requirement): one compare-and-swap on the
   row as the caller loaded it (`status = active`, unrevoked, refresh digest, principal, `tenant_id`, policy version and
   both deadlines) that writes a new pending credential, `requires = ["mfa"]`, the destination's principal and tenant,
   `switched_at` by `SwitchFloor::after()` and the credential's expiry as the idle deadline. It keeps the refresh

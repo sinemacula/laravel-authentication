@@ -588,17 +588,22 @@ which rolls back whole, and its exception reaches the caller. The default, `Pass
 nothing and refuses nothing. When the factor package enables passkeys as a factor, its gate associates a new passkey in
 that same change, confirmed by the registration's own observed properties, and `register()`'s `PasskeyRegistration`
 carries the association in `factor`; a registration the factor package asked for on a session passes its binding to
-`registrationOptions($identity, $userName, binding: $binding)`, and the gate gets it back. A credential registered by
-another while the gate runs rolls the whole change back, the gate's work with it, and is answered `already_registered`.
+`registrationOptions($identity, $userName, binding: $binding)`, and the gate gets it back. The association may carry the
+factor package's completion of the registration in `completion`, opaque to this package: when the passkey now counts as
+a factor and leaves the session it was registered from short of one, the factor package judges that session again
+(`factorChanged()`) and hands back the judgement, with the pending credential for the client
+(`$registration->factor->completion`). A credential registered by another while the gate runs rolls the whole change
+back, the gate's work with it, and is answered `already_registered`, with no association.
 
 `Auth::passkeys('api')->passkeys($identity)` lists the identity's passkeys for the relying party, oldest first, as
 `PasskeySummary` (id, name, transports, AAGUID, backup state, created and last used), never the credential id, public
 key, user handle or count. `remove($identity, $passkeyId)` removes the identity's passkey of the relying party and
-reports `PasskeyRemoved` once committed; it answers whether this call removed it. Finding, listing and removal hold to
-the relying party's exact id and the identity's exact type and key, and every ceremony's challenge to its exact
-ceremony, guard, relying party and owner, whatever the column's collation counts as equal (`alice` and `Alice` under
-MySQL's default `_ci` collations). Removing a passkey removes a way to sign in, but ends no session unless you register
-the optional listener:
+reports `PasskeyRemoved` once committed; it answers a `PasskeyRemoval` whose `isRemoved()` says whether this call
+removed it, and whose `completion` carries what the factor gate answered for the removal, if anything, uninterpreted.
+Finding, listing and removal hold to the relying party's exact id and the identity's exact type and key, and every
+ceremony's challenge to its exact ceremony, guard, relying party and owner, whatever the column's collation counts as
+equal (`alice` and `Alice` under MySQL's default `_ci` collations). Removing a passkey removes a way to sign in, but
+ends no session unless you register the optional listener:
 
 ```php
 use Illuminate\Support\Facades\Event;
@@ -612,9 +617,10 @@ It ends every session of the identity with `factor_removed`, also when a global 
 application scope) hides the identity from the request: the listener reads the identity without its model's global
 scopes. To keep the current session signed in, call `Auth::sessions()->credentialRemoved($identity, Auth::session())`
 yourself instead. With a factor package, a passkey it associated as a factor is removed through `remove()` (its gate
-first), and the factor package then calls
-`Auth::sessions()->factorRemoved()` (see [Sign-in factors](sessions.md#sign-in-factors)); register the listener
-alongside it only if every passkey removal should end every session. See `docs/design/passkeys.md`.
+first), and the factor package then calls `Auth::sessions()->factorRemoved()` from its gate, handing back the removal
+(with any pending credential for the client) as the `PasskeyRemoval`'s `completion` (see [Sign-in
+factors](sessions.md#sign-in-factors)); register the listener alongside it only if every passkey removal should end
+every session. See `docs/design/passkeys.md`.
 
 ## Writing a sign-in method
 
@@ -918,8 +924,8 @@ first factor alone, so a requirement it meets (a minimum assurance level the sig
 session active. Otherwise the session is pending with `mfa` outstanding, and its `PendingSession::$requirement` names
 what it still falls short of. The policy is asked again, and the check judges again, each time the pending session is
 acted on, when a refresh or a switch returns the session to pending under its tenant's authentication policy (not when
-that policy is met), and when `factorRemoved()` judges the current session again. `attempt()`, which cannot wait,
-refuses as `additional_factor_required` a sign-in whose password alone does not meet the requirement.
+that policy is met), and when `factorRemoved()` or `factorChanged()` judges the current session again. `attempt()`,
+which cannot wait, refuses as `additional_factor_required` a sign-in whose password alone does not meet the requirement.
 
 ## Enumeration resistance
 

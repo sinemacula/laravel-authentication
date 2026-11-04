@@ -189,7 +189,7 @@ final class GuardContextTest extends TestCase
 
         self::assertNull($sessions->signIn('password', ['email' => 'ada@example.test', 'password' => self::WRONG_PASSWORD])->session);
         self::assertFalse($codes->send('email_code', ['email' => 'ada@example.test'])->isSent());
-        self::assertTrue($passkeys->remove($identity, $passkey->id));
+        self::assertTrue($passkeys->remove($identity, $passkey->id)->isRemoved());
         self::assertFalse($passwords->reset(['email' => 'ada@example.test', 'token' => str_repeat('a', 43), 'password' => 'a brand new passphrase'])->isReset());
         self::assertTrue(self::sessionsOf($guard)->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
 
@@ -227,7 +227,7 @@ final class GuardContextTest extends TestCase
         DB::transaction(function () use ($identity, $passkey): void {
             self::assertTrue($this->signInWithPasskey()->isSignedIn());
             self::assertTrue(Auth::passwords('api')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE)->isSet());
-            self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id));
+            self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id)->isRemoved());
 
             Event::fake();
         });

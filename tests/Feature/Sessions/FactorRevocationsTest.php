@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
@@ -44,7 +45,9 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\Enums\FactorChangeStatus;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
+use SineMacula\Laravel\Authentication\Sessions\FactorChangeResult;
 use SineMacula\Laravel\Authentication\Sessions\FactorRemoval;
 use SineMacula\Laravel\Authentication\Sessions\FactorRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -67,8 +70,10 @@ use Tests\Unit\Stubs\StubNonModelSession;
  * session service against a real database: a factor's removal ends the
  * identity's other sessions and judges the current one again without the
  * factor, voiding only that session's proofs made with it, keeping it, taking
- * it back to pending or revoking it; a reset ends every session; and a removed
- * first-factor credential voids nothing.
+ * it back to pending or revoking it; a reset ends every session; a removed
+ * first-factor credential voids nothing; and any other change of the factor
+ * package's judges the current session again the same way, voiding nothing and
+ * touching no other session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -274,37 +279,7 @@ final class FactorRevocationsTest extends TestCase
         $current = $this->satisfied('factor-a');
         $key     = $current->record->getKey();
 
-        app()->instance(RequirementCheck::class, new readonly class ($key, $write) implements RequirementCheck {
-            /**
-             * Constructor.
-             *
-             * @param  mixed  $key
-             * @param  array<string, ?string>  $write
-             */
-            public function __construct(
-
-                /** The key of the session whose row is written. */
-                private mixed $key,
-
-                /** The columns written. */
-                private array $write,
-            ) {}
-
-            /**
-             * Write the session's row, then find the requirement unmet.
-             *
-             * @param  \SineMacula\Laravel\Authentication\Requirements\RequirementSubject  $subject
-             * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
-             * @return \SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
-             */
-            #[\Override]
-            public function evaluate(RequirementSubject $subject, Requirement $requirement): RequirementEvaluation
-            {
-                DB::table('authentication_sessions')->where('id', $this->key)->update($this->write);
-
-                return new RequirementEvaluation($requirement->kinds());
-            }
-        });
+        app()->instance(RequirementCheck::class, self::writingCheck($key, $write));
 
         $removal = Auth::sessions('api')->factorRemoved($current->identity, 'factor-a', $current->record);
 
@@ -1028,6 +1003,548 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
+     * A change of the factor package's that leaves an active current session
+     * short of a further factor (here its identity's first factor confirmed,
+     * which the factor policy now asks for) returns it to pending: its access
+     * and refresh tokens stop at once, `SessionReturnedToPending` reports the
+     * `factor_change` flow, and its new pending credential takes a further
+     * factor that activates it again under the same key.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFactorChangeThatLeavesTheCurrentSessionShortReturnsItToPending(): void
+    {
+        $current = $this->signedIn();
+
+        $this->requireAFurtherFactor();
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, SessionReturnedToPending::class]);
+
+        $change = Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record);
+
+        self::assertTrue($change->isPending());
+        self::assertSame(FactorChangeStatus::PENDING, $change->status);
+        self::assertNotNull($change->pending);
+        self::assertSame([PendingRequirement::MFA], $change->pending->requires);
+        self::assertFalse($change->pending->requirement->isEmpty());
+        self::assertSame($current->record->getKey(), $change->pending->id);
+        self::assertInstanceOf(Secret::class, $change->credential);
+        self::assertStringStartsWith(IdentifierCoercion::stringify($current->record->getKey()) . '.', $change->credential->reveal());
+        self::assertSame('pending', $this->rowOf($current->record->getKey())->status);
+        self::assertNull($this->rowOf($current->record->getKey())->revoked_at);
+        self::assertSame([SessionReturnedToPending::class], $this->recordedClasses());
+        self::assertSame(AuthenticationFlow::FACTOR_CHANGE, $this->recordedEvent(SessionReturnedToPending::class)->flow);
+
+        self::assertFalse($this->authenticates($current->tokens->accessToken));
+        self::assertFalse($this->sessions()->refresh((string) $current->tokens->refreshToken?->reveal())->isRefreshed());
+
+        $again = $this->sessions()->satisfy($change->credential, $this->proof($current->identity, $current->record->getKey(), 'factor-a', Purpose::SIGN_IN));
+
+        self::assertTrue($again->isSignedIn());
+        self::assertSame($current->record->getKey(), $again->session?->record->getKey());
+        self::assertSame('active', $this->rowOf($current->record->getKey())->status);
+    }
+
+    /**
+     * Rows of `[the change made]`: every change the factor package names.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade}>
+     */
+    public static function provideChangesMade(): iterable
+    {
+        foreach (FactorChangeMade::cases() as $change) {
+            yield $change->value => [$change];
+        }
+    }
+
+    /**
+     * Whatever the change, a current session it leaves short returns to pending
+     * in the same way, and nothing else is written or reported: the identity's
+     * other sessions, active or pending, keep their rows (status, digests,
+     * issuance guards), its pending identifier changes are kept, its own row is
+     * left as it was, and no proof is voided.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade  $change
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideChangesMade')]
+    public function testEveryChangeJudgesOnlyTheCurrentSession(FactorChangeMade $change): void
+    {
+        $other   = $this->signedIn();
+        $current = $this->signedIn();
+
+        $this->stepUp($other, 'factor-a');
+        $this->requireAFurtherFactor();
+
+        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
+
+        self::assertNotNull($pending);
+
+        DB::table('identifier_changes')->insert([
+            'id'           => 'change-1',
+            'guard'        => 'api',
+            'type'         => 'email',
+            'previous'     => null,
+            'identifier'   => 'ada@new.example.test',
+            'request_id'   => 'request-1',
+            'requested_at' => '2026-04-06 12:00:00',
+            'expires_at'   => '2026-04-06 13:00:00',
+        ]);
+
+        $otherBefore    = $this->columnsOf($other->record->getKey());
+        $pendingBefore  = $this->columnsOf($pending->id);
+        $identityBefore = IntegrationIdentity::query()->sole()->getAttributes();
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, SessionReturnedToPending::class]);
+
+        self::assertTrue(Auth::sessions('api')->factorChanged($current->identity, $change, $current->record)->isPending());
+        self::assertSame($otherBefore, $this->columnsOf($other->record->getKey()));
+        self::assertSame($pendingBefore, $this->columnsOf($pending->id));
+        self::assertSame($identityBefore, IntegrationIdentity::query()->sole()->getAttributes());
+        self::assertSame(['change-1'], DB::table('identifier_changes')->pluck('id')->all());
+        self::assertSame(['factor-a' => null], $this->voidedOn($other->record->getKey()));
+        self::assertSame(0, Session::query()->whereNotNull('revoked_at')->count());
+        self::assertSame([SessionReturnedToPending::class], $this->recordedClasses());
+    }
+
+    /**
+     * A current session that still meets what it is asked stays active: only
+     * its issuance guard is written, before anything reads its proofs; no proof
+     * is voided, nothing is reported, its tokens keep working, and the guard
+     * bound to it stays bound with the authentication context it held.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACurrentSessionThatStillMeetsWhatItIsAskedStaysActive(): void
+    {
+        $this->requireAFurtherFactor();
+
+        $current = $this->satisfied('factor-a');
+        $guard   = $this->boundGuard($current);
+        $held    = $guard->authenticationContext();
+        $before  = $this->columnsOf($current->record->getKey());
+
+        self::assertIsArray($before);
+        self::assertIsInt($before['issuance_sequence']);
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, SessionReturnedToPending::class]);
+
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        $change = Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record);
+
+        $issuance = array_key_first(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'issuance_sequence')));
+        $proofs   = array_key_first(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'authentication_proofs')));
+
+        self::assertTrue($change->isActive());
+        self::assertNull($change->pending);
+        self::assertNull($change->credential);
+        self::assertIsInt($issuance);
+        self::assertIsInt($proofs);
+        self::assertLessThan($proofs, $issuance);
+        self::assertSame([...$before, 'issuance_sequence' => $before['issuance_sequence'] + 1], $this->columnsOf($current->record->getKey()));
+        self::assertSame(['factor-a' => null], $this->voidedOn($current->record->getKey()));
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame($current->record->getKey(), $guard->session()?->getSessionIdentifier());
+        self::assertSame($held, $guard->authenticationContext());
+        self::assertTrue($this->authenticates($current->tokens->accessToken));
+    }
+
+    /**
+     * Rows of `[guard, email, what happened to the session meanwhile, the
+     * change made, the reason its revocation records]`: each session no longer
+     * admitted, after a change other than a removal and after a removal.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: string, 1: string, 2: \Closure(): void, 3: \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade, 4: \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideUnadmittableSessionsAfterAChange(): iterable
+    {
+        foreach (self::provideUnadmittableSessions() as $name => [$guard, $email, $meanwhile]) {
+            yield "{$name}, after a factor confirmed" => [$guard, $email, $meanwhile, FactorChangeMade::FACTOR_CONFIRMED, RevocationReason::FACTOR_CHANGED];
+            yield "{$name}, after a passkey factor registered" => [$guard, $email, $meanwhile, FactorChangeMade::PASSKEY_FACTOR_REGISTERED, RevocationReason::FACTOR_CHANGED];
+            yield "{$name}, after another change" => [$guard, $email, $meanwhile, FactorChangeMade::OTHER, RevocationReason::FACTOR_CHANGED];
+            yield "{$name}, after a factor removed" => [$guard, $email, $meanwhile, FactorChangeMade::FACTOR_REMOVED, RevocationReason::FACTOR_REMOVED];
+        }
+    }
+
+    /**
+     * A current session that is no longer admitted as a refresh admits it, or
+     * whose tenant now requires a connection, is revoked by the change, with
+     * `factor_removed` after a removal and `factor_changed` after any other
+     * change, stored on its row and reported once with the principal it
+     * records; the identity's other session is left as it is.
+     *
+     * @param  string  $guard
+     * @param  string  $email
+     * @param  \Closure(): void  $meanwhile
+     * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade  $change
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideUnadmittableSessionsAfterAChange')]
+    public function testACurrentSessionNoLongerAdmittedIsRevokedWithTheChangesReason(
+        string $guard,
+        string $email,
+        \Closure $meanwhile,
+        FactorChangeMade $change,
+        RevocationReason $reason,
+    ): void {
+        $this->seedIdentity();
+        $this->seedMember();
+
+        $other   = $this->signedIn($guard, $email);
+        $current = $this->signedIn($guard, $email);
+
+        $meanwhile();
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, SessionReturnedToPending::class]);
+
+        $result = Auth::sessions($guard)->factorChanged($current->identity, $change, $current->record);
+
+        self::assertTrue($result->isRevoked());
+        self::assertSame(FactorChangeStatus::REVOKED, $result->status);
+        self::assertNull($result->pending);
+        self::assertNull($result->credential);
+        self::assertSame($reason->value, $this->rowOf($current->record->getKey())->revoked_reason);
+        self::assertNull($this->rowOf($other->record->getKey())->revoked_at);
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
+
+        $event = $this->recordedEvent(SessionRevoked::class);
+
+        self::assertSame($reason, $event->reason);
+        self::assertSame($current->record->getKey(), $event->context->sessionId);
+        self::assertSame(IdentifierCoercion::stringify($current->record->getAttribute('principal_id')), $event->context->principalId);
+    }
+
+    /**
+     * Rows of `[what is written to the current session's row while the change
+     * judges it, the status answered, the reason its row records]`.
+     *
+     * @return iterable<string, array{0: array<string, ?string>, 1: \SineMacula\Laravel\Authentication\Sessions\Enums\FactorChangeStatus, 2: string}>
+     */
+    public static function provideWritesDuringTheChangesJudgement(): iterable
+    {
+        yield 'its refresh token rotated' => [['refresh_key' => str_repeat('0', 64)], FactorChangeStatus::REVOKED, 'factor_changed'];
+        yield 'revoked' => [['revoked_at' => '2026-04-06 12:00:00', 'revoked_reason' => 'signed_out', 'refresh_key' => null], FactorChangeStatus::SKIPPED, 'signed_out'];
+    }
+
+    /**
+     * A current session whose row is written while the change judges it short
+     * of a further factor is never left active: the return to pending misses
+     * its compare-and-swap, so the change revokes it as `factor_changed` and
+     * answers `revoked`, or, when another writer had revoked it meanwhile,
+     * keeps that revocation, reports none of its own and answers `skipped`.
+     *
+     * @param  array<string, ?string>  $write
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Enums\FactorChangeStatus  $status
+     * @param  string  $reason
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideWritesDuringTheChangesJudgement')]
+    public function testACurrentSessionWrittenDuringTheChangesJudgementIsNeverLeftActive(array $write, FactorChangeStatus $status, string $reason): void
+    {
+        $current = $this->signedIn();
+        $key     = $current->record->getKey();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, self::writingCheck($key, $write));
+
+        $this->recordEvents([SessionRevoked::class, SessionReturnedToPending::class]);
+
+        $result = Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record);
+
+        self::assertSame($status, $result->status);
+        self::assertNull($result->credential);
+        self::assertSame($reason, $this->rowOf($key)->revoked_reason);
+        self::assertSame('active', $this->rowOf($key)->status);
+        self::assertSame($status === FactorChangeStatus::REVOKED ? [SessionRevoked::class] : [], $this->recordedClasses());
+    }
+
+    /**
+     * Rows of `[what made the current session other than a live, active session
+     * of the identity meanwhile]`: each ended session, and a live pending one.
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): void}>
+     */
+    public static function provideSessionsTheChangeSkips(): iterable
+    {
+        yield from self::provideEndedSessions();
+
+        yield 'pending and live' => [static function (SignedInSession $current): void {
+            Session::query()->whereKey($current->record->getKey())->update(['status' => 'pending']);
+        }];
+    }
+
+    /**
+     * A current session that has meanwhile been revoked, ended, replaced or
+     * returned to pending is skipped: its row, issuance guard and proofs are
+     * left as they are, and nothing is reported; a pending one is judged at its
+     * next action instead.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SignedInSession): void  $meanwhile
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideSessionsTheChangeSkips')]
+    public function testACurrentSessionThatIsNoLongerLiveAndActiveIsSkipped(\Closure $meanwhile): void
+    {
+        $current = $this->signedIn();
+
+        $this->stepUp($current, 'factor-a');
+
+        $meanwhile($current);
+
+        $during = $this->columnsOf($current->record->getKey());
+
+        $this->requireAFurtherFactor();
+        $this->recordEvents([SessionRevoked::class, SessionReturnedToPending::class]);
+
+        $result = Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record);
+
+        self::assertTrue($result->isSkipped());
+        self::assertNull($result->pending);
+        self::assertNull($result->credential);
+        self::assertSame($during, $this->columnsOf($current->record->getKey()));
+        self::assertSame(['factor-a' => null], $this->voidedOn($current->record->getKey()));
+        self::assertSame([], $this->recorded);
+    }
+
+    /**
+     * Rows of `[the current session given]`: one that is not one of the
+     * identity's stored sessions on this guard.
+     *
+     * @return iterable<string, array{0: \Closure(\Tests\Feature\Sessions\FactorRevocationsTest): \SineMacula\Laravel\Authentication\Contracts\Session}>
+     */
+    public static function provideSessionsAChangeRefuses(): iterable
+    {
+        yield 'another identity\'s session' => [static fn (self $test): Session => $test->anotherIdentitysSession()];
+        yield 'another guard\'s session' => [static fn (self $test): Session => $test->anotherGuardsSession()];
+        yield 'a session of the guard that is not a model' => [static fn (self $test): EloquentSession => self::nonModelSession()];
+    }
+
+    /**
+     * A change whose current session is not one of the identity's stored
+     * sessions on this guard is refused, naming the change, before anything is
+     * written or reported.
+     *
+     * @param  \Closure(self): \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideSessionsAChangeRefuses')]
+    public function testAChangeWhoseCurrentSessionIsNotTheIdentitysIsRefusedBeforeAnythingIsWritten(\Closure $session): void
+    {
+        $current = $this->signedIn();
+        $given   = $session($this);
+        $before  = Session::query()->orderBy('id')->get()->map(static fn (Session $row): array => $row->getAttributes())->all();
+
+        $this->requireAFurtherFactor();
+        $this->recordEvents([SessionRevoked::class, SessionReturnedToPending::class]);
+
+        try {
+            Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $given);
+
+            self::fail('Expected the change to be refused.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('The current session of a factor\'s change must be a session of guard [api] that the identity owns.', $exception->getMessage());
+        }
+
+        self::assertSame($before, Session::query()->orderBy('id')->get()->map(static fn (Session $row): array => $row->getAttributes())->all());
+        self::assertSame([], $this->recorded);
+    }
+
+    /**
+     * An identity that does not live on the storage connection is accepted: a
+     * change writes nothing of the identity, so only its session is judged.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityOffTheStorageConnectionIsAcceptedForAChange(): void
+    {
+        $current  = $this->signedIn();
+        $identity = $current->identity;
+
+        self::assertInstanceOf(IntegrationIdentity::class, $identity);
+
+        $identity->setConnection('elsewhere');
+
+        $this->requireAFurtherFactor();
+
+        self::assertTrue(Auth::sessions('api')->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record)->isPending());
+        self::assertSame('pending', $this->rowOf($current->record->getKey())->status);
+    }
+
+    /**
+     * The guard bound to the current session forgets it once the change that
+     * returned it to pending commits, not before; a change rolled back keeps it
+     * bound and the session active.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheGuardForgetsTheCurrentSessionOnceTheChangeCommits(): void
+    {
+        $current = $this->signedIn();
+        $guard   = $this->boundGuard($current);
+
+        $this->requireAFurtherFactor();
+
+        try {
+            DB::transaction(static function () use ($current): void {
+
+                self::assertTrue(Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record)->isPending());
+
+                throw new \RuntimeException('rolled back');
+            });
+        } catch (\RuntimeException) {
+            self::assertSame($current->record->getKey(), $guard->session()?->getSessionIdentifier());
+            self::assertSame('active', $this->rowOf($current->record->getKey())->status);
+        }
+
+        DB::transaction(static function () use ($current, $guard): void {
+
+            self::assertTrue(Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record)->isPending());
+            self::assertNotNull($guard->session());
+        });
+
+        self::assertNull($guard->session());
+        self::assertNull($guard->user());
+    }
+
+    /**
+     * A current session the change revoked is forgotten by the guard bound to
+     * it once the change commits.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheGuardForgetsACurrentSessionTheChangeRevoked(): void
+    {
+        $current = $this->signedIn();
+        $guard   = $this->boundGuard($current);
+
+        IntegrationIdentity::query()->update(['is_active' => false]);
+
+        self::assertTrue(Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::OTHER, $current->record)->isRevoked());
+        self::assertNull($guard->session());
+    }
+
+    /**
+     * Rows of `[the event whose listener throws, what makes the change end the
+     * current session]`.
+     *
+     * @return iterable<string, array{0: class-string, 1: \Closure(): void}>
+     */
+    public static function provideEndingsOfTheCurrentSession(): iterable
+    {
+        yield 'returned to pending' => [SessionReturnedToPending::class, static function (): void {
+            app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+            app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+        }];
+
+        yield 'revoked' => [SessionRevoked::class, static function (): void {
+            IntegrationIdentity::query()->update(['is_active' => false]);
+        }];
+    }
+
+    /**
+     * A listener that throws on the report of the current session the change
+     * returned to pending or revoked cannot leave the guard bound to it: the
+     * binding is forgotten before the session is reported.
+     *
+     * @param  class-string  $event
+     * @param  \Closure(): void  $ending
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideEndingsOfTheCurrentSession')]
+    public function testAListenerThatThrowsLeavesTheGuardUnboundFromTheCurrentSessionTheChangeEnded(string $event, \Closure $ending): void
+    {
+        $current = $this->signedIn();
+        $guard   = $this->boundGuard($current);
+
+        $ending();
+
+        Event::listen($event, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        $change = static fn (): FactorChangeResult => Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record);
+
+        self::assertSame('listener failed', self::failureOf($change));
+        self::assertNull($guard->session());
+    }
+
+    /**
+     * Called after `factorRemoved()` in the same change, a session the removal
+     * returned to pending is skipped, its pending credential (the removal's)
+     * still taking a further factor; one the removal kept is judged again and
+     * stays active.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeAfterARemovalInTheSameTransactionLeavesWhatTheRemovalDid(): void
+    {
+        $this->requireAFurtherFactor();
+
+        $returned = $this->satisfied('factor-a');
+        $kept     = $this->satisfied('factor-a', email: 'grace@example.test');
+
+        $this->stepUp($kept, 'factor-b');
+
+        [$removal, $change] = DB::transaction(static fn (): array => [
+            Auth::sessions('api')->factorRemoved($returned->identity, 'factor-a', $returned->record),
+            Auth::sessions('api')->factorChanged($returned->identity, FactorChangeMade::FACTOR_REMOVED, $returned->record),
+        ]);
+
+        self::assertTrue($removal->isPending());
+        self::assertTrue($change->isSkipped());
+        self::assertNotNull($removal->credential);
+        $proof = $this->proof($returned->identity, $returned->record->getKey(), 'factor-b', Purpose::SIGN_IN);
+
+        self::assertTrue($this->sessions()->satisfy($removal->credential, $proof)->isSignedIn());
+
+        [$removal, $change] = DB::transaction(static fn (): array => [
+            Auth::sessions('api')->factorRemoved($kept->identity, 'factor-a', $kept->record),
+            Auth::sessions('api')->factorChanged($kept->identity, FactorChangeMade::FACTOR_REMOVED, $kept->record),
+        ]);
+
+        self::assertFalse($removal->isPending());
+        self::assertTrue($change->isActive());
+        self::assertSame('active', $this->rowOf($kept->record->getKey())->status);
+    }
+
+    /**
      * Another identity's session on this guard.
      *
      * @return \SineMacula\Laravel\Authentication\Models\Session
@@ -1095,6 +1612,49 @@ final class FactorRevocationsTest extends TestCase
         $session->shouldReceive('getGuard')->andReturn('api');
 
         return $session;
+    }
+
+    /**
+     * A requirement check that writes the columns given to the row of the
+     * session with the key given, then finds the requirement unmet.
+     *
+     * @param  mixed  $key
+     * @param  array<string, ?string>  $write
+     * @return \SineMacula\Laravel\Authentication\Contracts\RequirementCheck
+     */
+    private static function writingCheck(mixed $key, array $write): RequirementCheck
+    {
+        return new readonly class ($key, $write) implements RequirementCheck {
+            /**
+             * Constructor.
+             *
+             * @param  mixed  $key
+             * @param  array<string, ?string>  $write
+             */
+            public function __construct(
+
+                /** The key of the session whose row is written. */
+                private mixed $key,
+
+                /** The columns written. */
+                private array $write,
+            ) {}
+
+            /**
+             * Write the session's row, then find the requirement unmet.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Requirements\RequirementSubject  $subject
+             * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+             * @return \SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
+             */
+            #[\Override]
+            public function evaluate(RequirementSubject $subject, Requirement $requirement): RequirementEvaluation
+            {
+                DB::table('authentication_sessions')->where('id', $this->key)->update($this->write);
+
+                return new RequirementEvaluation($requirement->kinds());
+            }
+        };
     }
 
     /**

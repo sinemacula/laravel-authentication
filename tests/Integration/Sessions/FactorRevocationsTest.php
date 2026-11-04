@@ -21,6 +21,8 @@ use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
+use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
@@ -30,6 +32,7 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
+use SineMacula\Laravel\Authentication\Sessions\FactorChangeResult;
 use SineMacula\Laravel\Authentication\Sessions\FactorRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
@@ -38,12 +41,13 @@ use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\TestCase;
 
 /**
- * Integration tests of the factor package's mandatory triggers, and of a
- * removed first-factor credential, inside the factor package's own transaction
- * on the storage connection: everything they write (the revocations, the voided
- * proofs, the current session's return to pending) commits or rolls back with
- * the factor package's change, nothing is reported until it commits, and the
- * guard forgets the current session only then.
+ * Integration tests of the factor package's mandatory triggers, of a removed
+ * first-factor credential, and of the judgement of the current session again
+ * after any other change of the factor package's, inside the factor package's
+ * own transaction on the storage connection: everything they write (the
+ * revocations, the voided proofs, the current session's return to pending)
+ * commits or rolls back with the factor package's change, nothing is reported
+ * until it commits, and the guard forgets the current session only then.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -239,6 +243,95 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
+     * Inside the factor package's transaction that rolls back, a change that
+     * returned the current session to pending leaves it active with its tokens,
+     * reports nothing, keeps the guard bound to it, and leaves the pending
+     * credential it answered matching nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeRollsBackWithTheFactorPackagesTransaction(): void
+    {
+        $this->seedIdentity();
+
+        $current  = $this->activeWithoutAFurtherFactor();
+        $guard    = $this->boundGuard($current);
+        $recorded = $this->recordTriggerEvents();
+        $before   = (array) DB::table('authentication_sessions')->where('id', $current->record->getKey())->first();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        DB::beginTransaction();
+
+        $change = Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record);
+
+        self::assertTrue($change->isPending());
+        self::assertNotNull($change->credential);
+
+        DB::rollBack();
+
+        self::assertSame($before, (array) DB::table('authentication_sessions')->where('id', $current->record->getKey())->first());
+        self::assertSame([], $recorded->getArrayCopy());
+        self::assertSame($current->record->getKey(), $guard->session()?->getSessionIdentifier());
+        self::assertFalse($this->sessions()->satisfy($change->credential, $this->proof($current, 'factor-a'))->isSignedIn());
+        self::assertTrue($this->sessions()->refresh((string) $current->tokens->refreshToken?->reveal())->isRefreshed());
+    }
+
+    /**
+     * Inside the factor package's transaction that commits, a change that
+     * returned the current session to pending commits with the factor package's
+     * own writes and leaves the identity's other session alone; the guard
+     * forgets the current session after the commit and before the return is
+     * reported, once, and the pending credential takes a further factor.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeCommitsWithTheFactorPackagesTransaction(): void
+    {
+        $this->seedIdentity();
+
+        $other    = $this->activeWithoutAFurtherFactor();
+        $current  = $this->activeWithoutAFurtherFactor();
+        $guard    = $this->boundGuard($current);
+        $recorded = $this->recordTriggerEvents();
+
+        /** @var \ArrayObject<int, mixed> $bound */
+        $bound = new \ArrayObject;
+
+        Event::listen(SessionReturnedToPending::class, static function () use ($guard, $bound): void {
+            $bound->append($guard->session()?->getSessionIdentifier());
+        });
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $change = DB::transaction(static function () use ($current, $recorded): FactorChangeResult {
+
+            DB::table('integration_identities')->update(['email' => 'grace@example.test']);
+
+            $change = Auth::sessions('api')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record);
+
+            self::assertSame([], $recorded->getArrayCopy());
+
+            return $change;
+        });
+
+        self::assertTrue($change->isPending());
+        self::assertNotNull($change->credential);
+        self::assertSame('grace@example.test', DB::table('integration_identities')->value('email'));
+        self::assertSame('pending', DB::table('authentication_sessions')->where('id', $current->record->getKey())->value('status'));
+        self::assertSame('active', DB::table('authentication_sessions')->where('id', $other->record->getKey())->value('status'));
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
+        self::assertSame([SessionReturnedToPending::class], $recorded->getArrayCopy());
+        self::assertSame([null], $bound->getArrayCopy());
+        self::assertNull($guard->session());
+        self::assertTrue($this->sessions()->satisfy($change->credential, $this->proof($current, 'factor-a'))->isSignedIn());
+    }
+
+    /**
      * Register the session guards.
      *
      * @param  mixed  $app
@@ -287,6 +380,48 @@ final class FactorRevocationsTest extends TestCase
         self::assertNotNull($session);
 
         return $session;
+    }
+
+    /**
+     * A session of the seeded identity, signed in with its password alone and
+     * active, as it is before the factor package asks it for a further factor.
+     *
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
+     *
+     * @throws \Throwable
+     */
+    private function activeWithoutAFurtherFactor(): SignedInSession
+    {
+        app()->instance(AdditionalFactorPolicy::class, new NeverRequireAdditionalFactor);
+
+        $session = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($session);
+
+        return $session;
+    }
+
+    /**
+     * A further factor verified with the factor given, for the session's sign
+     * in.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $signedIn
+     * @param  string  $factor
+     * @return \SineMacula\Laravel\Authentication\Proofs\ProofResult
+     */
+    private function proof(SignedInSession $signedIn, string $factor): ProofResult
+    {
+        return new ProofResult(
+            ProofKind::ADDITIONAL_FACTOR,
+            'totp',
+            new Channel(ChannelKind::AUTHENTICATOR_APP),
+            $factor,
+            new ObservedProperties,
+            new Evaluation(true, true),
+            ['otp'],
+            CarbonImmutable::now(),
+            new ProofBinding($signedIn->identity, 'api', $signedIn->record->getKey(), Purpose::SIGN_IN),
+        );
     }
 
     /**

@@ -11,7 +11,8 @@ use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 /**
  * The package's default passkey factor gate: no passkey is a factor, so there
  * is nothing to gate. Every passkey registered is a sign-in credential only,
- * and every removal goes ahead. Bind a factor package's gate to change that.
+ * and every removal goes ahead, completing nothing. Bind a factor package's
+ * gate to change that.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,14 +36,17 @@ final readonly class NoPasskeyFactors implements PasskeyFactorGate
     }
 
     /**
-     * Let the removal go ahead.
+     * Let the removal go ahead, completing nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $application
      * @param  string  $passkeyId
      * @param  string  $credentialId
-     * @return void
+     * @return null
      */
     #[\Override]
-    public function removing(Identity $identity, string $application, string $passkeyId, #[\SensitiveParameter] string $credentialId): void {}
+    public function removing(Identity $identity, string $application, string $passkeyId, #[\SensitiveParameter] string $credentialId): null
+    {
+        return null;
+    }
 }

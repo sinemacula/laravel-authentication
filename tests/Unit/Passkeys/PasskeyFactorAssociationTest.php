@@ -34,6 +34,20 @@ final class PasskeyFactorAssociationTest extends TestCase
     }
 
     /**
+     * An association carries no completion unless the gate gives it one, and
+     * then carries that very object.
+     *
+     * @return void
+     */
+    public function testCarriesTheFactorPackagesCompletionOnlyWhenGiven(): void
+    {
+        $completion = new \stdClass;
+
+        self::assertNull((new PasskeyFactorAssociation('factor-1'))->completion);
+        self::assertSame($completion, (new PasskeyFactorAssociation('factor-1', $completion))->completion);
+    }
+
+    /**
      * Rows of references an association refuses.
      *
      * @return iterable<string, array{0: string}>

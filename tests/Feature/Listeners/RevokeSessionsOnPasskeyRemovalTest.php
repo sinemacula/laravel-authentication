@@ -165,7 +165,7 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
 
         try {
             self::assertNull(IntegrationIdentity::query()->find($identity->id));
-            self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id));
+            self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id)->isRemoved());
         } finally {
             IntegrationIdentity::clearBootedModels();
         }

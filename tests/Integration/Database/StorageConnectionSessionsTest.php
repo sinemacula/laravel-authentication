@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
@@ -42,8 +43,9 @@ use Tests\TestCase;
  * the default one: a session, its refresh, a passkey, a one-time code and a
  * pending session are read and written where the shipped migrations created
  * their tables; a failure while a pending session activates rolls the whole
- * activation back there; a rollback there leaves the counters counted;
- * and a session loads an owner that names its connection from that connection.
+ * activation back there; a rollback there leaves the counters counted; a change
+ * of the factor package's follows the caller's transaction there; and a session
+ * loads an owner that names its connection from that connection.
  *
  * Each connection is a second connection to the test database with a table
  * prefix of its own: a database of its own on SQLite, and prefixed tables
@@ -228,6 +230,45 @@ final class StorageConnectionSessionsTest extends TestCase
         $storage->rollBack();
 
         self::assertSame(1, $this->accountHits($identity));
+    }
+
+    /**
+     * A change of the factor package's made inside its transaction on the
+     * storage connection judges the current session again as a savepoint of
+     * that transaction, so the return to pending rolls back and commits with
+     * it; a transaction open only on the default connection holds none of it,
+     * so the return commits on its own.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFactorChangeFollowsTheCallersTransactionOnTheStorageConnection(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($session);
+
+        $this->requireAFurtherFactor();
+
+        $storage = DB::connection(self::STORAGE);
+
+        $storage->beginTransaction();
+
+        self::assertTrue($this->sessions()->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $session->record)->isPending());
+
+        $storage->rollBack();
+
+        self::assertSame('active', $this->records()->value('status'));
+
+        DB::beginTransaction();
+
+        self::assertTrue($this->sessions()->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $session->record)->isPending());
+
+        DB::rollBack();
+
+        self::assertSame('pending', $this->records()->value('status'));
     }
 
     /**

@@ -11,8 +11,10 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
+use SineMacula\Laravel\Authentication\Sessions\FactorChangeResult;
 use SineMacula\Laravel\Authentication\Sessions\FactorRemoval;
 use SineMacula\Laravel\Authentication\Sessions\FactorRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
@@ -26,7 +28,8 @@ use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
  * and signing out everywhere for the binding the service is given, the rest for
  * whatever identity, principal or tenant they are given; signing out by refresh
  * credential, which `SessionSignOut` carries out; the removal and reset of the
- * factor package's factors, which `FactorRevocations` carries out; and the
+ * factor package's factors, and the judgement of the current session again
+ * after its other changes, which `FactorRevocations` carries out; and the
  * application of a tenant's changed authentication policy, which
  * `TenantPolicyChanges` carries out.
  *
@@ -50,7 +53,7 @@ trait EndsSessions
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionSignOut Signs sessions out by their refresh credential. */
     private readonly SessionSignOut $signOuts;
 
-    /** @var \SineMacula\Laravel\Authentication\Sessions\FactorRevocations Ends sessions when the factor package removes or resets factors. */
+    /** @var \SineMacula\Laravel\Authentication\Sessions\FactorRevocations Ends sessions when the factor package removes or resets factors, and judges the current session again after its changes. */
     private readonly FactorRevocations $factorRevocations;
 
     /**
@@ -351,6 +354,49 @@ trait EndsSessions
     public function factorRemoved(Identity $identity, string $factor, ?Session $current = null): FactorRemoval
     {
         return $this->factorRevocations->remove($identity, $factor, $current, CarbonImmutable::now()->startOfSecond());
+    }
+
+    /**
+     * The factor package made a change to the identity's factors from
+     * `$current` other than one only `factorRemoved()` or `factorReset()`
+     * stands for (a factor confirmed, a passkey associated as a factor, or a
+     * removal once `factorRemoved()` has run): judge `$current` again exactly
+     * as `factorRemoved()` judges it, without voiding any proof or touching any
+     * other session. It stays active while it still meets the identity's factor
+     * policy and its tenant's policy (`active`); returns to pending (flow
+     * `factor_change`) while it falls short of a further factor only, its
+     * tokens stopping from the commit and the result carrying the pending
+     * session and the new pending credential for the client (`pending`); and is
+     * revoked when it is no longer admitted as a refresh admits it or its
+     * tenant now requires a connection (`revoked`, `factor_changed`, or
+     * `factor_removed` for `FACTOR_REMOVED`). A session that is no longer the
+     * one given, or no longer live and active (a pending one is judged at its
+     * next action), is left as it is (`skipped`), which says nothing of whether
+     * it is usable. When this guard is bound to it and it is returned to
+     * pending or revoked, the binding is forgotten once the change commits. The
+     * identity's other sessions are not judged: they keep running as they were
+     * admitted.
+     *
+     * The factor package calls it inside the transaction that makes the change,
+     * on the storage connection, after taking its own locks, so both commit or
+     * roll back together: it runs as a savepoint there, locks the session's
+     * row, writes its issuance guard before anything reads its proofs, and its
+     * events follow the commit. Called with no transaction on the storage
+     * connection, it commits on its own. `$current` must be a session of this
+     * guard the identity owns, or nothing is written and an exception is
+     * thrown. Never call it in place of `factorRemoved()` or `factorReset()`.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade  $change
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $current
+     * @return \SineMacula\Laravel\Authentication\Sessions\FactorChangeResult
+     *
+     * @throws \InvalidArgumentException
+     * @throws \Throwable
+     */
+    public function factorChanged(Identity $identity, FactorChangeMade $change, Session $current): FactorChangeResult
+    {
+        return $this->factorRevocations->change($identity, $change, $current, CarbonImmutable::now()->startOfSecond());
     }
 
     /**

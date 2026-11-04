@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Factors\FactorReference;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
@@ -58,6 +59,16 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * proofs were voided has the authentication context of every resolved guard
  * bound to it forgotten at once, and again once the removal commits or rolls
  * back, whether it stays active or not.
+ *
+ * Any other change the factor package makes (a factor confirmed, a passkey
+ * associated as a factor, or a removal once the removal above has run) judges
+ * the current session again in the same way, on the session model's connection
+ * in one transaction, a savepoint inside the caller's: it voids no proof,
+ * touches no other session and moves no cutoff, so the identity may live
+ * anywhere. A current session that is no longer the session given, or no longer
+ * live and active, is skipped; a pending one is judged at its next action, as
+ * it is today. Its revocation records `factor_changed`, or `factor_removed`
+ * after a removal.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -123,7 +134,7 @@ final readonly class FactorRevocations
             throw new \InvalidArgumentException(sprintf('A removed factor is named by its reference, of 1 to %d characters.', FactorReference::MAX_LENGTH));
         }
 
-        $session = $this->current($identity, $current);
+        $session = $this->current($identity, $current, 'a factor\'s removal');
 
         $this->assertStored($identity, 'A factor\'s removal');
 
@@ -138,6 +149,46 @@ final readonly class FactorRevocations
             $revoked = $this->revocations->revokeSessions($identity, RevocationReason::FACTOR_REMOVED, $session, $this->forgettingEach($ended));
 
             return $this->recheck($identity, $session, $factor, $revoked, $ended, $now);
+        });
+    }
+
+    /**
+     * The factor package made the change given from `$current`, a session of
+     * this guard owned by the identity: judge it again, as a removal judges its
+     * current session, without voiding any proof or touching any other session.
+     * It is skipped when it is no longer the session given or no longer live
+     * and active; when the guard is bound to it and it is returned to pending
+     * or revoked, the binding is forgotten once the change commits.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade  $change
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $current
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Sessions\FactorChangeResult
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function change(Identity $identity, FactorChangeMade $change, Session $current, CarbonImmutable $now): FactorChangeResult
+    {
+        $session = $this->current($identity, $current, 'a factor\'s change');
+        $reason  = $change === FactorChangeMade::FACTOR_REMOVED ? RevocationReason::FACTOR_REMOVED : RevocationReason::FACTOR_CHANGED;
+
+        return SessionLookup::model()->getConnection()->transaction(function () use ($identity, $session, $reason, $now): FactorChangeResult {
+
+            $locked = SessionLookup::lock($session->getSessionIdentifier());
+
+            if (!SessionOwnership::isSameSession($session, $locked) || OwnedSession::refusal($locked, $this->context->name(), $now) !== null) {
+                return FactorChangeResult::skipped();
+            }
+
+            IssuanceGuard::hold($locked);
+
+            /** @var \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession> $ended */
+            $ended = new \ArrayObject;
+
+            $this->afterCommit()->run($locked, $this->forgettingEach($ended));
+
+            return $this->judge($identity, $locked, $reason, $ended, $now);
         });
     }
 
@@ -181,8 +232,8 @@ final readonly class FactorRevocations
 
     /**
      * What forgets the guard's binding to whichever of the sessions it is bound
-     * to, once the removal commits: the current session joins them when the
-     * removal returns it to pending or revokes it.
+     * to, once the removal or change commits: the current session joins them
+     * when it is returned to pending or revoked.
      *
      * @param  \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>  $ended
      * @return \Closure(): void
@@ -200,15 +251,17 @@ final readonly class FactorRevocations
 
     /**
      * The current session given, once it is a session of this guard that the
-     * identity owns, or `null` when none was given.
+     * identity owns, or `null` when none was given; the flow names the call in
+     * the refusal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $current
-     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
+     * @param  string  $flow
+     * @return ($current is null ? null : \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)
      *
      * @throws \InvalidArgumentException
      */
-    private function current(Identity $identity, ?Session $current): (EloquentSession&Model)|null
+    private function current(Identity $identity, ?Session $current, string $flow): (EloquentSession&Model)|null
     {
         if ($current === null) {
             return null;
@@ -217,7 +270,7 @@ final readonly class FactorRevocations
         $guard = $this->context->name();
 
         if (!$current instanceof EloquentSession || !$current instanceof Model || $current->getGuard() !== $guard || !SessionOwnership::isOwner($current, $identity)) {
-            throw new \InvalidArgumentException(sprintf('The current session of a factor\'s removal must be a session of guard [%s] that the identity owns.', $guard));
+            throw new \InvalidArgumentException(sprintf('The current session of %s must be a session of guard [%s] that the identity owns.', $flow, $guard));
         }
 
         return $current;
@@ -285,28 +338,32 @@ final readonly class FactorRevocations
 
         ProofWriter::void($locked, $guard, $factor, $now);
         ContextForgetting::now($locked);
+        ContextForgetting::onSettle($this->afterCommit(), $locked);
 
-        $container = $this->container;
+        if ($pending) {
+            return new FactorRemoval($revoked);
+        }
 
-        ContextForgetting::onSettle(new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null), $locked);
+        $result = $this->judge($identity, $locked, RevocationReason::FACTOR_REMOVED, $ended, $now);
 
-        return $pending ? new FactorRemoval($revoked) : $this->judge($identity, $locked, $revoked, $ended, $now);
+        return new FactorRemoval($revoked + ($result->isRevoked() ? 1 : 0), $result->isRevoked(), $result->pending, $result->credential);
     }
 
     /**
-     * Judge the locked session without the factor: it stays active while
+     * Judge the locked session as its proofs now stand: it stays active while
      * nothing is outstanding, returns to pending, recording the version of its
      * tenant's policy answered, while a further factor is (the strictest of the
      * identity-level requirement it still owes and its tenant's), and is
-     * revoked when it is no longer admitted as a refresh admits it or its
-     * tenant now requires a connection.
+     * revoked with the reason given when it is no longer admitted as a refresh
+     * admits it, its tenant now requires a connection, or its return to pending
+     * missed.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $locked
-     * @param  int  $revoked
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>  $ended
      * @param  \Carbon\CarbonImmutable  $now
-     * @return \SineMacula\Laravel\Authentication\Sessions\FactorRemoval
+     * @return \SineMacula\Laravel\Authentication\Sessions\FactorChangeResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
@@ -315,12 +372,12 @@ final readonly class FactorRevocations
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function judge(Identity $identity, EloquentSession&Model $locked, int $revoked, \ArrayObject $ended, CarbonImmutable $now): FactorRemoval
+    private function judge(Identity $identity, EloquentSession&Model $locked, RevocationReason $reason, \ArrayObject $ended, CarbonImmutable $now): FactorChangeResult
     {
         $verdict = $this->verdict($locked, $now);
 
         if ($verdict === null) {
-            return $this->revoke($identity, $locked, $revoked, $ended, $now);
+            return $this->revoke($identity, $locked, $reason, $ended, $now);
         }
 
         [$admitted, $policy] = $verdict;
@@ -329,12 +386,12 @@ final readonly class FactorRevocations
         $outstanding = $this->transitions->outstanding($locked, $admitted->identity, $policy->factor, $firstFactor, $now);
 
         if ($outstanding->isEmpty()) {
-            return new FactorRemoval($revoked);
+            return FactorChangeResult::active();
         }
 
         $returned = $this->transitions->returnToPending($locked, $admitted, $policy->version, $outstanding, $firstFactor, AuthenticationFlow::FACTOR_CHANGE, $now);
 
-        return $returned === null ? $this->revoke($identity, $locked, $revoked, $ended, $now) : $this->returned($locked, $returned, $revoked, $ended);
+        return $returned === null ? $this->revoke($identity, $locked, $reason, $ended, $now) : $this->returned($locked, $returned, $ended);
     }
 
     /**
@@ -367,42 +424,56 @@ final readonly class FactorRevocations
     }
 
     /**
-     * Revoke the locked session (`factor_removed`), report it once committed,
-     * and add it to the sessions whose binding is forgotten then.
+     * Revoke the locked session with the reason given, report it once
+     * committed, and add it to the sessions whose binding is forgotten then:
+     * `revoked` when this call's write revoked it, `skipped` when another
+     * writer had revoked it meanwhile.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $locked
-     * @param  int  $revoked
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>  $ended
      * @param  \Carbon\CarbonImmutable  $now
-     * @return \SineMacula\Laravel\Authentication\Sessions\FactorRemoval
+     * @return \SineMacula\Laravel\Authentication\Sessions\FactorChangeResult
      */
-    private function revoke(Identity $identity, EloquentSession&Model $locked, int $revoked, \ArrayObject $ended, CarbonImmutable $now): FactorRemoval
+    private function revoke(Identity $identity, EloquentSession&Model $locked, RevocationReason $reason, \ArrayObject $ended, CarbonImmutable $now): FactorChangeResult
     {
-        $reason  = RevocationReason::FACTOR_REMOVED;
         $context = new EventContext($locked->getGuard(), $this->context->client(), $identity, session: $locked, method: $locked->getSignInMethod(), fromSession: true);
         $event   = new SessionRevoked($context, $reason);
         $current = $this->writer->revoke($locked, $reason, $now, fn () => $this->context->dispatch($event));
 
         $ended->append($locked);
 
-        return new FactorRemoval($revoked + ($current ? 1 : 0), $current);
+        return $current ? FactorChangeResult::revoked() : FactorChangeResult::skipped();
     }
 
     /**
-     * The removal's answer once the locked session returned to pending, added
+     * The judgement's answer once the locked session returned to pending, added
      * to the sessions whose binding is forgotten once that commits.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $locked
      * @param  \SineMacula\Laravel\Authentication\Sessions\ReturnedToPending  $returned
-     * @param  int  $revoked
      * @param  \ArrayObject<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession>  $ended
-     * @return \SineMacula\Laravel\Authentication\Sessions\FactorRemoval
+     * @return \SineMacula\Laravel\Authentication\Sessions\FactorChangeResult
      */
-    private function returned(EloquentSession&Model $locked, ReturnedToPending $returned, int $revoked, \ArrayObject $ended): FactorRemoval
+    private function returned(EloquentSession&Model $locked, ReturnedToPending $returned, \ArrayObject $ended): FactorChangeResult
     {
         $ended->append($locked);
 
-        return new FactorRemoval($revoked, false, $returned->pending, $returned->credential);
+        return FactorChangeResult::pending($returned->pending, $returned->credential);
+    }
+
+    /**
+     * What defers work until the writes made on the session model's connection
+     * commit, or runs it once they roll back, consulting the transactions
+     * manager bound when it runs.
+     *
+     * @return \SineMacula\Laravel\Authentication\Database\AfterCommit
+     */
+    private function afterCommit(): AfterCommit
+    {
+        $container = $this->container;
+
+        return new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null);
     }
 }
