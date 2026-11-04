@@ -1530,6 +1530,7 @@ final class FactorRevocationsTest extends TestCase
         self::assertTrue($removal->isPending());
         self::assertTrue($change->isSkipped());
         self::assertNotNull($removal->credential);
+
         $proof = $this->proof($returned->identity, $returned->record->getKey(), 'factor-b', Purpose::SIGN_IN);
 
         self::assertTrue($this->sessions()->satisfy($removal->credential, $proof)->isSignedIn());

@@ -107,6 +107,16 @@ final class FactorChangeResultTest extends TestCase
     }
 
     /**
+     * Results are made only through their named constructors.
+     *
+     * @return void
+     */
+    public function testTheConstructorIsPrivate(): void
+    {
+        self::assertTrue((new \ReflectionMethod(FactorChangeResult::class, '__construct'))->isPrivate());
+    }
+
+    /**
      * What each predicate answers for the result, by its status.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\FactorChangeResult  $result
