@@ -39,6 +39,13 @@ are told apart, which claims are checked on every parse, and which the bearer pa
   proofs only its own; an activation issues at its operation's time, taken before its lock: no token of a pending
   session can have committed meanwhile (`Sessions\SessionActivation`). A parse holds `auth_time` to an integer not after
   `iat` plus the leeway and `amr` to a list of non-empty strings.
+- A session's access token expires at the guard's access lifetime from `iat`, never past the end of the session as it
+  stands after the issuer's write of the row. Its issuer is told exactly what it signed:
+  `issueGuardedAccessToken()` returns a `Jwt\IssuedAccessToken` (the token, the `exp` it encoded as a time in the issue
+  time's timezone, and `exp` minus `iat` in seconds), taken from the claims `accessClaims()` built, so a `TokenPair`'s
+  `expiresAt` and `expiresIn` and a step-up's or reauthentication's `AccessTokenResult::$expiresAt` are the token's own
+  `exp`, never a second reading of the session's deadlines that a session deriving them elsewhere could answer
+  differently. No token is parsed for it, and no query is added.
 - `tenant_id` is always the session's active tenant, never the principal's own when they differ: the tenant the session
   records (`tenant_id` on the row, an opaque identifier), absent for a session that acts in none, a non-empty string
   when present. Issuing a session's token refuses any other tenant, and none for a session in a tenant
@@ -86,7 +93,9 @@ are told apart, which claims are checked on every parse, and which the bearer pa
 - `src/Guards/BearerAuthentication.php`: `onSession()`, `contextRefusal()` (the tenant, principal and switched-at
   checks), `inActiveTenant()`.
 - `src/Jwt/JwtTokenService.php`: `encode()` (the header), `issueAccess()`, `sessionClaims()`, `parse()`,
-  `parseRefreshProof()`.
+  `parseRefreshProof()`, `issueGuardedAccessToken()` and `accessClaims()` (the claims and the `exp` they carry).
+- `src/Jwt/IssuedAccessToken.php`; `src/Jwt/SessionTokens.php`: `pair()` (a session's pair with its access token's
+  expiry); `src/Sessions/ProofIssuance.php` (a step-up's or reauthentication's `expiresAt`).
 - `src/Jwt/JwtTokenServiceFactory.php`: `resolveJwtRequiredString()` for `iss` and `aud`.
 - `src/Jwt/MachineTokens.php`: `credential()`.
 - `src/Guards/BearerAuthentication.php`: `authenticate()`, `admit()`.
@@ -121,6 +130,11 @@ are told apart, which claims are checked on every parse, and which the bearer pa
   `testConstructorRejectsAnEmptyIssuerOrAudience`
 - `tests/Integration/Config/ShippedJwtKeyConfigTest.php`
   `testGuardRejectsShippedConfigWithoutIssuerOrAudience`
+- `tests/Feature/Jwt/SessionTokensTest.php`
+  `testThePairSaysWhenItsAccessTokenExpiresAsTheTokenDoes`, `testThePairsExpiryIsCappedByTheSessionsDeadlines`,
+  `testTheExpiryIsTheOneTheAccessTokenWasSignedWith`; `tests/Feature/Jwt/JwtTokenServiceTest.php`
+  `testAGuardedIssueWritesNothingAndRefusesAMachine`; `tests/Feature/Sessions/ProofIssuanceTest.php`
+  `testTheGuardIsWrittenBeforeTheProofInTheLockingTransaction` (a step-up's `expiresAt` is its token's `exp`)
 
 ## Change Triggers
 
@@ -130,4 +144,5 @@ Update this note when any of the following change:
 - the claims a token type requires, or the name or meaning of any claim
 - how `sub_type` is decided or checked
 - where `auth_time` and `amr` come from, or whether the bearer path reads them
+- how a session's access token's `exp` is derived, or where the expiry its issuers report comes from
 - what `tenant_id` names, how it is checked on a request, or in what order against the principal and `switched_at`

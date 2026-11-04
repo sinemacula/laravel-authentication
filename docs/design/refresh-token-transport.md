@@ -43,7 +43,8 @@ a cookie application's results hand back the cookie instead of the token.
   pair; `deliver()` moves the refresh token into an `Http\RefreshCookie` (the token as a `Secret`, the name, the path,
   and the expiry: the earlier of the session's deadlines, read on the write connection, which is the token's own
   `exp`) at the three places a result leaves the service: `SessionService::bound()` (sign-in, `start()`, activation by
-  `satisfy()` and `choose()`), `SessionRefresh` (refresh) and `SessionService::switched()` (switch). `RefreshCookie`
+  `satisfy()` and `choose()`), `SessionRefresh` (refresh) and `SessionService::switched()` (switch), keeping the
+  pair's `expiresAt` and `expiresIn`, which are the access token's. `RefreshCookie`
   makes the Symfony `Cookie` only on `cookie()`, since a `Cookie` shows its value to dumps and serialises it;
   `attachTo()` adds it to a response and marks the response `no-store`. `deliver()` adds no query.
 - `forgetCookie()` makes the same cookie, empty and expired; a path limits where a browser sends a cookie, not which

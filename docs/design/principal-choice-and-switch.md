@@ -211,7 +211,8 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   lazy-loading tenants; a polymorphic tenant, a placeholder, a missing key; nothing loaded for a principal whose relation
   is unknown or that the resolver supplied), `tests/Integration/Admission/PrincipalListingTest.php` (the tenants read on
   the writer of their own connection) and `tests/Feature/Sessions/PendingEvaluationTest.php`
-  `testListedPrincipalsHoldTheirTenantsUnderEloquentStrictMode`
+  `testOneAdmittedPrincipalOfSeveralSignsInUnderEloquentStrictMode`,
+  `testSeveralAdmittedPrincipalsHoldTheirTenantsUnderEloquentStrictMode`
 - `tests/Feature/Jwt/RefreshRotationStoreTest.php` `testSwitchSessionRecordsTheDestinationAndMirrorsIt`,
   `testSwitchSessionRecordsAChangeOfEitherAlone`, `testSwitchSessionToTheRecordedDestinationOnlyRotates`,
   `testSwitchSessionMovesTheFloorPastASwitchInTheSameSecond`,
@@ -232,6 +233,7 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 Update this note when any of the following change:
 
 - when a choice is offered, which principals are admitted, or what a pending choice records
+- how the tenants of the principals listed are loaded, on which connection, or which principals carry them
 - the checks a switch runs, the order it runs them in, or the retry rule for the previous rotation id
 - what a destination's tenant policy does to a switch or a choice
 - the switch's compare-and-swap predicate or the columns it writes

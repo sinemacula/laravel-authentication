@@ -53,6 +53,13 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 - `sessions()->refresh()` and `refreshFromRequest()` answer a `RefreshResult`: refreshed on the same session, with its
   rotated `TokenPair`, or failed with the exchange's or the transport's reason, `rate_limited` with `retryAfter`; one
   read from the request says where its token came from (`source`).
+- Every `TokenPair` (a sign-in's, a pending session's once it activates, a refresh's and its grace retry's, a switch's)
+  says when its access token expires, as the token itself does: `expiresAt`, the signed `exp`, and `expiresIn`, `exp`
+  minus `iat` in seconds and at least one, the `expires_in` of an RFC 6749 section 5.1 response, so a caller answers a
+  token response without decoding the token. Both come from the claims the token was signed with
+  (`Jwt\SessionTokens::pair()`, see `token-profile.md`), never from a second reading of the session's deadlines, and a
+  cookie application's pair keeps them. A step-up's or reauthentication's `AccessTokenResult::$expiresAt` is that same
+  signed `exp`.
 - `passkeys()->verifyFactor()` answers a `PasskeyFactorResult`: verified with a `PasskeyFactorAssertion` (the passkey,
   its observed properties and its summary as its use left it), or failed with the reason (not concealed: the caller
   already holds the identity).
@@ -110,7 +117,8 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 - `src/Passkeys/PasskeyRegistration.php`, `src/Passkeys/PasskeyRemoval.php`,
   `src/Passkeys/Enums/PasskeyRegistrationStatus.php`, `src/Passkeys/PasskeyFactorResult.php`,
   `src/Passkeys/PasskeyService.php` (`register()`, `verifyFactor()`, `signInOptions()`).
-- `src/Sessions/SessionRefresh.php` (every refusal returned, `rate_limited` with its wait), `src/Jwt/TokenPair.php`.
+- `src/Sessions/SessionRefresh.php` (every refusal returned, `rate_limited` with its wait), `src/Jwt/TokenPair.php`
+  (the access token's `expiresAt` and `expiresIn`), `src/Jwt/SessionTokens.php` (`pair()`, every session's pair).
 - `src/RateLimiting/LimitedOutcome.php`, `src/Codes/Enums/VerificationOutcome.php`, `src/Codes/CodeService.php`
   (`verify()`),
   `src/IdentifierChanges/Enums/IdentifierChangeOutcome.php`.
@@ -129,6 +137,10 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   `tests/Integration/Verification/VerificationLinkOutcomesTest.php` (what each outcome wrote, on every engine).
 - `tests/Unit/Sessions/SignInResultTest.php`, `tests/Unit/Sessions/RefreshResultTest.php`,
   `tests/Unit/Sessions/SwitchResultTest.php`, `tests/Unit/Codes/CodeRequestTest.php`.
+- `tests/Unit/Jwt/TokenPairTest.php`, `tests/Feature/Jwt/SessionTokensTest.php` and
+  `tests/Feature/Jwt/TokenPairTest.php` (every pair's `expiresAt` is its access token's `exp` and `expiresIn` its `exp`
+  minus `iat`, through `Auth::sessions()` for a sign-in, a cookie sign-in, an activation, a choice, a refresh and its
+  grace retry, and a switch).
 - `tests/Feature/Sessions/SessionRefreshTest.php` (each refusal's reason, `rate_limited` with its wait and nothing
   thrown, the source of a refresh read from the request).
 
