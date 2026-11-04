@@ -881,9 +881,11 @@ touched. The answer, a `Sessions\FactorChangeResult`, says what it did (`status`
   revoked it meanwhile. It says nothing of whether the session is usable.
 
 `FACTOR_REMOVED` is there only for a factor package that hands every change, a removal included, to the same
-judgement once it is made: called after `factorRemoved()` in the same change, never in its place, it judges the same row
-on the same proofs, so a session the removal returned to pending or revoked comes back `skipped`, and one it kept stays
-`active`. A removal needs no such call, and its client's credential is `FactorRemoval::$credential`.
+judgement once it is made: called after `factorRemoved()` in the same change, never in its place. A session the removal
+returned to pending or revoked comes back `skipped`, but one it kept is judged again at the call's own time, so it can
+still return to pending or be revoked: once a maximum age a requirement sets lapses between the two calls, say, or after
+a write between them. A removal needs no such call; with one, hand the client the credential of whichever result is
+pending: `FactorRemoval::$credential`, or the `FactorChangeResult`'s when it `isPending()`.
 
 The call locks the session's row and writes its issuance guard before it reads the proofs, so it and any refresh or
 step-up of the session wait on each other rather than read the proofs past each other. When the request's guard is bound

@@ -385,8 +385,10 @@ trait EndsSessions
      * guard the identity owns, or nothing is written and an exception is
      * thrown. Never call it in place of `factorRemoved()` or `factorReset()`: a
      * replacement removes the factor it replaces, so it calls `factorRemoved()`
-     * for that factor, and a removal needs nothing more (`FACTOR_REMOVED`,
-     * after it, leaves the session as the removal left it).
+     * for that factor, and a removal needs nothing more. `FACTOR_REMOVED`,
+     * after it, judges a session the removal kept again at this call's own
+     * time, so it can still return it to pending: the client's credential is
+     * then this result's, not the removal's.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade  $change

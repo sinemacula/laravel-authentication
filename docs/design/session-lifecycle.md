@@ -114,10 +114,11 @@ revoked, and when a session that ended is deleted. Starting a session is in
   factor is no sign of compromise, and judging every other session would lock their rows under the factor package's
   locks for no outcome but "leave"; a refresh asks the identity-level requirement only once the tenant's policy falls
   short, so they run as admitted until they end, unless the application ends them in the same transaction. A replacement
-  removes the factor it replaces, so it goes through `factorRemoved()` for that factor, never this call;
+  removes the factor it replaces, so it goes through `factorRemoved()` for that factor, never this call.
   `FACTOR_REMOVED` exists only for a factor package that hands every change, a removal included, to this judgement once
-  `factorRemoved()` has run, and there it judges the same row on the same proofs and so leaves the session as the
-  removal left it.
+  `factorRemoved()` has run. A session the removal took back to pending or revoked is then skipped, but one it kept is
+  judged again at this call's own time, not the removal's, so it can still return to pending or be revoked (a maximum
+  age lapsing between the two calls, a write between them): the client's credential is whichever result's is pending.
 - `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()` and `linkScopeWidened()`
   (`Sessions\ConnectionRevocations`, through `Concerns\EndsConnectionSessions`) revoke the live sessions, pending ones
   included, of every guard that a connection established (a link's: only that identity's, whose provenance records both

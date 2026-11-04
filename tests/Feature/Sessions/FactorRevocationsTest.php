@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -1504,16 +1505,16 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
-     * Called after `factorRemoved()` in the same change, a session the removal
-     * returned to pending is skipped, its pending credential (the removal's)
-     * still taking a further factor; one the removal kept is judged again and
-     * stays active.
+     * Called after `factorRemoved()` in the same change and the same second, a
+     * session the removal returned to pending is skipped, its pending
+     * credential (the removal's) still taking a further factor; one the removal
+     * kept is judged again on the same proofs and stays active.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAChangeAfterARemovalInTheSameTransactionLeavesWhatTheRemovalDid(): void
+    public function testAChangeAfterARemovalInTheSameSecondFindsWhatTheRemovalLeft(): void
     {
         $this->requireAFurtherFactor();
 
@@ -1543,6 +1544,75 @@ final class FactorRevocationsTest extends TestCase
         self::assertFalse($removal->isPending());
         self::assertTrue($change->isActive());
         self::assertSame('active', $this->rowOf($kept->record->getKey())->status);
+    }
+
+    /**
+     * Called after `factorRemoved()` in the same change but a second later, a
+     * session the removal kept is judged at the change's own time: the proof
+     * that met a further factor's maximum age at the removal no longer does, so
+     * it returns to pending, its credential only on the change's result.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeAfterARemovalASecondLaterReturnsASessionTheRemovalKeptToPending(): void
+    {
+        app()->instance(AdditionalFactorPolicy::class, new readonly class implements AdditionalFactorPolicy {
+            /**
+             * Ask for a further factor within a minute.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+             */
+            #[\Override]
+            public function requirementFor(AdditionalFactorContext $context): Requirement
+            {
+                return new Requirement(new RequirementPart(60));
+            }
+        });
+        app()->instance(RequirementCheck::class, new readonly class implements RequirementCheck {
+            /**
+             * Meet the requirement with a further factor made less than its
+             * maximum age before the time it is judged at.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Requirements\RequirementSubject  $subject
+             * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
+             * @return \SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation
+             *
+             * @throws \InvalidArgumentException
+             */
+            #[\Override]
+            public function evaluate(RequirementSubject $subject, Requirement $requirement): RequirementEvaluation
+            {
+                $since = $subject->now->subSeconds((int) $requirement->additionalVerification?->maxAgeSeconds - 1);
+
+                return new RequirementEvaluation($subject->proofs($since, [ProofKind::ADDITIONAL_FACTOR], 1) === [] ? $requirement->kinds() : []);
+            }
+        });
+
+        $kept = $this->satisfied('factor-a');
+
+        $this->stepUp($kept, 'factor-b');
+        $this->clockAt($this->now->addSeconds(59));
+
+        [$removal, $change] = DB::transaction(function () use ($kept): array {
+            $removal = Auth::sessions('api')->factorRemoved($kept->identity, 'factor-a', $kept->record);
+
+            $this->clockAt($this->now->addSeconds(60));
+
+            return [$removal, Auth::sessions('api')->factorChanged($kept->identity, FactorChangeMade::FACTOR_REMOVED, $kept->record)];
+        });
+
+        self::assertFalse($removal->isPending());
+        self::assertNull($removal->credential);
+        self::assertTrue($change->isPending());
+        self::assertNotNull($change->credential);
+        self::assertSame('pending', $this->rowOf($kept->record->getKey())->status);
+
+        $proof = $this->proof($kept->identity, $kept->record->getKey(), 'factor-b', Purpose::SIGN_IN);
+
+        self::assertTrue($this->sessions()->satisfy($change->credential, $proof)->isSignedIn());
     }
 
     /**

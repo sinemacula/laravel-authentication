@@ -32,8 +32,9 @@ enum FactorChangeMade: string
 
     // A factor removed, a passkey's included, for a factor package that hands
     // every change to this judgement once factorRemoved() has voided its proofs
-    // and ended the identity's other sessions; never in its place, and the
-    // session is left as the removal left it
+    // and ended the identity's other sessions; never in its place. A session
+    // the removal kept is judged again at this call's own time, so it can still
+    // return to pending, a maximum age lapsing between the two calls
     case FACTOR_REMOVED = 'factor_removed';
 
     // Any other change to the identity's factors that removes none of them and

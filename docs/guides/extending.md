@@ -512,19 +512,21 @@ seam has a default that works alone.
   nothing to judge and does not call it). `Factors\Enums\FactorChangeMade` has `FACTOR_CONFIRMED`,
   `PASSKEY_FACTOR_REGISTERED`, `FACTOR_REMOVED` and `OTHER`. It judges the current session again exactly as
   `factorRemoved()` judges it, voiding no proof and touching no other session. A replacement removes the factor it
-  replaces, so it calls `factorRemoved()` for that factor, which voids its proofs and ends the other sessions; and a
-  removal needs nothing more than `factorRemoved()`, which has already judged the session: `FACTOR_REMOVED` is only for
-  a factor package that hands every change to this judgement once it is made, after `factorRemoved()` and never in its
-  place, and there it leaves the session as the removal left it. Its `Sessions\FactorChangeResult` says whether the
-  session stayed `active`, returned to `pending` (carrying the pending session and credential for the client), was
-  `revoked` (`factor_changed`, or `factor_removed` for `FACTOR_REMOVED`) or was `skipped` (no longer the session given,
-  or no longer live and active). It locks the session's row after your locks, writes its issuance guard before it reads
-  the proofs, and runs as a savepoint of your transaction when that is on the storage connection, so the return to
-  pending commits or rolls back with the change; its events and the guard's forgetting of the session follow the
-  commit. The identity's other sessions are not judged: only the current session's client can receive a pending
-  credential, and an added factor ends nothing, so they keep running as they were admitted; end them yourself in the
-  same transaction (`revokeSessions(..., except: $current)`) if they must meet the new requirement. The identity may
-  live on any connection, since nothing of it is written.
+  replaces, so it calls `factorRemoved()` for that factor, which voids its proofs and ends the other sessions. A removal
+  needs nothing more than `factorRemoved()`, which has already judged the session: `FACTOR_REMOVED` is only for a factor
+  package that hands every change to this judgement once it is made, after `factorRemoved()` and never in its place.
+  There it judges a session the removal kept again at its own time, so it can still return it to pending or revoke it (a
+  maximum age lapsing between the two calls, say): hand the client the credential of whichever result is pending,
+  `FactorRemoval::$credential` or this call's. This call's `Sessions\FactorChangeResult` says whether the session stayed
+  `active`, returned to `pending` (carrying the pending session and credential for the client), was `revoked`
+  (`factor_changed`, or `factor_removed` for `FACTOR_REMOVED`) or was `skipped` (no longer the session given, or no
+  longer live and active). It locks the session's row after your locks, writes its issuance guard before it reads the
+  proofs, and runs as a savepoint of your transaction when that is on the storage connection, so the return to pending
+  commits or rolls back with the change; its events and the guard's forgetting of the session follow the commit. The
+  identity's other sessions are not judged: only the current session's client can receive a pending credential, and an
+  added factor ends nothing, so they keep running as they were admitted; end them yourself in the same transaction
+  (`revokeSessions(..., except: $current)`) if they must meet the new requirement. The identity may live on any
+  connection, since nothing of it is written.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
   `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
   the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows
