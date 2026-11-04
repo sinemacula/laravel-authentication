@@ -29,8 +29,10 @@ use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
+use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -64,9 +66,12 @@ use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
+use Tests\Integration\Fixtures\KeyedTenantMember;
+use Tests\Integration\Fixtures\KeyedTenantMembership;
 use Tests\Integration\Fixtures\MemberRole;
 use Tests\Integration\Fixtures\MemberRoleMembership;
 use Tests\Integration\Fixtures\RoleMember;
+use Tests\Integration\Fixtures\TypedTenant;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubSession;
 
@@ -89,6 +94,9 @@ final class PendingEvaluationTest extends TestCase
 
     /** @var string Guard over `ChoosingMember`, whose identities hold several principals. */
     private const string CHOOSERS = 'choosers';
+
+    /** @var string Guard over `KeyedTenantMember`, whose memberships name their tenants by an uncast string key. */
+    private const string KEYED = 'keyed';
 
     /** @var list<\SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext> The contexts the factor policy was asked about. */
     private array $asked = [];
@@ -543,6 +551,56 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
+     * Under Eloquent strict mode, a membership whose tenant key the database
+     * matches but the batched tenant load does not (`'05'` against `5`) still
+     * signs in within its tenant: the session records it and the access token
+     * carries it, rather than the tenant being taken for none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantTheBatchedLoadMissesStillHoldsTheSignInUnderEloquentStrictMode(): void
+    {
+        Schema::create('typed_tenants', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->timestamps();
+        });
+
+        Schema::create('keyed_memberships', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+            $blueprint->string('tenant_id')->nullable();
+            $blueprint->timestamps();
+        });
+
+        try {
+            $member = KeyedTenantMember::query()->create(['email' => 'keyed@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+            $tenant = TypedTenant::query()->create();
+
+            KeyedTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => '0' . IdentifierCoercion::stringify($tenant->getKey())]);
+
+            Model::preventLazyLoading();
+
+            try {
+                $signedIn = $this->sessions(self::KEYED)->signIn('password', self::credentials('keyed@example.test'));
+            } finally {
+                Model::preventLazyLoading(false);
+            }
+
+            $expected = IdentifierCoercion::stringify($tenant->getKey());
+            $claims   = Auth::jwt(self::KEYED)->parse($signedIn->session?->tokens->accessToken->reveal() ?? '', TokenType::ACCESS);
+
+            self::assertTrue($signedIn->isSignedIn());
+            self::assertSame($expected, $signedIn->session?->record->getTenantId());
+            self::assertSame($expected, $claims['tenant_id'] ?? null);
+        } finally {
+            Schema::drop('keyed_memberships');
+            Schema::drop('typed_tenants');
+        }
+    }
+
+    /**
      * Under Eloquent strict mode, each of the principals a choice lists, and
      * each the service lists or looks up for a switch screen, answers
      * `getTenant()` without a lazy load, and a switch to one of them and a
@@ -904,6 +962,8 @@ final class PendingEvaluationTest extends TestCase
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
+        $config->set('auth.providers.' . self::KEYED, ['driver' => 'model', 'model' => KeyedTenantMember::class]);
+        $config->set('auth.guards.' . self::KEYED, ['driver' => 'jwt', 'provider' => self::KEYED, 'application' => ['methods' => ['password']]]);
     }
 
     /**
