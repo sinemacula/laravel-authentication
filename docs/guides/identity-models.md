@@ -437,9 +437,34 @@ and PHPStan reports a class that uses the trait without the interface. It reads 
 `getActiveAttributeName()` to use another column) and throws a `LogicException` when the model was loaded without that
 column, so a partial select is reported instead of being read as either active or inactive.
 
-A tenant opts in the same way. When a principal's own tenant, or the active tenant a session acts in, implements
-`CanBeActive` and reports inactive, every principal in it, and every session acting in it, is rejected on the same paths
-(refresh fails with `tenant_inactive`):
+When your schema records deactivation as a time instead, a nullable timestamp that is `null` while the model is active,
+use the `ProvidesDeactivationTime` trait in place of `ProvidesActiveState` (pointing the boolean trait at such a column
+would invert its meaning):
+
+```php
+use SineMacula\Laravel\Authentication\Concerns\ProvidesDeactivationTime;
+
+// In a migration: $table->timestamp('deactivated_at')->nullable();
+
+class AppMembership extends Model implements CanBeActive, PrincipalContract
+{
+    use ActsAsPrincipal, ProvidesDeactivationTime;
+}
+```
+
+It reads `deactivated_at` (override `getDeactivatedAtName()` to use another column): the model is active exactly while
+the value is `null`, and any other value is inactive, whether the time is past, present or future, so a deactivation you
+schedule for later is yours to write when it falls due. The value is read as the model holds it, unsaved changes
+included, without its cast, so a stored time that cannot be parsed reads as inactive rather than throwing. Like the
+boolean form, it throws a `LogicException` when the model was loaded without the column. Either trait reads only the
+attributes the model holds, and Eloquent holds no value for a column a model was created without (one left to its
+database default) until the model is read again, so give the column on create (`'deactivated_at' => null`) when the
+model's activity is asked before it is read back, as `RevokeSessionsOnDeactivation` does on its first update. A model
+uses one trait or the other: both define `isActive()`.
+
+A tenant opts in the same way, with either trait. When a principal's own tenant, or the active tenant a session acts in,
+implements `CanBeActive` and reports inactive, every principal in it, and every session acting in it, is rejected on the
+same paths (refresh fails with `tenant_inactive`):
 
 ```php
 class AppTenant extends Model implements CanBeActive, TenantContract

@@ -14,7 +14,8 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * tenant rejects every principal acting within it. Use this to honour banned /
  * suspended / soft-deleted accounts, memberships, or tenants without relying on
  * short access-token lifetimes alone. `ProvidesActiveState` implements it from
- * a declared column.
+ * a boolean column, and `ProvidesDeactivationTime` from a nullable deactivation
+ * time.
  *
  * The activity check runs `isActive()` inside `WriteConnection::during()` for
  * the subject: model reads on any connection, and query-builder reads on the
