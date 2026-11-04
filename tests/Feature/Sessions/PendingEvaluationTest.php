@@ -9,6 +9,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -48,6 +49,7 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
+use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
@@ -502,6 +504,98 @@ final class PendingEvaluationTest extends TestCase
     }
 
     /**
+     * Under Eloquent strict mode, which prevents lazy loading on the principals
+     * an identity's `principals()` reads together, the one of three the
+     * application admits is selected holding its tenant: its destination is
+     * that tenant, and the sign-in completes in it, without a lazy load.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOneAdmittedPrincipalOfSeveralSignsInUnderEloquentStrictMode(): void
+    {
+        [$member, $first, $second] = $this->seedChooser();
+
+        $this->seedMembership($member, false);
+
+        ActivatableTenant::query()->whereKey($second->tenant_id)->update(['is_active' => false]);
+
+        Model::preventLazyLoading();
+
+        try {
+            $selection = $this->evaluation(self::CHOOSERS)->selection($member, null);
+
+            self::assertIsArray($selection);
+            self::assertInstanceOf(ChoosingMembership::class, $selection[0]);
+            self::assertTrue($first->is($selection[0]));
+
+            $destination = $this->evaluation(self::CHOOSERS)->destination($selection[0], null);
+            $signedIn    = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
+        } finally {
+            Model::preventLazyLoading(false);
+        }
+
+        self::assertInstanceOf(ActivatableTenant::class, $destination);
+        self::assertSame($first->tenant_id, $destination->getKey());
+        self::assertTrue($signedIn->isSignedIn());
+        self::assertSame((string) $first->tenant_id, $signedIn->session?->record->getTenantId());
+    }
+
+    /**
+     * Under Eloquent strict mode, each of the principals a choice lists, and
+     * each the service lists or looks up for a switch screen, answers
+     * `getTenant()` without a lazy load, and a switch to one of them and a
+     * refresh succeed. The clocks run, as a refresh token's times are checked
+     * against the wall clock.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSeveralAdmittedPrincipalsHoldTheirTenantsUnderEloquentStrictMode(): void
+    {
+        Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
+
+        [$member, $first, $second] = $this->seedChooser();
+
+        $third    = $this->seedMembership($member, false);
+        $sessions = $this->sessions(self::CHOOSERS);
+        $token    = $sessions->start($member, $first, 'password')->session?->tokens->refreshToken?->reveal();
+
+        self::assertIsString($token);
+
+        Model::preventLazyLoading();
+
+        try {
+            $pending  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'))->pending;
+            $listed   = $this->sessions(self::CHOOSERS)->principals($member);
+            $found    = $this->sessions(self::CHOOSERS)->principal($member, $second->getKey());
+            $refused  = $this->sessions(self::CHOOSERS)->principal($member, $third->getKey());
+            $switched = $this->sessions(self::CHOOSERS)->switchTo($token, SwitchTarget::principal($second));
+            $tenants  = [self::tenantsOf($pending->principals ?? []), self::tenantsOf($listed), self::tenantsOf($found === null ? [] : [$found])];
+        } finally {
+            Model::preventLazyLoading(false);
+        }
+
+        self::assertSame([[$first->tenant_id, $second->tenant_id], [$first->tenant_id, $second->tenant_id], [$second->tenant_id]], $tenants);
+        self::assertNull($refused);
+        self::assertTrue($switched->isSwitched());
+        self::assertSame((string) $second->tenant_id, $switched->session?->record->getTenantId());
+
+        Model::preventLazyLoading();
+
+        try {
+            $refreshed = $this->sessions(self::CHOOSERS)->refresh($switched->session?->tokens->refreshToken?->reveal() ?? '');
+        } finally {
+            Model::preventLazyLoading(false);
+        }
+
+        self::assertTrue($refreshed->isRefreshed());
+    }
+
+    /**
      * The tenant a principal is to act in is its own when no selection is
      * given, and the selection's otherwise: by default a principal in a tenant
      * may act in no other tenant, nor in none.
@@ -929,6 +1023,31 @@ final class PendingEvaluationTest extends TestCase
         }
 
         return [$member, ...$memberships];
+    }
+
+    /**
+     * Persist a membership of the member in a tenant of its own, active or not.
+     *
+     * @param  \Tests\Integration\Fixtures\ChoosingMember  $member
+     * @param  bool  $active
+     * @return \Tests\Integration\Fixtures\ChoosingMembership
+     */
+    private function seedMembership(ChoosingMember $member, bool $active): ChoosingMembership
+    {
+        $tenant = ActivatableTenant::query()->create(['name' => 'Another', 'is_active' => $active]);
+
+        return ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+    }
+
+    /**
+     * The identifier of the tenant each principal acts within.
+     *
+     * @param  list<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
+     * @return list<mixed>
+     */
+    private static function tenantsOf(array $principals): array
+    {
+        return array_map(static fn (Principal $principal): mixed => $principal->getTenant()?->getTenantIdentifier(), $principals);
     }
 
     /**

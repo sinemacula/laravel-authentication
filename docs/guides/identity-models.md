@@ -464,3 +464,15 @@ missing one reads as no tenant, and a `tenant` relation to a model that is not a
 
 Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
 resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
+
+Where the package lists an identity's principals for admission (a sign-in, a pending session, `Auth::sessions()`'s
+`principals()` for a choice or switch screen, and `principal()` for a lookup by identifier), it loads their tenants
+itself: once the identity's `principals()` has been read on the write connection, the tenant relation of every principal
+judged that uses `ActsAsPrincipal` (the one `getTenantRelationName()` names) is loaded in one query per principal
+class, on the writer of the tenant's own connection. So listing any number of principals reads their tenants once, and
+the listing works under `Model::preventLazyLoading()`, which forbids a lazy load on models read together; you need not
+eager-load the tenant in `principals()`. Whatever `principals()` eager-loaded under that name, through `with()` or a
+global scope, is replaced by the relation as a lazy load would read it, so a constraint there cannot change which tenant
+is checked. The tenants loaded allow lazy loading as a tenant read on its own does, so a tenant whose `isActive()` reads
+a relation of its own keeps working under strict mode. A `Principal` that implements `getTenant()` itself has no
+relation the package can know: eager-load its tenant in `principals()`.
