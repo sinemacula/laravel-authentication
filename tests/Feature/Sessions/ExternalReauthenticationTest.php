@@ -676,8 +676,13 @@ final class ExternalReauthenticationTest extends TestCase
         self::markSharedLocks();
 
         $locked = self::takesSharedLocks();
-        $reads  = fn (?ExternalEvidence $evidence): array => self::statementsDuring(function () use ($session, $evidence): void {
-            $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now, evidence: $evidence));
+
+        /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult> $results */
+        $results = new \ArrayObject;
+        $reads   = fn (?ExternalEvidence $evidence): array => self::statementsDuring(function () use ($session, $evidence, $results): void {
+            $through = $this->throughTheLink(authenticatedAt: $this->now, evidence: $evidence);
+
+            $results->append($this->sessions('members')->reauthenticateExternally($session->record->getKey(), $through));
         });
 
         $refused = array_values(array_filter($reads(null), self::readsProofs(...)));
@@ -686,6 +691,10 @@ final class ExternalReauthenticationTest extends TestCase
 
         $issued = array_values(array_filter($reads(new ExternalEvidence(['mfa'], null, $this->now)), self::readsProofs(...)));
 
+        self::assertSame(
+            [[FailureReason::ADDITIONAL_FACTOR_REQUIRED, false], [null, true]],
+            array_map(static fn (AccessTokenResult $result): array => [$result->reason, $result->isIssued()], $results->getArrayCopy()),
+        );
         self::assertSame(1, SessionProof::query()->where('kind', 'external_reauthentication')->count());
         self::assertStringContainsString('authentication_provenance', $refused[0]);
         self::assertStringContainsString('authentication_provenance', $refused[1]);
