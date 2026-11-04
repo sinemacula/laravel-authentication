@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Admission;
 
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -28,8 +29,10 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  * tenant type for a polymorphic relation, and those of the tenant model's own
  * `$with`), however many principals there are. No global scope or eager load
  * the application put on `principals()` can constrain it, and whatever was
- * loaded under that name, nested relations included, is replaced, so each
- * principal holds the very tenant a lazy load would read. The tenants loaded
+ * loaded under that name, nested relations included, is replaced. A principal
+ * the load finds no tenant for, while its relation may still name one, has its
+ * tenant read alone (`isMissed()`), so each principal holds the tenant a lazy
+ * load would read and a tenant is never taken for none. The tenants loaded
  * allow lazy loading, as a tenant read on its own does, while the principals
  * keep the strictness their query gave them. An inactive principal is refused
  * without its tenant being read. A principal that implements `getTenant()`
@@ -210,9 +213,10 @@ final readonly class PrincipalListing
     }
 
     /**
-     * Load the relation on the models together, let the tenants it loads
-     * lazy-load as a tenant read on its own may, and return the relation name
-     * and what it loaded for each model, by the model's object id.
+     * Load the relation on the models together, read alone the tenant of each
+     * model the load missed (`isMissed()`), let the tenants loaded lazy-load as
+     * a tenant read on its own may, and return the relation name and what it
+     * loaded for each model, by the model's object id.
      *
      * @param  string  $name
      * @param  list<\Illuminate\Database\Eloquent\Model>  $models
@@ -228,6 +232,17 @@ final readonly class PrincipalListing
 
             $tenant = $model->getRelation($name);
 
+            if (self::isMissed($model, $name, $tenant)) {
+
+                $alone = $model->withoutRelations();
+
+                $alone->preventsLazyLoading = false;
+
+                $tenant = $alone->getRelationValue($name);
+
+                $model->setRelation($name, $tenant);
+            }
+
             if ($tenant instanceof Model) {
                 $tenant->preventsLazyLoading = false;
             }
@@ -236,6 +251,38 @@ final readonly class PrincipalListing
         }
 
         return $loaded;
+    }
+
+    /**
+     * Whether the load found no tenant (nothing, or the unsaved default model
+     * of `withDefault()`) where the principal's own relation may still name
+     * one.
+     *
+     * Eloquent's eager load pairs each row with its principal by the key's PHP
+     * value, where a lazy load lets the database compare it, so a key the
+     * database matches but PHP does not (another case under a case-insensitive
+     * collation, `'01'` against `1`) loads no tenant. It also builds the
+     * relation on a blank instance of the model, so a relation that reads the
+     * principal's own attributes is constrained without them. Such a principal
+     * has its tenant read alone, by a lazy load on a copy of it; one whose key
+     * is not set costs no query. A polymorphic relation without a type is not
+     * read alone, since Eloquent would build it against the principal's own
+     * model: the principal's `getTenant()` refuses it when its key is set.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $model
+     * @param  string  $name
+     * @param  mixed  $tenant
+     * @return bool
+     */
+    private static function isMissed(Model $model, string $name, mixed $tenant): bool
+    {
+        if ($tenant instanceof Model ? $tenant->exists : $tenant !== null) {
+            return false;
+        }
+
+        $relation = $model->newQueryWithoutRelationships()->getRelation($name);
+
+        return !$relation instanceof MorphTo || ($model->getAttributes()[$relation->getMorphType()] ?? '') !== '';
     }
 
     /**

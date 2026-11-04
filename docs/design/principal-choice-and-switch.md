@@ -36,7 +36,15 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   of their own connection. That is one query per principal class (one per tenant type for a polymorphic relation, plus
   the tenant model's own `$with`): a fixed number however many principals are listed. Loading after the read means no
   global scope or `with()` on `principals()` can constrain it, and whatever was loaded under the name, nested relations
-  included, is replaced by the relation as a lazy load reads it. Eloquent strict mode prevents lazy loading on models
+  included, is replaced by the relation as a lazy load reads it. `EloquentCollection::load()` pairs the rows with the
+  principals by each key's PHP value rather than by the database's comparison, so a key the database matches but PHP
+  does not (another case under a case-insensitive collation, `'01'` against `1`) loads nothing; it also builds the
+  relation on a blank instance, so a relation reading the principal's attributes is constrained without them. A
+  principal the load finds no tenant for (nothing, or the unsaved default of `withDefault()`) has its tenant read alone
+  on the same connection (`PrincipalListing::isMissed()`), unless it is polymorphic without a type, which Eloquent would
+  build against the principal's own model and `getTenant()` refuses. Otherwise a tenant that does not opt into
+  activation would read as no tenant, admitting the principal with none, and one that does would be refused. Only
+  those principals cost a query; one with no tenant key costs none. Eloquent strict mode prevents lazy loading on models
   read together, so without this every later read of a listed principal's tenant (the destination, a choice screen)
   would throw, and listing N principals cost N tenant queries. The tenants loaded allow lazy loading, as a tenant read
   alone does; the principals keep their strictness. An inactive principal is refused as `principal_inactive` without
@@ -213,7 +221,8 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
   connection)
 - `tests/Feature/Admission/PrincipalListingTest.php` (the tenants of the active principals judged read in one query per
   class, by the relation each listed principal names, replacing whatever `principals()` loaded under it; strict
-  principals and lazy-loading tenants; a polymorphic tenant, a placeholder, a missing key; an inactive principal refused
+  principals and lazy-loading tenants; a polymorphic tenant, a placeholder, a missing key; a tenant the load misses read
+  alone, plain or polymorphic; an inactive principal refused
   without its tenant being read; nothing loaded for a principal whose relation is unknown or that the resolver
   supplied), `tests/Integration/Admission/PrincipalListingTest.php` (the tenants read on the writer of their own
   connection) and `tests/Feature/Sessions/PendingEvaluationTest.php`

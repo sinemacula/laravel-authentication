@@ -33,6 +33,7 @@ use Tests\Integration\Fixtures\CustomTenantMembership;
 use Tests\Integration\Fixtures\DefaultTenantMembership;
 use Tests\Integration\Fixtures\MorphTenantMembership;
 use Tests\Integration\Fixtures\ParentedTenant;
+use Tests\Integration\Fixtures\TypedTenant;
 use Tests\Integration\Fixtures\WorkspaceMembership;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
@@ -41,9 +42,10 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
  * Feature tests of listing an identity's principals for admission against a
  * real database: the active principals judged have their tenants read together
  * in one query per principal class, after the principals' own query and as a
- * lazy load would read them, and are judged as stored with only that tenant
- * carried; an inactive principal is refused without its tenant being read, and
- * a principal the resolver supplied carries nothing.
+ * lazy load would read them, with a tenant that read misses read alone, and are
+ * judged as stored with only that tenant carried; an inactive principal is
+ * refused without its tenant being read, and a principal the resolver supplied
+ * carries nothing.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -85,6 +87,19 @@ final class PrincipalListingTest extends TestCase
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
         });
+
+        Schema::create('typed_tenants', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->timestamps();
+        });
+
+        Schema::create('keyed_memberships', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+            $blueprint->string('tenant_type')->nullable();
+            $blueprint->string('tenant_id')->nullable();
+            $blueprint->timestamps();
+        });
     }
 
     /**
@@ -97,6 +112,8 @@ final class PrincipalListingTest extends TestCase
     {
         Model::preventLazyLoading(false);
 
+        Schema::dropIfExists('keyed_memberships');
+        Schema::dropIfExists('typed_tenants');
         Schema::dropIfExists('morph_tenant_memberships');
         Schema::dropIfExists('parented_tenants');
 
@@ -362,7 +379,9 @@ final class PrincipalListingTest extends TestCase
 
     /**
      * The placeholder a `withDefault()` relation loads for a missing tenant
-     * stands for a tenant that cannot be loaded, refused as `tenant_inactive`.
+     * stands for a tenant that cannot be loaded, refused as `tenant_inactive`
+     * once each principal's tenant is looked for alone as well: the load's
+     * query, then one for each.
      *
      * @return void
      *
@@ -377,9 +396,92 @@ final class PrincipalListingTest extends TestCase
 
         $tenant->forceDelete();
 
-        $listing = PrincipalListing::of($this->identityListing(DefaultTenantMembership::query()->orderBy('id')));
+        $listing    = PrincipalListing::of($this->identityListing(DefaultTenantMembership::query()->orderBy('id')));
+        $candidates = self::principalsOf($listing);
+        $refusals   = null;
+        $queries    = $this->queries(static function () use ($listing, $candidates, &$refusals): void {
+            $refusals = $listing->refusals(self::GUARD, $candidates);
+        });
 
-        self::assertSame([FailureReason::TENANT_INACTIVE, FailureReason::TENANT_INACTIVE], $listing->refusals(self::GUARD, self::principalsOf($listing)));
+        self::assertSame([FailureReason::TENANT_INACTIVE, FailureReason::TENANT_INACTIVE], $refusals);
+        self::assertCount(3, $queries);
+    }
+
+    /**
+     * A tenant the load misses, through a key the database matches but PHP's
+     * pairing does not (`'01'` against `1`), is read alone, as a lazy load
+     * reads it, rather than taken for none: each principal holds its own
+     * tenant, which does not opt into activation and so would otherwise read as
+     * acting within no tenant, and one without a tenant key costs no query.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantTheLoadMissesIsReadAlone(): void
+    {
+        $membership = new class extends Model implements Principal {
+            use ActsAsPrincipal;
+
+            /** @var string|null The table associated with the model. */
+            protected $table = 'keyed_memberships';
+
+            /** @var array<string> The attributes that aren't mass assignable. */
+            protected $guarded = [];
+
+            /**
+             * Acting tenant relation.
+             *
+             * @formatter:off
+             *
+             * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Tests\Integration\Fixtures\TypedTenant, covariant $this>
+             *
+             * @formatter:on
+             */
+            public function tenant(): BelongsTo
+            {
+                return $this->belongsTo(TypedTenant::class, 'tenant_id');
+            }
+        };
+
+        $this->assertMissedTenantsAreReadAlone($membership, null);
+    }
+
+    /**
+     * A polymorphic tenant the load misses is read alone for its type, as a
+     * lazy load reads it, rather than taken for none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPolymorphicTenantTheLoadMissesIsReadAlone(): void
+    {
+        $membership = new class extends Model implements Principal {
+            use ActsAsPrincipal;
+
+            /** @var string|null The table associated with the model. */
+            protected $table = 'keyed_memberships';
+
+            /** @var array<string> The attributes that aren't mass assignable. */
+            protected $guarded = [];
+
+            /**
+             * Acting tenant relation, typed by `tenant_type`.
+             *
+             * @formatter:off
+             *
+             * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, covariant $this>
+             *
+             * @formatter:on
+             */
+            public function tenant(): MorphTo
+            {
+                return $this->morphTo();
+            }
+        };
+
+        $this->assertMissedTenantsAreReadAlone($membership, TypedTenant::class);
     }
 
     /**
@@ -522,6 +624,53 @@ final class PrincipalListingTest extends TestCase
 
         self::assertSame([null], PrincipalListing::resolved($membership)->refusals(self::GUARD, [$membership]));
         self::assertSame([null], PrincipalListing::resolved(null)->candidates);
+    }
+
+    /**
+     * Assert that, of three principals of the membership's class listed under
+     * strict mode, the one whose key the load misses has its tenant read alone,
+     * the one the load matches does not, and the one without a tenant key costs
+     * no query; each then answers `getTenant()` with the tenant its key names,
+     * without a further query.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Principal  $membership
+     * @param  ?string  $type
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    private function assertMissedTenantsAreReadAlone(Model&Principal $membership, ?string $type): void
+    {
+        $missed  = TypedTenant::query()->create()->getKey();
+        $matched = TypedTenant::query()->create()->getKey();
+
+        self::assertIsInt($missed);
+        self::assertIsInt($matched);
+
+        foreach (['0' . $missed, (string) $matched, null] as $key) {
+            $membership->newQuery()->create(['identity_id' => 1, 'tenant_type' => $key === null ? null : $type, 'tenant_id' => $key]);
+        }
+
+        Model::preventLazyLoading();
+
+        $listing    = PrincipalListing::of($this->identityListing($membership->newQuery()->orderBy('id')));
+        $candidates = self::principalsOf($listing);
+        $refusals   = null;
+        $queries    = $this->queries(static function () use ($listing, $candidates, &$refusals): void {
+            $refusals = $listing->refusals(self::GUARD, $candidates);
+        });
+
+        self::assertSame([null, null, null], $refusals);
+        self::assertCount(2, $queries);
+        self::assertStringContainsString('"typed_tenants"', $queries[1]);
+
+        $tenants = null;
+
+        self::assertSame([], $this->queries(static function () use ($candidates, &$tenants): void {
+            $tenants = array_map(static fn (Principal $candidate): mixed => $candidate->getTenant()?->getTenantIdentifier(), $candidates);
+        }));
+
+        self::assertSame([$missed, $matched, null], $tenants);
     }
 
     /**
