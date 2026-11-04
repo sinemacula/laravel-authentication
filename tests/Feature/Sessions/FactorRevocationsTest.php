@@ -1048,6 +1048,37 @@ final class FactorRevocationsTest extends TestCase
     }
 
     /**
+     * The tenant's further factor is judged after a change too: a session its
+     * tenant let in on its password alone, whose tenant now asks for a further
+     * factor, returns to pending, recording the version the tenant answers now.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeJudgesTheTenantsFurtherFactorToo(): void
+    {
+        $policy = new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v2'));
+
+        app()->instance(TenantAuthenticationPolicy::class, $policy);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $this->seedMember();
+
+        $current = $this->signedIn('members', 'member@example.test');
+
+        self::assertSame('v2', $this->rowOf($current->record->getKey())->tenant_policy_version);
+
+        $policy->requirement = new TenantRequirement('v3', new Requirement(new RequirementPart));
+
+        $change = Auth::sessions('members')->factorChanged($current->identity, FactorChangeMade::FACTOR_CONFIRMED, $current->record);
+
+        self::assertTrue($change->isPending());
+        self::assertSame('pending', $this->rowOf($current->record->getKey())->status);
+        self::assertSame('v3', $this->rowOf($current->record->getKey())->tenant_policy_version);
+    }
+
+    /**
      * Rows of `[the change made]`: every change the factor package names.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade}>
@@ -1508,7 +1539,8 @@ final class FactorRevocationsTest extends TestCase
      * Called after `factorRemoved()` in the same change and the same second, a
      * session the removal returned to pending is skipped, its pending
      * credential (the removal's) still taking a further factor; one the removal
-     * kept is judged again on the same proofs and stays active.
+     * revoked is skipped too; one the removal kept is judged again on the same
+     * proofs and stays active.
      *
      * @return void
      *
@@ -1519,6 +1551,7 @@ final class FactorRevocationsTest extends TestCase
         $this->requireAFurtherFactor();
 
         $returned = $this->satisfied('factor-a');
+        $revoked  = $this->satisfied('factor-a', email: 'alan@example.test');
         $kept     = $this->satisfied('factor-a', email: 'grace@example.test');
 
         $this->stepUp($kept, 'factor-b');
@@ -1535,6 +1568,17 @@ final class FactorRevocationsTest extends TestCase
         $proof = $this->proof($returned->identity, $returned->record->getKey(), 'factor-b', Purpose::SIGN_IN);
 
         self::assertTrue($this->sessions()->satisfy($removal->credential, $proof)->isSignedIn());
+
+        IntegrationIdentity::query()->where('email', 'alan@example.test')->update(['is_active' => false]);
+
+        [$removal, $change] = DB::transaction(static fn (): array => [
+            Auth::sessions('api')->factorRemoved($revoked->identity, 'factor-a', $revoked->record),
+            Auth::sessions('api')->factorChanged($revoked->identity, FactorChangeMade::FACTOR_REMOVED, $revoked->record),
+        ]);
+
+        self::assertTrue($removal->currentRevoked);
+        self::assertTrue($change->isSkipped());
+        self::assertSame(RevocationReason::FACTOR_REMOVED->value, $this->rowOf($revoked->record->getKey())->revoked_reason);
 
         [$removal, $change] = DB::transaction(static fn (): array => [
             Auth::sessions('api')->factorRemoved($kept->identity, 'factor-a', $kept->record),
