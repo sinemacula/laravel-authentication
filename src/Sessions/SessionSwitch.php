@@ -34,6 +34,7 @@ use SineMacula\Laravel\Authentication\Jwt\SessionTokens;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\IssuanceGuard;
@@ -85,7 +86,10 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * The session is read again with a lock once the guard is written, and only
  * that row is judged, so a grace retry, which writes no compare-and-swap, never
  * hands out a pair for a session revoked, returned to pending or switched
- * before the switch held it.
+ * before the switch held it. The destination's policy is judged on the
+ * session's proofs and provenance read current (`SessionProofs`), so the
+ * judgement, like the token, counts every proof committed before it and none
+ * voided by then.
  *
  * One switch is one instance, built with the guard's context, the client and
  * the target when the switch runs.
@@ -380,7 +384,8 @@ final readonly class SessionSwitch
         array $deadlines,
         CarbonImmutable $now,
     ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
-        $verdict = TenantPolicyCheck::check($this->context->name(), $destination->identity, $destination->principal, $destination->tenant, $session, $now);
+        $source  = new ProofSource(current: true);
+        $verdict = TenantPolicyCheck::check($this->context->name(), $destination->identity, $destination->principal, $destination->tenant, $session, $now, $source);
         $missed  = fn (): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal => $this->afterLostSwitch($session, $destination, $presented, $now);
 
         return match ($verdict->standing) {
@@ -422,8 +427,8 @@ final readonly class SessionSwitch
         CarbonImmutable $now,
         \Closure $missed,
     ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
-        $firstFactor = PendingTransitions::firstFactorOf($session, $verdict);
-        $outstanding = $this->transitions->outstanding($session, $destination->identity, $verdict->factor, $firstFactor, $now);
+        $firstFactor = PendingTransitions::firstFactorOf($session, $verdict, current: true);
+        $outstanding = $this->transitions->outstanding($session, $destination->identity, $verdict->factor, $firstFactor, $now, current: true);
 
         return $this->transitions->returnToPending($session, $destination, $verdict->version, $outstanding, $firstFactor, AuthenticationFlow::SWITCH, $now) ?? $missed();
     }
@@ -506,7 +511,7 @@ final readonly class SessionSwitch
         }
 
         $now     = CarbonImmutable::now()->startOfSecond();
-        $verdict = TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now);
+        $verdict = TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, $session, $now, new ProofSource(current: true));
         $missed  = fn (): AuthenticationFailed => self::refused(FailureReason::ROTATION_CONFLICT, $this->eventContext($session, $admitted));
 
         return match ($verdict->standing) {

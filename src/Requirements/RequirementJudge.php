@@ -16,7 +16,6 @@ use SineMacula\Laravel\Authentication\External\EvidenceSubject;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
-use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantFactor;
 
 /**
@@ -38,6 +37,14 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantFactor;
  * the check with a subject whose proofs are the sign-in's own, in memory, or
  * the session's, read on the write connection.
  *
+ * A judgement made while the transaction holds the session's row locked reads
+ * current (`ProofSource::$current`): every read of the session's proofs it
+ * makes, its first factor, its accepted evidence and each query the check makes
+ * of the subject, is then a current read (`SessionProofs`), so on MySQL and
+ * MariaDB at REPEATABLE READ it judges the proofs committed by the time the
+ * lock was taken, not the snapshot of the transaction's first read. With the
+ * sign-in's evidence in memory, or no session, nothing is read either way.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -54,14 +61,15 @@ final class RequirementJudge
      * Whether the session, or the sign-in's evidence, meets the requirement: a
      * tenant's, given with the tenant, or the identity-level one. The first
      * factor is the one given, else the evidence's, else the one the session
-     * records.
+     * records. Read current only for a session whose row this transaction holds
+     * locked.
      *
      * @param  string  $application
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement|\SineMacula\Laravel\Authentication\Tenancy\TenantFactor  $requirement
      * @return bool
      *
@@ -74,7 +82,7 @@ final class RequirementJudge
         ?Session $session,
         ?RecordedProof $firstFactor,
         CarbonImmutable $now,
-        ?SessionEvidence $evidence,
+        ProofSource $source,
         Requirement|TenantFactor $requirement,
     ): bool {
         [$requirement, $tenant] = $requirement instanceof TenantFactor ? [$requirement->requirement, $requirement->tenant] : [$requirement, null];
@@ -83,7 +91,7 @@ final class RequirementJudge
             return true;
         }
 
-        $firstFactor = self::firstFactor($session, $firstFactor, $evidence);
+        $firstFactor = self::firstFactor($session, $firstFactor, $source);
 
         if ($firstFactor === null) {
             return false;
@@ -91,59 +99,45 @@ final class RequirementJudge
 
         $connectionId = $firstFactor->channel->kind === ChannelKind::EXTERNAL_PROVIDER ? $firstFactor->channel->reference : null;
 
-        return ($connectionId !== null && self::meetsByEvidence(new EvidenceSubject($identity, $application, $connectionId, $now, $tenant), $session, $evidence, $requirement))
-            || self::meetsByCheck($application, $identity, $session, $firstFactor, $now, $evidence, $requirement);
+        return ($connectionId !== null && self::meetsByEvidence(new EvidenceSubject($identity, $application, $connectionId, $now, $tenant), $session, $source, $requirement))
+            || self::meetsByCheck(new RequirementSubject($identity, $application, $session, $firstFactor, $now, self::reader($session, $source)), $requirement);
     }
 
     /**
      * The first factor a judgement of the session, or of the sign-in's
      * evidence, is made on: the one given, else the evidence's, else the one
-     * the session records, read on the write connection; `null` when there is
-     * none.
+     * the session records, read on the write connection (current when the
+     * source asks); `null` when there is none.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
-     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
      * @throws \InvalidArgumentException
      */
-    public static function firstFactor(?Session $session, ?RecordedProof $firstFactor, ?SessionEvidence $evidence): ?RecordedProof
+    public static function firstFactor(?Session $session, ?RecordedProof $firstFactor, ProofSource $source): ?RecordedProof
     {
-        $firstFactor ??= $evidence?->firstFactor;
+        $firstFactor ??= $source->evidence?->firstFactor;
 
-        return $firstFactor === null && $session !== null ? SessionProofs::firstFactor($session) : $firstFactor;
+        return $firstFactor === null && $session !== null ? SessionProofs::firstFactor($session, $source->current) : $firstFactor;
     }
 
     /**
-     * Whether the bound `RequirementCheck` finds the requirement met, asked
-     * inside `WriteConnection::during()` for the identity, about the session's
-     * proofs or the sign-in's.
+     * Whether the bound `RequirementCheck` finds the requirement met for the
+     * subject, asked inside `WriteConnection::during()` for its identity.
      *
-     * @param  string  $application
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
-     * @param  \Carbon\CarbonImmutable  $now
-     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @param  \SineMacula\Laravel\Authentication\Requirements\RequirementSubject  $subject
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @return bool
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private static function meetsByCheck(
-        string $application,
-        Identity $identity,
-        ?Session $session,
-        RecordedProof $firstFactor,
-        CarbonImmutable $now,
-        ?SessionEvidence $evidence,
-        Requirement $requirement,
-    ): bool {
-        $subject = new RequirementSubject($identity, $application, $session, $firstFactor, $now, self::reader($session, $evidence));
-        $check   = Container::getInstance()->make(RequirementCheck::class);
+    private static function meetsByCheck(RequirementSubject $subject, Requirement $requirement): bool
+    {
+        $check = Container::getInstance()->make(RequirementCheck::class);
 
-        return WriteConnection::during($identity, static fn (): bool => $check->evaluate($subject, $requirement)->isMet());
+        return WriteConnection::during($subject->identity, static fn (): bool => $check->evaluate($subject, $requirement)->isMet());
     }
 
     /**
@@ -155,17 +149,18 @@ final class RequirementJudge
      *
      * @param  \SineMacula\Laravel\Authentication\External\EvidenceSubject  $subject
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $requirement
      * @return bool
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private static function meetsByEvidence(EvidenceSubject $subject, ?Session $session, ?SessionEvidence $evidence, Requirement $requirement): bool
+    private static function meetsByEvidence(EvidenceSubject $subject, ?Session $session, ProofSource $source, Requirement $requirement): bool
     {
-        $held   = $evidence !== null || $session === null ? array_filter([$evidence?->externalEvidence]) : SessionProofs::acceptedEvidence($session);
-        $policy = Container::getInstance()->make(ExternalEvidencePolicy::class);
+        $evidence = $source->evidence;
+        $held     = $evidence !== null || $session === null ? array_filter([$evidence?->externalEvidence]) : SessionProofs::acceptedEvidence($session, $source->current);
+        $policy   = Container::getInstance()->make(ExternalEvidencePolicy::class);
 
         foreach ($held as $external) {
             $judged = EvidenceAcceptance::asOf($external, $subject);
@@ -180,24 +175,27 @@ final class RequirementJudge
 
     /**
      * How the subject reads its counting proofs: from the sign-in's evidence in
-     * memory, or the session's on the write connection. In memory, as in the
-     * stored proofs' query, which binds the time to the second, a proof made in
-     * the second `$since` falls in counts.
+     * memory, or the session's on the write connection, each query current when
+     * the source asks. In memory, as in the stored proofs' query, which binds
+     * the time to the second, a proof made in the second `$since` falls in
+     * counts.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @param  ?\SineMacula\Laravel\Authentication\Tenancy\SessionEvidence  $evidence
+     * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
      * @return \Closure(?\Carbon\CarbonImmutable, ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>, int): list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
      * @formatter:on
      */
-    private static function reader(?Session $session, ?SessionEvidence $evidence): \Closure
+    private static function reader(?Session $session, ProofSource $source): \Closure
     {
+        $evidence = $source->evidence;
+
         if ($evidence !== null || $session === null) {
             $proofs = $evidence === null ? [] : $evidence->proofs;
 
@@ -208,6 +206,8 @@ final class RequirementJudge
             ), 0, $limit);
         }
 
-        return static fn (?CarbonImmutable $since, ?array $kinds, int $limit): array => SessionProofs::query($session, $since, $kinds, $limit);
+        $current = $source->current;
+
+        return static fn (?CarbonImmutable $since, ?array $kinds, int $limit): array => SessionProofs::query($session, $since, $kinds, $limit, $current);
     }
 }

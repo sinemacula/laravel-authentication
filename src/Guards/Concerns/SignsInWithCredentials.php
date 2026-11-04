@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Sessions\CredentialAttempt;
@@ -254,11 +255,11 @@ trait SignsInWithCredentials
         $context  = new AdditionalFactorContext($this->context->name(), $admitted->identity, $evidence->firstFactor, $client, null, null, null);
         $required = WriteConnection::during($admitted->identity, static fn (): Requirement => $factors->requirementFor($context));
 
-        if (!RequirementJudge::isMet($this->context->name(), $admitted->identity, null, null, $now, $evidence, $required)) {
+        if (!RequirementJudge::isMet($this->context->name(), $admitted->identity, null, null, $now, new ProofSource($evidence), $required)) {
             return Refused::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted);
         }
 
-        $policy = TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, null, $now, $evidence);
+        $policy = TenantPolicyCheck::check($this->context->name(), $admitted->identity, $admitted->principal, $admitted->tenant, null, $now, new ProofSource($evidence));
 
         return match ($policy->standing) {
             TenantPolicyStanding::SSO_REQUIRED    => Refused::after(FailureReason::SSO_REQUIRED, $admitted),

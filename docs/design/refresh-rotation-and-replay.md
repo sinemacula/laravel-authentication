@@ -100,13 +100,14 @@ other rotated token as a replay that revokes the session.
   read there is judged; the exchange's `$now` is taken after it, and the classification, admission, tenant policy,
   rotation, grace reissue, lost-rotation reload, return to pending and replay revocation all follow inside it, the
   session's row held until it commits. A step-up, reauthentication, switch, revocation, return to pending or other
-  refresh of the session that overlaps it therefore either committed first (and the exchange judges the row it left,
-  and the pair reads its proofs, current: `SessionProofs::history($session, true)`, a shared lock on MySQL and MariaDB)
-  or waits for it; under PostgreSQL's REPEATABLE READ a snapshot older than the other fails to serialise on the guard,
-  which the package never retries. A grace retry writes no compare-and-swap, so it is the re-read that keeps one from
-  handing out a pair for a session revoked, returned to pending or switched while the exchange waited on the guard. A
-  guard that finds no row (deleted after the lookup) refuses as `session_unknown`. Events stay deferred until commit,
-  and the attempt limiter stays outside the transaction.
+  refresh of the session that overlaps it therefore either committed first (and the exchange judges the row it left, the
+  tenant policy's judgement and the pair both reading its proofs and provenance current: `SessionProofs`, a shared lock
+  on MySQL and MariaDB, so a step-up or a voided proof committed before is judged as it stands, whatever the caller's
+  transaction read first) or waits for it; under PostgreSQL's REPEATABLE READ a snapshot older than the other fails to
+  serialise on the guard, which the package never retries. A grace retry writes no compare-and-swap, so it is the
+  re-read that keeps one from handing out a pair for a session revoked, returned to pending or switched while the
+  exchange waited on the guard. A guard that finds no row (deleted after the lookup) refuses as `session_unknown`.
+  Events stay deferred until commit, and the attempt limiter stays outside the transaction.
 
 ## Success Path
 
@@ -387,6 +388,13 @@ other rotated token as a replay that revokes the session.
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php`
   `testAGraceRetryWaitingOnARevocationFollowsItsOutcome`,
   `testAGraceRetryInsideARepeatableReadTransactionIsJudgedAfterItsGuard`
+- `tests/Integration/Jwt/RefreshTokenExchangeTest.php`
+  `testAnExchangeReadsTheSessionsProofsCurrent`, `testAnExchangeOfASessionWithoutAFirstFactorFailsLoudly`;
+  `tests/Integration/Sessions/SessionSwitchTest.php` `testASwitchReadsTheSessionsProofsCurrent`,
+  `testASwitchOfASessionWithoutAFirstFactorFailsLoudly`
+- `tests/Integration/Sessions/CurrentProofReadsTest.php`
+  `testARefreshCountsAStepUpCommittedMeanwhile`, `testASwitchCountsAStepUpCommittedMeanwhile`,
+  `testASwitchRetryCountsAStepUpCommittedMeanwhile`, `testARefreshCountsEvidenceAcceptedMeanwhile`
 - `tests/Integration/Guards/SeparateSessionConnectionIntegrationTest.php`
   `testRefreshAndBearerUseTheSessionsOwnConnection`,
   `testReplayIsReportedAtOnceWhateverAnotherConnectionsTransactionDoes`,

@@ -525,12 +525,16 @@ seam has a default that works alone.
   was `skipped` (no longer the session given, or no longer live and active). It locks the session's row after your
   locks, writes its issuance guard before it reads the proofs, and runs as a savepoint of your transaction when that is
   on the storage connection, so the return to pending commits or rolls back with the change; its events and the guard's
-  forgetting of the session follow the commit. Its reads of the proofs are plain ones, so on MySQL and MariaDB at
-  REPEATABLE READ make the call before any plain read in your transaction, or run the change at READ COMMITTED (see
-  [Sign-in factors](sessions.md#sign-in-factors)). The identity's other sessions are not judged: only the current
-  session's client can receive a pending credential, and an added factor ends nothing, so they keep running as they were
-  admitted; end them yourself in the same transaction (`revokeSessions(..., except: $current)`) if they must meet the
-  new requirement. The identity may live on any connection, since nothing of it is written.
+  forgetting of the session follow the commit. It reads the proofs current, so whatever your transaction read before
+  the call, a step-up committed before it counts and a proof voided before it never does; on MySQL and MariaDB at
+  REPEATABLE READ those reads hold shared locks until you commit, so keep the transaction short, and at PostgreSQL's
+  REPEATABLE READ a change of the session's proofs committed after your snapshot fails the call to serialise. On a lock
+  wait timeout, a deadlock or a serialisation failure roll your whole transaction back and retry it whole (see [Issuance
+  order](sessions.md#issuance-order)). The identity's other sessions are not judged: only the current session's client
+  can receive a pending credential, and an added factor ends nothing, so they keep running as they were admitted; end
+  them yourself in the same transaction, before the call (`revokeSessions(..., except: $current)`), if they must meet
+  the new requirement: the call has read the current session's proofs under shared locks, and the package takes every
+  session row before any proof. The identity may live on any connection, since nothing of it is written.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
   `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
   the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows
@@ -581,7 +585,13 @@ seam has a default that works alone.
   the factor that confirms a bootstrap enrolment (see [Satisfying a further
   factor](signing-in.md#satisfying-a-further-factor)). Called inside the factor package's own transaction, on the
   storage connection, the activation commits with it: the guard is bound, and the sign-in's slots given back, only once
-  that transaction commits, and never when it rolls back. Nothing a factor package keeps about a session survives a
+  that transaction commits, and never when it rolls back. It reads the pending session's proofs current, and locks the
+  session the sign-in proved before them, whenever the sign-in recorded one, whatever it then decides; on MySQL and
+  MariaDB at REPEATABLE READ those reads hold shared locks until you commit, so keep the transaction short and take any
+  session row your transaction needs before the call (a bulk revocation over both sessions, `revokeSessions()` or
+  `factorReset()` among them, locks the older first and can deadlock with it). On a lock wait timeout, a deadlock or a
+  serialisation failure, which reaches you as Laravel's `DeadlockException`, roll your whole transaction back and retry
+  it whole (see [Issuance order](sessions.md#issuance-order)). Nothing a factor package keeps about a session survives a
   sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the client proved
   (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it when the new one first activates.
 - Step a signed-in session up with a factor the factor package has just verified: `Auth::sessions()->stepUp($proof)`,
@@ -752,8 +762,9 @@ contributor could give) or binds a fake `AuthenticationContexts`.
   evidence policy are then asked under that lock, so neither may take a lock the adapter takes after the session's row.
   An adapter that must answer a session's standing (`laravel-sso`'s re-authentication sessions) asks
   `externalStanding($sessionId, $identity, $connectionId, $linkId)`: with no link id and outside a transaction when a
-  flow starts, which locks nothing, and with the link id inside the redemption's transaction, which locks the row; it
-  answers `null` or the reason.
+  flow starts, which locks nothing, and with the link id inside the redemption's transaction, which locks the row and
+  reads its provenance current (see [Issuance order](sessions.md#issuance-order)), so a key another sign-in reused
+  after the transaction's first read is answered on its own provenance; it answers `null` or the reason.
 - When a link is removed, or its scope widened so it may act for more than its sessions were established for, the
   adapter calls `linkRemoved($identity, $connectionId, $linkId)` or `linkScopeWidened(...)` in the same transaction (see
   [Connections and links](sessions.md#connections-and-links)): each ends only the identity's sessions established

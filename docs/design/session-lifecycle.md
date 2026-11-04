@@ -106,21 +106,23 @@ revoked, and when a session that ended is deleted. Starting a session is in
   after its own locks. It judges the current session again exactly as `factorRemoved()` does (`FactorRevocations`'
   shared `judge()`), but voids no proof, moves no cutoff and touches no other session: a savepoint on the session
   connection that locks the row, skips it when it is no longer the session given or no longer live and active, writes
-  its issuance guard before it reads the proofs, and then keeps it active, returns it to pending (flow `factor_change`,
-  the pending credential in the `FactorChangeResult`) or revokes it (`factor_changed`, or `factor_removed` for
-  `FACTOR_REMOVED`), forgetting the request's binding to a session it ended or took back to pending once that commits,
-  before anything is reported. The identity's other sessions are deliberately left alone: only the current session's
-  client can receive a pending credential (returning another session to pending would end it in all but name), an added
-  factor is no sign of compromise, and judging every other session would lock their rows under the factor package's
-  locks for no outcome but "leave"; a refresh asks the identity-level requirement only once the tenant's policy falls
-  short, so they run as admitted until they end, unless the application ends them in the same transaction. A replacement
-  removes the factor it replaces, so it goes through `factorRemoved()` for that factor, never this call. A new set of
-  recovery codes removes no factor, so it never goes through `factorRemoved()`: the session's recovery-code proofs stay
-  recorded and count, and the factor package calls this with `OTHER` only when its policy can change with the codes.
-  `FACTOR_REMOVED` exists only for a factor package that hands every change, a removal included, to this judgement once
-  `factorRemoved()` has run. A session the removal took back to pending or revoked is then skipped, but one it kept is
-  judged again at this call's own time, not the removal's, so it can still return to pending or be revoked (a maximum
-  age lapsing between the two calls, a write between them): the client's credential is whichever result's is pending.
+  its issuance guard before it reads the proofs, reads them current (see `proofs-and-freshness.md`), and then keeps it
+  active, returns it to pending (flow `factor_change`, the pending credential in the `FactorChangeResult`) or revokes it
+  (`factor_changed`, or `factor_removed` for `FACTOR_REMOVED`), forgetting the request's binding to a session it ended
+  or took back to pending once that commits, before anything is reported. The identity's other sessions are deliberately
+  left alone: only the current session's client can receive a pending credential (returning another session to pending
+  would end it in all but name), an added factor is no sign of compromise, and judging every other session would lock
+  their rows under the factor package's locks for no outcome but "leave"; a refresh asks the identity-level requirement
+  only once the tenant's policy falls short, so they run as admitted until they end, unless the application ends them in
+  the same transaction, before the call, since the call reads the current session's proofs under shared locks and every
+  session row comes before any proof row in the lock order. A replacement removes the factor it replaces, so it goes
+  through `factorRemoved()` for that factor, never this call. A new set of recovery codes removes no factor, so it never
+  goes through `factorRemoved()`: the session's recovery-code proofs stay recorded and count, and the factor package
+  calls this with `OTHER` only when its policy can change with the codes. `FACTOR_REMOVED` exists only for a factor
+  package that hands every change, a removal included, to this judgement once `factorRemoved()` has run. A session the
+  removal took back to pending or revoked is then skipped, but one it kept is judged again at this call's own time, not
+  the removal's, so it can still return to pending or be revoked (a maximum age lapsing between the two calls, a write
+  between them): the client's credential is whichever result's is pending.
 - `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()` and `linkScopeWidened()`
   (`Sessions\ConnectionRevocations`, through `Concerns\EndsConnectionSessions`) revoke the live sessions, pending ones
   included, of every guard that a connection established (a link's: only that identity's, whose provenance records both
@@ -190,11 +192,12 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - `tenantPolicyChanged($tenant)` (`Sessions\TenantPolicyChanges`) is the synchronous revocation for a tenant
   authentication policy that changed: in one transaction on the session model's connection (a savepoint inside the
   caller's), it reads the live sessions (unrevoked, before both deadlines) whose `tenant_id` is the tenant's, every
-  guard, pending ones included, in key order 500 at a time with a locking read; skips one recorded at the very version
-  answered (neither `null`); revokes an active one that falls short, and a pending one only when it needs another
-  connection, as `tenant_policy_changed` with a conditional update on `tenant_id` and `revoked_at IS NULL`; and records
-  the version on an active one that meets it. `SessionRevoked` follows each revocation's commit. A session that enters
-  the tenant after the scan is bounded by its first refresh, which always asks the policy.
+  guard, pending ones included, locking their keys in key order 500 at a time with a locking read, then reading them
+  again by key 500 at a time and judging each on its proofs and provenance read current; skips one recorded at the very
+  version answered (neither `null`); revokes an active one that falls short, and a pending one only when it needs
+  another connection, as `tenant_policy_changed` with a conditional update on `tenant_id` and `revoked_at IS NULL`; and
+  records the version on an active one that meets it. `SessionRevoked` follows each revocation's commit. A session that
+  enters the tenant after the scan is bounded by its first refresh, which always asks the policy.
 
 ## Success Path
 

@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -45,9 +46,11 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\External\MethodTrustingEvidencePolicy;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
@@ -72,7 +75,7 @@ use Tests\TestCase;
 #[CoversTrait(SignsInExternally::class)]
 final class ExternalReauthenticationTest extends TestCase
 {
-    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions, MarksSharedLocks;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -645,6 +648,61 @@ final class ExternalReauthenticationTest extends TestCase
     }
 
     /**
+     * A reauthentication judges the session against its tenant's policy under
+     * the row's lock, with the proof it recorded, so every read of the
+     * session's provenance and proofs that judgement makes takes a shared lock
+     * where the engine takes one: the connection, the first factor, the
+     * accepted evidence and the check's proofs, whether it then refuses or
+     * issues. The link's check before it reads the provenance plainly, and the
+     * issuance reads the proofs current, as it always does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheTenantsPolicyIsJudgedOnCurrentReads(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        $session = $this->sessions('members')->signInExternally($this->linkedResult($member, subject: 'subject-1'), self::asPrincipal($membership))->session;
+
+        self::assertNotNull($session);
+
+        $requirement = new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart), ['connection-7']);
+
+        $this->app?->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy($requirement));
+        $this->app?->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        self::markSharedLocks();
+
+        $locked = self::takesSharedLocks();
+
+        /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult> $results */
+        $results = new \ArrayObject;
+        $reads   = fn (?ExternalEvidence $evidence): array => self::statementsDuring(function () use ($session, $evidence, $results): void {
+            $through = $this->throughTheLink(authenticatedAt: $this->now, evidence: $evidence);
+
+            $results->append($this->sessions('members')->reauthenticateExternally($session->record->getKey(), $through));
+        });
+
+        $refused = array_values(array_filter($reads(null), self::readsProofs(...)));
+
+        $this->app?->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR]));
+
+        $issued = array_values(array_filter($reads(new ExternalEvidence(['mfa'], null, $this->now)), self::readsProofs(...)));
+
+        self::assertSame(
+            [[FailureReason::ADDITIONAL_FACTOR_REQUIRED, false], [null, true]],
+            array_map(static fn (AccessTokenResult $result): array => [$result->reason, $result->isIssued()], $results->getArrayCopy()),
+        );
+        self::assertSame(1, SessionProof::query()->where('kind', 'external_reauthentication')->count());
+        self::assertStringContainsString('authentication_provenance', $refused[0]);
+        self::assertStringContainsString('authentication_provenance', $refused[1]);
+        self::assertSame([false, $locked, $locked, $locked, $locked], array_map(self::sharesLock(...), $refused));
+        self::assertSame([false, $locked, $locked, $locked, $locked], array_map(self::sharesLock(...), $issued));
+    }
+
+    /**
      * A reauthentication bringing evidence the evidence contract accepts only
      * for less than the tenant requires is issued, as one bringing no evidence
      * is: the multifactor evidence the session signed in with still meets the
@@ -761,6 +819,35 @@ final class ExternalReauthenticationTest extends TestCase
         self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->externalStanding($signedIn->record->getKey(), $identity, 'connection-7'));
         self::assertSame([], $this->recorded);
         self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
+    }
+
+    /**
+     * A session's standing asked inside a transaction reads its provenance
+     * current under the row's lock, a shared lock where the engine takes one,
+     * since no check of the row's generation comes before it; asked outside
+     * one, it reads the provenance plainly, as it reads the row.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAStandingUnderTheLockReadsTheProvenanceCurrent(): void
+    {
+        $signedIn = $this->signedInExternally();
+
+        self::markSharedLocks();
+
+        $key       = $signedIn->record->getKey();
+        $standings = [];
+        $ask       = fn (): ?FailureReason => $this->sessions()->externalStanding($key, $signedIn->identity, 'connection-7', 'link-1');
+
+        self::assertSame([self::takesSharedLocks()], self::proofReadLocks(static function () use ($ask, &$standings): void {
+            $standings[] = DB::transaction($ask);
+        }));
+        self::assertSame([false], self::proofReadLocks(static function () use ($ask, &$standings): void {
+            $standings[] = $ask();
+        }));
+        self::assertSame([null, null], $standings);
     }
 
     /**

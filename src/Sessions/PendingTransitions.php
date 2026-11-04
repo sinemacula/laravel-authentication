@@ -81,18 +81,20 @@ final readonly class PendingTransitions
      * The first factor the session signed in with, as its tenant's verdict was
      * judged on it, or, when the verdict asked for no further factor, as the
      * session records it, so a caller judging the session again, or returning
-     * it to pending, reads it at most once.
+     * it to pending, reads it at most once, current when asked. Pass `$current`
+     * only for a session whose row this transaction holds locked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict  $verdict
+     * @param  bool  $current
      * @return \SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public static function firstFactorOf(Session $session, TenantPolicyVerdict $verdict): RecordedProof
+    public static function firstFactorOf(Session $session, TenantPolicyVerdict $verdict, bool $current = false): RecordedProof
     {
-        return $verdict->firstFactor ?? PendingEvaluation::firstFactorOf($session);
+        return $verdict->firstFactor ?? PendingEvaluation::firstFactorOf($session, $current);
     }
 
     /**
@@ -102,21 +104,29 @@ final readonly class PendingTransitions
      * session's recorded origin, client name, platform and the first factor
      * given (see `PendingEvaluation::owedFactorOn()`), so a session returned to
      * pending names everything its next action is judged against. Empty when
-     * nothing is outstanding.
+     * nothing is outstanding. Its proofs are read current when asked: pass
+     * `$current` only for a session whose row this transaction holds locked.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $tenant
      * @param  \SineMacula\Laravel\Authentication\Proofs\RecordedProof  $firstFactor
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  bool  $current
      * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    public function outstanding(EloquentSession&Model $session, Identity $identity, Requirement $tenant, RecordedProof $firstFactor, CarbonImmutable $now): Requirement
-    {
-        $owed = (new PendingEvaluation($this->context, Container::getInstance()))->owedFactorOn($session, $identity, $firstFactor, null, $now);
+    public function outstanding(
+        EloquentSession&Model $session,
+        Identity $identity,
+        Requirement $tenant,
+        RecordedProof $firstFactor,
+        CarbonImmutable $now,
+        bool $current = false,
+    ): Requirement {
+        $owed = (new PendingEvaluation($this->context, Container::getInstance()))->owedFactorOn($session, $identity, $firstFactor, null, $now, $current);
 
         return Requirement::strictest($owed, $tenant);
     }

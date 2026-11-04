@@ -22,11 +22,12 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
  * its write fails to serialise and its caller retries the whole transaction.
  * The row is the session's own, which every issuer already takes and which
  * comes after the caller's locks and the connection guard rows in the package's
- * lock order, so the guard adds no row lock and no new order. The current read
- * of the proofs that follows it takes more on MySQL and MariaDB at REPEATABLE
- * READ: its shared lock also holds the gaps on either side of the session's
- * proofs, where a proof of a new session or of a neighbouring one may fall
- * (`SessionProofs::history()`).
+ * lock order, so the guard adds no row lock and no new order. The current reads
+ * of the proofs that follow it, the issuance's and those of the requirement
+ * judgements made after it under the row's lock, take more on MySQL and MariaDB
+ * at REPEATABLE READ: their shared locks also hold the gaps on either side of
+ * the session's proofs, where a proof of a new session or of a neighbouring one
+ * may fall (`SessionProofs`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Factors\FactorReference;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
+use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\IssuanceGuard;
 use SineMacula\Laravel\Authentication\SessionRecords\OwnedSession;
@@ -68,6 +69,15 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * longer the session given, or no longer live and active, is skipped; a pending
  * one is judged at its next action. Its revocation records `factor_changed`, or
  * `factor_removed` for `FACTOR_REMOVED`.
+ *
+ * Either judgement is made under the current session's row lock, after its
+ * issuance guard, and reads its proofs and provenance current
+ * (`SessionProofs`): at READ COMMITTED, and on MySQL and MariaDB at REPEATABLE
+ * READ, it judges the proofs committed by then, a step-up included and a
+ * voided proof excluded, whatever the factor package's transaction read first;
+ * on PostgreSQL at REPEATABLE READ, a proof change committed after that
+ * transaction's snapshot fails it to serialise instead, for the factor package
+ * to retry it whole.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -349,13 +359,13 @@ final readonly class FactorRevocations
     }
 
     /**
-     * Judge the locked session as its proofs now stand: it stays active while
-     * nothing is outstanding, returns to pending, recording the version of its
-     * tenant's policy answered, while a further factor is (the strictest of the
-     * identity-level requirement it still owes and its tenant's), and is
-     * revoked with the reason given when it is no longer admitted as a refresh
-     * admits it, its tenant now requires a connection, or its return to pending
-     * missed.
+     * Judge the locked session as its proofs now stand, read current: it stays
+     * active while nothing is outstanding, returns to pending, recording the
+     * version of its tenant's policy answered, while a further factor is (the
+     * strictest of the identity-level requirement it still owes and its
+     * tenant's), and is revoked with the reason given when it is no longer
+     * admitted as a refresh admits it, its tenant now requires a connection, or
+     * its return to pending missed.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $locked
@@ -381,8 +391,8 @@ final readonly class FactorRevocations
 
         [$admitted, $policy] = $verdict;
 
-        $firstFactor = PendingTransitions::firstFactorOf($locked, $policy);
-        $outstanding = $this->transitions->outstanding($locked, $admitted->identity, $policy->factor, $firstFactor, $now);
+        $firstFactor = PendingTransitions::firstFactorOf($locked, $policy, current: true);
+        $outstanding = $this->transitions->outstanding($locked, $admitted->identity, $policy->factor, $firstFactor, $now, current: true);
 
         if ($outstanding->isEmpty()) {
             return FactorChangeResult::active();
@@ -417,7 +427,7 @@ final readonly class FactorRevocations
             return null;
         }
 
-        $policy = TenantPolicyCheck::check($guard, $admitted->identity, $admitted->principal, $admitted->tenant, $locked, $now);
+        $policy = TenantPolicyCheck::check($guard, $admitted->identity, $admitted->principal, $admitted->tenant, $locked, $now, new ProofSource(current: true));
 
         return $policy->standing === TenantPolicyStanding::SSO_REQUIRED ? null : [$admitted, $policy];
     }

@@ -58,6 +58,7 @@ use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Factors\FirstFactorMeetsRequirements;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
@@ -90,7 +91,7 @@ use Tests\Unit\Stubs\StubSession;
 #[CoversClass(PendingEvaluation::class)]
 final class PendingEvaluationTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithSessions, MarksSharedLocks;
 
     /** @var string Guard over `ChoosingMember`, whose identities hold several principals. */
     private const string CHOOSERS = 'choosers';
@@ -873,6 +874,45 @@ final class PendingEvaluationTest extends TestCase
 
         self::assertInstanceOf(AdditionalFactorContext::class, $context);
         self::assertSame(['42', '7'], [$context->clientName, $context->platform]);
+    }
+
+    /**
+     * Asked to read current, as a caller holding the session's row locked asks,
+     * every read of the session's proofs the gate makes takes a shared lock
+     * where the engine takes one: its first factor, the proofs the
+     * identity-level requirement is judged on, and the first factor and proofs
+     * its tenant's further factor is judged on. Asked nothing, none does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSessionsProofsAreReadCurrentOnlyWhenAsked(): void
+    {
+        self::markSharedLocks();
+
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session    = $this->signedIn();
+        $evaluation = $this->evaluation('members');
+        $client     = new ClientContext(null, null);
+        $first      = PendingEvaluation::firstFactorOf($session);
+        $now        = CarbonImmutable::now();
+        $locked     = self::takesSharedLocks();
+
+        $this->factorRequired = true;
+
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
+
+        self::assertSame([$locked], self::proofReadLocks(static fn (): mixed => PendingEvaluation::firstFactorOf($session, true)));
+        self::assertSame([false], self::proofReadLocks(static fn (): mixed => PendingEvaluation::firstFactorOf($session)));
+        self::assertSame([$locked], self::proofReadLocks(static fn (): mixed => $evaluation->owedFactorOn($session, $member, $first, null, $now, true)));
+        self::assertSame([false], self::proofReadLocks(static fn (): mixed => $evaluation->owedFactorOn($session, $member, $first, null, $now)));
+        self::assertSame([$locked], self::proofReadLocks(static fn (): mixed => $evaluation->owedFactor($member, $first, $client, null, null, null, $session, $now, null, true)));
+        self::assertSame([false], self::proofReadLocks(static fn (): mixed => $evaluation->owedFactor($member, $first, $client, null, null, null, $session, $now)));
+        self::assertSame([$locked, $locked], self::proofReadLocks(static fn (): mixed => $evaluation->tenantPolicy($member, $membership, $tenant, $session, $now, current: true)));
+        self::assertSame([false, false], self::proofReadLocks(static fn (): mixed => $evaluation->tenantPolicy($member, $membership, $tenant, $session, $now)));
     }
 
     /**

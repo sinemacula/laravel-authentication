@@ -9,9 +9,11 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -45,6 +47,7 @@ use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Requirements\Enums\AssuranceLevel;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
@@ -72,6 +75,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Sessions\TwoSecretSignIn;
@@ -105,7 +109,7 @@ use Tests\TestCase;
 #[CoversClass(SessionActivation::class)]
 final class PendingSessionsTest extends TestCase
 {
-    use InspectsIssuanceGuards, InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessionRecords, InteractsWithSessions;
+    use InspectsIssuanceGuards, InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessionRecords, InteractsWithSessions, MarksSharedLocks;
 
     /** @var string Guard over `ChoosingMember`, whose sign-ins wait for a choice of principal. */
     private const string CHOOSERS = 'choosers';
@@ -1254,6 +1258,130 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
+     * Satisfying and choosing judge the pending session under its row's lock,
+     * so every read of its proofs either makes, the gate's (the tenant's
+     * policy's included) and the activation's, takes a shared lock where the
+     * engine takes one; looking it up reads them plainly.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnActionReadsTheProofsCurrentAndALookUpPlainly(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        [, $first] = $this->seedChooser();
+
+        $this->factorRequired = false;
+
+        $choosing = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'))->credential?->reveal();
+        $waiting  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'))->credential?->reveal();
+
+        self::assertNotNull($choosing);
+        self::assertNotNull($waiting);
+        self::markSharedLocks();
+
+        $locked = self::takesSharedLocks();
+
+        $this->factorRequired = true;
+
+        $lookUp    = self::proofReadLocks(fn (): mixed => $this->sessions()->pending($credential, null));
+        $satisfied = self::proofReadLocks(function () use ($identity, $credential, $pending): void {
+            self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->isSignedIn());
+        });
+
+        $this->factorRequired = false;
+
+        $chosen = self::proofReadLocks(function () use ($choosing, $first): void {
+            self::assertTrue($this->sessions(self::CHOOSERS)->choose($choosing, $first)->isSignedIn());
+        });
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
+
+        $asked = self::proofReadLocks(function () use ($waiting, $first): void {
+            self::assertSame([PendingRequirement::MFA], $this->sessions(self::CHOOSERS)->choose($waiting, $first)->pending?->requires);
+        });
+
+        self::assertSame([false, false], $lookUp);
+        self::assertSame([$locked, $locked, $locked], $satisfied);
+        self::assertSame([$locked, $locked], $chosen);
+        self::assertSame([$locked, $locked], $asked);
+    }
+
+    /**
+     * Rows of `[action]`: the actions that may activate a pending session whose
+     * sign-in proved the session its client holds.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideActivatingActions(): iterable
+    {
+        yield 'satisfy' => ['satisfy'];
+
+        yield 'choose' => ['choose'];
+    }
+
+    /**
+     * Once the action is admitted, satisfying and choosing read the session the
+     * sign-in's client proved it holds locked for update, before satisfying's
+     * issuance guard (choosing writes none) and before any read of the pending
+     * session's proofs, so the supersede an activation makes takes no session
+     * row after them; a refused action never reads it, and looking a pending
+     * session that waits on a further factor up reads it without a lock.
+     *
+     * @param  string  $action
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideActivatingActions')]
+    public function testAnAdmittedActionLocksTheProvenSessionBeforeTheProofs(string $action): void
+    {
+        [, $first] = $this->seedChooser();
+
+        $this->factorRequired = false;
+
+        $client = new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT);
+        $guard  = $action === 'satisfy' ? 'api' : self::CHOOSERS;
+        $email  = $action === 'satisfy' ? 'ada@example.test' : 'chooser@example.test';
+        $proved = $action === 'satisfy' ? new SignInContext($client) : new SignInContext($client, principal: $first);
+
+        $identity = $this->seedIdentity();
+        $active   = $this->sessions($guard)->signIn('password', self::credentials($email), $proved)->session;
+
+        self::assertNotNull($active);
+
+        $this->factorRequired = $action === 'satisfy';
+
+        $result = $this->sessions($guard)->signIn('password', self::credentials($email), new SignInContext($client, refreshToken: $active->tokens->refreshToken?->reveal()));
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        self::markSharedLocks();
+
+        $proven     = (string) IdentifierCoercion::stringify($active->record->getKey());
+        $credential = $result->credential->reveal();
+        $pendingId  = $result->pending->id;
+        $proof      = static fn (bool $admitted): ProofResult => self::adapterProof($identity, 'api', $admitted ? $pendingId : 'another', Purpose::SIGN_IN);
+        $act        = $action === 'satisfy'
+            ? fn (bool $admitted): mixed => $this->sessions($guard)->satisfy($credential, $proof($admitted))
+            : fn (bool $admitted): mixed => $this->sessions($guard)->choose($credential, $admitted ? $first : new ChoosingMembership);
+
+        self::assertSame([], self::provenReads(static fn (): mixed => $act(false), $proven));
+        self::assertSame($action === 'satisfy' ? ['plain'] : [], self::provenReads(fn (): mixed => $this->sessions($guard)->pending($credential, null), $proven));
+
+        $statements = self::provenReads(static fn (): mixed => $act(true), $proven, true);
+
+        self::assertNotContains('plain', $statements);
+        self::assertSame($action === 'satisfy' ? ['locked', 'guard', 'proofs'] : ['locked', 'proofs'], array_values(array_unique($statements)));
+        self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $active->record->getKey())->value('revoked_reason'));
+    }
+
+    /**
      * Looking a pending session up reads its row without a lock, while every
      * action on it (satisfying, choosing, discarding) reads it locked for
      * update first, so a revocation or another action waits for it. On SQLite,
@@ -1558,6 +1686,142 @@ final class PendingSessionsTest extends TestCase
 
         self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->isSignedIn());
         self::assertSame($proofs + 1, SessionProof::query()->count());
+    }
+
+    /**
+     * A deadlock raised inside a caller's transaction is thrown on as Laravel's
+     * `DeadlockException`, with the caller's transaction level restored (on
+     * MySQL and MariaDB the deadlock has already rolled the whole transaction
+     * back, its savepoints with it). The caller rolls its whole transaction
+     * back, and its retry activates the session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeadlockInsideACallersTransactionIsThrownOnForTheCallerToRetryWhole(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $cause    = new \PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction');
+        $deadlock = new QueryException('testing', 'select 1', [], $cause);
+        $proofs   = SessionProof::query()->count();
+        $level    = DB::transactionLevel();
+        $proof    = static fn (): ProofResult => self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN);
+
+        $this->factorAnswer = static fn (): never => throw $deadlock;
+
+        DB::beginTransaction();
+
+        try {
+            $this->sessions()->satisfy($credential, $proof());
+
+            self::fail('The deadlock was not thrown on.');
+        } catch (DeadlockException $thrown) {
+            self::assertSame($deadlock, $thrown->getPrevious());
+        }
+
+        self::assertSame($level + 1, DB::transactionLevel());
+
+        DB::rollBack();
+
+        self::assertSame($level, DB::transactionLevel());
+        self::assertSame($proofs, SessionProof::query()->count());
+
+        $this->factorAnswer   = null;
+        $this->factorRequired = false;
+
+        self::assertTrue(DB::transaction(fn (): bool => $this->sessions()->satisfy($credential, $proof())->isSignedIn()));
+        self::assertSame($proofs + 1, SessionProof::query()->count());
+    }
+
+    /**
+     * A refusal inside a caller's transaction rolls back only what the action
+     * wrote, the proof it stored among it, and answers with the refusal: the
+     * caller's transaction stays open at its level with its own writes, and
+     * commits them.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefusalInsideACallersTransactionRollsBackOnlyTheActionsWrites(): void
+    {
+        [$member] = $this->seedMember();
+
+        [$credential, $pending] = $this->pendingSignIn('members', 'member@example.test');
+
+        $proofs = SessionProof::query()->count();
+        $level  = DB::transactionLevel();
+
+        app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', connections: ['conn-a'])));
+
+        DB::beginTransaction();
+
+        DB::table('authentication_sessions')->where('id', $pending->id)->update(['client_name' => 'the caller\'s write']);
+
+        $refused = $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN));
+
+        self::assertSame($level + 1, DB::transactionLevel());
+
+        DB::commit();
+
+        self::assertSame(FailureReason::SSO_REQUIRED, $refused->reason);
+        self::assertSame($proofs, SessionProof::query()->count());
+        self::assertSame('the caller\'s write', DB::table('authentication_sessions')->where('id', $pending->id)->value('client_name'));
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+    }
+
+    /**
+     * A failure inside a caller's transaction that is no concurrency error is
+     * thrown on as it was raised, and rolls back only what the action wrote,
+     * the proof it stored among it: the caller's transaction stays open at its
+     * level with its own writes, and commits them.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailureInsideACallersTransactionRollsBackOnlyTheActionsWritesAndIsThrownOn(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $failure = new \RuntimeException('The factor policy cannot be reached.');
+        $level   = DB::transactionLevel();
+        $proofs  = SessionProof::query()->count();
+        $stored  = null;
+
+        $this->factorAnswer = static function () use ($failure, &$stored): never {
+
+            $stored = SessionProof::query()->count();
+
+            throw $failure;
+        };
+
+        DB::beginTransaction();
+
+        DB::table('authentication_sessions')->where('id', $pending->id)->update(['client_name' => 'the caller\'s write']);
+
+        try {
+            $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN));
+
+            self::fail('The factor policy\'s failure was not thrown on.');
+        } catch (\RuntimeException $thrown) {
+            self::assertSame($failure, $thrown);
+        }
+
+        self::assertSame($proofs + 1, $stored);
+        self::assertSame($level + 1, DB::transactionLevel());
+
+        DB::commit();
+
+        self::assertSame($proofs, SessionProof::query()->count());
+        self::assertSame('the caller\'s write', DB::table('authentication_sessions')->where('id', $pending->id)->value('client_name'));
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
     }
 
     /**
@@ -1993,6 +2257,35 @@ final class PendingSessionsTest extends TestCase
         self::assertNotNull($result->credential);
 
         return [$result->credential->reveal(), $result->pending];
+    }
+
+    /**
+     * Run the callback and return what each statement it sent did, in order:
+     * `locked` for a read of the proven session's row locked for update and
+     * `plain` for one without a lock; with `$around`, also `guard` for a write
+     * of an issuance guard and `proofs` for a read of a session's proofs.
+     *
+     * @param  \Closure(): mixed  $callback
+     * @param  string  $proven
+     * @param  bool  $around
+     * @return list<string>
+     */
+    private static function provenReads(\Closure $callback, string $proven, bool $around = false): array
+    {
+        $labels = array_map(static function (array $query) use ($proven, $around): ?string {
+            [$sql, $bindings] = $query;
+
+            $read = str_starts_with($sql, 'select') && str_contains($sql, 'authentication_sessions') && in_array($proven, $bindings, true);
+
+            return match (true) {
+                $read                                                                                 => self::locksForUpdate($sql) ? 'locked' : 'plain',
+                $around && str_starts_with($sql, 'update') && str_contains($sql, 'issuance_sequence') => 'guard',
+                $around && self::readsProofs($sql)                                                    => 'proofs',
+                default                                                                               => null,
+            };
+        }, self::queriesDuring($callback));
+
+        return array_values(array_filter($labels, static fn (?string $label): bool => $label !== null));
     }
 
     /**

@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
@@ -23,6 +24,8 @@ use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Sessions\FactorChangeResult;
+use SineMacula\Laravel\Authentication\Sessions\FactorRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithExternalSignIns;
@@ -34,18 +37,22 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
- * Races an issuance for a session against a proof another identity's session
- * records, on PostgreSQL and MySQL, each side in a process with a database
- * connection of its own: the first side issues an access token for the session
- * inside a caller's transaction that it holds open, at READ COMMITTED or
- * REPEATABLE READ; the second, started meanwhile, records a proof of another
- * identity, so the sides share no attempt-limit row. Either the issuance is for
- * the newest session (a refresh, a step-up, or the activation that completes a
- * pending sign-in) and the second side signs a new session in through an
- * external provider, or the issuance is a refresh and the second side steps up
- * the session next to it, on either side, in the proofs' session index.
+ * Races an issuance for a session, or a judgement of it made under its lock,
+ * against a proof another identity's session records, on PostgreSQL and MySQL,
+ * each side in a process with a database connection of its own: the first side
+ * issues an access token for the session, or judges it again after a change of
+ * its identity's factors, inside a caller's transaction that it holds open, at
+ * READ COMMITTED or REPEATABLE READ; the second, started meanwhile, records a
+ * proof of another identity, so the sides share no attempt-limit row. Either
+ * the first side holds the newest session (a refresh, a step-up, the activation
+ * that completes a pending sign-in, or a factor change) and the second side
+ * signs a new session in through an external provider, or the first side
+ * refreshes the session or judges it after a factor change and the second side
+ * steps up the session next to it, on either side, in the proofs' session
+ * index.
  *
- * On MySQL the issuance reads the session's proofs with a shared lock, which at
+ * On MySQL the issuance, and every requirement judgement made under the
+ * session's lock, reads the session's proofs with a shared lock, which at
  * REPEATABLE READ also locks the gaps on either side of that session's proofs
  * in the index (`session_id`, `kind`, `authenticated_at`), keys being
  * time-ordered: after the newest session's proofs, where a new session's proof
@@ -65,6 +72,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(SessionProofs::class)]
+#[CoversClass(FactorRevocations::class)]
 final class ConcurrentIssuanceAndSignInTest extends TestCase
 {
     use InteractsWithExternalSignIns, InteractsWithIsolationLevels, InteractsWithProofs, InteractsWithSessions;
@@ -132,41 +140,41 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Rows of `[issuer, isolation level]`: the issuances that read the newest
-     * session's proofs with a shared lock on MySQL, at READ COMMITTED and at
-     * REPEATABLE READ.
+     * Rows of `[holder, isolation level]`: the issuances, and the judgement
+     * after a factor change, that read the newest session's proofs with a
+     * shared lock on MySQL, at READ COMMITTED and at REPEATABLE READ.
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
-    public static function provideIssuersAndIsolationLevels(): iterable
+    public static function provideHoldersAndIsolationLevels(): iterable
     {
-        foreach (['refresh', 'step-up', 'activation'] as $issuer) {
+        foreach (['refresh', 'step-up', 'activation', 'factor change'] as $holder) {
             foreach (self::provideIsolationLevels() as $name => [$level]) {
-                yield "{$issuer} at {$name}" => [$issuer, $level];
+                yield "{$holder} at {$name}" => [$holder, $level];
             }
         }
     }
 
     /**
      * A sign-in of another identity, started while a caller's transaction holds
-     * an issuance for the newest session, waits for that transaction on MySQL
-     * at REPEATABLE READ and nowhere else, and then commits with its own
-     * session, proof and provenance; the issuance commits too, so neither side
-     * deadlocks.
+     * an issuance for the newest session, or a judgement of it after a factor
+     * change, waits for that transaction on MySQL at REPEATABLE READ and
+     * nowhere else, and then commits with its own session, proof and
+     * provenance; the first side commits too, so neither side deadlocks.
      *
-     * @param  string  $issuer
+     * @param  string  $holder
      * @param  string  $level
      * @return void
      *
      * @throws \Throwable
      */
-    #[DataProvider('provideIssuersAndIsolationLevels')]
-    public function testASignInWaitsAtMostForAnIssuanceOfTheNewestSession(string $issuer, string $level): void
+    #[DataProvider('provideHoldersAndIsolationLevels')]
+    public function testASignInWaitsAtMostForACurrentReadOfTheNewestSession(string $holder, string $level): void
     {
         $ada   = $this->seedIdentity();
         $grace = $this->seedIdentity('grace@example.test');
 
-        $reported = $this->race($this->issuerFor($issuer, $ada), $level, function () use ($grace): string {
+        $reported = $this->race($this->holderFor($holder, $ada), $level, function () use ($grace): string {
             $session = $this->sessions()->signInExternally($this->linkedResult($grace, linkId: 'link-grace'))->session;
 
             self::assertNotNull($session);
@@ -181,31 +189,34 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Rows of `[neighbour, isolation level]`: the session signed in just after
-     * the one a refresh is issued for, stepped up with a further factor, whose
-     * proof sorts before its own `first_factor` entry, and the one signed in
-     * just before it, stepped up with a recovery code, whose proof sorts after
-     * its own `first_factor` entry, each at READ COMMITTED and at REPEATABLE
-     * READ.
+     * Rows of `[holder, neighbour, isolation level]`: a refresh of a session,
+     * or a judgement of it after a factor change, and the session signed in
+     * just after it, stepped up with a further factor, whose proof sorts before
+     * its own `first_factor` entry, or the one signed in just before it,
+     * stepped up with a recovery code, whose proof sorts after its own
+     * `first_factor` entry, each at READ COMMITTED and at REPEATABLE READ.
      *
-     * @return iterable<string, array{0: string, 1: string}>
+     * @return iterable<string, array{0: string, 1: string, 2: string}>
      */
     public static function provideNeighboursAndIsolationLevels(): iterable
     {
-        foreach (['next', 'previous'] as $neighbour) {
-            foreach (self::provideIsolationLevels() as $name => [$level]) {
-                yield "the {$neighbour} session at {$name}" => [$neighbour, $level];
+        foreach (['refresh', 'factor change'] as $holder) {
+            foreach (['next', 'previous'] as $neighbour) {
+                foreach (self::provideIsolationLevels() as $name => [$level]) {
+                    yield "the {$neighbour} session of a {$holder} at {$name}" => [$holder, $neighbour, $level];
+                }
             }
         }
     }
 
     /**
      * A step-up of another identity's session whose proofs border those of the
-     * session a caller's transaction holds a refresh of, on either side, waits
-     * for that transaction on MySQL at REPEATABLE READ and nowhere else, and
-     * then commits with its proof recorded; the refresh commits too, so neither
-     * side deadlocks.
+     * session a caller's transaction holds a refresh of, or a judgement of
+     * after a factor change, on either side, waits for that transaction on
+     * MySQL at REPEATABLE READ and nowhere else, and then commits with its
+     * proof recorded; the first side commits too, so neither side deadlocks.
      *
+     * @param  string  $holder
      * @param  string  $neighbour
      * @param  string  $level
      * @return void
@@ -213,7 +224,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
      * @throws \Throwable
      */
     #[DataProvider('provideNeighboursAndIsolationLevels')]
-    public function testAStepUpOfANeighbouringSessionWaitsAtMostForAnIssuance(string $neighbour, string $level): void
+    public function testAStepUpOfANeighbouringSessionWaitsAtMostForACurrentRead(string $holder, string $neighbour, string $level): void
     {
         $ada   = $this->seedIdentity();
         $grace = $this->seedIdentity('grace@example.test');
@@ -233,8 +244,11 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
         $refresh = $session->tokens->refreshToken?->reveal() ?? '';
         $proof   = self::adapterProof($grace, 'api', $other->record->getKey(), kind: $kind);
+        $first   = $holder === 'refresh'
+            ? fn (): ?Secret => $this->sessions()->refresh($refresh)->session?->tokens->accessToken
+            : $this->factorChangeOf($ada, $session);
 
-        $reported = $this->race(fn (): ?Secret => $this->sessions()->refresh($refresh)->session?->tokens->accessToken, $level, function () use ($proof, $their): string {
+        $reported = $this->race($first, $level, function () use ($proof, $their): string {
             self::assertNotNull($this->sessions()->stepUp($proof)->accessToken);
 
             return $their;
@@ -264,22 +278,23 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
     /**
      * Sign the identity in with its password, so its session is the newest, and
-     * return the issuance named for that session, which hands back the access
-     * token it issued: a refresh of it, a step-up of it with a hardware key, or
-     * the activation that satisfies the further factor its sign-in was asked
-     * for.
+     * return what the first side does to that session, which hands back the
+     * access token it issued, or the judgement's result: a refresh of it, a
+     * step-up of it with a hardware key, the activation that satisfies the
+     * further factor its sign-in was asked for, or a judgement after a factor
+     * change.
      *
-     * @param  string  $issuer
+     * @param  string  $holder
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
-     * @return \Closure(): ?\SineMacula\Laravel\Authentication\Secrets\Secret
+     * @return \Closure(): mixed
      *
      * @throws \Throwable
      */
-    private function issuerFor(string $issuer, IntegrationIdentity $identity): \Closure
+    private function holderFor(string $holder, IntegrationIdentity $identity): \Closure
     {
         $sessions = $this->sessions();
 
-        if ($issuer === 'activation') {
+        if ($holder === 'activation') {
             $this->askForAFurtherFactorOf($identity);
 
             $result = $sessions->signIn('password', self::credentials());
@@ -297,15 +312,48 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
         self::assertNotNull($session);
 
-        if ($issuer === 'refresh') {
+        if ($holder === 'refresh') {
             $refresh = $session->tokens->refreshToken?->reveal() ?? '';
 
             return static fn (): ?Secret => $sessions->refresh($refresh)->session?->tokens->accessToken;
         }
 
+        if ($holder === 'factor change') {
+            return $this->factorChangeOf($identity, $session);
+        }
+
         $proof = self::adapterProof($identity, 'api', $session->record->getKey(), methods: ['hwk'], evaluation: new Evaluation(true, true));
 
         return static fn (): ?Secret => $sessions->stepUp($proof)->accessToken;
+    }
+
+    /**
+     * Step the identity's session up with a further factor, then ask the
+     * identity, and no other, for one, and return the judgement of the session
+     * after a factor change, which reads its first factor and its further
+     * factors and keeps it active.
+     *
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return \Closure(): \SineMacula\Laravel\Authentication\Sessions\FactorChangeResult
+     *
+     * @throws \Throwable
+     */
+    private function factorChangeOf(IntegrationIdentity $identity, SignedInSession $session): \Closure
+    {
+        $sessions = $this->sessions();
+
+        self::assertTrue($sessions->stepUp(self::adapterProof($identity, 'api', $session->record->getKey()))->isIssued());
+
+        $this->askForAFurtherFactorOf($identity);
+
+        return static function () use ($sessions, $identity, $session): FactorChangeResult {
+            $result = $sessions->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $session->record);
+
+            self::assertTrue($result->isActive());
+
+            return $result;
+        };
     }
 
     /**
@@ -362,14 +410,14 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Issue here inside a caller's transaction at the isolation level, start
-     * the second side in another process once it has issued, hold the
+     * Issue, or judge, here inside a caller's transaction at the isolation
+     * level, start the second side in another process once it has, hold the
      * transaction open until the second side is about to insert its proof and
      * then until it finishes, for no longer than the hold, then commit, and
      * return what the second side returned and whether it was blocked: still
      * unfinished when the transaction committed.
      *
-     * @param  \Closure(): ?\SineMacula\Laravel\Authentication\Secrets\Secret  $issue
+     * @param  \Closure(): mixed  $issue
      * @param  string  $level
      * @param  \Closure(): string  $second
      * @return array{result: string, blocked: bool}
@@ -429,8 +477,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
     /**
      * Whether the second side waits for the first at the isolation level: on
-     * MySQL at REPEATABLE READ alone, where the shared lock of the issuance's
-     * read locks the gaps around its session's proofs.
+     * MySQL at REPEATABLE READ alone, where the shared lock of the first side's
+     * current read locks the gaps around its session's proofs.
      *
      * @param  string  $level
      * @return bool

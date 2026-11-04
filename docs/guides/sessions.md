@@ -101,25 +101,58 @@ until it commits. So two of them on one session never read the proofs past each 
 
 A sign-in reads its new session's proofs as its own transaction sees them: nothing else can record a proof under a
 session that is not committed yet. Reading the authentication context of a request is not an issuance and writes
-nothing. Deadlocks, if any, propagate as every database error does.
+nothing.
+
+Every judgement of a session against a requirement made while the package holds the session's row reads its proofs
+current in the same way: a refresh's and a switch's judgement against the tenant's policy, a reauthentication's at the
+provider (`reauthenticateExternally()`), `factorChanged()`'s and `factorRemoved()`'s, `satisfy()`'s and `choose()`'s,
+and `tenantPolicyChanged()`'s. Each reads the session's first factor, its other proofs, the provider's evidence they
+hold and its provenance as committed, whatever your transaction read before the call: a step-up committed before the
+judgement counts, a proof voided before it never does, and a session whose key another sign-in reused is judged on its
+own proofs. On MySQL and MariaDB that read takes a shared lock, as the issuance's does; at PostgreSQL's REPEATABLE READ
+the session's lock or guard fails to serialise instead, for you to retry. A judgement made without the session's lock
+reads plainly: a refresh credential's (`refreshCredentialFromRequest()`), and `pending()`'s. What a bound
+`RequirementCheck`, `ExternalEvidencePolicy` or `TenantAuthenticationPolicy` reads of its own tables is its own.
+
+A lock wait timeout, a deadlock and a serialisation failure propagate as every database error does, and the package
+never retries. Laravel rethrows one raised inside the package's savepoint without rolling your transaction back, and
+MySQL by default rolls back only the statement that timed out, so on any of them roll your whole transaction back and
+retry it whole; never carry on with it.
 
 On MySQL at REPEATABLE READ, the shared lock of the current read also locks the gaps on either side of the session's
-proofs in the proofs' session index, so a proof another transaction inserts into one of them waits for the issuance's
+proofs in the proofs' session index, so a proof another transaction inserts into one of them waits for the reading
 transaction to commit: briefly in the package's own transaction, but inside yours until you commit, so keep such a
 transaction short. Keys are time-ordered and the index sorts a session's proofs by kind, so the proofs that wait are:
 
-- a new session's, after the newest session's proofs: a sign-in that starts while an issuance of the newest session is
-  in flight (a refresh, a switch, a step-up, a reauthentication, an activation) waits;
+- a new session's, after the newest session's proofs: a sign-in that starts while an issuance or a judgement of the
+  newest session is in flight (a refresh, a switch, a step-up, a reauthentication, an activation, a factor change, a
+  `satisfy()` or `choose()`, a tenant's policy change) waits;
 - a neighbouring session's, the one whose proofs come just before or just after the issued session's, from its step-up,
   reauthentication or `satisfy()`: a further factor, a `satisfy()` or a reauthentication at the provider of the next
   session, and a recovery code or a reauthentication with the first factor of the previous one, wait.
 
+A judgement holds these locks even when it issues nothing: `factorChanged()`, `factorRemoved()`, a `satisfy()` or
+`choose()` that leaves the session pending, a refresh or a switch that returns it to pending, and a reauthentication
+its tenant refuses. Where the tenant's policy names connections, the judgement also locks the session's provenance row,
+or, for a session with none, the gap its key falls in, where only an external sign-in's provenance can be inserted, and
+so does `externalStanding()` asked inside your transaction.
+
 The waiting side then commits; the wait never deadlocks on its own, but it can when your transaction, after the
-issuance, goes on to take a lock the waiting side already holds: an external sign-in holds its link's guard row, and a
-neighbour's step-up, reauthentication or `satisfy()` holds that session's row, so signing in through the same link, or
-revoking, refreshing or switching that session (or signing its identity out everywhere) in the same transaction can
-deadlock, and MySQL then fails one of them as a deadlock for you to retry. At READ COMMITTED MySQL locks no gap, and
-PostgreSQL takes no shared lock, so nothing waits there.
+issuance or judgement, goes on to take a lock the waiting side already holds: an external sign-in holds its link's guard
+row, and a neighbour's step-up, reauthentication or `satisfy()` holds that session's row, so signing in through the
+same link, or revoking, refreshing or switching that session (or signing its identity out everywhere) in the same
+transaction can deadlock, and MySQL then fails one of them as a deadlock for you to retry. Take every session row your
+transaction needs before such a call, as the package takes every session row before any proof. Session rows have no one
+order across calls, though. A call that ends or judges several sessions locks them in key order, oldest first:
+`tenantPolicyChanged()` and every bulk revocation (`revokeSessions()`, `revokePrincipalSessions()`,
+`signOutEverywhere()`, `passwordChanged()`, `passwordReset()`, a first password's establishment, `credentialRemoved()`,
+`factorRemoved()`, `factorReset()`, a deactivation, `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()` and
+`linkScopeWidened()`). `satisfy()` and `choose()` on a pending session whose sign-in proved it holds another session
+lock the pending session and then that older one, whatever the action goes on to decide. So such a call over both can
+deadlock with the pending action, the database failing one for its caller to roll back and retry whole. At PostgreSQL's
+REPEATABLE READ the lock on that older session also fails to serialise when it was written after your transaction's
+snapshot (a refresh of it from the client's other tab, say), whatever the action then decides; roll back and retry the
+whole transaction. At READ COMMITTED MySQL locks no gap, and PostgreSQL takes no shared lock, so nothing waits there.
 
 ## Stepping up
 
@@ -266,7 +299,9 @@ and otherwise the reason (`method_not_allowed`, `session_unknown`, `session_guar
 through the connection and any link stands (one recorded with no link never does), for an adapter asked when a
 reauthentication flow starts, before the exact link is known. Asked outside a transaction, it reads the session on the
 write connection and locks nothing; asked inside the adapter's transaction, before it renews, it locks the session's row
-until the transaction ends. It writes and reports nothing.
+until the transaction ends and reads its provenance current, as a judgement under the lock does (see
+[Issuance order](#issuance-order)), so a session whose key another sign-in reused after your transaction's first read is
+answered on its own provenance. It writes and reports nothing.
 
 ## Freshness
 
@@ -894,29 +929,31 @@ a write between them. A removal needs no such call; with one, hand the client th
 pending: `FactorRemoval::$credential`, or the `FactorChangeResult`'s when it `isPending()`.
 
 The call locks the session's row and writes its issuance guard before it reads the proofs, so it and any refresh or
-step-up of the session wait on each other. Its judgement then reads the proofs with plain reads, as `factorRemoved()`'s
-does. On MySQL and MariaDB at REPEATABLE READ those return your transaction's snapshot, which its first plain read
-takes: a proof committed after that read (a step-up's) is not counted, so the session can return to pending although it
-met the requirement, and a proof voided after it (by a removal of another factor) still counts. There, make the call
-before any plain read in your transaction (locking reads and writes take no snapshot), or run the change at READ
-COMMITTED. At PostgreSQL's REPEATABLE READ the lock fails to serialise instead, for you to retry. When the request's
-guard is bound to the session and it returned to pending or was revoked, the guard forgets it once the change commits,
-before anything is reported. `$current` must be a session of this guard the identity owns (an `InvalidArgumentException`
-otherwise, before anything is written); the identity may live on any connection, since nothing of it is written. Open
-the factor package's transaction on the storage connection, as above, so the call is a savepoint of it and commits or
-rolls back with the change: on any other connection, or with no transaction, it commits on its own. If the change rolls
-back, the session stays active and the credential matches nothing. A change made with no current session (an
-administrator's, a queued job's, a request authenticated without one) has nothing to judge, so it does not call
-`factorChanged()`, as the example shows.
+step-up of the session wait on each other, and its judgement reads the proofs current, as `factorRemoved()`'s does (see
+[Issuance order](#issuance-order)): whatever your transaction read before the call, a step-up committed before it counts
+and a proof a removal of another factor voided never does. On MySQL and MariaDB at REPEATABLE READ that read holds
+shared locks on the session's proofs until your transaction commits, so a sign-in, or a neighbouring session's step-up,
+may wait for it; at PostgreSQL's REPEATABLE READ a change of the session's proofs committed after your transaction's
+snapshot fails the call to serialise instead, for you to retry your whole transaction. When the request's guard is bound
+to the session and it returned to pending or was revoked, the guard forgets it once the change commits, before anything
+is reported. `$current` must be a session of this guard the identity owns (an `InvalidArgumentException` otherwise,
+before anything is written); the identity may live on any connection, since nothing of it is written. Open the factor
+package's transaction on the storage connection, as above, so the call is a savepoint of it and commits or rolls back
+with the change: on any other connection, or with no transaction, it commits on its own. If the change rolls back, the
+session stays active and the credential matches nothing. A change made with no current session (an administrator's, a
+queued job's, a request authenticated without one) has nothing to judge, so it does not call `factorChanged()`, as the
+example shows.
 
 The identity's other sessions are not judged. Only the current session's client is in the request to receive a pending
 credential, so returning another session to pending would mint a credential nobody holds, which is a revocation in
 disguise; and a factor added is no sign of compromise, so nothing revokes them either (a removal has already ended them,
 through `factorRemoved()`). A refresh asks the identity's factor policy only once its tenant's policy already falls
 short, so those sessions keep running as they were admitted until they end. To have them meet the new requirement, end
-them yourself in the same transaction:
+them yourself in the same transaction, before the call:
 `Auth::sessions()->revokeSessions($user, RevocationReason::REVOKED, except: Auth::session())` or
-`signOutEverywhere(keepCurrentSession: true)`.
+`signOutEverywhere(keepCurrentSession: true)`. The call has read the current session's proofs under shared locks, and
+the package takes every session row before any proof, as `factorRemoved()` ends the other sessions before it locks the
+current one.
 
 ### Connections and links
 
@@ -1052,17 +1089,22 @@ DB::transaction(function () use ($tenant, $policy) {
 });
 ```
 
-The helper is mandatory: no setting turns it off, and nothing calls it for you. It reads the tenant's live sessions
+The helper is mandatory: no setting turns it off, and nothing calls it for you. It locks the tenant's live sessions
 (`tenant_id`, every guard, pending ones included; one already past a deadline is left for pruning) on the storage
-connection in key order, a chunk at a time, each chunk under a lock; skips a session recorded at the very version the
-policy now answers (neither `null`); revokes an active one that no longer meets it as `tenant_policy_changed`, and a
-pending one only when it would need another connection (a pending one that lacks a factor is judged when it activates);
-and records the version on an active one that meets it. It returns how many it revoked, and `SessionRevoked` reports
-each once committed. Call it inside the transaction that publishes the change, on the storage connection, so the two
-commit or roll back together (it runs as a savepoint and never commits on its own), and, for a strict cut-off, once more
-after that transaction commits: a session that entered the tenant while the first call ran is then judged too. Change
-the policy's version whenever anything its answer depends on changes, so the helper never skips a session it should
-judge.
+connection first, reading their keys in key order a chunk at a time, each chunk under a lock, and only then judges them,
+reading them again a chunk at a time and each one's proofs and provenance current (see [Issuance
+order](#issuance-order)); skips a session recorded at the very version the policy now answers (neither `null`); revokes
+an active one that no longer meets it as `tenant_policy_changed`, and a pending one only when it would need another
+connection (a pending one that lacks a factor is judged when it activates); and records the version on an active one
+that meets it. It returns how many it revoked, and `SessionRevoked` reports each once committed. Call it inside the
+transaction that publishes the change, on the storage connection, so the two commit or roll back together (it runs as a
+savepoint and never commits on its own), and, for a strict cut-off, once more after that transaction commits: a session
+that entered the tenant while the first call ran is then judged too. Change the policy's version whenever anything its
+answer depends on changes, so the helper never skips a session it should judge. On MySQL and MariaDB at REPEATABLE READ
+it holds the shared locks of every session it judged until your transaction commits, so a sign-in that starts meanwhile
+waits when one of them is the newest session, as does a step-up of a session next to one; keep that transaction short.
+It holds the keys of the tenant's live sessions in memory for the call (about 70 KB for a thousand), and the sessions
+only a chunk at a time.
 
 ### Revocation reasons
 

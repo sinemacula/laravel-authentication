@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\IssuanceGuard;
@@ -95,7 +96,10 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
  * there is judged: a revocation, a return to pending or a switch the guard
  * waited for is seen, so a grace retry, which writes no compare-and-swap, never
  * hands out a pair for a session that changed before the exchange held it. A
- * session whose row is gone by then fails as `session_unknown`.
+ * session whose row is gone by then fails as `session_unknown`. Its tenant's
+ * policy is judged on the session's proofs and provenance read current too
+ * (`SessionProofs`), so the judgement, like the token, counts every proof
+ * committed before it and none voided by then.
  *
  * Every check uses one time per exchange, taken once the guard is written and
  * cut to the whole second. A failure is returned as the `AuthenticationFailed`
@@ -332,7 +336,7 @@ final readonly class RefreshTokenExchange
         CarbonImmutable $now,
         ClientContext $client,
     ): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
-        $policy = TenantPolicyCheck::check($this->context->name(), $session->identity, $session->principal, $session->tenant, $record, $now);
+        $policy = TenantPolicyCheck::check($this->context->name(), $session->identity, $session->principal, $session->tenant, $record, $now, new ProofSource(current: true));
 
         if (!$policy->isMet()) {
             return $this->fallShort($record, $session, $policy, $rotationId, $now, $client);
@@ -398,8 +402,8 @@ final readonly class RefreshTokenExchange
         }
 
         $transitions = new PendingTransitions($this->context, $this->afterCommit, Container::getInstance()->make(Repository::class));
-        $firstFactor = PendingTransitions::firstFactorOf($record, $policy);
-        $outstanding = $transitions->outstanding($record, $session->identity, $policy->factor, $firstFactor, $now);
+        $firstFactor = PendingTransitions::firstFactorOf($record, $policy, current: true);
+        $outstanding = $transitions->outstanding($record, $session->identity, $policy->factor, $firstFactor, $now, current: true);
 
         return $transitions->returnToPending($record, $session, $policy->version, $outstanding, $firstFactor, AuthenticationFlow::REFRESH, $now)
             ?? $this->afterLostRotation($record, $session, $rotationId, $now, $client, true);
