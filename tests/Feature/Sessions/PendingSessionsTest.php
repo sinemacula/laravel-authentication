@@ -1777,6 +1777,56 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
+     * A failure inside a caller's transaction that is no concurrency error is
+     * thrown on as it was raised, and rolls back only what the action wrote,
+     * the proof it stored among it: the caller's transaction stays open at its
+     * level with its own writes, and commits them.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailureInsideACallersTransactionRollsBackOnlyTheActionsWritesAndIsThrownOn(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $pending] = $this->pendingSignIn();
+
+        $failure = new \RuntimeException('The factor policy cannot be reached.');
+        $level   = DB::transactionLevel();
+        $proofs  = SessionProof::query()->count();
+        $stored  = null;
+
+        $this->factorAnswer = static function () use ($failure, &$stored): never {
+
+            $stored = SessionProof::query()->count();
+
+            throw $failure;
+        };
+
+        DB::beginTransaction();
+
+        DB::table('authentication_sessions')->where('id', $pending->id)->update(['client_name' => 'the caller\'s write']);
+
+        try {
+            $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN));
+
+            self::fail('The factor policy\'s failure was not thrown on.');
+        } catch (\RuntimeException $thrown) {
+            self::assertSame($failure, $thrown);
+        }
+
+        self::assertSame($proofs + 1, $stored);
+        self::assertSame($level + 1, DB::transactionLevel());
+
+        DB::commit();
+
+        self::assertSame($proofs, SessionProof::query()->count());
+        self::assertSame('the caller\'s write', DB::table('authentication_sessions')->where('id', $pending->id)->value('client_name'));
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+    }
+
+    /**
      * The pre-action seam answers nothing for a session the gate would refuse,
      * so no code is sent and no enrolment begun for one that can never
      * activate: its identity deactivated, or its method no longer allowed. Once
