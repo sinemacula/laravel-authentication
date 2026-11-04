@@ -24,7 +24,10 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
  * The id is the session's key: it stays the same from pending to active and
  * grants nothing by itself. Only the actions of the first outstanding
  * requirement are allowed (`allows()`); the eligible principals are listed only
- * while the choice is that requirement.
+ * while the choice is that requirement. Each one listed that uses
+ * `ActsAsPrincipal` holds its tenant, loaded with the others' on the write
+ * connection, so a choice screen reading `getTenant()` on it costs no query and
+ * never lazy-loads, even under Eloquent strict mode.
  *
  * What a factor's verifier needs to meet the further factor is here: the
  * requirement its authentication still falls short of (the strictest of the
