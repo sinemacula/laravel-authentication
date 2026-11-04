@@ -134,7 +134,8 @@ transaction short. Keys are time-ordered and the index sorts a session's proofs 
 A judgement holds these locks even when it issues nothing: `factorChanged()`, `factorRemoved()`, a `satisfy()` or
 `choose()` that leaves the session pending, a refresh or a switch that returns it to pending, and a reauthentication
 its tenant refuses. Where the tenant's policy names connections, the judgement also locks the session's provenance row,
-or, for a session with none, the gap its key falls in, where only an external sign-in's provenance can be inserted.
+or, for a session with none, the gap its key falls in, where only an external sign-in's provenance can be inserted, and
+so does `externalStanding()` asked inside your transaction.
 
 The waiting side then commits; the wait never deadlocks on its own, but it can when your transaction, after the
 issuance or judgement, goes on to take a lock the waiting side already holds: an external sign-in holds its link's guard
@@ -142,10 +143,14 @@ row, and a neighbour's step-up, reauthentication or `satisfy()` holds that sessi
 same link, or revoking, refreshing or switching that session (or signing its identity out everywhere) in the same
 transaction can deadlock, and MySQL then fails one of them as a deadlock for you to retry. Take every session row your
 transaction needs before such a call, as the package takes every session row before any proof. Session rows have no one
-order across calls, though: `tenantPolicyChanged()` locks a tenant's sessions in key order, while `satisfy()` or
-`choose()` on a pending session whose sign-in proved a session it may supersede locks the pending session and then that
-older one, so the two can deadlock, the database failing one for its caller to retry. At READ COMMITTED MySQL locks no
-gap, and PostgreSQL takes no shared lock, so nothing waits there.
+order across calls, though. A call that ends or judges several sessions locks them in key order, oldest first:
+`tenantPolicyChanged()` and every bulk revocation (`revokeSessions()`, `revokePrincipalSessions()`,
+`signOutEverywhere()`, `passwordChanged()`, `passwordReset()`, a first password's establishment, `credentialRemoved()`,
+`factorRemoved()`, `factorReset()`, a deactivation, `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()` and
+`linkScopeWidened()`). `satisfy()` and `choose()` on a pending session whose sign-in proved it holds another session
+lock the pending session and then that older one, whatever the action goes on to decide. So such a call over both can
+deadlock with the pending action, the database failing one for its caller to roll back and retry whole. At READ
+COMMITTED MySQL locks no gap, and PostgreSQL takes no shared lock, so nothing waits there.
 
 ## Stepping up
 
@@ -292,7 +297,9 @@ and otherwise the reason (`method_not_allowed`, `session_unknown`, `session_guar
 through the connection and any link stands (one recorded with no link never does), for an adapter asked when a
 reauthentication flow starts, before the exact link is known. Asked outside a transaction, it reads the session on the
 write connection and locks nothing; asked inside the adapter's transaction, before it renews, it locks the session's row
-until the transaction ends. It writes and reports nothing.
+until the transaction ends and reads its provenance current, as a judgement under the lock does (see
+[Issuance order](#issuance-order)), so a session whose key another sign-in reused after your transaction's first read is
+answered on its own provenance. It writes and reports nothing.
 
 ## Freshness
 

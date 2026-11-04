@@ -72,11 +72,12 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  *
  * Either judgement is made under the current session's row lock, after its
  * issuance guard, and reads its proofs and provenance current
- * (`SessionProofs`): at every isolation level it judges the proofs committed by
- * then, a step-up included and a voided proof excluded, whatever the factor
- * package's transaction read first; on PostgreSQL at REPEATABLE READ, a proof
- * change committed after that transaction's snapshot fails it to serialise
- * instead, for the factor package to retry it whole.
+ * (`SessionProofs`): at READ COMMITTED, and on MySQL and MariaDB at REPEATABLE
+ * READ, it judges the proofs committed by then, a step-up included and a
+ * voided proof excluded, whatever the factor package's transaction read first;
+ * on PostgreSQL at REPEATABLE READ, a proof change committed after that
+ * transaction's snapshot fails it to serialise instead, for the factor package
+ * to retry it whole.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

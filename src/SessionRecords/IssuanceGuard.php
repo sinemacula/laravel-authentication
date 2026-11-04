@@ -23,11 +23,11 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
  * The row is the session's own, which every issuer already takes and which
  * comes after the caller's locks and the connection guard rows in the package's
  * lock order, so the guard adds no row lock and no new order. The current reads
- * of the proofs that follow it, the issuance's and every requirement
- * judgement's made under the row's lock, take more on MySQL and MariaDB at
- * REPEATABLE READ: their shared locks also hold the gaps on either side of the
- * session's proofs, where a proof of a new session or of a neighbouring one may
- * fall (`SessionProofs`).
+ * of the proofs that follow it, the issuance's and those of the requirement
+ * judgements made after it under the row's lock, take more on MySQL and MariaDB
+ * at REPEATABLE READ: their shared locks also hold the gaps on either side of
+ * the session's proofs, where a proof of a new session or of a neighbouring one
+ * may fall (`SessionProofs`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

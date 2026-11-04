@@ -63,14 +63,14 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * judged again, its proofs and provenance read current (`SessionProofs`), so
  * the session activates, stays pending, or moves on to the choice. Satisfying
  * and choosing, once the action is admitted, also lock the session the
- * sign-in's client proved it holds, when there is one an activation may
- * supersede, before the session's issuance guard and any read of its proofs:
- * every session row is locked before any proof row, as the package's lock order
- * puts them. A refusal writes nothing (a proof given with it is not stored) and
- * never revokes the session, which waits until its credential expires; only
- * `discard()` ends one early. Once a proof `satisfy()` stored commits, or rolls
- * back, every resolved guard bound to the session forgets the authentication
- * context it holds.
+ * sign-in's client proved it holds, whenever the sign-in recorded one, before
+ * checking whether an activation may supersede it, and before the session's
+ * issuance guard and any read of its proofs: every session row is locked before
+ * any proof row, as the package's lock order puts them. A refusal writes
+ * nothing (a proof given with it is not stored) and never revokes the session,
+ * which waits until its credential expires; only `discard()` ends one early.
+ * Once a proof `satisfy()` stored commits, or rolls back, every resolved guard
+ * bound to the session forgets the authentication context it holds.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -701,9 +701,9 @@ final readonly class PendingSessions
      * holding the refresh digest it was proven against; else `null`. One that
      * returned to pending keeps that digest, so its status is checked too. With
      * `$lock`, its row is read locked until the transaction ends (a pending
-     * action's, before it reads the pending session's proofs), so the
-     * activation's supersede that may follow takes no row after them; a session
-     * that proved none locks nothing.
+     * action's, before it reads the pending session's proofs), before any of
+     * these checks, so the activation's supersede that may follow takes no row
+     * after them; a session that proved none locks nothing.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  bool  $lock

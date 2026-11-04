@@ -63,10 +63,11 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   the bound `RequirementCheck`), and the tenant's policy against the session's own proofs and provenance, read current
   (`SessionProofs`: on MySQL and MariaDB a shared lock, so a proof committed or voided before the action is judged as
   it now stands, whatever the caller's transaction read first). Nothing that changed while the session waited is
-  skipped. Once the action is admitted, the session the sign-in's client proved it holds, when there is one an
-  activation may supersede, is read locked for update, before `satisfy()`'s issuance guard and proof and before any
-  read of the pending session's proofs, so the supersede takes no session row after a proof row; `pending()` reads it,
-  and the proofs, plainly.
+  skipped. Once the action is admitted, the session the sign-in's client proved it holds, whenever the sign-in
+  recorded one, is read locked for update before it is checked (it is superseded only while it is still active,
+  unrevoked, of the guard and owner, and holding the digest proven), before `satisfy()`'s issuance guard and proof and
+  before any read of the pending session's proofs, so the supersede takes no session row after a proof row; `pending()`
+  reads it, and the proofs, plainly.
 - `satisfy()` accepts a proof only as `ProofAcceptance::forPendingSession()` decides: an `additional_factor` or a
   `recovery_code`, for `sign_in` (or `enrollment` for an `additional_factor`, a bootstrap enrolment's confirming proof),
   accepted, timed no earlier than when the session began waiting (the later of its start and `switched_at`) and no
@@ -118,9 +119,11 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 
 - Two `satisfy()` calls on one credential serialise on the row's lock: one activates, and the other finds the session
   active and is `pending_invalid`. A `discard()` racing either wins or loses the same way.
-- A `satisfy()` or `choose()` that locks the pending session and then the older one it proved, and a
-  `tenantPolicyChanged()` that locks the tenant's sessions in key order, can deadlock; the database fails one, for its
-  caller to roll back and retry whole.
+- A `satisfy()` or `choose()` locks the pending session and then the older one its sign-in proved, whatever it goes on
+  to decide (activate, stay pending, move on to the choice, or refuse in `settle()`); `tenantPolicyChanged()` and every
+  bulk revocation (`RevocationWriter`, and `ConnectionRevocations` for a connection or a link) lock the sessions they
+  cover in key order, the older first. Over both sessions, the two can deadlock; the database fails one, for its caller
+  to roll back and retry whole.
 - A return to pending that loses its compare-and-swap is judged again from the reloaded row, as a lost rotation is, so a
   concurrent rotation, switch, revocation or return applies and the other is refused or retried, never both.
 - A pending idle deadline can equal the active one near the absolute cap, so only `status` tells the two apart in a

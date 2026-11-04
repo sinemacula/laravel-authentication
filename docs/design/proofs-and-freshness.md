@@ -108,8 +108,8 @@ session holds; the token's claims and every freshness answer are worked out from
   must still meet its tenant's authentication policy, as at every redemption (`sso_required`,
   `additional_factor_required`; the proof rolls back). The proof is timed at the provider's time, never after now, so
   the new token's `auth_time` is the later of the session's and the provider's, decided under that lock.
-  `externalStanding()` answers the same checks without writing, under the same lock inside a transaction and with none
-  outside one (when no link id is given, through any link of the connection).
+  `externalStanding()` answers the same checks without writing, under the same lock inside a transaction, reading the
+  provenance current there, and with none outside one (when no link id is given, through any link of the connection).
 - A step-up (`SessionService::stepUp()`) and a reauthentication (`reauthenticate()`) share `Sessions\ProofIssuance`:
   in one transaction on the session's connection, the session's row is locked; the session must exist, be this guard's,
   live and a person's; the operation's own check runs on the locked row; the session is admitted again as a refresh
@@ -218,14 +218,17 @@ session holds; the token's claims and every freshness answer are worked out from
   the bound `RequirementCheck`, `ExternalEvidencePolicy` or `TenantAuthenticationPolicy` reads of its own tables is its
   own.
 - The current reads keep the lock order of session rows before proof rows. `satisfy()` and `choose()` lock the session
-  the sign-in's client proved it holds, once the action is admitted and before the pending session's guard and proofs,
-  so the supersede its first activation makes takes no row after them; `tenantPolicyChanged()` reads the keys of the
-  tenant's live sessions with locking reads first and judges them only once all are locked, reading each chunk again by
-  key with a locking read of rows it already holds; and the factor package ends the identity's other sessions before it
-  calls `factorChanged()`, as `factorRemoved()` revokes them before it locks the current one. Session rows have no one
-  order across operations (`tenantPolicyChanged()` locks in key order, a pending action the pending session before the
-  older one it proved), so the two can deadlock, as they could at a first activation before; the database fails one,
-  and its caller rolls its whole transaction back and retries it.
+  the sign-in's client proved it holds, whenever the sign-in recorded one, once the action is admitted, before they
+  check it and before the pending session's guard and proofs, so the supersede its first activation makes takes no row
+  after them; `tenantPolicyChanged()` reads the keys of the tenant's live sessions with locking reads first and judges
+  them only once all are locked, reading each chunk again by key with a locking read of rows it already holds; and the
+  factor package ends the identity's other sessions before it calls `factorChanged()`, as `factorRemoved()` revokes
+  them before it locks the current one. Session rows have no one order across operations: `tenantPolicyChanged()` and
+  every bulk revocation (`RevocationWriter::revokeScopes()`, and `ConnectionRevocations` for a connection or a link)
+  lock the sessions they cover in key order, the older first, while a pending action locks the pending session before
+  the older one it proved, whether it then activates, stays pending, moves on to the choice or is refused. So such an
+  operation over both can deadlock with the pending action, as it could at a first activation's supersede before; the
+  database fails one, and its caller rolls its whole transaction back and retries it.
 - On MySQL at REPEATABLE READ, the shared lock of an issuance's or a judgement's current read is a set of next-key locks
   on the proofs' session index (`session_id`, `kind`, `authenticated_at`), so it also locks the gaps on either side of
   the session's proofs, up to the neighbouring entries. Keys are time-ordered, so a proof another transaction inserts
@@ -256,9 +259,12 @@ session holds; the token's claims and every freshness answer are worked out from
   | The same and a voided further factor                        | 4 next-key, and the gap to the supremum | 4 next-key, and the gap before the next session's |
   | External first factor, evidence accepted                    | 1 next-key, and the gap to the supremum | 1 next-key, and the gap before the next session's |
   | Connection named, provenance present                        | 1 next-key; the provenance row          | 1 next-key; the provenance row                    |
-  | Connection named, no provenance                             | the provenance gap to the supremum      | the provenance gap to the supremum                |
+  | Connection named, no provenance                             | the provenance gap to the supremum      | the gap before the next provenance key            |
 
-  Each next-key lock comes with a record lock on the proof's row. Before, the judgement took none of these. A refresh's
+  Each next-key lock comes with a record lock on the proof's row. In the last row no session had provenance, so the gap
+  before the next provenance key ran to the supremum for the middle session too; when a later session was established
+  externally, that gap ends at its key, and a new external sign-in, whose key comes after it, does not wait. Before,
+  the judgement took none of these. A refresh's
   issuance (`history(true)`) of the same session takes the same records and the same edge gap, so a judgement before a
   refresh's, a switch's, a step-up's, a reauthentication's or an activation's issuance takes early what the issuance
   holds later, and adds only the provenance lock where the policy names connections; `factorChanged()`,
@@ -347,9 +353,11 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   judgement made under the session's lock is current (on SQLite through `Tests\Concerns\MarksSharedLocks`, which names
   MySQL as the driver and marks the lock in the SQL), the unlocked ones plain, the proven session locked before the
   proofs, and every session row before any proof in a policy change.
-- `tests/Integration/Sessions/CurrentProofReadsTest.php`: every judging path, inside a caller's transaction that read
-  before another connection committed a step-up, voided a proof, accepted evidence or reused the key, judges what was
-  committed at READ COMMITTED and on MySQL at REPEATABLE READ, and fails to serialise at PostgreSQL's REPEATABLE READ.
+- `tests/Integration/Sessions/CurrentProofReadsTest.php`: every judging path (a factor change and removal, a refresh, a
+  switch and its grace retry, `satisfy()` and `choose()`, a reauthentication at the provider and a policy change) and
+  the external standing, inside a caller's transaction that read before another connection committed a step-up, voided
+  a proof, accepted evidence or reused the key, judges what was committed at READ COMMITTED and on MySQL at REPEATABLE
+  READ, and fails to serialise at PostgreSQL's REPEATABLE READ.
 - `tests/Feature/Sessions/SessionStepUpTest.php`, `SessionReauthenticationTest.php`, `ExternalReauthenticationTest.php`:
   every refusal, the token, what is kept, the events; the external one's link checks, the later-time rule, accepted and
   unaccepted evidence, changes under the lock and the standing.

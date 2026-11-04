@@ -54,11 +54,11 @@ new session, so "the device" and "the record" are no longer one thing.
   (see `proofs-and-freshness.md` and `refresh-rotation-and-replay.md`). The session row is the last row in the package's
   lock order (the caller's locks, then the connection guard rows, then session rows, then that session's proof rows), so
   the guard adds no row lock and no order. The current reads of the proofs that follow it, the issuance's and those of
-  every requirement judgement made under the session's lock, take more on MySQL and MariaDB at REPEATABLE READ: their
-  shared locks also hold the gaps on either side of the session's proofs, so a proof of another session that falls
+  the requirement judgements made after it under the session's lock, take more on MySQL and MariaDB at REPEATABLE READ:
+  their shared locks also hold the gaps on either side of the session's proofs, so a proof of another session that falls
   there (a new session's, a neighbouring session's step-up) waits for the reading transaction to commit (see
   `proofs-and-freshness.md`). Those reads keep the order: no operation takes a session row once it has read proofs
-  under a lock (a pending action locks the session it may supersede first, and a tenant's policy change locks every
+  under a lock (a pending action locks the session its sign-in proved first, and a tenant's policy change locks every
   session before it judges any). `IssuanceGuard::write()` returns whether it wrote the row: refresh and switch refuse
   a `false` as `session_unknown`, and `IssuanceGuard::hold()`, used under a lock and by the token service's public
   issue, makes it a `LogicException`.
