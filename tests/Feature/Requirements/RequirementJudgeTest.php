@@ -534,6 +534,7 @@ final class RequirementJudgeTest extends TestCase
         self::assertSame(array_fill(0, 4, self::takesSharedLocks()), $judge($session, new ProofSource(current: true)));
         self::assertSame(array_fill(0, 4, false), $judge($session, new ProofSource));
         self::assertSame([], $judge($session, new ProofSource(SessionEvidence::of(SignInProof::unattested('password', $now)), true)));
+
         $current = new ProofSource(current: true);
 
         self::assertSame([], self::proofReadLocks(static fn (): bool => RequirementJudge::isMet('members', $member, null, null, $now, $current, $requirement)));

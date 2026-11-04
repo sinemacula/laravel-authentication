@@ -146,11 +146,11 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
-    public static function provideIssuersAndIsolationLevels(): iterable
+    public static function provideHoldersAndIsolationLevels(): iterable
     {
-        foreach (['refresh', 'step-up', 'activation', 'factor change'] as $issuer) {
+        foreach (['refresh', 'step-up', 'activation', 'factor change'] as $holder) {
             foreach (self::provideIsolationLevels() as $name => [$level]) {
-                yield "{$issuer} at {$name}" => [$issuer, $level];
+                yield "{$holder} at {$name}" => [$holder, $level];
             }
         }
     }
@@ -162,19 +162,19 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
      * nowhere else, and then commits with its own session, proof and
      * provenance; the first side commits too, so neither side deadlocks.
      *
-     * @param  string  $issuer
+     * @param  string  $holder
      * @param  string  $level
      * @return void
      *
      * @throws \Throwable
      */
-    #[DataProvider('provideIssuersAndIsolationLevels')]
-    public function testASignInWaitsAtMostForAnIssuanceOfTheNewestSession(string $issuer, string $level): void
+    #[DataProvider('provideHoldersAndIsolationLevels')]
+    public function testASignInWaitsAtMostForACurrentReadOfTheNewestSession(string $holder, string $level): void
     {
         $ada   = $this->seedIdentity();
         $grace = $this->seedIdentity('grace@example.test');
 
-        $reported = $this->race($this->issuerFor($issuer, $ada), $level, function () use ($grace): string {
+        $reported = $this->race($this->holderFor($holder, $ada), $level, function () use ($grace): string {
             $session = $this->sessions()->signInExternally($this->linkedResult($grace, linkId: 'link-grace'))->session;
 
             self::assertNotNull($session);
@@ -224,7 +224,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
      * @throws \Throwable
      */
     #[DataProvider('provideNeighboursAndIsolationLevels')]
-    public function testAStepUpOfANeighbouringSessionWaitsAtMostForAnIssuance(string $holder, string $neighbour, string $level): void
+    public function testAStepUpOfANeighbouringSessionWaitsAtMostForACurrentRead(string $holder, string $neighbour, string $level): void
     {
         $ada   = $this->seedIdentity();
         $grace = $this->seedIdentity('grace@example.test');
@@ -284,17 +284,17 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
      * further factor its sign-in was asked for, or a judgement after a factor
      * change.
      *
-     * @param  string  $issuer
+     * @param  string  $holder
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @return \Closure(): mixed
      *
      * @throws \Throwable
      */
-    private function issuerFor(string $issuer, IntegrationIdentity $identity): \Closure
+    private function holderFor(string $holder, IntegrationIdentity $identity): \Closure
     {
         $sessions = $this->sessions();
 
-        if ($issuer === 'activation') {
+        if ($holder === 'activation') {
             $this->askForAFurtherFactorOf($identity);
 
             $result = $sessions->signIn('password', self::credentials());
@@ -312,13 +312,13 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
         self::assertNotNull($session);
 
-        if ($issuer === 'refresh') {
+        if ($holder === 'refresh') {
             $refresh = $session->tokens->refreshToken?->reveal() ?? '';
 
             return static fn (): ?Secret => $sessions->refresh($refresh)->session?->tokens->accessToken;
         }
 
-        if ($issuer === 'factor change') {
+        if ($holder === 'factor change') {
             return $this->factorChangeOf($identity, $session);
         }
 

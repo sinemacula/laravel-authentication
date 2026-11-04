@@ -1324,11 +1324,11 @@ final class PendingSessionsTest extends TestCase
 
     /**
      * Once the action is admitted, satisfying and choosing read the session the
-     * sign-in's client proved it holds locked for update, before the pending
-     * session's issuance guard and before any read of its proofs, so the
-     * supersede an activation makes takes no session row after them; a refused
-     * action never reads it, and looking a pending session that waits on a
-     * further factor up reads it without a lock.
+     * sign-in's client proved it holds locked for update, before satisfying's
+     * issuance guard (choosing writes none) and before any read of the pending
+     * session's proofs, so the supersede an activation makes takes no session
+     * row after them; a refused action never reads it, and looking a pending
+     * session that waits on a further factor up reads it without a lock.
      *
      * @param  string  $action
      * @return void
@@ -1373,12 +1373,9 @@ final class PendingSessionsTest extends TestCase
         self::assertSame($action === 'satisfy' ? ['plain'] : [], self::provenReads(fn (): mixed => $this->sessions($guard)->pending($credential, null), $proven));
 
         $statements = self::provenReads(static fn (): mixed => $act(true), $proven, true);
-        $read       = array_search('locked', $statements, true);
 
-        self::assertIsInt($read);
         self::assertNotContains('plain', $statements);
-        self::assertLessThan(array_search('guard', $statements, true) ?: PHP_INT_MAX, $read);
-        self::assertLessThan(array_search('proofs', $statements, true), $read);
+        self::assertSame($action === 'satisfy' ? ['locked', 'guard', 'proofs'] : ['locked', 'proofs'], array_values(array_unique($statements)));
         self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $active->record->getKey())->value('revoked_reason'));
     }
 
