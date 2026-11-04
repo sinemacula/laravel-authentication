@@ -554,7 +554,8 @@ final class PendingEvaluationTest extends TestCase
      * Under Eloquent strict mode, a membership whose tenant key the database
      * matches but the batched tenant load does not (`'05'` against `5`) still
      * signs in within its tenant: the session records it and the access token
-     * carries it, rather than the tenant being taken for none.
+     * carries it, rather than the tenant being taken for none. The clocks run,
+     * as the access token's times are checked against the wall clock.
      *
      * @return void
      *
@@ -562,6 +563,9 @@ final class PendingEvaluationTest extends TestCase
      */
     public function testATenantTheBatchedLoadMissesStillHoldsTheSignInUnderEloquentStrictMode(): void
     {
+        Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
+
         Schema::create('typed_tenants', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->timestamps();
