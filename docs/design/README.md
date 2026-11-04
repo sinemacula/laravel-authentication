@@ -73,8 +73,8 @@ The current note set is:
 - `machine-credentials.md`: how non-human identities authenticate, and the scope convention the suite follows: scopes
   carried, never interpreted, and held to an optional registry when a credential is issued.
 - `proofs-and-freshness.md`: the proofs a session records and its provenance, how `auth_time` and `amr` are derived
-  from them, how a session steps up and reauthenticates in place, and how freshness is judged for a sensitive operation
-  on the proof that meets it.
+  from them, how a session steps up and reauthenticates in place, how another package reads an active session's proofs,
+  and how freshness is judged for a sensitive operation on the proof that meets it.
 - `authentication-context.md`: what `Auth::context()` answers for a policy's conditions, built from what the guard
   validated and the session's proofs, held while the bound state is unchanged and forgotten when a proof changes, the
   package's keys and the additional verification recorded on a proof, and the contributors that add keys under a

@@ -264,7 +264,8 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - `tests/Feature/Sessions/SessionSignOutTest.php`, `tests/Feature/Sessions/RefreshProofTest.php`,
   `tests/Unit/Sessions/SignOutResultTest.php`, `tests/Integration/Sessions/SessionSignOutTest.php`,
   `tests/Performance/SessionSignOutQueryBudgetTest.php`: sign-out by refresh credential
-- `tests/Feature/Sessions/LooksUpSessionsTest.php`: one session, as the list shows it
+- `tests/Feature/Sessions/LooksUpSessionsTest.php`: one session, as the list shows it, and an active session's proofs
+  (see `proofs-and-freshness.md`)
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php`: two revocations in two processes on PostgreSQL
   and MySQL report each session once, after a commit and after a rollback
 - `tests/Integration/Sessions/SecurityChangeEndToEndTest.php`: each security-change listener's revocation refused at

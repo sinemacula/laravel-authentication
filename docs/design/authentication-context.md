@@ -41,7 +41,8 @@ permission: a policy that reads the context is the application's.
   replica cannot hide a step-up just made, and only for an Eloquent session. Without one (an API key, a client
   credentials token, an access-only token, a binding with no session) `amr` is `[]`, `auth_time` and
   `seconds_since_step_up` are `null`, and `mfa`, `recovery_code` and `multifactor` are `false`. The build reads nothing
-  else, locks nothing, writes nothing and reports nothing.
+  else, locks nothing, writes nothing and reports nothing; what a contributor asks of its subject is read when it asks
+  (below).
 - The credential kind (`Context\Enums\CredentialKind`) is set by the verified bind of the credential the request
   presented (`bindVerifiedContext(..., ?CredentialKind $kind)`): `access_token` for a person's token on a `jwt` guard,
   `client_credentials` for a token a client credentials exchange issued (it names a key), `api_key` on an `api_key`
@@ -82,6 +83,16 @@ permission: a policy that reads the context is the application's.
   contributing package's own and which the package's own keys never carry. Its answer is its keys without the namespace
   (`/^[a-z][a-z0-9_]{0,63}$/D`), each value `null`, a scalar or an array of them; keys hold no dot, so no key of one
   namespace can collide with another's.
+- The subject's `proofs($since, $kinds, $limit)` and `firstFactor()` read the counting proofs and the first factor of
+  the session the subject was given, never `Auth::session()` or the request's, by the session service's rule
+  (`Sessions\ActiveSessionProofs`, see `proofs-and-freshness.md`) with two differences that keep it to that session:
+  the guard is the context's `application`, and the stored row must still be the instance given (its generation and
+  owner, `SessionOwnership::isSameSession()`), so a key that now holds another session answers nothing. `[]` and
+  `null` without a session or for one that is not an Eloquent session (no query, the session model never resolved), and
+  for one no longer the application's live, active session of a person; `proofs()` checks its limit (1 to
+  `RequirementSubject::MAX_LIMIT`) first, whatever the session. Neither is memoised: each call reads the session's row
+  and then its proofs, locked and read current inside a transaction on the session model's connection, so each answer
+  is as of its call. `provenance()` keeps its memo, since a session's provenance never changes within a generation.
 - The context holds plain values only: no model and no secret, so it can be logged, compared or queued as it is. Its
   constructor is public, for tests, and checks contributed keys as the builder does (`InvalidArgumentException`).
   `get('namespace.key', $default)` gives the default only for an absent key; `has()` is true for a key held with
@@ -114,11 +125,16 @@ permission: a policy that reads the context is the application's.
   proof is forgotten too when that policy then refuses the reauthentication or throws.
 - A guard built outside `auth.guards` is never asked to forget a context after a proof change; it forgets it on its next
   bind or request like any other.
+- Nothing makes a contributor's `proofs()` and `firstFactor()` agree with the package's own keys: `amr`, `mfa` and the
+  rest come from `history()` read before the contributors are asked, and a step-up or a void can commit in between, so
+  a contributor can see a step-up `authentication.mfa` does not report. A context snapshot that would make them agree
+  is not built; each read is observed when it is made.
 
 ## Implementation Anchors
 
 - `src/Context/AuthenticationContext.php`, `src/Context/ContextBuilder.php`, `src/Context/ContextKeys.php`,
-  `src/Context/ContextContributors.php`, `src/Context/ContributionSubject.php`,
+  `src/Context/ContextContributors.php`, `src/Context/ContributionSubject.php` (with
+  `src/Sessions/ActiveSessionProofs.php` for `proofs()` and `firstFactor()`),
   `src/Context/GuardAuthenticationContexts.php`, `src/Context/ContextForgetting.php`,
   `src/Context/Enums/CredentialKind.php`
 - `src/Contracts/AuthenticationContexts.php`, `src/Contracts/AuthenticationContextContributor.php`,
@@ -155,8 +171,14 @@ permission: a policy that reads the context is the application's.
   from a proof it then refused or threw on forgotten; `tests/Feature/Sessions/PendingSessionsTest.php`
   `testASatisfiedFactorIsSeenByTheContextOfAGuardBoundToTheSession`; `tests/Feature/Sessions/FactorRevocationsTest.php`
   `testAVoidedProofIsForgottenFromTheContextAtOnce`
-- `tests/Feature/Context/ContributionSubjectTest.php`: the provenance read once, its provider context with it;
-  `tests/Feature/Context/ContextBuilderTest.php` `testAContributorReportsTheProviderContextUnderItsOwnNamespace`
+- `tests/Feature/Context/ContributionSubjectTest.php`: the provenance read once, its provider context with it; the
+  proofs and first factor of the session given, never the request's, nothing read without an Eloquent session, every
+  session it may not answer for (another application's and a reused key's included) answering nothing, each ask read
+  again, a contributor seeing a step-up recorded after the package's keys while `authentication.mfa` stays `false`, and
+  the locks inside a transaction; `tests/Feature/Context/ContextBuilderTest.php`
+  `testAContributorReportsTheProviderContextUnderItsOwnNamespace`;
+  `tests/Integration/Sessions/CurrentProofReadsTest.php` `testASubjectsReadAnswersNothingForAReusedKey`;
+  `tests/Performance/ProofQueryBudgetTest.php` `testASubjectsProofReadsReadOnEveryCall`
 - `tests/Unit/Proofs/ProofHistoryTest.php`, `tests/Feature/Proofs/SessionProofsTest.php`
   `testTheHistoryReadsWhetherAProofIsAnAdditionalVerification`, `tests/Feature/Proofs/ProofWriterTest.php`
   `testAProofIsRecordedAsAnAdditionalVerificationByItsKind`, `tests/Feature/External/EvidenceAcceptanceTest.php`,
@@ -176,5 +198,5 @@ Update this note when any of the following change:
 - a key under `authentication`, its value or where it comes from
 - what builds, holds or forgets the context, or the flows that forget it after a proof change
 - how the additional verification is recorded on a proof or read back
-- how contributors are registered, resolved, checked or given the session's provenance
+- how contributors are registered, resolved, checked or given the session's provenance, proofs or first factor
 - the default `AuthenticationContexts` or the guard it asks
