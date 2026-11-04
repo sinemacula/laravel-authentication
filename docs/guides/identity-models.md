@@ -508,7 +508,7 @@ present tenant is never taken for none; only those principals cost a query. The 
 principal's attributes, as every eager load does, so keep the tenant relation's definition free of the principal's own
 attributes: one that reads them (a constraint on the principal's region, say) is read alone when the load finds nothing,
 but could be paired with a tenant the principal's own relation would not read. Relations nested under the name are
-replaced with it: a `with('tenant.plan')` on `principals()` no longer leaves `plan` loaded on the listed principals'
+replaced with it: a `with('tenant.plan')` on `principals()` does not leave `plan` loaded on the listed principals'
 tenants, so eager-load what you read on a listed tenant in the tenant model's `$with`, which the package's load applies.
 The tenants loaded allow lazy loading as a tenant read on its own does, so a tenant whose `isActive()` reads a relation
 of its own keeps working under strict mode, and a relation you read on a listed tenant without putting it in `$with` is
