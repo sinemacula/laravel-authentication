@@ -95,13 +95,14 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * to an identity's further factors through `FactorChangeGate`
  * (`GatesFactorChanges`), lets a session switch the principal it acts as or its
  * active tenant through `SessionSwitch` (`SwitchesSessions`), lists sessions,
- * looks one session or principal up (`LooksUpSessions`), and signs out, revokes
- * sessions and ends sessions on security changes through `SessionRevocations`
- * (`EndsSessions`), which the guard's `logout()` and password changes use too,
- * judges the current session again after the factor package's changes through
- * `FactorRevocations`, signs out by refresh credential through
- * `SessionSignOut`, and ends the sessions a connection established through
- * `ConnectionRevocations` (`EndsConnectionSessions`).
+ * looks one session or principal, or an active session's proofs and first
+ * factor, up (`LooksUpSessions`), and signs out, revokes sessions and ends
+ * sessions on security changes through `SessionRevocations` (`EndsSessions`),
+ * which the guard's `logout()` and password changes use too, judges the current
+ * session again after the factor package's changes through `FactorRevocations`,
+ * signs out by refresh credential through `SessionSignOut`, and ends the
+ * sessions a connection established through `ConnectionRevocations`
+ * (`EndsConnectionSessions`).
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration

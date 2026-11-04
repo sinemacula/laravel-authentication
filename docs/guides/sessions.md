@@ -126,16 +126,19 @@ transaction short. Keys are time-ordered and the index sorts a session's proofs 
 
 - a new session's, after the newest session's proofs: a sign-in that starts while an issuance or a judgement of the
   newest session is in flight (a refresh, a switch, a step-up, a reauthentication, an activation, a factor change, a
-  `satisfy()` or `choose()`, a tenant's policy change) waits;
+  `satisfy()` or `choose()`, a tenant's policy change), or while your transaction holds a read of its proofs or first
+  factor (see [Reading a session's proofs](#reading-a-sessions-proofs)), waits;
 - a neighbouring session's, the one whose proofs come just before or just after the issued session's, from its step-up,
   reauthentication or `satisfy()`: a further factor, a `satisfy()` or a reauthentication at the provider of the next
   session, and a recovery code or a reauthentication with the first factor of the previous one, wait.
 
 A judgement holds these locks even when it issues nothing: `factorChanged()`, `factorRemoved()`, a `satisfy()` or
-`choose()` that leaves the session pending, a refresh or a switch that returns it to pending, and a reauthentication
-its tenant refuses. Where the tenant's policy names connections, the judgement also locks the session's provenance row,
-or, for a session with none, the gap its key falls in, where only an external sign-in's provenance can be inserted, and
-so does `externalStanding()` asked inside your transaction.
+`choose()` that leaves the session pending, a refresh or a switch that returns it to pending, and a reauthentication its
+tenant refuses. Where the tenant's policy names connections, the judgement also locks the session's provenance row, or,
+for a session with none, the gap its key falls in, where only an external sign-in's provenance can be inserted, and so
+does `externalStanding()` asked inside your transaction. A read of a session's proofs or first factor inside your
+transaction (the session service's, or a contribution subject's) holds the proofs' locks as a judgement does, until you
+commit.
 
 The waiting side then commits; the wait never deadlocks on its own, but it can when your transaction, after the
 issuance or judgement, goes on to take a lock the waiting side already holds: an external sign-in holds its link's guard
@@ -153,6 +156,63 @@ deadlock with the pending action, the database failing one for its caller to rol
 REPEATABLE READ the lock on that older session also fails to serialise when it was written after your transaction's
 snapshot (a refresh of it from the client's other tab, say), whatever the action then decides; roll back and retry the
 whole transaction. At READ COMMITTED MySQL locks no gap, and PostgreSQL takes no shared lock, so nothing waits there.
+
+### Reading a session's proofs
+
+A factor package's proof store, a requirement checker or a confirmation that depends on what a session proved reads an
+active session's counting proofs and the first factor it signed in with through the session service, by the session's
+id:
+
+```php
+use Carbon\CarbonImmutable;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+
+$sessions = Auth::sessions('api');
+
+$since   = CarbonImmutable::now()->subMinutes(15);
+$stepUps = $sessions->proofs($sessionId, $since, [ProofKind::ADDITIONAL_FACTOR], limit: 10);
+$first   = $sessions->firstFactor($sessionId);
+```
+
+`proofs()` answers a list of `Proofs\RecordedProof`: the session's counting proofs (not voided, and a further factor or
+recovery code only when its adapter accepted it), newest first by time and then by id, only those made at or after
+`$since` when it is given and of `$kinds` when they are given, at most `$limit` of them (50 by default, 1 to 200;
+anything else is an `InvalidArgumentException`, before anything is read): exactly what `PendingSession::proofs()`
+answers for a pending session. `firstFactor()` answers the session's oldest counting first-factor proof, or `null` when
+it no longer counts.
+
+Both answer only for one of this guard's live, active sessions of a person. An id that cannot be a key of the session
+model (not a UUID, for the shipped model), one that names no session, and a session of another guard, a revoked one, a
+pending one, one past its idle or absolute deadline, or a machine's, all answer `[]` and `null` alike, with no exception
+and no event, so a caller cannot tell them apart. A pending session's proofs are read through its `PendingSession`,
+behind its pending credential, instead. The proofs are read bound to the session as stored (its key, guard and owner),
+so another identity's or application's proof under the same key never counts, and the id names whichever session holds
+the key now. No identity is checked: which sessions a caller may ask about is yours to decide, so never pass a
+client-supplied id without checking it is the caller's (`Auth::caller()?->owns($session)`, or `session($identity, $id)`
+first). The answers hold personal and provider data (a code's destination, an external provider's accepted evidence): do
+not return them to a client as they are.
+
+Asked outside a transaction on the session model's connection, the session and then its proofs are read on the write
+connection, two queries for the shipped model (a session model that eager-loads relations adds its own), and nothing is
+locked; between the two a key can pass to another session only if the session's row is deleted (the package deletes a
+session only when pruning one that ended at least `session.prune_after_days` ago) and the database issues the key again.
+Proofs an earlier session left under a reused key never count: pruning deletes them with their session, and a sign-in
+deletes any it finds under its new key before recording its own, except one inside your transaction on MySQL at
+REPEATABLE READ whose snapshot is older than they are. Asked inside one, after your own locks, the session's row is
+locked until your transaction ends and its proofs are read current: whatever your transaction read before, a step-up
+committed before the call is returned and a proof voided before it never is, and nothing revokes, refreshes, switches,
+steps up or reuses the session until you commit. On MySQL and MariaDB at REPEATABLE READ the proofs' read holds shared
+locks until you commit, as a judgement's does (see [Issuance order](#issuance-order)); at PostgreSQL's REPEATABLE READ
+the row's lock fails to serialise when the session was written after your snapshot, for you to roll back and retry the
+whole transaction. The read takes the session's row and then its proofs, as every path of the package does, and no
+connection guard or other session's row: take any of those your transaction needs before the call. A later `stepUp()` or
+`factorChanged()` of the same session in the same transaction locks the row your transaction already holds. "Read-only"
+means it writes and reports nothing; inside a transaction its locks can still make writers wait, and take part in a
+deadlock.
+
+A contributor to the authentication context reads the same from its `ContributionSubject` (see [Authentication
+context](extending.md#authentication-context)).
 
 ## Stepping up
 
@@ -710,7 +770,8 @@ session is not the identity's, is not active (pending, revoked or past a deadlin
 which. It reads the identity's `sessions()` relation on the write connection with the list's rule, in one query, and an
 id that cannot be a key of the session model (not a UUID, for the shipped model) is answered `null` without one, so
 every session the list shows on any of its pages is found as it shows it, and no other. The identity must implement
-`HasSessions`, as for the list.
+`HasSessions`, as for the list. A session's proofs and first factor are read with `proofs()` and `firstFactor()` (see
+[Reading a session's proofs](#reading-a-sessions-proofs)).
 
 The same rule is a query scope on any model that uses `ActsAsSession`, for your own queries:
 

@@ -4,22 +4,31 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Sessions;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\LooksUpSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
@@ -32,7 +41,10 @@ use Tests\TestCase;
  * that is another identity's or no longer active; and
  * `Auth::sessions('members')->principal()` answers one of the principals the
  * identity may use the application as, and nothing for another identity's or
- * one no longer admitted.
+ * one no longer admitted; and `Auth::sessions('api')->proofs()` and
+ * `firstFactor()` answer the counting proofs and first factor of any of the
+ * guard's active sessions, and nothing for one of another guard, revoked or
+ * pending.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -43,7 +55,7 @@ use Tests\TestCase;
 #[CoversTrait(LooksUpSessions::class)]
 final class LooksUpSessionsTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions;
 
     /**
      * Create the tables and register the route.
@@ -76,6 +88,15 @@ final class LooksUpSessionsTest extends TestCase
 
             return $found === null ? abort(404) : ['id' => $found->getPrincipalIdentifier()];
         });
+
+        Route::middleware('auth:api')->get('/sessions/{session}/proofs', static function (Request $request, string $session): array {
+
+            $kinds    = $request->filled('kinds') ? array_map(ProofKind::from(...), explode(',', $request->string('kinds')->value())) : null;
+            $since    = $request->filled('since') ? CarbonImmutable::createFromTimestamp($request->integer('since')) : null;
+            $sessions = Auth::sessions('api');
+
+            return ['proofs' => $sessions->proofs($session, $since, $kinds), 'first_factor' => $sessions->firstFactor($session)];
+        });
     }
 
     /**
@@ -86,6 +107,8 @@ final class LooksUpSessionsTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
+        CarbonImmutable::setTestNow();
+
         $this->dropSessionTables();
 
         parent::tearDown();
@@ -142,6 +165,127 @@ final class LooksUpSessionsTest extends TestCase
         foreach ([$revoked, $pending, $other] as $session) {
             $this->show($current->tokens->accessToken->reveal(), self::idOf($session))->assertNotFound();
         }
+    }
+
+    /**
+     * The route answers the request's own session's counting proofs, the
+     * step-up newest, then its first factor, narrowed by kind and by time, and
+     * another identity's active session of the guard alike, since no identity
+     * is checked; the proofs hold neither token nor any digest of the session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnswersAnActiveSessionsProofsAndFirstFactor(): void
+    {
+        $signedInAt = CarbonImmutable::now()->startOfSecond();
+
+        CarbonImmutable::setTestNow($signedInAt);
+
+        $identity = $this->seedIdentity();
+
+        $this->seedIdentity('grace@example.test');
+
+        $current = $this->signIn('api', 'Phone');
+        $other   = $this->signIn('api', 'Other', 'grace@example.test');
+        $token   = $current->tokens->accessToken->reveal();
+
+        CarbonImmutable::setTestNow($signedInAt->addMinute());
+
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $current->record->getKey()))->isIssued());
+
+        $all = $this->proofsOf($token, self::idOf($current))->assertOk();
+
+        self::assertSame(['additional_factor', 'first_factor'], array_column((array) $all->json('proofs'), 'kind'));
+        self::assertSame(['factor-1', null], array_column((array) $all->json('proofs'), 'factor'));
+
+        $all->assertJsonPath('first_factor.kind', 'first_factor')->assertJsonPath('first_factor.method', 'password');
+
+        $body = (string) json_encode($all->json());
+
+        foreach (['refresh_key', 'previous_refresh_key'] as $digest) {
+            $stored = Session::query()->whereKey($current->record->getKey())->value($digest);
+
+            self::assertTrue(!is_string($stored) || !str_contains($body, $stored));
+        }
+
+        self::assertStringNotContainsString($token, $body);
+        self::assertStringNotContainsString((string) $current->tokens->refreshToken?->reveal(), $body);
+
+        $narrowed = $this->proofsOf($token, self::idOf($current), '?kinds=first_factor,recovery_code');
+        $since    = $this->proofsOf($token, self::idOf($current), '?since=' . $signedInAt->addMinute()->getTimestamp());
+
+        self::assertSame(['first_factor'], array_column((array) $narrowed->json('proofs'), 'kind'));
+        self::assertSame(['additional_factor'], array_column((array) $since->json('proofs'), 'kind'));
+
+        $others = $this->proofsOf($token, self::idOf($other))->assertOk();
+
+        self::assertSame(['first_factor'], array_column((array) $others->json('proofs'), 'kind'));
+
+        $others->assertJsonPath('first_factor.kind', 'first_factor');
+    }
+
+    /**
+     * A session of another guard, a revoked one and a pending one answer no
+     * proofs and no first factor through the guard, alike, while the pending
+     * session's own `proofs()` still reads its first factor.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnotherGuardsRevokedOrPendingSessionAnswersNothing(): void
+    {
+        $this->seedIdentity();
+
+        $current = $this->signIn('api', 'Phone');
+        $admin   = $this->signIn('admin', 'Console');
+        $revoked = $this->signIn('api', 'Revoked');
+
+        Session::query()->whereKey($revoked->record->getKey())->update(['revoked_at' => now(), 'revoked_reason' => 'revoked']);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $pending = $this->sessions('api')->signIn('password', self::credentials())->pending;
+
+        self::assertNotNull($pending);
+        self::assertSame([ProofKind::FIRST_FACTOR], array_map(static fn (RecordedProof $proof): ProofKind => $proof->kind, $pending->proofs()));
+
+        $token = $current->tokens->accessToken->reveal();
+
+        foreach ([self::idOf($admin), self::idOf($revoked), (string) IdentifierCoercion::stringify($pending->id)] as $id) {
+            $this->proofsOf($token, $id)->assertOk()->assertExactJson(['proofs' => [], 'first_factor' => null]);
+        }
+    }
+
+    /**
+     * A limit outside 1 to 200 is refused before anything is read.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALimitOutsideTheBoundIsRefusedBeforeAnythingIsRead(): void
+    {
+        $this->seedIdentity();
+
+        $key     = $this->signIn('api', 'Phone')->record->getKey();
+        $queries = 0;
+
+        DB::listen(static function (QueryExecuted $query) use (&$queries): void {
+            $queries++;
+        });
+
+        try {
+            $this->sessions('api')->proofs($key, limit: 201);
+
+            self::fail('A limit of 201 was taken.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('A session returns between 1 and 200 proofs at a time.', $exception->getMessage());
+        }
+
+        self::assertSame(0, $queries);
     }
 
     /**
@@ -237,6 +381,22 @@ final class LooksUpSessionsTest extends TestCase
         Auth::forgetGuards();
 
         return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/sessions/' . $id);
+    }
+
+    /**
+     * Ask the route for one session's proofs and first factor, with the access
+     * token and the query given.
+     *
+     * @param  string  $token
+     * @param  string  $id
+     * @param  string  $query
+     * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
+     */
+    private function proofsOf(#[\SensitiveParameter] string $token, string $id, string $query = ''): TestResponse
+    {
+        Auth::forgetGuards();
+
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/sessions/' . $id . '/proofs' . $query);
     }
 
     /**
