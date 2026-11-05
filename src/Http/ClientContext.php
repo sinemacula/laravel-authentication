@@ -99,6 +99,23 @@ final readonly class ClientContext
     }
 
     /**
+     * Read a request's same-site facts alone, with no IP address or user agent,
+     * for the same-site check. Its IP address is left unread: Symfony refuses a
+     * trusted proxy's conflicting forwarded client addresses only on a
+     * request's first read, so reading it here would fail the check and take
+     * that refusal from the application.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return self
+     *
+     * @internal
+     */
+    public static function sameSiteFactsOf(Request $request): self
+    {
+        return new self(null, null, $request->headers->get('Origin'), self::schemeAndHostOf($request), self::nonEmptyHeadersOf($request));
+    }
+
+    /**
      * Whether the request carried the named header with a non-empty first
      * value, the name read as the header bag reads it (in any case, `_` as
      * `-`).

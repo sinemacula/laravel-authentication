@@ -182,18 +182,17 @@ final readonly class RefreshTokenTransport
     /**
      * Whether the request came from a page of the API's own site, as the
      * refresh cookie's checks require: `isSameSiteClient()` of the request's
-     * client context. `read()` holds a token from the cookie to it, and the
-     * session service holds every sign-in, start and pending-session action of
-     * a cookie application to the same rule, except `signInExternally()`, whose
-     * adapter binds the flow to the browser that began it instead; an
-     * application's own route that clears the cookie holds its request to it.
+     * same-site facts, read without its IP address, so the check never throws
+     * for a trusted proxy's conflicting forwarded client addresses. `read()`
+     * holds a token from the cookie to it; an application's own route that
+     * clears the cookie holds its request to it.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return bool
      */
     public function isSameSiteRequest(Request $request): bool
     {
-        return $this->isSameSiteClient(ClientContext::fromRequest($request));
+        return $this->isSameSiteClient(ClientContext::sameSiteFactsOf($request));
     }
 
     /**

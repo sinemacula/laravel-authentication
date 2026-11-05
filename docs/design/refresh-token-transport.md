@@ -32,9 +32,11 @@ a cookie application's results hand back the cookie instead of the token.
   scheme and host (`null` when the request has no host or Symfony refuses the host or forwarded headers), and the names
   of the headers whose first value is a non-empty string (lower case, `_` read as `-`, never their values); the guard's
   configured `csrf_header` is applied when judging. A missing fact fails it. `isSameSiteRequest($request)` is the same
-  rule on the request's context. The scheme and host are read from a copy of the request: Symfony throws a refused host
-  or conflicting forwarded headers only on a request's first read and answers an empty host after, so reading the
-  request itself would take that refusal from the application and give every later read an empty host.
+  rule on those facts of the request, read without its IP address, which Symfony would refuse on a first read for a
+  trusted proxy's conflicting forwarded client addresses. The scheme and host are read from a copy of the request:
+  Symfony throws a refused host or conflicting forwarded headers only on a request's first read and answers an empty
+  host after, so reading the request itself would take that refusal from the application and give every later read an
+  empty host.
 - A present value that is not one non-empty string (an empty field, `null`, an array, a header sent twice, a cookie
   that could not be decrypted) is `token_invalid`. A token read is a `PresentedRefreshToken` holding it as a `Secret`.
 - Reading has no side effects: it changes nothing on the request and runs no query.
@@ -118,10 +120,10 @@ a cookie application's results hand back the cookie instead of the token.
 ## Implementation Anchors
 
 - `src/Http/RefreshTokenTransport.php`: `read()`, `usesCookie()`, `deliver()`, `isSameSiteRequest()`,
-  `isSameSiteClient()`, `forgetCookie()`; `src/Http/ClientContext.php`: `fromRequest()`, `carriesHeader()`;
-  `src/Sessions/SessionPreconditions.php`: `crossSite()`; `src/Http/RefreshCookie.php`; `src/Http/Enums/Transport.php`;
-  `src/Jwt/TokenPair.php`; `src/Http/RequestBody.php` (the body fields and the field names, shared with the pending
-  credential's field).
+  `isSameSiteClient()`, `forgetCookie()`; `src/Http/ClientContext.php`: `fromRequest()`, `sameSiteFactsOf()`,
+  `carriesHeader()`; `src/Sessions/SessionPreconditions.php`: `crossSite()`; `src/Http/RefreshCookie.php`;
+  `src/Http/Enums/Transport.php`; `src/Jwt/TokenPair.php`; `src/Http/RequestBody.php` (the body fields and the field
+  names, shared with the pending credential's field).
 - `src/Sessions/SessionService.php`: `signIn()`, `start()`, `satisfy()`, `choose()`, `bound()`;
   `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`, `switchFromRequest()`, `switched()`;
   `src/Sessions/SessionRefresh.php`: `refresh()`, `refreshFromRequest()`, `credentialFromRequest()`, `refuseHandedIn()`;

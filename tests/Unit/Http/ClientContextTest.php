@@ -246,6 +246,61 @@ final class ClientContextTest extends TestCase
     }
 
     /**
+     * A request's same-site facts alone are its own context's, with no IP
+     * address or user agent.
+     *
+     * @return void
+     */
+    public function testReadsTheSameSiteFactsAloneOfARequest(): void
+    {
+        $request = Request::create('https://api.example.test:8443/auth/sign-in', 'POST', server: [
+            'REMOTE_ADDR'           => '203.0.113.7',
+            'HTTP_USER_AGENT'       => 'Browser/1.0',
+            'HTTP_ORIGIN'           => 'https://app.example.test',
+            'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest',
+        ]);
+
+        $full  = ClientContext::fromRequest($request);
+        $facts = ClientContext::sameSiteFactsOf($request);
+
+        self::assertSame(['203.0.113.7', 'Browser/1.0'], [$full->ip, $full->userAgent]);
+        self::assertSame([null, null], [$facts->ip, $facts->userAgent]);
+        self::assertSame('https://app.example.test', $facts->origin);
+        self::assertSame('https://api.example.test:8443', $facts->schemeAndHost);
+        self::assertSame($full->nonEmptyHeaders, $facts->nonEmptyHeaders);
+        self::assertContains('x-requested-with', $facts->nonEmptyHeaders);
+    }
+
+    /**
+     * Reading a request's same-site facts leaves its IP address unread, so a
+     * trusted proxy's conflicting forwarded client addresses neither fail the
+     * read nor stop the request refusing them to the application afterwards.
+     *
+     * @return void
+     */
+    public function testTheSameSiteFactsLeaveConflictingForwardedAddressesToTheApplication(): void
+    {
+        Request::setTrustedProxies(['10.0.0.1'], Request::HEADER_FORWARDED | Request::HEADER_X_FORWARDED_FOR);
+
+        $request = Request::create('http://api.example.test/auth/sign-out', 'POST', server: [
+            'REMOTE_ADDR'          => '10.0.0.1',
+            'HTTP_FORWARDED'       => 'for=198.51.100.1',
+            'HTTP_X_FORWARDED_FOR' => '198.51.100.2',
+            'HTTP_ORIGIN'          => 'http://api.example.test',
+        ]);
+
+        $first  = ClientContext::sameSiteFactsOf($request);
+        $second = ClientContext::sameSiteFactsOf($request);
+
+        self::assertSame(['http://api.example.test', 'http://api.example.test'], [$first->schemeAndHost, $second->schemeAndHost]);
+        self::assertNull($first->ip);
+
+        $this->expectException(ConflictingHeadersException::class);
+
+        $request->ip();
+    }
+
+    /**
      * A request from a trusted proxy whose forwarded headers disagree on the
      * scheme has no scheme and host however often its context is read, and the
      * request still refuses those headers to the application afterwards.

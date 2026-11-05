@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use Symfony\Component\HttpFoundation\Cookie;
+use Symfony\Component\HttpFoundation\Exception\ConflictingHeadersException;
 use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
@@ -48,6 +49,19 @@ final class RefreshTokenTransportTest extends TestCase
 
     /** @var string An origin the application allows besides the request's own. */
     private const string ALLOWED_ORIGIN = 'https://app.example.test';
+
+    /**
+     * Forget the trusted proxies a test set.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        Request::setTrustedProxies([], -1);
+
+        parent::tearDown();
+    }
 
     /**
      * A request that carries no token in any carrier presents nothing, by
@@ -465,6 +479,35 @@ final class RefreshTokenTransportTest extends TestCase
         foreach ([self::signIn($origin, $csrf), self::signIn('http://localhost', 'fetch'), self::signIn(self::ALLOWED_ORIGIN, 'fetch')] as $request) {
             self::assertSame($transport->isSameSiteClient(ClientContext::fromRequest($request)), $transport->isSameSiteRequest($request));
         }
+    }
+
+    /**
+     * The check and a cookie read leave the IP address unread: a same-site
+     * request from a trusted proxy whose forwarded client addresses conflict is
+     * judged same-site however often it is checked, its token is read, and the
+     * request still refuses those addresses to the application afterwards.
+     *
+     * @return void
+     */
+    public function testConflictingForwardedAddressesAreLeftToTheApplication(): void
+    {
+        Request::setTrustedProxies(['10.0.0.1'], Request::HEADER_FORWARDED | Request::HEADER_X_FORWARDED_FOR);
+
+        $request = self::cookie(self::TOKEN, 'http://localhost', 'fetch');
+
+        $request->server->set('REMOTE_ADDR', '10.0.0.1');
+        $request->headers->set('Forwarded', 'for=198.51.100.1');
+        $request->headers->set('X-Forwarded-For', '198.51.100.2');
+
+        $transport = self::transport(Transport::COOKIE);
+
+        self::assertTrue($transport->isSameSiteRequest($request));
+        self::assertTrue($transport->isSameSiteRequest($request));
+        self::assertSame(self::TOKEN, self::presented($transport->read($request))->token->reveal());
+
+        $this->expectException(ConflictingHeadersException::class);
+
+        $request->ip();
     }
 
     /**
