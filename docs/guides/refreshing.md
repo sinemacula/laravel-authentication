@@ -266,11 +266,13 @@ with `403`, as the sign-in route above does.
 request's own scheme and host and the names of the headers it carried; a `ClientContext` you build from plain values is
 your trusted description of the request, and one built without those facts is refused on a cookie application. Its
 constructor takes them after the IP address and user agent: the `Origin` the request presented, the request's own scheme
-and host, and the names (never the values) of the headers it carried with a value, which must include the
-`csrf_header`. Here a page on an allowed origin calls the API:
+and host, and the names (never the values) of the headers it actually carried with a value (the check looks for the
+`csrf_header` among them). Copy them from the request each time; constant values pass the check for every request,
+a cross-site form post among them, and so turn it off. Here an application supplies its own IP address and user agent:
 
 ```php
-$client = new ClientContext($ip, $userAgent, 'https://app.example.com', 'https://api.example.com', ['X-Requested-With']);
+$facts  = ClientContext::fromRequest($request);
+$client = new ClientContext($ip, $userAgent, $facts->origin, $facts->schemeAndHost, $facts->nonEmptyHeaders);
 ```
 
 An application whose own verification arrives as a cross-site callback lands it on a page of its own site that posts to
