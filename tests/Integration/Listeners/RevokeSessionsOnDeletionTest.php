@@ -19,6 +19,8 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
@@ -27,9 +29,11 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnDeletion;
+use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Fixtures\Sessions\InterruptingFactorPolicy;
 use Tests\Integration\Fixtures\SoftDeletingMember;
 use Tests\Integration\Fixtures\SoftDeletingMembership;
 use Tests\TestCase;
@@ -49,6 +53,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(RevokeSessionsOnDeletion::class)]
+#[CoversClass(AdmissionRecheck::class)]
 #[CoversTrait(RevokesOnceCommitted::class)]
 final class RevokeSessionsOnDeletionTest extends TestCase
 {
@@ -222,6 +227,73 @@ final class RevokeSessionsOnDeletionTest extends TestCase
 
         self::assertSame(FailureReason::SESSION_REVOKED, $this->reasons[0] ?? null);
         self::assertSame('principal_deleted', DB::table('authentication_sessions')->value('revoked_reason'));
+    }
+
+    /**
+     * Rows of `[the soft delete made after the sign-in admitted the member,
+     * before its session was written, the restore, the reason the sign-in is
+     * refused for]`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\Tests\Integration\Fixtures\SoftDeletingMember, \Tests\Integration\Fixtures\SoftDeletingMembership): mixed, 1: \Closure(\Tests\Integration\Fixtures\SoftDeletingMember, \Tests\Integration\Fixtures\SoftDeletingMembership): mixed, 2: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideDeletionsDuringASignIn(): iterable
+    {
+        yield 'identity' => [
+            static fn (SoftDeletingMember $member): ?bool => $member->delete(),
+            static fn (SoftDeletingMember $member): bool => $member->restore(), // @phpstan-ignore staticMethod.dynamicCall
+            FailureReason::IDENTITY_UNKNOWN,
+        ];
+        yield 'principal' => [
+            static fn (SoftDeletingMember $member, SoftDeletingMembership $membership): ?bool => $membership->delete(),
+            static fn (SoftDeletingMember $member, SoftDeletingMembership $membership): bool => $membership->restore(), // @phpstan-ignore staticMethod.dynamicCall
+            FailureReason::PRINCIPAL_UNRESOLVED,
+        ];
+    }
+
+    /**
+     * A sign-in that admitted the member before a soft delete committed, the
+     * observer's revocation finding no session of it, is refused once its
+     * session is written, so once the identity or principal is restored no
+     * session of it works: the member signs in afresh.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Closure(\Tests\Integration\Fixtures\SoftDeletingMember, \Tests\Integration\Fixtures\SoftDeletingMembership): mixed  $delete
+     * @param  \Closure(\Tests\Integration\Fixtures\SoftDeletingMember, \Tests\Integration\Fixtures\SoftDeletingMembership): mixed  $restore
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideDeletionsDuringASignIn')]
+    public function testASignInAdmittedBeforeASoftDeleteNeverOutlivesTheRestore(\Closure $delete, \Closure $restore, FailureReason $reason): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy(static fn (): mixed => $delete($member, $membership)));
+
+        $refused = Auth::sessions('members')->signIn('password', self::credentials());
+
+        self::assertSame($reason, $refused->reason);
+
+        $restore($member, $membership);
+
+        self::assertSame(0, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
+        $this->bearer($this->signIn()->tokens->accessToken->reveal())->assertOk();
     }
 
     /**

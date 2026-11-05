@@ -60,6 +60,9 @@ use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
  * it returns, so a bind listener that throws cannot withhold a report. It runs
  * on the guard's context: its events carry the client of the sign-in they
  * report, and go to the context's dispatcher as it is when they are dispatched.
+ * What reports the session waits, beyond its commit, for the call's check of
+ * the session's identity, principal and tenant (`AdmissionRecheck`), and never
+ * runs when the check ends the session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -156,6 +159,7 @@ final readonly class SessionEstablishment
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
      * @param  ?list<array<string, string>>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
@@ -171,6 +175,7 @@ final readonly class SessionEstablishment
         ?string $identifierType,
         SignInContext $context,
         SignInProof $proof,
+        AdmissionRecheck $recheck,
         ?array $attemptWindows = null,
     ): Refused|SignInResult {
         [$principal] = $selection;
@@ -185,7 +190,7 @@ final readonly class SessionEstablishment
             ? null
             : $this->proof->provenSessionOf($this->context->name(), $identity, $principal, $context->refreshToken);
 
-        return $this->establish($identity, $selection, $identifierType, $context, $proof, $attemptWindows, $proven, $now);
+        return $this->establish($identity, $selection, $identifierType, $context, $proof, $attemptWindows, $proven, $now, $recheck);
     }
 
     /**
@@ -203,6 +208,7 @@ final readonly class SessionEstablishment
      * @param  ?list<array<string, string>>  $attemptWindows
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -220,6 +226,7 @@ final readonly class SessionEstablishment
         ?array $attemptWindows,
         (EloquentSession&Model)|null $proven,
         CarbonImmutable $now,
+        AdmissionRecheck $recheck,
     ): Refused|SignInResult {
         [$principal, $principals] = $selection;
 
@@ -244,22 +251,24 @@ final readonly class SessionEstablishment
         if ($principal === null || $requires !== []) {
             $draft = new PendingSessionDraft($identity, $principal, $tenant, $requires, $identifierType, $proof, $proven, $attemptWindows);
 
-            return $this->wait($writer, $draft, $outstanding, $requires[0] === PendingRequirement::PRINCIPAL ? $principals : [], $context, $now);
+            return $this->wait($writer, $draft, $outstanding, $requires[0] === PendingRequirement::PRINCIPAL ? $principals : [], $context, $now, $recheck);
         }
 
         $session = $this->write($writer, new Admitted($identity, $principal, $tenant, $proven), $identifierType, $context, $proof, $now);
 
         return $session === null
-            ? $this->establish($identity, $selection, $identifierType, $context, $proof, $attemptWindows, null, $now)
-            : $this->signedIn($session, $proven, $tenant, $context, $proof);
+            ? $this->establish($identity, $selection, $identifierType, $context, $proof, $attemptWindows, null, $now, $recheck)
+            : $this->signedIn($session, $proven, $tenant, $context, $proof, $recheck);
     }
 
     /**
      * Write the sign-in's session pending, waiting on what is outstanding, and
-     * schedule `SessionPending` for once it is committed. The requirement is
-     * what its authentication still falls short of; the principals are the ones
-     * the pending session lists, given only when the choice is the first
-     * requirement, so none is shown while a factor is outstanding.
+     * schedule `SessionPending` for once it is committed and its identity, and
+     * the principal and tenant it records if any, are checked again
+     * (`AdmissionRecheck`). The requirement is what its authentication still
+     * falls short of; the principals are the ones the pending session lists,
+     * given only when the choice is the first requirement, so none is shown
+     * while a factor is outstanding.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SessionWriter  $writer
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSessionDraft  $draft
@@ -267,6 +276,7 @@ final readonly class SessionEstablishment
      * @param  list<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
@@ -278,6 +288,7 @@ final readonly class SessionEstablishment
         array $principals,
         SignInContext $context,
         CarbonImmutable $now,
+        AdmissionRecheck $recheck,
     ): SignInResult {
         $ttl = PendingState::ttlSeconds($this->container->make(Repository::class));
 
@@ -307,7 +318,9 @@ final readonly class SessionEstablishment
         );
         $redeemed = $this->redeemed($draft->proof, $context->client, $identity, $principal, $tenant, $record);
 
-        $this->afterCommit->run($record, function () use ($event, $redeemed): void {
+        $recheck->signIn($record, $identity, $principal, $tenant);
+
+        $recheck->then($record, function () use ($event, $redeemed): void {
 
             $this->context->dispatch($event);
 
@@ -362,9 +375,10 @@ final readonly class SessionEstablishment
     /**
      * Schedule the reports of a written active session, and answer it, once the
      * session is committed on the session's own connection: `SessionRevoked`
-     * (`superseded`) for the session it replaced, if any, then `SessionCreated`
-     * and `SignedIn`, in turn, so a listener that throws stops the reports
-     * after its own.
+     * (`superseded`) for the session it replaced, if any, then, once its
+     * identity, principal and tenant are checked again (`AdmissionRecheck`),
+     * `SessionCreated` and `SignedIn`, in turn, so a listener that throws stops
+     * the reports after its own.
      *
      * The replaced session's revocation is reported with its guard (the
      * sign-in's own) and the method it records, the sign-in's client, and the
@@ -376,10 +390,17 @@ final readonly class SessionEstablishment
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      */
-    private function signedIn(SignedInSession $session, (EloquentSession&Model)|null $superseded, ?Tenant $tenant, SignInContext $context, SignInProof $proof): SignInResult
-    {
+    private function signedIn(
+        SignedInSession $session,
+        (EloquentSession&Model)|null $superseded,
+        ?Tenant $tenant,
+        SignInContext $context,
+        SignInProof $proof,
+        AdmissionRecheck $recheck,
+    ): SignInResult {
         $event   = new EventContext($this->context->name(), $context->client, $session->identity, $session->principal, $tenant, $session->record, $session->method);
         $revoked = $superseded === null ? null : new SessionRevoked(
             new EventContext($this->context->name(), $context->client, $session->identity, $session->principal, $tenant, $superseded, $superseded->getSignInMethod()),
@@ -389,11 +410,13 @@ final readonly class SessionEstablishment
         $signedIn = new SignedIn($event, false);
         $redeemed = $this->redeemed($proof, $context->client, $session->identity, $session->principal, $tenant, $session->record);
 
-        $this->afterCommit->run($session->record, function () use ($revoked, $created, $signedIn, $redeemed): void {
+        if ($revoked !== null) {
+            $this->afterCommit->run($session->record, fn () => $this->context->dispatch($revoked));
+        }
 
-            if ($revoked !== null) {
-                $this->context->dispatch($revoked);
-            }
+        $recheck->signIn($session->record, $session->identity, $session->principal, $tenant);
+
+        $recheck->then($session->record, function () use ($created, $signedIn, $redeemed): void {
 
             $this->context->dispatch($created);
             $this->context->dispatch($signedIn);

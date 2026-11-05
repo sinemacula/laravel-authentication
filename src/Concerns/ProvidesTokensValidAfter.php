@@ -17,7 +17,9 @@ use Carbon\CarbonInterface;
  * cutoff is one conditional `UPDATE` on the model's own connection that only
  * ever moves it forward, so two racing calls cannot move it back, and it is
  * mirrored on the in-memory model only when it changed the row. Eloquent events
- * do not fire for it.
+ * do not fire for it. Besides session-less tokens, the cutoff ends a sign-in, a
+ * choice of principal or a switch still in flight when it moves (see
+ * `HasTokensValidAfter`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

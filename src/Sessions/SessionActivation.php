@@ -52,7 +52,9 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * and `SignedIn`). The activation of a session that returned to pending moves
  * the floor for its access tokens' issue time (`SwitchFloor`), so no token from
  * before its return is accepted, and is reported as `SessionActivated`. Every
- * report waits for the commit on the session's connection.
+ * report waits for the commit on the session's connection, and all but a
+ * superseded session's for the check of the call it is made for
+ * (`AdmissionRecheck`), which never lets them run once it ended the session.
  *
  * The activation's write of the locked pending row, made before the pair is
  * issued, is the session's issuance guard, and the pair's proofs are read
@@ -104,7 +106,7 @@ final readonly class SessionActivation
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
      * @param  ?string  $policyVersion
-     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $call
      * @param  \Carbon\CarbonImmutable  $now
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
      * @return ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession
@@ -119,7 +121,7 @@ final readonly class SessionActivation
         EloquentSession&Model $session,
         Admitted $destination,
         ?string $policyVersion,
-        ClientContext $client,
+        AdmissionRecheck $call,
         CarbonImmutable $now,
         (EloquentSession&Model)|null $proven = null,
     ): ?SignedInSession {
@@ -137,18 +139,18 @@ final readonly class SessionActivation
         $reservations = $first ? self::reservations($session) : [];
 
         $this->write($session, [
-            ...self::activeState($session, $principal, $tenant, $rotationId, $first, $client, $now, $this->idleDeadline($session, $now)),
+            ...self::activeState($session, $principal, $tenant, $rotationId, $first, $call->client, $now, $this->idleDeadline($session, $now)),
             $session->getTenantPolicyVersionName() => $policyVersion,
         ]);
 
         $tokens = SessionTokens::pair($this->tokens, $destination, $session, $rotationId, $now);
 
         $method  = (string) $session->getSignInMethod();
-        $context = new EventContext($this->context->name(), $client, $identity, $principal, $tenant, $session, $method);
+        $context = new EventContext($this->context->name(), $call->client, $identity, $principal, $tenant, $session, $method);
 
         $first
-            ? $this->reportSignIn($session, $context, $destination, $superseded)
-            : $this->afterCommit->run($session, fn () => $this->context->dispatch(new SessionActivated($context)));
+            ? $this->reportSignIn($session, $context, $destination, $superseded, $call)
+            : $call->then($session, fn () => $this->context->dispatch(new SessionActivated($context)));
 
         return new SignedInSession($identity, $principal, $session, $tokens, $method, $reservations);
     }
@@ -306,17 +308,24 @@ final readonly class SessionActivation
     /**
      * Schedule the reports of a sign-in's first activation, once committed on
      * the session's connection: `SessionRevoked` (`superseded`) for the session
-     * it superseded, if any, then `SessionCreated` and `SignedIn`, in turn, so
-     * a listener that throws stops the reports after its own.
+     * it superseded, if any, then, once the call's check passed,
+     * `SessionCreated` and `SignedIn`, in turn, so a listener that throws stops
+     * the reports after its own.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $superseded
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $call
      * @return void
      */
-    private function reportSignIn(EloquentSession&Model $session, EventContext $context, Admitted $destination, (EloquentSession&Model)|null $superseded): void
-    {
+    private function reportSignIn(
+        EloquentSession&Model $session,
+        EventContext $context,
+        Admitted $destination,
+        (EloquentSession&Model)|null $superseded,
+        AdmissionRecheck $call,
+    ): void {
         [$identity, $principal, $tenant] = [$destination->identity, $destination->principal, $destination->tenant];
 
         $revoked = $superseded === null ? null : new SessionRevoked(
@@ -324,11 +333,11 @@ final readonly class SessionActivation
             RevocationReason::SUPERSEDED,
         );
 
-        $this->afterCommit->run($session, function () use ($revoked, $context): void {
+        if ($revoked !== null) {
+            $this->afterCommit->run($session, fn () => $this->context->dispatch($revoked));
+        }
 
-            if ($revoked !== null) {
-                $this->context->dispatch($revoked);
-            }
+        $call->then($session, function () use ($context): void {
 
             $this->context->dispatch(new SessionCreated($context));
             $this->context->dispatch(new SignedIn($context, false));

@@ -159,6 +159,11 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 
 ## Failure / Edge Cases
 
+- A switch that changes the principal or the tenant registers the call's check of what it changed
+  (`AdmissionRecheck::switch()`) after its compare-and-swap, or after a return to pending; at the switch's commit the
+  check reads the destination again, and one deactivated or deleted after admission revokes the session (reported by
+  `SessionRevoked`) and the switch answers `AuthenticationFailed` (flow `switch`) instead; `PrincipalSwitched` waits for
+  the check, `SessionReturnedToPending` does not.
 - A lost switch response: the client retries with the old token inside the grace window and receives the current
   credential for the destination, with no second `PrincipalSwitched`. Presented to the session service's `refresh()`,
   the same token fails as `session_principal_mismatch` without revoking.

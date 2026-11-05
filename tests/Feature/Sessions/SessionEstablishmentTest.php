@@ -16,6 +16,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
@@ -36,10 +37,12 @@ use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
 use SineMacula\Laravel\Authentication\Sessions\ProvenSessions;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -51,6 +54,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Factors\FirstFactorMeetsRequirements;
+use Tests\Fixtures\Sessions\InterruptingFactorPolicy;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -74,6 +78,9 @@ final class SessionEstablishmentTest extends TestCase
 
     /** @var list<array<string, string>> The windows of the slots a sign-in took, as a limiter records them. */
     private const array WINDOWS = [['ip' => '1:60'], ['identifier' => '1:60']];
+
+    /** @var ?\SineMacula\Laravel\Authentication\Guards\JwtGuard The guard the last establishment was built for. */
+    private ?JwtGuard $establishing = null;
 
     /**
      * Freeze the clock and create the tables.
@@ -135,6 +142,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ));
 
         self::assertTrue($result->isSignedIn());
@@ -144,6 +152,98 @@ final class SessionEstablishmentTest extends TestCase
         EventContextAssertions::assertSession($result->session?->record, $this->recordedEvent(SessionCreated::class)->context);
         self::assertFalse($this->recordedEvent(SignedIn::class)->refresh);
         self::assertTrue($guard->guest());
+    }
+
+    /**
+     * Rows of `[whether the identity-level factor policy asks for a further
+     * factor, so the session is written pending]`.
+     *
+     * @return iterable<string, array{0: bool}>
+     */
+    public static function provideWrites(): iterable
+    {
+        yield 'active' => [false];
+        yield 'pending' => [true];
+    }
+
+    /**
+     * A session written after its identity was deactivated, past the sign-in's
+     * admission, is checked once committed and reported by nothing: it is
+     * revoked as `identity_deactivated`, and the call's check holds the refusal
+     * the session service answers with.
+     *
+     * @param  bool  $pending
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideWrites')]
+    public function testASessionWrittenAfterItsIdentityStoppedStandingIsNeverReported(bool $pending): void
+    {
+        $identity = $this->seedIdentity();
+        $change   = static fn (): int => IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($change, $pending ? new Requirement(new RequirementPart) : new Requirement));
+
+        $this->recordEvents([SessionCreated::class, SignedIn::class, SessionPending::class, SessionRevoked::class]);
+
+        $establishing = $this->establishment($this->freshGuard());
+        $recheck      = $this->recheck();
+
+        $proof = SignInProof::unattested('password', CarbonImmutable::now());
+
+        self::assertSame(!$pending, self::outcome($establishing->proceed($identity, self::selected($identity), 'email', $this->context(), $proof, $recheck))->isSignedIn());
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, $recheck->refusal()?->reason);
+        self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, DB::table('authentication_sessions')->value('revoked_reason'));
+    }
+
+    /**
+     * A replacing sign-in whose identity stopped standing before its write
+     * still reports the proven session it superseded, which stays revoked, but
+     * nothing reports the new session, which the check revokes.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReplacementThatFailsItsCheckStillReportsTheSupersededSession(): void
+    {
+        $identity     = $this->seedIdentity();
+        $establishing = $this->establishment($this->freshGuard());
+        $first        = self::outcome($establishing->proceed(
+            $identity,
+            self::selected($identity),
+            null,
+            $this->context(),
+            SignInProof::unattested('sso', CarbonImmutable::now()),
+            $this->recheck(),
+        ))->session;
+
+        self::assertNotNull($first);
+
+        $change = static fn (): int => IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($change));
+
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
+
+        $recheck  = $this->recheck();
+        $replaced = self::outcome($establishing->proceed(
+            $identity,
+            self::selected($identity),
+            'email',
+            $this->context($first->tokens->refreshToken?->reveal()),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+            $recheck,
+        ))->session;
+
+        self::assertNotNull($replaced);
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
+        self::assertSame(RevocationReason::SUPERSEDED, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, $recheck->refusal()?->reason);
+        self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $first->record->getKey())->value('revoked_reason'));
+        self::assertSame('identity_deactivated', DB::table('authentication_sessions')->where('id', $replaced->record->getKey())->value('revoked_reason'));
     }
 
     /**
@@ -169,6 +269,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ))->isSignedIn());
         self::assertSame([], $this->recordedClasses());
 
@@ -201,6 +302,7 @@ final class SessionEstablishmentTest extends TestCase
             null,
             $this->context(),
             SignInProof::unattested('sso', CarbonImmutable::now()),
+            $this->recheck(),
         ))->session;
 
         self::assertNotNull($first);
@@ -215,6 +317,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context($first->tokens->refreshToken?->reveal()),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ))->session;
 
         self::assertSame([], $this->recordedClasses());
@@ -261,6 +364,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ))->session;
 
         self::assertNotNull($first);
@@ -275,6 +379,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context($first->tokens->refreshToken?->reveal()),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ))->isSignedIn());
 
         DB::rollBack();
@@ -303,6 +408,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ))->session;
 
         self::assertNotNull($first);
@@ -320,6 +426,7 @@ final class SessionEstablishmentTest extends TestCase
                 'email',
                 $this->context($first->tokens->refreshToken?->reveal()),
                 SignInProof::unattested('password', CarbonImmutable::now()),
+                $this->recheck(),
             ));
             self::fail('Expected the cancelled replacement to be refused.');
         } catch (\LogicException $exception) {
@@ -352,6 +459,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ))->session;
 
         self::assertNotNull($first);
@@ -402,6 +510,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context($first->tokens->refreshToken?->reveal()),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ))->session;
 
         self::assertNotNull($session);
@@ -430,6 +539,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ))->session;
 
         self::assertNotNull($first);
@@ -447,6 +557,7 @@ final class SessionEstablishmentTest extends TestCase
                 'email',
                 $this->context($first->tokens->refreshToken?->reveal()),
                 SignInProof::unattested('password', CarbonImmutable::now()),
+                $this->recheck(),
             ));
             self::fail('Expected the revocation listener to throw.');
         } catch (\RuntimeException $exception) {
@@ -486,6 +597,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
             self::WINDOWS,
         ));
 
@@ -532,6 +644,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ));
 
         self::assertNotNull($result->pending);
@@ -562,6 +675,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ));
 
         self::assertNotNull($result->pending);
@@ -632,7 +746,7 @@ final class SessionEstablishmentTest extends TestCase
             CarbonImmutable::setTestNow($deadline);
 
             $proof   = SignInProof::unattested('password', CarbonImmutable::now());
-            $refused = $this->establishment($guard)->proceed($identity, $selection, 'email', $this->context(notAfter: $deadline), $proof);
+            $refused = $this->establishment($guard)->proceed($identity, $selection, 'email', $this->context(notAfter: $deadline), $proof, $this->recheck());
 
             self::assertInstanceOf(Refused::class, $refused);
             self::assertSame(FailureReason::SESSION_EXPIRED, $refused->reason);
@@ -663,7 +777,7 @@ final class SessionEstablishmentTest extends TestCase
         $policy       = $this->bindTenantPolicy(new TenantRequirement('v1'));
         $establishing = $this->establishment($this->freshGuard('members'));
         $proof        = SignInProof::unattested('password', CarbonImmutable::now());
-        $first        = self::outcome($establishing->proceed($member, [$membership, []], 'email', $this->context(), $proof))->session;
+        $first        = self::outcome($establishing->proceed($member, [$membership, []], 'email', $this->context(), $proof, $this->recheck()))->session;
 
         self::assertNotNull($first);
 
@@ -673,7 +787,7 @@ final class SessionEstablishmentTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class, SessionPending::class, SessionCreated::class, SignedIn::class]);
 
-        $refused = $establishing->proceed($member, [$membership, []], 'email', $context, $proof);
+        $refused = $establishing->proceed($member, [$membership, []], 'email', $context, $proof, $this->recheck());
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
@@ -708,6 +822,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(notAfter: $deadline),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ))->session?->record;
 
         self::assertNotNull($record);
@@ -738,6 +853,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         );
 
         self::assertInstanceOf(Refused::class, $refused);
@@ -774,6 +890,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ));
 
         self::assertTrue($result->isPending());
@@ -809,6 +926,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ));
 
         self::assertTrue($result->isSignedIn());
@@ -839,6 +957,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ));
 
         self::assertTrue($result->isSignedIn());
@@ -867,6 +986,7 @@ final class SessionEstablishmentTest extends TestCase
             'email',
             $this->context(),
             SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
         ));
 
         self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $result->pending?->requirement->kinds());
@@ -900,6 +1020,8 @@ final class SessionEstablishmentTest extends TestCase
     {
         $connections = app(ConnectionResolverInterface::class);
 
+        $this->establishing = $guard;
+
         return new SessionEstablishment(
             $guard->context(),
             new SessionWriter($guard->getName(), $guard->tokens(), $connections),
@@ -907,6 +1029,29 @@ final class SessionEstablishmentTest extends TestCase
             new PendingEvaluation($guard->context(), app()),
             new AfterCommit(static fn (): mixed => app('db.transactions')),
             app(),
+        );
+    }
+
+    /**
+     * The check of a sign-in through the guard the last establishment was built
+     * for, made for the request's client and begun now, as the session service
+     * makes it.
+     *
+     * @return \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck
+     */
+    private function recheck(): AdmissionRecheck
+    {
+        $guard = $this->establishing;
+
+        self::assertNotNull($guard);
+
+        return new AdmissionRecheck(
+            $guard->context(),
+            $guard,
+            new RevocationWriter(app(ConnectionResolverInterface::class), static fn (): mixed => app('db.transactions')),
+            new AfterCommit(static fn (): mixed => app('db.transactions')),
+            $guard->context()->client(),
+            CarbonImmutable::now()->startOfSecond(),
         );
     }
 

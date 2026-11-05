@@ -155,9 +155,51 @@ final readonly class RevocationWriter
     }
 
     /**
+     * End every session of the scopes once more, for a deactivation or deletion
+     * of the model given, once the transactions open now on the session model's
+     * connection and on the model's own have committed, in turn: the
+     * transaction the scopes were first ended in may have read the sessions
+     * through a snapshot taken before a sign-in, a choice or a switch that
+     * admitted the model committed one, which a read after the change's commit
+     * finds. Every cutoff stays where the first pass left it, each session this
+     * pass revokes is reported, and no scope is. With no transaction open on
+     * either connection, the first pass already read past every commit and
+     * nothing is done; a rollback runs nothing.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\RevocationScope>  $scopes
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @param  object  $changed
+     * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \SineMacula\Laravel\Authentication\Sessions\RevocationScope): void  $sessionRevoked
+     * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    public function revokeAgain(array $scopes, RevocationReason $reason, object $changed, \Closure $sessionRevoked): void
+    {
+        $models = $changed instanceof Model ? [SessionLookup::model(), $changed] : [SessionLookup::model()];
+
+        if (array_filter($models, $this->afterCommit->defers(...)) === []) {
+            return;
+        }
+
+        $kept = array_map(static fn (RevocationScope $scope): RevocationScope => $scope->keepingCutoff(), $scopes);
+
+        $this->afterCommit->runAcross($models, fn () => $this->revokeScopes($kept, $reason, null, CarbonImmutable::now()->startOfSecond(), $sessionRevoked, static fn () => null));
+    }
+
+    /**
      * Revoke every unrevoked session of the scope but the excepted one, reading
      * them on the write connection in key order, a chunk at a time, and queue
-     * each revoked session's report.
+     * each revoked session's report. The scope's query is copied, never
+     * narrowed, so a scope can be ended again (`revokeAgain()`).
      *
      * @formatter:off
      *
@@ -180,9 +222,9 @@ final readonly class RevocationWriter
             return 0;
         }
 
-        [$query, $model] = $scope->sessions;
+        [$sessions, $model] = $scope->sessions;
 
-        $query->whereNull($model->qualifyColumn($model->getRevokedAtName()));
+        $query = (clone $sessions)->whereNull($model->qualifyColumn($model->getRevokedAtName()));
 
         if ($except instanceof $model) {
             $query->whereKeyNot($except->getSessionIdentifier());

@@ -50,6 +50,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
@@ -919,11 +920,63 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
+     * Rows of `[whether the switch returns the session to pending]`.
+     *
+     * @return iterable<string, array{0: bool}>
+     */
+    public static function provideSwitchOutcomes(): iterable
+    {
+        yield 'switched' => [false];
+        yield 'returned to pending' => [true];
+    }
+
+    /**
+     * A switch whose destination tenant is deactivated after the switch
+     * admitted it, before the switch commits, ends the session once checked,
+     * whether the switch rotated it or returned it to pending: it is revoked as
+     * `tenant_deactivated` and reported as revoked (its client holds it), the
+     * switch is refused as `tenant_inactive` (flow `switch`), and nothing
+     * reports a switch.
+     *
+     * @param  bool  $pending
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideSwitchOutcomes')]
+    public function testASwitchWhoseDestinationIsDeactivatedBeforeItCommitsEndsTheSession(bool $pending): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+        $policy  = new ScriptedTenantAuthenticationPolicy;
+
+        $policy->answer = static function (TenantPolicyContext $context) use ($second, $pending): TenantRequirement {
+            ActivatableTenant::query()->whereKey($second->tenant_id)->update(['is_active' => false]);
+
+            return $pending ? new TenantRequirement('v1', new Requirement(new RequirementPart)) : new TenantRequirement;
+        };
+
+        app()->instance(TenantAuthenticationPolicy::class, $policy);
+
+        $this->recordEvents([AuthenticationFailed::class, PrincipalSwitched::class, SessionRevoked::class]);
+
+        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+
+        self::assertSame(FailureReason::TENANT_INACTIVE, $result->reason);
+        self::assertSame([SessionRevoked::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(AuthenticationFlow::SWITCH, $this->recordedEvent(AuthenticationFailed::class)->flow);
+        self::assertSame(RevocationReason::TENANT_DEACTIVATED->value, Session::query()->whereKey($session->record->getKey())->value('revoked_reason'));
+    }
+
+    /**
      * A switch runs in one transaction whose first statement is the session's
      * issuance guard, written after the session is looked up: the owner's and
      * the target's reads, the read of the session's proofs for the access token
      * and the compare-and-swap all follow it there, and the time the switch is
-     * judged and recorded at is taken once the guard is written.
+     * judged and recorded at is taken once the guard is written. Only the reads
+     * of the destination principal and its tenant, checked again once the
+     * switch commits, come after it, outside the transaction.
      *
      * @return void
      *
@@ -953,7 +1006,9 @@ final class SessionSwitchTest extends TestCase
 
         self::assertIsInt($guard);
         self::assertSame(0, $statements[$guard - 1][1]);
-        self::assertSame([1], array_values(array_unique(array_column(array_slice($statements, $guard, -1), 1))));
+        self::assertSame([1], array_values(array_unique(array_column(array_slice($statements, $guard, -3), 1))));
+        self::assertSame([0, 0], array_column(array_slice($statements, -2), 1));
+        self::assertSame(['select', 'select'], array_map(static fn (string $sql): string => strtolower(strtok($sql, ' ') ?: ''), array_column(array_slice($statements, -2), 0)));
         self::assertStringContainsString('group by', implode(' | ', array_column(array_slice($statements, $guard), 0)));
         self::assertSame(0, DB::transactionLevel());
         self::assertSame(1, self::issuanceGuardWrites($session->record->getKey()));

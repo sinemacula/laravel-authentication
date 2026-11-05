@@ -29,7 +29,11 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * session the identity holds. Registering this observer on any other model
  * throws a `LogicException` when it is deleted. Deletion already stops every
  * token while the deleted model no longer resolves; revoking records why, ends
- * the sessions in listings and makes the end outlast a restore.
+ * the sessions in listings and makes the end outlast a restore. A sign-in, a
+ * choice of principal or a switch that admitted the model before the delete
+ * committed, and wrote its session after this revocation read the sessions,
+ * ends that session itself once it checks it (`AdmissionRecheck`), so no
+ * session survives the restore.
  *
  * @api
  *

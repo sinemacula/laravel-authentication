@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
+use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -92,15 +93,19 @@ trait SignsInExternally
      */
     public function signInExternally(ExternalResult $result, ?SignInContext $context = null): SignInResult
     {
+        $began     = CarbonImmutable::now()->startOfSecond();
         $method    = SignInMethodManager::EXTERNAL_METHOD;
         $transport = $this->transport();
         $context   = ($context ?? SignInContext::fromRequest($this->context->request()))->withNotAfter($result->sessionNotAfter);
-        $outcome   = SessionLookup::model()->getConnection()->transaction(function () use ($result, $context, $method): mixed {
+        $recheck   = $this->recheck($context->client, $began);
+        $outcome   = SessionLookup::model()->getConnection()->transaction(function () use ($result, $context, $method, $recheck): mixed {
 
             $resolved = $this->externalSignIns->resolve($result, $context);
 
-            return $resolved instanceof Refused ? $resolved : $this->startFor($resolved[0], $context->principal, $method, $context, $resolved[1]);
+            return $resolved instanceof Refused ? $resolved : $this->startFor($resolved[0], $context->principal, $method, $context, $resolved[1], $recheck);
         });
+
+        $outcome = $recheck->refusal() ?? $outcome;
 
         return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, [], null, $result) : $this->bound($outcome, $transport, $context->client);
     }

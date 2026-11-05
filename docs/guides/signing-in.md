@@ -837,6 +837,10 @@ whichever guard each sign-in used, held to the most permissive `per_identifier` 
 account (see [Rate limits](configuration.md#rate-limits)). A sign-in that `start()` began took no slots, since nothing
 was guessed.
 
+Once its session commits, active or pending, the sign-in reads its identity, principal and tenant again, and refuses
+the sign-in, ending the session, when one of them was deactivated or deleted after the steps above admitted it (see
+[Sign-ins racing a deactivation or deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion)).
+
 ### Actions
 
 A pending credential allows only the actions of the session's first outstanding requirement, by stable names

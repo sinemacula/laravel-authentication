@@ -103,9 +103,10 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     /**
      * A switch to another membership reads the refresh counters, the session
      * (and again with a lock after the issuance guard), its owner, the target,
-     * its tenant and its owner, writes the issuance guard and the switch, and
-     * reads the session's proofs for the new access token; the membership it
-     * switched from is not read again.
+     * its tenant and its owner, writes the issuance guard and the switch, reads
+     * the session's proofs for the new access token, and, once the switch is
+     * committed, reads the target and its tenant again to check they still
+     * stand; the membership it switched from is not read again.
      *
      * @return void
      *
@@ -121,7 +122,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($session);
 
         $sessions = $this->sessions('members');
-        $result   = $this->assertQueryBudget(8, 2, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
+        $result   = $this->assertQueryBudget(10, 2, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
 
         self::assertTrue($result->isSwitched());
     }
@@ -131,9 +132,9 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
      * the refresh counters, the session (twice, as every switch does), its
      * owner, the target, its tenant and its owner, then the one first-factor
      * proof the policy is judged on, which the identity's own requirement and
-     * the pending session reuse, and writes the issuance guard and the one
+     * the pending session reuse, writes the issuance guard and the one
      * compare-and-swap that returns the session to pending instead of the
-     * switch.
+     * switch, and reads the target and its tenant again once committed.
      *
      * @return void
      *
@@ -146,7 +147,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v2', new Requirement(new RequirementPart))));
 
         $sessions = $this->sessions('members');
-        $result   = $this->assertQueryBudget(8, 2, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
+        $result   = $this->assertQueryBudget(10, 2, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
 
         self::assertTrue($result->isPending());
     }
@@ -159,8 +160,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
      */
     public static function provideExternalEvidenceVerdicts(): iterable
     {
-        yield 'met by the accepted evidence' => [true, 10];
-        yield 'not met by it' => [false, 9];
+        yield 'met by the accepted evidence' => [true, 12];
+        yield 'not met by it' => [false, 11];
     }
 
     /**
@@ -169,7 +170,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
      * returning to pending reads, then the session's accepted evidence in one
      * more read: met, it switches, reading the session's proofs for the new
      * access token; not met, it returns the session to pending. Either way it
-     * writes the issuance guard and one compare-and-swap.
+     * writes the issuance guard and one compare-and-swap, and reads the target
+     * and its tenant again once committed.
      *
      * @param  bool  $meets
      * @param  int  $reads
@@ -216,7 +218,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
      * tenants together in one read however many there are, and what an earlier
      * session left under the pending session's key (two reads, which find
      * nothing), and writes the six attempt-counter statements a password
-     * sign-in makes, the pending session and its first proof.
+     * sign-in makes, the pending session and its first proof; once committed,
+     * it reads the identity again (no principal is recorded yet to check).
      *
      * @param  int  $memberships
      * @return void
@@ -229,7 +232,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $this->seedChooser($memberships);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(5, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test')));
+        $result   = $this->assertQueryBudget(6, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test')));
 
         self::assertTrue($result->isPending());
     }
@@ -262,7 +265,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
      * so establishing the session reads it no more), what an earlier session
      * left under the new session's key (two reads, which find nothing) and its
      * proofs once for the access token, and writes the six attempt-counter
-     * statements, their three releases, the session and its first proof.
+     * statements, their three releases, the session and its first proof; once
+     * committed, it reads the identity, the membership and its tenant again.
      *
      * @param  int  $memberships
      * @return void
@@ -277,7 +281,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         ActivatableTenant::query()->where('name', '!=', 'Tenant 1')->update(['is_active' => false]);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(6, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test')));
+        $result   = $this->assertQueryBudget(9, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test')));
 
         self::assertTrue($result->isSignedIn());
     }
@@ -286,7 +290,8 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
      * Choosing locks and reads the pending session and its identity, reads the
      * chosen membership, its owner and its tenant, reads its first factor (the
      * default factor policy asks nothing, so no other proof is read), activates
-     * the session with one update, reads its proofs, and gives each of the
+     * the session with one update, reads its proofs, reads the chosen
+     * membership and its tenant again once committed, and gives each of the
      * sign-in's three attempt slots back: the session and its first proof were
      * written when the sign-in left it pending.
      *
@@ -300,7 +305,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $chosen = ChoosingMembership::query()->firstOrFail();
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(7, 4, static fn (): SignInResult => $sessions->choose($token, $chosen));
+        $result   = $this->assertQueryBudget(9, 4, static fn (): SignInResult => $sessions->choose($token, $chosen));
 
         self::assertTrue($result->isSignedIn());
     }
@@ -325,7 +330,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         request()->headers->remove('X-Requested-With');
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(7, 4, static fn (): SignInResult => $sessions->choose($token, $chosen, null, self::sameSiteClient()));
+        $result   = $this->assertQueryBudget(9, 4, static fn (): SignInResult => $sessions->choose($token, $chosen, null, self::sameSiteClient()));
 
         self::assertTrue($result->isSignedIn());
         self::assertNotNull($result->session?->tokens->refreshCookie);
@@ -336,8 +341,9 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
      * keeps the session pending on it: it locks and reads the session and its
      * identity, reads the chosen membership, its owner and its tenant, and the
      * one first-factor proof the tenant's verdict is judged on, which the
-     * identity's own requirement and the pending session reuse, and records the
-     * choice and what it now waits on with one update.
+     * identity's own requirement and the pending session reuse, records the
+     * choice and what it now waits on with one update, and reads the chosen
+     * membership and its tenant again once committed.
      *
      * @return void
      *
@@ -351,7 +357,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(6, 1, static fn (): SignInResult => $sessions->choose($token, $chosen));
+        $result   = $this->assertQueryBudget(8, 1, static fn (): SignInResult => $sessions->choose($token, $chosen));
 
         self::assertTrue($result->isPending());
         self::assertSame(1, $this->firstFactorReads());
@@ -381,7 +387,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($choice);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(8, 5, static fn (): SignInResult => $sessions->choose($choice, $chosen));
+        $result   = $this->assertQueryBudget(10, 5, static fn (): SignInResult => $sessions->choose($choice, $chosen));
 
         self::assertNotSame($first->record->getKey(), $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));
@@ -400,7 +406,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         [$session, $second] = $this->signInWithASecondMembership();
 
         $sessions = self::sessionsOf($this->guardForRequest(['refresh_token' => $session->tokens->refreshToken?->reveal()]));
-        $result   = $this->assertQueryBudget(8, 2, static fn (): ?SwitchResult => $sessions->switchFromRequest(SwitchTarget::principal($second)));
+        $result   = $this->assertQueryBudget(10, 2, static fn (): ?SwitchResult => $sessions->switchFromRequest(SwitchTarget::principal($second)));
 
         self::assertTrue($result?->isSwitched());
     }

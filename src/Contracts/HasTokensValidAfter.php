@@ -14,7 +14,12 @@ use Carbon\CarbonInterface;
  * session stops when the session is revoked; one issued without a session
  * (access only) has nothing to revoke, so signing out everywhere moves this
  * time forward instead, and the bearer path rejects every such token issued at
- * or before it. The time is read on the write connection.
+ * or before it. The time is read on the write connection. It also ends a
+ * sign-in, a choice of principal or a switch still in flight when it moves: one
+ * whose identity's or principal's time moved strictly after the second the call
+ * began is refused or ended once its session commits, which is how a
+ * deactivation or deletion undone before such a call could see it still ends
+ * the session the call admitted before it.
  *
  * @api
  *

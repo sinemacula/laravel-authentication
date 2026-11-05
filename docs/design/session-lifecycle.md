@@ -182,11 +182,41 @@ revoked, and when a session that ended is deleted. Starting a session is in
   exception reaches the code that deleted or committed; the call is idempotent, so the recovery is calling it again with
   the model still held. Deletion already stops every token while the provider and principal resolver do not resolve the
   model; revoking records why, ends the sessions in listings and makes the end outlast a restore. A sign-in that
-  admitted the identity before the delete committed can write its session after the revocation ran: it is refused while
-  the model stays deleted, and a restore would make it usable. Every revocation trigger has this window (deactivation
-  and reactivation, a password change), since a sign-in does not lock the identity row; closing it would lock that row
-  on every sign-in, so it is documented instead: before a restore, call `identityDeleted()` or `principalDeleted()`
-  again, or force delete.
+  admitted the identity before the delete committed, and writes its session after the revocation read the sessions,
+  ends that session itself: see "A session written while what it acts as was being deactivated or deleted" below.
+- A session written while what it acts as was being deactivated or deleted (BL-127). A sign-in, a pending session's
+  choice of principal and a switch admit the identity, principal and tenant long before they write the session, so a
+  deactivation or deletion committing in between is followed by a revocation that finds nothing. Closed without a lock
+  (the sign-in path takes none on the identity, principal or tenant rows, and the lock order is unchanged), by two
+  parts. (A) `Sessions\AdmissionRecheck`, one per call, built by the session service with the call's client and the
+  second the call began (before verification): once the call's write is committed and no transaction is open on the
+  session's connection or on any connection the identity, principal or tenant lives on (`AfterCommit::runAcross()`),
+  it reads again what the session newly acts as (a sign-in: the identity through the provider, the principal through
+  the resolver by its identifier and that principal's own tenant, the active tenant through
+  `TenantAdmission::recorded(..., false)`; a choice: the principal and tenant; a switch: what it changed) and judges
+  standing only (exists, active, and for an identity or principal with `HasTokensValidAfter` a cutoff not strictly
+  after the call began). No access contract, application policy or tenant authentication policy is asked. A failure
+  revokes the session (`RevocationWriter::revoke()`, conditional) with the matching reason; reports the call routes
+  through `AdmissionRecheck::then()` run only after a pass; a failure before the call answers becomes the call's
+  refusal (`refusal()`), with no `SessionRevoked` for a sign-in's own new session, while a failure after it (a
+  caller's transaction) or of a session that existed before the call (choice, switch) reports `SessionRevoked` and
+  forgets a guard binding to it. (B) The five deactivation and deletion revocations (`identityDeactivated()`,
+  `identityDeleted()`, `principalDeactivated()`, `principalDeleted()`, `tenantDeactivated()`) run their scopes again
+  (`RevocationWriter::revokeAgain()`, `keepingCutoff()`, only `SessionRevoked` reported, not counted) once the
+  transactions open, when they ran, on the session model's connection and the changed model's own have committed.
+  Proof: let W be the call's commit, C its check (after W, reading committed state), D the change's commit, Rd the
+  revocation's read (the observer's after D, or the second pass's after D). If Rd sees the session it is ended;
+  otherwise Rd's snapshot predates W, so D committed before W, hence before C, and C sees the change, unless something
+  undid it before C: then the revocation in between moved the cutoff past the call's start, which C refuses. The
+  residual is a change undone within the call's window for a subject without a cutoff (a tenant always), or within the
+  second the call began. Option (a) alone, judging every session against the cutoff, was rejected: it does not cover
+  an admission before the cutoff and a `signed_in_at` after it, it would end the sessions `signOutEverywhere(keep
+  current)` and the password changes keep, and it leaves subjects without a cutoff open. Option (b) as row locks taken
+  by the sign-in and waited on by the revocation was withdrawn: it adds a lock order (identity, principal, tenants
+  before session rows) with a deadlock against a switch's replacement, gap locks on MySQL, and partial commits across
+  connections. Costs: a sign-in reads the identity again (a 2D identity, its own principal, once) and in 3D its
+  principal and that principal's tenant; a choice and a switch to another principal its principal and tenant; the five
+  revocations scan their scopes once more only inside a transaction.
 - The password-change observer ignores a save of the user the container's scoped `Sessions\Methods\Rehashing` marks, and
   a save is a rehash only when it re-encodes the password signed in with: both the previous hash (the model's original,
   which Eloquent has not yet synced in `updated`) and the saved hash verify it (the hasher's `check()`; a hash it

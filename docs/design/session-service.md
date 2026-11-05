@@ -180,6 +180,11 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Failure / Edge Cases
 
+- A sign-in's session is checked once committed (`AdmissionRecheck`, made by `recheck()` with the call's client and
+  the second it began, before verification): its identity, principal and tenant are read again, and one deactivated or
+  deleted after admission revokes the session, which `signIn()`, `start()` and `signInExternally()` (after its own
+  transaction) answer as a refusal through `refusal()`; inside a caller's transaction the check runs at the commit,
+  ahead of the reports and the bind (see `session-lifecycle.md`).
 - The slots a pending session keeps stay taken until it first activates, the one the method's check took on the
   account (`SignInRequest::reserveAccountAttempt()`) among them, and a discard or expiry leaves them counted, so each
   guess at a factor costs a sign-in attempt. For the password method the
@@ -250,6 +255,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Authoritative Tests
 
+- `tests/Feature/Sessions/AdmissionRecheckTest.php`, and the forked race of a sign-in, choice and switch against a
+  deactivation or deletion in `tests/Integration/Sessions/ConcurrentSignInAndDeactivationTest.php`
 - `tests/Feature/Sessions/SessionServiceTest.php`, `tests/Unit/RateLimiting/AccountAttemptsTest.php`
 - `tests/Feature/Contracts/CredentialAttemptMatrixTest.php`: every case of `signIn('password')` beside `attempt()`'s,
   with its answer, events, timebox, rehash and slots; `tests/Feature/Sessions/CredentialAttemptTest.php`

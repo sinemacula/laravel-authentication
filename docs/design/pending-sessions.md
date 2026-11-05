@@ -133,6 +133,10 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 
 ## Failure / Edge Cases
 
+- A choice registers the call's check of the principal and tenant chosen (`AdmissionRecheck::choice()`) inside its
+  transaction, before `settle()`, so the activation's reports (routed through `then()`) run after the check passes at
+  the commit; a failed check revokes the pending session, reports its `SessionRevoked` (the client holds its
+  credential) and makes `choose()` answer the refusal. `satisfy()` passes a check that watches nothing.
 - Two `satisfy()` calls on one credential serialise on the row's lock: one activates, and the other finds the session
   active and is `pending_invalid`. A `discard()` racing either wins or loses the same way.
 - A `satisfy()` or `choose()` locks the pending session and then the older one its sign-in proved, whatever it goes on

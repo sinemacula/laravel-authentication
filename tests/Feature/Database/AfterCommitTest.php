@@ -107,6 +107,66 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
+     * Work run across models runs once the writes on each model's connection
+     * have committed, in the order the models are given: at once with none
+     * open; otherwise only once every transaction open on any of them has
+     * committed, whichever commits first; never when one rolls back; and at
+     * once with no model at all.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRunsAcrossEveryModelsConnection(): void
+    {
+        $session  = $this->record();
+        $separate = new SeparateConnectionSession;
+        $calls    = new \ArrayObject;
+        $count    = self::counter($calls);
+
+        $this->afterCommit()->runAcross([$session, $separate], $count);
+        $this->afterCommit()->runAcross([], $count);
+
+        self::assertCount(2, $calls);
+
+        $other = DB::connection(SeparateConnectionSession::CONNECTION);
+
+        DB::beginTransaction();
+        $other->beginTransaction();
+
+        $this->afterCommit()->runAcross([$session, $separate], $count);
+
+        $other->commit();
+
+        self::assertCount(2, $calls);
+
+        DB::commit();
+
+        self::assertCount(3, $calls);
+
+        DB::beginTransaction();
+        $other->beginTransaction();
+
+        $this->afterCommit()->runAcross([$session, $separate], $count);
+
+        DB::commit();
+
+        self::assertCount(3, $calls);
+
+        $other->commit();
+
+        self::assertCount(4, $calls);
+
+        $other->beginTransaction();
+
+        $this->afterCommit()->runAcross([$session, $separate], $count);
+
+        $other->rollBack();
+
+        self::assertCount(4, $calls);
+    }
+
+    /**
      * Work deferred inside a nested transaction on the session's connection is
      * dropped when that nested transaction is rolled back, even though the
      * outer transaction it was nested in later commits.

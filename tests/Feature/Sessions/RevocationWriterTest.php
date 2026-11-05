@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -527,6 +528,68 @@ final class RevocationWriterTest extends TestCase
 
         self::assertSame(1, DB::transaction($revoke));
         self::assertSame(['committed', 'session', 'scope'], $order->getArrayCopy());
+    }
+
+    /**
+     * The second pass of a deactivation's or deletion's revocation ends the
+     * scopes' sessions again only once the transactions open when it was asked
+     * for have committed, so it reads past them: with none open it does
+     * nothing, a rollback runs nothing, and after a commit it revokes each
+     * session left unrevoked, reports each one, keeps every cutoff where it
+     * was, and reports no scope; a changed subject that is not a model leaves
+     * the session model's connection alone to wait for. Ending a scope never
+     * narrows its query, so it can be ended again.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASecondPassEndsTheScopesAgainOnceTheirTransactionsCommit(): void
+    {
+        $identity = new CutoffIdentity;
+        $identity->forceFill(['email' => 'ada@example.test'])->save();
+        $identity = CutoffIdentity::query()->findOrFail($identity->id);
+
+        $this->seedIdentity();
+
+        $session = $this->signIn();
+        /** @var \ArrayObject<int, mixed> $reported */
+        $reported    = new \ArrayObject;
+        $revocations = new RevocationWriter(app('db'), static fn (): mixed => app('db.transactions'));
+        $report      = static function (EloquentSession&Model $revoked) use ($reported): void {
+            $reported->append($revoked->getKey());
+        };
+        $scopes = [RevocationScope::identity($session->identity), RevocationScope::identity($identity)];
+        $query  = $scopes[0]->sessions[0] ?? null;
+
+        self::assertNotNull($query);
+
+        $sql = $query->toRawSql();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $session->identity, $report);
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        DB::beginTransaction();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $session->identity, $report);
+
+        DB::rollBack();
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        DB::beginTransaction();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, new \stdClass, $report);
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        DB::commit();
+
+        self::assertSame('identity_deactivated', DB::table('authentication_sessions')->value('revoked_reason'));
+        self::assertSame([$session->record->getKey()], $reported->getArrayCopy());
+        self::assertNull(DB::table('cutoff_identities')->value('tokens_valid_after'));
+        self::assertSame($sql, $query->toRawSql());
     }
 
     /**

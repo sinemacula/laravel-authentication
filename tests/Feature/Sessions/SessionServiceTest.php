@@ -38,10 +38,12 @@ use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SessionPending;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -76,6 +78,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
+use Tests\Fixtures\Sessions\InterruptingFactorPolicy;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
@@ -1861,6 +1864,124 @@ final class SessionServiceTest extends TestCase
         self::assertSame($client, $this->recordedEvent(PrincipalAssigned::class)->context->client);
         self::assertSame($client, $this->recordedEvent(SessionAuthenticated::class)->context->client);
         self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], [$chosenSession->getRawOriginal('last_used_ip'), $chosenSession->getRawOriginal('last_used_user_agent')]);
+    }
+
+    /**
+     * Rows of `[a sign-in of the seeded identity through the service]`: by
+     * password, and started for the identity verified outside the guard.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \Tests\Integration\Fixtures\IntegrationIdentity): \SineMacula\Laravel\Authentication\Sessions\SignInResult}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideSignIns(): iterable
+    {
+        yield 'signIn()' => [static fn (SessionService $sessions): SignInResult => $sessions->signIn('password', self::credentials())];
+        yield 'start()' => [static fn (SessionService $sessions, IntegrationIdentity $identity): SignInResult => $sessions->start($identity, null, 'sso')];
+    }
+
+    /**
+     * A sign-in whose identity is deactivated after its admission, before its
+     * session is written, is refused once the session commits: the session is
+     * revoked as `identity_deactivated` without a `SessionRevoked` (it was
+     * never handed out), the refusal is reported as every refused sign-in is,
+     * nothing reports the session, and the guard is not bound to it.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \Tests\Integration\Fixtures\IntegrationIdentity): \SineMacula\Laravel\Authentication\Sessions\SignInResult  $signIn
+     * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideSignIns')]
+    public function testASignInWhoseIdentityIsDeactivatedBeforeItsWriteIsRefusedAndEnded(\Closure $signIn): void
+    {
+        $identity = $this->seedIdentity();
+
+        $change = static fn (): int => IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($change));
+
+        $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class, SessionRevoked::class, Login::class]);
+
+        $result = $signIn($this->sessions(), $identity);
+
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, $result->reason);
+        self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(AuthenticationFlow::SIGN_IN, $this->recordedEvent(AuthenticationFailed::class)->flow);
+        self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, Session::query()->sole()->getRawOriginal('revoked_reason'));
+        self::assertTrue(app('auth')->guard('api')->guest());
+    }
+
+    /**
+     * A pending sign-in whose identity is deactivated after its admission is
+     * refused the same way: its pending session is revoked and its credential
+     * never handed out.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSignInWhoseIdentityIsDeactivatedBeforeItsWriteIsRefused(): void
+    {
+        $identity = $this->seedIdentity();
+        $change   = static fn (): int => IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($change, new Requirement(new RequirementPart)));
+
+        $this->recordEvents([SessionPending::class, SessionRevoked::class]);
+
+        $result = $this->sessions()->signIn('password', self::credentials());
+
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, $result->reason);
+        self::assertNull($result->credential);
+        self::assertSame([], $this->recordedClasses());
+        $row = Session::query()->sole();
+
+        self::assertSame([SessionStatus::PENDING, RevocationReason::IDENTITY_DEACTIVATED->value], [$row->getStatus(), $row->getRawOriginal('revoked_reason')]);
+    }
+
+    /**
+     * Inside a caller's transaction a sign-in whose identity is deactivated
+     * after its admission is answered with its session, which the check, at the
+     * commit, then revokes and reports as revoked: nothing reports the sign-in,
+     * and the bind that waited for the commit binds nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testInsideACallersTransactionTheSessionIsEndedAtTheCommit(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $change = static fn (): int => IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($change));
+
+        $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class, SessionRevoked::class, Login::class]);
+
+        $sessions = $this->sessions();
+        $result   = DB::transaction(static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
+
+        self::assertTrue($result->isSignedIn());
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
+        self::assertSame(RevocationReason::IDENTITY_DEACTIVATED, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, Session::query()->sole()->getRawOriginal('revoked_reason'));
+        self::assertTrue(app('auth')->guard('api')->guest());
     }
 
     /**

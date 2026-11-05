@@ -143,10 +143,11 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A sign-in by code reads the identity, the code and the new session's
-     * proofs once each, and what an earlier session left under the new key in
-     * the proofs and the provenance (nothing, so nothing is deleted); it writes
-     * the sign-in and account reservations, the code's attempt and its use, the
-     * session and its first proof, and gives the three slots back.
+     * proofs once each, what an earlier session left under the new key in the
+     * proofs and the provenance (nothing, so nothing is deleted), and the
+     * identity again once the session is committed; it writes the sign-in and
+     * account reservations, the code's attempt and its use, the session and its
+     * first proof, and gives the three slots back.
      *
      * @return void
      *
@@ -162,13 +163,14 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
         $signIn = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => self::CODE]);
 
-        self::assertTrue($this->assertQueryBudget(5, 13, $signIn)->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(6, 13, $signIn)->isSignedIn());
     }
 
     /**
      * An email code costs what a phone code does: the request writes its limits
      * and the code, reads the code's row and no identity, and the sign-in reads
-     * the identity, the code and the session's proofs once each.
+     * the identity, the code and the session's proofs once each, and the
+     * identity again once the session is committed.
      *
      * @return void
      *
@@ -189,7 +191,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions('mobile');
         $signIn   = static fn (): SignInResult => $sessions->signIn('email_code', ['email' => 'ada@example.test', 'challenge' => $challenge, 'code' => self::CODE]);
 
-        self::assertTrue($this->assertQueryBudget(5, 13, $signIn)->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(6, 13, $signIn)->isSignedIn());
     }
 
     /**

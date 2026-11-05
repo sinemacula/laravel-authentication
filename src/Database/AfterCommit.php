@@ -66,6 +66,32 @@ final readonly class AfterCommit
     }
 
     /**
+     * Run the callback once the writes made on each model's connection have
+     * committed, the models' connections in the order given: on each, at once
+     * when no transaction is open on it then, otherwise when it commits, and
+     * never when it rolls back.
+     *
+     * @param  list<\Illuminate\Database\Eloquent\Model>  $models
+     * @param  \Closure(): void  $callback
+     * @return void
+     *
+     * @imperative
+     */
+    public function runAcross(array $models, \Closure $callback): void
+    {
+        $model = array_shift($models);
+
+        if ($model === null) {
+
+            $callback();
+
+            return;
+        }
+
+        $this->run($model, fn () => $this->runAcross($models, $callback));
+    }
+
+    /**
      * Run the callback, once, if the writes made on the model's connection so
      * far are rolled back: when the innermost transaction open on it now, or
      * any transaction it is nested in, rolls back, whether the inner one had

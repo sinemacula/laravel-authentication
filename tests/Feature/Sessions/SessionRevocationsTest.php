@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithChangeableIdentities;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\EagerTenantMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -361,6 +362,131 @@ final class SessionRevocationsTest extends TestCase
         self::assertSame($keeps ? 1 : 2, $change($revocations, $identity, $kept->record));
         self::assertSame($reason->value, DB::table('authentication_sessions')->where('id', self::idOf($ended))->value('revoked_reason'));
         self::assertSame($keeps ? null : $reason->value, DB::table('authentication_sessions')->where('id', self::idOf($kept))->value('revoked_reason'));
+    }
+
+    /**
+     * Rows of `[a revocation of the seeded member's identity, principal or
+     * tenant, whether it ends the scopes again once the transaction it ran in
+     * commits]`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionRevocations, \Tests\Integration\Fixtures\ActivatableTenantMember, \Tests\Integration\Fixtures\ActivatableTenantMembership, \Tests\Integration\Fixtures\ActivatableTenant): int, 1: bool}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideSecondPasses(): iterable
+    {
+        yield 'identity deactivated' => [
+            static fn (
+                SessionRevocations $revocations,
+                ActivatableTenantMember $member,
+                ActivatableTenantMembership $membership,
+                ActivatableTenant $tenant,
+            ): int => $revocations->identityDeactivated($member),
+            true,
+        ];
+        yield 'identity deleted' => [
+            static fn (
+                SessionRevocations $revocations,
+                ActivatableTenantMember $member,
+                ActivatableTenantMembership $membership,
+                ActivatableTenant $tenant,
+            ): int => $revocations->identityDeleted($member),
+            true,
+        ];
+        yield 'principal deactivated' => [
+            static fn (
+                SessionRevocations $revocations,
+                ActivatableTenantMember $member,
+                ActivatableTenantMembership $membership,
+                ActivatableTenant $tenant,
+            ): int => $revocations->principalDeactivated($membership),
+            true,
+        ];
+        yield 'principal deleted' => [
+            static fn (
+                SessionRevocations $revocations,
+                ActivatableTenantMember $member,
+                ActivatableTenantMembership $membership,
+                ActivatableTenant $tenant,
+            ): int => $revocations->principalDeleted($membership),
+            true,
+        ];
+        yield 'tenant deactivated' => [
+            static fn (
+                SessionRevocations $revocations,
+                ActivatableTenantMember $member,
+                ActivatableTenantMembership $membership,
+                ActivatableTenant $tenant,
+            ): int => $revocations->tenantDeactivated($tenant, [$membership]),
+            true,
+        ];
+        yield 'password reset' => [
+            static fn (
+                SessionRevocations $revocations,
+                ActivatableTenantMember $member,
+                ActivatableTenantMembership $membership,
+                ActivatableTenant $tenant,
+            ): int => $revocations->passwordReset($member),
+            false,
+        ];
+    }
+
+    /**
+     * A deactivation's or deletion's revocation made inside a transaction ends
+     * the same scopes again once it commits, so a session committed in the
+     * meantime (here, by a sign-in the transaction made after the first pass
+     * read the sessions) ends too: reported by its own `SessionRevoked`, with
+     * no second `SignedOutEverywhere`, and not counted in what the call
+     * returned. Any other revocation runs once.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionRevocations, \Tests\Integration\Fixtures\ActivatableTenantMember, \Tests\Integration\Fixtures\ActivatableTenantMembership, \Tests\Integration\Fixtures\ActivatableTenant): int  $revoke
+     * @param  bool  $again
+     * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideSecondPasses')]
+    public function testADeactivationOrDeletionInsideATransactionEndsItsScopesAgainAtTheCommit(\Closure $revoke, bool $again): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $first       = self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'))->session;
+        $revocations = SessionRevocations::forContext($this->freshGuard('members')->context(), app());
+
+        self::assertNotNull($first);
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
+
+        DB::beginTransaction();
+
+        self::assertSame(1, $revoke($revocations, $member, $membership, $tenant));
+
+        $late = self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($late);
+
+        $reported = $this->recordedClasses();
+
+        DB::commit();
+
+        self::assertSame([], $reported);
+        self::assertCount($again ? 2 : 1, array_filter($this->recorded, static fn (object $event): bool => $event instanceof SessionRevoked));
+        self::assertCount(1, array_filter($this->recorded, static fn (object $event): bool => $event instanceof SignedOutEverywhere));
+        self::assertSame($again, DB::table('authentication_sessions')->where('id', self::idOf($late))->whereNotNull('revoked_at')->exists());
     }
 
     /**

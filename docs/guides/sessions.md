@@ -999,9 +999,8 @@ Membership::observe(RevokeSessionsOnDeletion::class);
   ended in listings. The revocation runs after the delete commits, so when it fails (no `jwt` guard, a database error)
   the delete stays committed and the exception reaches the code that deleted or committed: call `identityDeleted()` or
   `principalDeleted()` again with the model you still hold, rather than deleting again. A sign-in that admitted the
-  identity before the delete committed can write its session after the revocation ran; it is refused on every use while
-  the model stays deleted, and a restore would make it usable, as with a deactivation and a reactivation. Before
-  restoring, call `identityDeleted()` or `principalDeleted()` again to end such a session, or force delete instead.
+  identity before the delete committed never outlives a restore (see [Sign-ins racing a deactivation or
+  deletion](#sign-ins-racing-a-deactivation-or-deletion)).
 
 A password reset through Laravel's broker saves the new password through Eloquent before your code fires
 `PasswordReset`, so with both password listeners registered the observer revokes every session first, as
@@ -1020,6 +1019,61 @@ $this->app->when(RevokeSessionsOnPasswordChange::class)->needs('$guard')->give('
 ```
 
 With no `jwt` guard configured at all, a listener throws an `InvalidArgumentException`.
+
+### Sign-ins racing a deactivation or deletion
+
+A sign-in, a pending session's choice of principal and a switch each admit what the session is to act as (the
+identity, the principal, the active tenant) before they write it. A deactivation or deletion that commits in between is
+followed by a revocation that finds no session to end, and the session written afterwards would be refused only while
+the change lasts. So each of these calls checks its session once it is committed: what the session newly acts as is
+read again, afresh, once no transaction is open on the session's connection or on the connection the identity,
+principal or tenant lives on. A sign-in's identity is reloaded through the guard's provider, and must still be that
+identity (`identity_unknown`, revoked as `identity_deleted`) and active (`identity_inactive`, `identity_deactivated`);
+its principal, and the principal a choice or a switch moves the session to, is resolved again through the guard's
+resolver and must still be that principal (`principal_unresolved`, `principal_deleted`), active (`principal_inactive`,
+`principal_deactivated`) and in an active tenant of its own (`tenant_inactive`, `tenant_deactivated`); the active tenant
+the session records must still resolve and be active (`tenant_inactive`, `tenant_deactivated`). A switch is checked
+for what it changed only, and `satisfy()` for nothing (its session already records what it acts as, so every
+revocation of those finds it). Nothing an access contract (`ApplicationAccess`, `TenantAccess`), the application policy
+or a tenant's authentication policy says is asked again: those are not what a deactivation or deletion changes, and
+their own triggers end sessions.
+
+A session that fails the check is revoked with the reason, by the conditional revocation every other one uses. Outside a
+transaction of yours the check runs before the call returns, and the call answers the refusal instead of the session: a
+sign-in fails as any refused sign-in does (Laravel's `Failed`, `AuthenticationFailed` with the flow `sign_in`, the
+attempt counted), with no `SessionCreated`, `SignedIn`, `SessionPending` or `ExternalResultRedeemed` and no bind, and no
+`SessionRevoked` for a session it never handed out; a choice fails as a refused choice does, and a switch with
+`AuthenticationFailed` (flow `switch`), and since the client holds that session their `SessionRevoked` is reported.
+Inside your transaction the call has already answered with the session when the check runs at your commit, ahead of what
+reports the session and of the bind: a failed check reports `SessionRevoked` and nothing else, and the bind binds
+nothing. The check reads each subject once more: a sign-in its identity (a 2D identity, its own principal, once) and, in
+3D, its principal and that principal's tenant; a choice and a switch to another principal its principal and tenant.
+
+The deactivation and deletion revocations (`identityDeactivated()`, `identityDeleted()`, `principalDeactivated()`,
+`principalDeleted()`, `tenantDeactivated()`, the observers among their callers) end their scopes again once the
+transaction open when they ran commits, on the session model's connection or the changed model's own, keeping every
+cutoff where the first pass left it and reporting only `SessionRevoked` for each session that pass revokes (the count
+the call returns is the first pass's): a revocation called inside the transaction that made the change may read the
+sessions through a snapshot taken before such a call committed. The observers run after the change commits, so they
+never need it.
+
+Either the revocation reads the session, or the call's check, made after its commit, reads the change. So no session
+established before or concurrently with a deactivation or deletion works after the reactivation or restore, with the
+observers or with direct calls (inside the change's transaction or after it), on every engine and isolation level, with
+the models on any connection, for any principal and tenant the guard's resolvers resolve. The one exception is a change
+undone (reactivated, restored) before a call in flight checks its session: the check sees the subject standing again,
+and only the "tokens valid after" cutoff the revocation moved after the call began records the change, so a call in
+flight is ended when its identity's or principal's cutoff moved strictly after the second it began (as
+`issued_before_cutoff`, revoked as `signed_out_everywhere`). A subject that records no cutoff (a tenant always; an
+identity or principal without `HasTokensValidAfter`), or an undo within the second the call began, leaves that call's
+session standing: give identities and principals `ProvidesTokensValidAfter`. The cutoff ends a call in flight whatever
+moved it, so a sign-in, choice or switch under way while its identity signs out everywhere, changes or resets its
+password or removes a factor is ended too: it proved itself before that revocation.
+
+The check and the second pass run after durable commits. Outside your transaction a database error in either is
+thrown from the call with the session (or the change) committed, and the call is not answered with the session: call
+the revocation again to end it. Inside your transaction the exception reaches the code that commits, as the observers'
+do. Nothing is retried by the package.
 
 ### Sign-in factors
 
@@ -1254,6 +1308,12 @@ the model as it is then, which a delete later in the same transaction has remove
 is therefore never called on a model whose `exists` is `false`, and persisting the cutoff through `save()` never
 inserts a deleted row again.
 
+The cutoff has a second use: a sign-in, a pending session's choice of principal or a switch still in flight when it
+moves is ended once its session commits, when its identity's or principal's cutoff moved strictly after the second the
+call began, since that call proved itself before the revocation; this is what ends a session admitted before a
+deactivation or deletion that was undone before the call could see it (see [Sign-ins racing a deactivation or
+deletion](#sign-ins-racing-a-deactivation-or-deletion)).
+
 ### Tenant authentication policies
 
 A tenant may ask more of the sessions active in it than the identity's own sign-in did: a further factor, or a sign-in
@@ -1326,7 +1386,7 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | Reason                  | Recorded when                                                                                                                              |
 |-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
 | `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutFromRequest()`, `signOutWith()`, `signOutPresented()`    |
-| `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                                        |
+| `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions; or a sign-in, choice or switch whose identity's or principal's cutoff moved meanwhile |
 | `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                             |
 | `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch, a sign-out or the caller of a refresh credential                             |
 | `superseded`            | A sign-in that proved the client holds the session, with its current refresh token, replaced it with a new session                         |
@@ -1334,11 +1394,11 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeSessionsOnPasswordReset`                           |
 | `password_established`  | `Auth::passwords()->establish()`: the identity's other sessions once it established its first password                                     |
 | `factor_removed`        | `credentialRemoved()`, directly or through `RevokeSessionsOnPasskeyRemoval`, or the factor package's `factorRemoved()`                     |
-| `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                                |
-| `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                               |
-| `tenant_deactivated`    | `tenantDeactivated()`                                                                                                                      |
-| `identity_deleted`      | `identityDeleted()`, directly or through `RevokeSessionsOnDeletion`; a soft delete included                                                |
-| `principal_deleted`     | `principalDeleted()`, directly or through `RevokeSessionsOnDeletion`; a soft delete included                                               |
+| `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeSessionsOnDeactivation`; or a sign-in whose identity was deactivated meanwhile         |
+| `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeSessionsOnDeactivation`; or a sign-in, choice or switch, as for the identity          |
+| `tenant_deactivated`    | `tenantDeactivated()`; or a sign-in, choice or switch whose tenant was deactivated or deleted meanwhile                                    |
+| `identity_deleted`      | `identityDeleted()`, directly or through `RevokeSessionsOnDeletion`, a soft delete included; or a sign-in, as for deactivation             |
+| `principal_deleted`     | `principalDeleted()`, directly or through `RevokeSessionsOnDeletion`, a soft delete included; or a sign-in, choice or switch, likewise     |
 | `tenant_policy_changed` | `tenantPolicyChanged()`, or a refresh that finds the tenant now requires a connection the session was not established through              |
 | `factor_reset`          | The factor package's `factorReset()`: every session of the identity                                                                        |
 | `factor_changed`        | The factor package's `factorChanged()`: the current session, no longer admitted after an addition (`factor_removed` for `FACTOR_REMOVED`)  |

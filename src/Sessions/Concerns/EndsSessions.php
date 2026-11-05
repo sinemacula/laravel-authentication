@@ -474,7 +474,12 @@ trait EndsSessions
 
     /**
      * The identity was deactivated: end every session it has
-     * (`identity_deactivated`).
+     * (`identity_deactivated`). Made inside a transaction (on the storage
+     * connection, or on the changed model's), it ends the same sessions again
+     * once that commits, reporting only `SessionRevoked` for each that pass
+     * ends, which the count returned does not include: the transaction may have
+     * read the sessions before a sign-in, choice or switch that admitted the
+     * model committed one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -491,7 +496,12 @@ trait EndsSessions
 
     /**
      * The principal was deactivated: end every session acting as it
-     * (`principal_deactivated`).
+     * (`principal_deactivated`). Made inside a transaction (on the storage
+     * connection, or on the changed model's), it ends the same sessions again
+     * once that commits, reporting only `SessionRevoked` for each that pass
+     * ends, which the count returned does not include: the transaction may have
+     * read the sessions before a sign-in, choice or switch that admitted the
+     * model committed one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return int
@@ -518,7 +528,12 @@ trait EndsSessions
      * within it. A tenant that does not opt in reads as no tenant once it
      * cannot be loaded, so call this before deleting it. All sessions, pending
      * ones among them, are ended in one transaction, after each principal's
-     * cutoff moved, with one `SignedOutEverywhere` per principal.
+     * cutoff moved, with one `SignedOutEverywhere` per principal. Made inside a
+     * transaction (on the storage connection, or on the changed model's), it
+     * ends the same sessions again once that commits, reporting only
+     * `SessionRevoked` for each that pass ends, which the count returned does
+     * not include: the transaction may have read the sessions before a sign-in,
+     * choice or switch that admitted the model committed one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  iterable<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
