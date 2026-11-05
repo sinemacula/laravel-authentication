@@ -24,6 +24,7 @@ use Tests\Integration\Fixtures\AccessOnlyMember;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\CutoffIdentity;
+use Tests\Integration\Fixtures\SavingCutoffIdentity;
 use Tests\TestCase;
 
 /**
@@ -62,6 +63,14 @@ final class RevocationScopeTest extends TestCase
             $blueprint->dateTime('tokens_valid_after', 0)->nullable();
             $blueprint->timestamps();
         });
+
+        Schema::create('saving_cutoff_identities', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email');
+            $blueprint->string('password');
+            $blueprint->dateTime('tokens_valid_after', 0)->nullable();
+            $blueprint->timestamps();
+        });
     }
 
     /**
@@ -74,6 +83,7 @@ final class RevocationScopeTest extends TestCase
     {
         Model::preventLazyLoading(false);
 
+        Schema::dropIfExists('saving_cutoff_identities');
         Schema::dropIfExists('cutoff_identities');
 
         $this->dropSessionTables();
@@ -230,6 +240,39 @@ final class RevocationScopeTest extends TestCase
 
         self::assertSame($identity, $principal->principal);
         self::assertSame($tenant, $principal->tenant);
+    }
+
+    /**
+     * Only a stored model's cutoff is moved: once a hard delete removes the
+     * row, an identity's scope and a principal's still hold its sessions but no
+     * cutoff, as does an identity never saved, so a `HasTokensValidAfter` that
+     * persists through `save()` never inserts the row again.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAModelThatIsNotStoredHasNoCutoffToMove(): void
+    {
+        $identity = SavingCutoffIdentity::query()->create(['email' => 'saving@example.test', 'password' => 'unused']);
+
+        self::assertSame($identity, RevocationScope::identity($identity)->cutoff);
+        self::assertSame($identity, RevocationScope::principal($identity)->cutoff);
+
+        $identity->delete();
+
+        $identityScope  = RevocationScope::identity($identity);
+        $principalScope = RevocationScope::principal($identity);
+
+        self::assertNull($identityScope->cutoff);
+        self::assertNotNull($identityScope->sessions);
+        self::assertNull($principalScope->cutoff);
+        self::assertNotNull($principalScope->sessions);
+        self::assertNull(RevocationScope::identity(new CutoffIdentity)->cutoff);
+
+        self::assertSame(0, $this->sessions()->identityDeleted($identity));
+        self::assertSame(0, $this->sessions()->principalDeleted($identity));
+        self::assertSame(0, DB::table('saving_cutoff_identities')->count());
     }
 
     /**

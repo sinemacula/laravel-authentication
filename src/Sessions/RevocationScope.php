@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
+use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -31,7 +32,10 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * other), so a scope whose identity does not (access-only mode, where the
  * package's tables may not exist) touches none and only moves its cutoff, and
  * an unsaved principal has none to find. A principal's scope ends no identifier
- * change: the identity that requested one keeps its other sessions.
+ * change: the identity that requested one keeps its other sessions. Only a
+ * stored model's cutoff is moved: an Eloquent identity or principal that is not
+ * stored (hard-deleted, or never saved) has no row to move it on, and an
+ * implementation that persists through `save()` would insert the row again.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -97,7 +101,7 @@ final readonly class RevocationScope
         $sessions = $identity instanceof HasSessions ? IdentitySessions::query($identity) : null;
         $changes  = array_map(static fn (string $type): string => PendingChanges::key($identity, $type), $changeTypes);
 
-        return new self($sessions, $identity instanceof HasTokensValidAfter ? $identity : null, $identity, null, changes: $changes);
+        return new self($sessions, self::cutoffOf($identity), $identity, null, changes: $changes);
     }
 
     /**
@@ -131,7 +135,7 @@ final readonly class RevocationScope
 
         return new self(
             $sessions,
-            $principal instanceof HasTokensValidAfter ? $principal : null,
+            self::cutoffOf($principal),
             $owner,
             $principal,
             $tenant,
@@ -175,6 +179,23 @@ final readonly class RevocationScope
     public function keepingCutoff(): self
     {
         return new self($this->sessions, null, $this->identity, $this->principal, $this->tenant, $this->changes);
+    }
+
+    /**
+     * The identity's or principal's "tokens valid after" holder, or `null` when
+     * it records none or is an Eloquent model that is not stored (`exists` is
+     * `false`: hard-deleted, or never saved), which has no row to move it on.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Contracts\Principal  $holder
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter
+     */
+    private static function cutoffOf(Identity|Principal $holder): ?HasTokensValidAfter
+    {
+        if (!$holder instanceof HasTokensValidAfter || ($holder instanceof Model && !$holder->exists)) {
+            return null;
+        }
+
+        return $holder;
     }
 
     /**

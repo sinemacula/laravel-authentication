@@ -746,18 +746,19 @@ leaving the identity's "tokens valid after" cutoff where it is, since a session-
 every session is still revoked, but the identity's other session-less tokens keep working too, until they expire.
 
 A bulk revocation first moves the scope's "tokens valid after" cutoff to now, when the identity or principal records one
-(`HasTokensValidAfter`), then, in one transaction on the storage connection, revokes each unrevoked session, read on the
-write connection in key order 500 at a time, pending ones included, and, for an identity, cancels its pending identifier
-changes. Once that transaction commits, `SessionRevoked` reports each session it revoked (with the session's
-own guard) and then `SignedOutEverywhere` reports the scope, with the acting guard, the reason, the count (also `0`, so
-the action itself is recorded), the cutoff it set (or `null`), and the session it kept. If the session transaction
-fails, the cutoff it already moved stands: more is cut off, never less, and calling again finishes the job. One window
-stays open: a sign-in that has already passed its credential check when a bulk revocation reads the sessions can still
-create its session afterwards. Closing it would take a lock that every sign-in and every revocation take on the
-identity, which the package does not add. A sign-in that proves the client's previous session races a bulk revocation
-the same way: when the revocation reads that session first, it is revoked with the bulk reason and the sign-in revokes
-nothing and still creates its session; when the sign-in commits first, the previous session is already `superseded` (the
-bulk call skips it) and the new session is revoked by the bulk call if its read finds it.
+(`HasTokensValidAfter`) and is stored (a hard-deleted model has no row to move it on), then, in one transaction on the
+storage connection, revokes each unrevoked session, read on the write connection in key order 500 at a time, pending
+ones included, and, for an identity, cancels its pending identifier changes. Once that transaction commits,
+`SessionRevoked` reports each session it revoked (with the session's own guard) and then `SignedOutEverywhere` reports
+the scope, with the acting guard, the reason, the count (also `0`, so the action itself is recorded), the cutoff it set
+(or `null`), and the session it kept. If the session transaction fails, the cutoff it already moved stands: more is cut
+off, never less, and calling again finishes the job. One window stays open: a sign-in that has already passed its
+credential check when a bulk revocation reads the sessions can still create its session afterwards. Closing it would
+take a lock that every sign-in and every revocation take on the identity, which the package does not add. A sign-in that
+proves the client's previous session races a bulk revocation the same way: when the revocation reads that session first,
+it is revoked with the bulk reason and the sign-in revokes nothing and still creates its session; when the sign-in
+commits first, the previous session is already `superseded` (the bulk call skips it) and the new session is revoked by
+the bulk call if its read finds it.
 
 Called inside your own transaction on the storage connection, `revokeSessions()`, `revokePrincipalSessions()` and
 `signOutEverywhere()` run as a savepoint there: the revocations commit or roll back with your change, and nothing is
@@ -931,7 +932,11 @@ Membership::observe(RevokeSessionsOnDeletion::class);
   are all those it holds: register the observer on the identity model and do not rely on the principal's observer for
   cascades. A principal a cascade removes with its tenant is covered by no identity's revocation, so call
   `tenantDeactivated()` with the tenant's principals before deleting it. Registering the observer on a model that is
-  neither an identity nor a principal throws a `LogicException` when that model is deleted.
+  neither an identity nor a principal throws a `LogicException` when that model is deleted. In access-only mode (no
+  `authentication_sessions` table), register it on the identity model only: a principal deleted after its owner, whose
+  owner can no longer be read, has its sessions looked for in that table, and the revocation throws without it (see
+  [Access-only mode](installation.md#access-only-mode-no-sessions-no-refresh)); the identity's own revocation needs no
+  table, and its cutoff ends every session-less token of the identity, whatever principal it acts as.
 
   Deletion already stops every token while the provider and principal resolver do not resolve the deleted model
   (Eloquent's `SoftDeletes` scope hides a soft-deleted one); a provider or resolver that includes trashed models keeps
@@ -1177,14 +1182,17 @@ class User extends Model implements HasTokensValidAfter, Identity, Principal
 ```
 
 Every bulk revocation of its sessions (including the security-change methods above) then moves its cutoff to the
-revocation's second first, except `signOutEverywhere(keepCurrentSession: true)` from an access-only token, which
-keeps the identity's cutoff where it is (see above), and the bearer path rejects a session-less access token whose `iat`
-is at or before the identity's or the principal's cutoff (`issued_before_cutoff`). The whole second is cut off, because
-a token's whole-second `iat` cannot tell an earlier token from one issued after the call in the same second, so a
+revocation's second first, except `signOutEverywhere(keepCurrentSession: true)` from an access-only token, which keeps
+the identity's cutoff where it is (see above), and the bearer path rejects a session-less access token whose `iat` is at
+or before the identity's or the principal's cutoff (`issued_before_cutoff`). The whole second is cut off, because a
+token's whole-second `iat` cannot tell an earlier token from one issued after the call in the same second, so a
 session-less token issued in that second is rejected too. Tokens that name a session are not checked against the cutoff
 (revoking the session ends them, and the session a sign-out everywhere keeps must keep working). The cutoff only ever
 moves forward, with one conditional update on the model's own connection (`invalidateTokensIssuedBefore()`); the column
-must be loaded, or reading it throws a `LogicException`, and the column name comes from `getTokensValidAfterName()`.
+must be loaded, or reading it throws a `LogicException`, and the column name comes from `getTokensValidAfterName()`. A
+`HasTokensValidAfter` of your own is called on a soft-deleted model, whose row still exists, but never on an Eloquent
+model that is not stored (hard-deleted, or never saved), so persisting the cutoff through `save()` never inserts a
+deleted row again.
 
 ### Tenant authentication policies
 

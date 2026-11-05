@@ -156,27 +156,32 @@ revoked, and when a session that ended is deleted. Starting a session is in
   session-less tokens issued before stay cut off after a restore. A restore saves (firing `updated`, which the
   deactivation observer ignores unless active turns inactive) and has no handler: revoked rows keep their first
   revocation. A force delete after a soft delete fires `deleted` again, and the revocation runs again rather than being
-  skipped: it changes no revoked row, the cutoff update finds no row, and one `SignedOutEverywhere` reports the count,
-  `0` unless a session was written since, which it then ends (one a provider that resolves trashed models admitted, one
-  signed in after a restore, one racing the soft delete); skipping would need `SoftDeletes` coupling and would leave
-  such a session. On a hard delete the model in memory keeps its attributes and key, so the identity's `sessions()` and
-  the principal's session query find the rows; the cutoff update is a conditional query-builder write that matches
-  nothing and never `save()`s, so the row is never put back, and the events hold plain values, so a queued listener
-  never needs the gone row. A deleted principal's owner is read afresh and is `null` when it cannot be read (gone or
-  soft-deleted with it), and its sessions are then looked for anyway. Deletes that fire no model event (query deletes
-  and `MassPrunable` prunes, `deleteQuietly()`, `forceDeleteQuietly()`, `withoutEvents()`, database cascades) end
-  nothing here: a principal a cascade removes with its identity is covered by the identity's own revocation, since an
-  identity's sessions are all those it holds whatever principal they act as, so the observer belongs on the identity
-  model; one a cascade removes with its tenant needs `tenantDeactivated()` with its principals before the tenant is
-  deleted. The revocation runs after the delete commits, so a failure there (no jwt guard, a database error) leaves the
-  delete committed and the exception reaches the code that deleted or committed; the call is idempotent, so the recovery
-  is calling it again with the model still held. Deletion already stops every token while the provider and principal
-  resolver do not resolve the model; revoking records why, ends the sessions in listings and makes the end outlast a
-  restore. A sign-in that admitted the identity before the delete committed can write its session after the revocation
-  ran: it is refused while the model stays deleted, and a restore would make it usable. Every revocation trigger has
-  this window (deactivation and reactivation, a password change), since a sign-in does not lock the identity row;
-  closing it would lock that row on every sign-in, so it is documented instead: before a restore, call
-  `identityDeleted()` or `principalDeleted()` again, or force delete.
+  skipped: it changes no revoked row, moves no cutoff (the model is no longer stored), and one `SignedOutEverywhere`
+  reports the count, `0` unless a session was written since, which it then ends (one a provider that resolves trashed
+  models admitted, one signed in after a restore, one racing the soft delete); skipping would need `SoftDeletes`
+  coupling and would leave such a session. On a hard delete the model in memory keeps its attributes and key, so the
+  identity's `sessions()` and the principal's session query find the rows. `RevocationScope` moves no cutoff on an
+  Eloquent model that is not stored (`exists` is `false`): a hard-deleted row has none left to move, and an
+  application's own `HasTokensValidAfter` that persists through `save()` would insert the row again, bringing the
+  deleted account back. The events hold plain values, so a queued listener never needs the gone row. A deleted
+  principal's owner is read afresh and is `null` when it cannot be read (gone or soft-deleted with it), and its sessions
+  are then looked for anyway, since that owner may have held them: in access-only mode, where the
+  `authentication_sessions` table may not exist, that lookup fails, so such an application ends a principal's tokens
+  while its owner can still be read, or observes the identity model only (its cutoff ends every token of the identity,
+  whatever principal it acts as). Deletes that fire no model event (query deletes and `MassPrunable` prunes,
+  `deleteQuietly()`, `forceDeleteQuietly()`, `withoutEvents()`, database cascades) end nothing here: a principal a
+  cascade removes with its identity is covered by the identity's own revocation, since an identity's sessions are all
+  those it holds whatever principal they act as, so the observer belongs on the identity model; one a cascade removes
+  with its tenant needs `tenantDeactivated()` with its principals before the tenant is deleted. The revocation runs
+  after the delete commits, so a failure there (no jwt guard, a database error) leaves the delete committed and the
+  exception reaches the code that deleted or committed; the call is idempotent, so the recovery is calling it again with
+  the model still held. Deletion already stops every token while the provider and principal resolver do not resolve the
+  model; revoking records why, ends the sessions in listings and makes the end outlast a restore. A sign-in that
+  admitted the identity before the delete committed can write its session after the revocation ran: it is refused while
+  the model stays deleted, and a restore would make it usable. Every revocation trigger has this window (deactivation
+  and reactivation, a password change), since a sign-in does not lock the identity row; closing it would lock that row
+  on every sign-in, so it is documented instead: before a restore, call `identityDeleted()` or `principalDeleted()`
+  again, or force delete.
 - The password-change observer ignores a save of the user the container's scoped `Sessions\Methods\Rehashing` marks, and
   a save is a rehash only when it re-encodes the password signed in with: both the previous hash (the model's original,
   which Eloquent has not yet synced in `updated`) and the saved hash verify it (the hasher's `check()`; a hash it

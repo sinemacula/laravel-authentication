@@ -273,8 +273,8 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * Ending a deleted identity's sessions again, as a force delete after a
-     * soft delete does, reads one chunk and revokes no session: its one write
-     * is the cutoff's conditional update, which finds no row.
+     * soft delete does, reads one chunk and writes nothing: no session is left
+     * to revoke, and a model no longer stored has no cutoff to move.
      *
      * @return void
      *
@@ -294,7 +294,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
         $first = $sessions->identityDeleted($identity);
 
         self::assertSame(2, $first);
-        self::assertSame(0, $this->assertQueryBudget(1, 1, static fn (): int => $sessions->identityDeleted($identity)));
+        self::assertSame(0, $this->assertQueryBudget(1, 0, static fn (): int => $sessions->identityDeleted($identity)));
     }
 
     /**

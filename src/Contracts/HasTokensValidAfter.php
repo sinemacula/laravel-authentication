@@ -36,7 +36,10 @@ interface HasTokensValidAfter
 
     /**
      * Move the time forward to `$time`, never back, and persist it at once.
-     * Returns whether it moved.
+     * Returns whether it moved. A bulk revocation calls it on a soft-deleted
+     * model, whose row still exists, but never on an Eloquent model that is not
+     * stored (hard-deleted, or never saved), so persisting through `save()`
+     * never inserts a row.
      *
      * @param  \Carbon\CarbonInterface  $time
      * @return bool

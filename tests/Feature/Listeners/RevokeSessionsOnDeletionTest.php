@@ -25,6 +25,7 @@ use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\Integration\Fixtures\SavingCutoffIdentity;
 use Tests\Integration\Fixtures\SoftDeletingMember;
 use Tests\Integration\Fixtures\SoftDeletingMembership;
 use Tests\TestCase;
@@ -81,6 +82,14 @@ final class RevokeSessionsOnDeletionTest extends TestCase
             $blueprint->timestamps();
             $blueprint->softDeletes();
         });
+
+        Schema::create('saving_cutoff_identities', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email');
+            $blueprint->string('password');
+            $blueprint->dateTime('tokens_valid_after', 0)->nullable();
+            $blueprint->timestamps();
+        });
     }
 
     /**
@@ -91,6 +100,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
+        Schema::dropIfExists('saving_cutoff_identities');
         Schema::dropIfExists('soft_deleting_memberships');
         Schema::dropIfExists('soft_deleting_members');
 
@@ -379,8 +389,8 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * A force delete of a live model revokes its sessions once, and the cutoff
-     * that cannot move on a row that is gone never puts the row back.
+     * A force delete of a live model revokes its sessions once, moves no cutoff
+     * on the row that is gone, and never puts the row back.
      *
      * @return void
      *
@@ -402,6 +412,32 @@ final class RevokeSessionsOnDeletionTest extends TestCase
         self::assertSame(['identity_deleted', 'identity_deleted'], DB::table('authentication_sessions')->whereIn('id', $sessions)->pluck('revoked_reason')->all());
         self::assertNull($this->recordedEvent(SignedOutEverywhere::class)->tokensValidAfter);
         self::assertSame(0, DB::table('soft_deleting_members')->count());
+    }
+
+    /**
+     * A hard delete moves no cutoff, so an identity whose own
+     * `HasTokensValidAfter` persists it through `save()` is not inserted again:
+     * its sessions end and its row stays gone.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAHardDeleteNeverSavesTheCutoffOfTheRowItRemoved(): void
+    {
+        $identity = SavingCutoffIdentity::query()->create(['email' => 'saving@example.test', 'password' => 'unused']);
+        $session  = self::insertSession($identity, $identity);
+
+        SavingCutoffIdentity::observe(RevokeSessionsOnDeletion::class);
+
+        $this->recordEvents([SignedOutEverywhere::class]);
+
+        $identity->delete();
+
+        self::assertSame(0, DB::table('saving_cutoff_identities')->count());
+        self::assertSame('identity_deleted', DB::table('authentication_sessions')->where('id', $session)->value('revoked_reason'));
+        self::assertSame(1, $this->recordedEvent(SignedOutEverywhere::class)->revoked);
+        self::assertNull($this->recordedEvent(SignedOutEverywhere::class)->tokensValidAfter);
     }
 
     /**
