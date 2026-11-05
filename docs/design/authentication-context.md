@@ -90,10 +90,10 @@ permission: a policy that reads the context is the application's.
   `SessionOwnership::isSameSession()`, as for a `Session` given to the service), so a key that now holds another session
   answers nothing. `[]` and `null` without a session or for one that is not an Eloquent session (no query, the session
   model never resolved), and for one no longer the application's live, active session of a person; `proofs()` checks its
-  limit (1 to `RequirementSubject::MAX_LIMIT`) first, whatever the session, and reads `$since` as the same instant in
-  any time zone. Neither is memoised: each call reads the session's row and then its proofs, locked and read current
-  inside a transaction on the session model's connection, so each answer is as of its call. `provenance()` keeps its
-  memo, since a session's provenance never changes within a generation.
+  limit (1 to `RequirementSubject::MAX_LIMIT`) first, whatever the session, and reads `$since` (any Carbon time, never
+  changed) as the same instant in any time zone. Neither is memoised: each call reads the session's row and then its
+  proofs, locked and read current inside a transaction on the session model's connection, so each answer is as of its
+  call. `provenance()` keeps its memo, since a session's provenance never changes within a generation.
 - The context holds plain values only: no model and no secret, so it can be logged, compared or queued as it is. Its
   constructor is public, for tests, and checks contributed keys as the builder does (`InvalidArgumentException`).
   `get('namespace.key', $default)` gives the default only for an absent key; `has()` is true for a key held with

@@ -107,6 +107,30 @@ final class PendingSessionTest extends TestCase
     }
 
     /**
+     * Its proofs may be read since a mutable time, as the application's `now()`
+     * gives one: only those made at or after it are read.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testReadsItsProofsSinceAMutableTime(): void
+    {
+        $identity = $this->seedIdentity();
+        $signIn   = $this->sessions()->signIn('password', self::credentials());
+
+        self::assertNotNull($signIn->pending);
+        self::assertNotNull($signIn->credential);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinute());
+
+        $pending = $this->sessions()->satisfy($signIn->credential, self::adapterProof($identity, 'api', $signIn->pending->id, Purpose::SIGN_IN))->pending;
+
+        self::assertNotNull($pending);
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], array_column($pending->proofs(Carbon::instance(CarbonImmutable::now())), 'kind'));
+    }
+
+    /**
      * With no limit given, its proofs are read a page of 50 at a time, in one
      * query.
      *

@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Feature\Context;
 
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
@@ -367,8 +368,9 @@ final class ContributionSubjectTest extends TestCase
 
     /**
      * The time a subject's proofs are read from is the same instant in
-     * whichever time zone it is given: a step-up made at it is read and one
-     * made before it is not, as when it is given in the application's zone.
+     * whichever time zone it is given, mutable or not: a step-up made at it is
+     * read and one made before it is not, as when it is given in the
+     * application's zone.
      *
      * @param  string  $zone
      * @return void
@@ -385,7 +387,7 @@ final class ContributionSubjectTest extends TestCase
 
         self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $at, ['otp'], new Evaluation(true, true));
 
-        $since = static fn (CarbonImmutable $time): array => array_map(
+        $since = static fn (CarbonInterface $time): array => array_map(
             static fn (RecordedProof $proof): ProofKind => $proof->kind,
             $subject->proofs($time->setTimezone($zone)),
         );
@@ -393,6 +395,7 @@ final class ContributionSubjectTest extends TestCase
         self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], $since($this->now));
         self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($this->now->addSecond()));
         self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($at));
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since(Carbon::instance($at)));
         self::assertSame([], $since($at->addSecond()));
     }
 

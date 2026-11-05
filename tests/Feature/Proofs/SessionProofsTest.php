@@ -809,6 +809,37 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
+     * A mutable time is read as the same instant in whichever time zone it is
+     * given, and is left as it was given: the query compares a copy.
+     *
+     * @param  string  $zone
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideTimeZones')]
+    public function testAMutableTimeIsReadAsTheSameInstantAndLeftUnchanged(string $zone): void
+    {
+        $session = $this->signedIn()->record;
+        $at      = $this->now->addMinute();
+
+        self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $at, ['otp'], new Evaluation(true, true));
+
+        $atStep  = Carbon::instance($at)->setTimezone($zone);
+        $pastIt  = Carbon::instance($at->addSecond())->setTimezone($zone);
+        $kindsOf = static fn (Carbon $time): array => array_map(
+            static fn (RecordedProof $proof): ProofKind => $proof->kind,
+            SessionProofs::query($session, $time, null, 10),
+        );
+
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], $kindsOf($atStep));
+        self::assertSame([], $kindsOf($pastIt));
+        self::assertSame($zone, $atStep->getTimezone()->getName());
+        self::assertSame($at->getTimestamp(), $atStep->getTimestamp());
+        self::assertSame($zone, $pastIt->getTimezone()->getName());
+    }
+
+    /**
      * The connection is the one the session's provenance records, and none for
      * a session no external provider established.
      *

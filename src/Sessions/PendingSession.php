@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
@@ -124,19 +125,20 @@ final readonly class PendingSession
     /**
      * The session's counting proofs (not voided, and a further factor or
      * recovery code only when accepted), newest first by time and then by id,
-     * only those made at or after `$since` when it is given and of the given
-     * kinds when they are, at most `$limit` of them (1 to
+     * only those made at or after `$since` when it is given (any Carbon time,
+     * mutable or not, the same instant in any time zone, and never changed) and
+     * of the given kinds when they are, at most `$limit` of them (1 to
      * `RequirementSubject::MAX_LIMIT`): one bounded query on the write
      * connection each call, as a requirement check's subject reads them.
      *
-     * @param  ?\Carbon\CarbonImmutable  $since
+     * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
      * @param  int  $limit
      * @return list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>
      *
      * @throws \InvalidArgumentException
      */
-    public function proofs(?CarbonImmutable $since = null, ?array $kinds = null, int $limit = 50): array
+    public function proofs(?CarbonInterface $since = null, ?array $kinds = null, int $limit = 50): array
     {
         if ($limit < 1 || $limit > RequirementSubject::MAX_LIMIT) {
             throw new \InvalidArgumentException(sprintf('A pending session returns between 1 and %d proofs at a time.', RequirementSubject::MAX_LIMIT));

@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Context;
 
-use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -101,17 +101,17 @@ final class ContributionSubject
     /**
      * The session's counting proofs (not voided, and a further factor or
      * recovery code only when accepted), newest first by time and then by id,
-     * only those made at or after `$since` when it is given (the same instant
-     * in any time zone) and of the given kinds when they are, at most `$limit`
-     * of them (1 to `RequirementSubject::MAX_LIMIT`, an
-     * `InvalidArgumentException` otherwise, checked first, whatever the
-     * session): the session's row and then one bounded read, on the write
-     * connection, each call. `[]` without a session, with one that is not an
-     * Eloquent session (no query), and with one that is no longer the
-     * application's live, active session of a person or whose key now holds
-     * another session, without saying which.
+     * only those made at or after `$since` when it is given (any Carbon time,
+     * mutable or not, the same instant in any time zone, and never changed) and
+     * of the given kinds when they are, at most `$limit` of them (1 to
+     * `RequirementSubject::MAX_LIMIT`, an `InvalidArgumentException` otherwise,
+     * checked first, whatever the session): the session's row and then one
+     * bounded read, on the write connection, each call. `[]` without a session,
+     * with one that is not an Eloquent session (no query), and with one that is
+     * no longer the application's live, active session of a person or whose key
+     * now holds another session, without saying which.
      *
-     * @param  ?\Carbon\CarbonImmutable  $since
+     * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
      * @param  int  $limit
      * @return list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>
@@ -120,7 +120,7 @@ final class ContributionSubject
      *
      * @phpstan-impure
      */
-    public function proofs(?CarbonImmutable $since = null, ?array $kinds = null, int $limit = 50): array
+    public function proofs(?CarbonInterface $since = null, ?array $kinds = null, int $limit = 50): array
     {
         if ($limit < 1 || $limit > RequirementSubject::MAX_LIMIT) {
             throw new \InvalidArgumentException(sprintf('A contribution subject returns between 1 and %d proofs at a time.', RequirementSubject::MAX_LIMIT));

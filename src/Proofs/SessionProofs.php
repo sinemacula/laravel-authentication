@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Proofs;
 
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
@@ -157,11 +158,12 @@ final class SessionProofs
      * when they are, at most `$limit` of them: one `LIMIT` query on the proofs'
      * session, kind and time index, read current when asked, as the class
      * describes. `$since` is the same instant in whichever time zone it is
-     * given: it is compared in the application's, the one proofs are written
-     * in.
+     * given, mutable or not: an immutable copy of it is compared in the
+     * application's zone, the one proofs are written in, so the time given is
+     * never changed.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @param  ?\Carbon\CarbonImmutable  $since
+     * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
      * @param  int  $limit
      * @param  bool  $current
@@ -169,11 +171,11 @@ final class SessionProofs
      *
      * @throws \InvalidArgumentException
      */
-    public static function query(Session $session, ?CarbonImmutable $since, ?array $kinds, int $limit, bool $current = false): array
+    public static function query(Session $session, ?CarbonInterface $since, ?array $kinds, int $limit, bool $current = false): array
     {
         $model  = new SessionProof;
         $shared = self::sharesLock($model, $current);
-        $from   = $since?->setTimezone(date_default_timezone_get());
+        $from   = $since?->toImmutable()->setTimezone(date_default_timezone_get());
 
         $proofs = WriteConnection::during($model, static fn (): array => self::counting($session)
             ->when($from !== null, static fn (Builder $query): Builder => $query->where('authenticated_at', '>=', $model->fromDateTime($from)))

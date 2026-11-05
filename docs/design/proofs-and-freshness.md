@@ -60,9 +60,12 @@ session holds; the token's claims and every freshness answer are worked out from
   The proofs are bound to the row as stored, so an id names whichever session holds the key now; a `Session` given to
   the service, and a subject's, answers only while the stored row is still that session
   (`SessionOwnership::isSameSession()`: its generation and owner, with no query), and one that is not an Eloquent
-  session is not looked up. `$since` is converted to the application's time zone, the one proofs are written in, before
-  it is compared, so it is the same instant in whichever zone it is given (as `PendingSession::proofs()` reads it too).
-  No identity is checked: which sessions a caller may ask about is the application's to decide.
+  session is not looked up. `$since` is any `CarbonInterface`, as the package's other times from a caller are (so
+  `now()`'s mutable `Carbon` serves), and an immutable copy of it is converted to the application's time zone, the one
+  proofs are written in, before it is compared, so it is the same instant in whichever zone it is given and the caller's
+  time is never changed (as `PendingSession::proofs()` and `RequirementSubject::proofs()` read it too;
+  `RequirementSubject` hands its reader the immutable copy). No identity is checked: which sessions a caller may ask
+  about is the application's to decide.
 - `auth_time` is the newest time of any counting proof. `amr` is the values of the first factor, the further factors,
   the recovery codes and the reauthentications with an accepted evaluation, once each, in the order of their newest
   times and then of their values; `mfa` is added only when an accepted evaluation reported multifactor authentication

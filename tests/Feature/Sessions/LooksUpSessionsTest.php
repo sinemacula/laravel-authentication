@@ -5,10 +5,12 @@ declare(strict_types = 1);
 namespace Tests\Feature\Sessions;
 
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
@@ -256,8 +258,9 @@ final class LooksUpSessionsTest extends TestCase
 
     /**
      * The time a session's proofs are read from is the same instant in
-     * whichever time zone it is given: a step-up made at it is read and one
-     * made before it is not, as when it is given in the application's zone.
+     * whichever time zone it is given, mutable or not: a step-up made at it is
+     * read and one made before it is not, as when it is given in the
+     * application's zone.
      *
      * @param  string  $zone
      * @return void
@@ -279,7 +282,7 @@ final class LooksUpSessionsTest extends TestCase
 
         self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $key))->isIssued());
 
-        $since = fn (CarbonImmutable $time): array => array_map(
+        $since = fn (CarbonInterface $time): array => array_map(
             static fn (RecordedProof $proof): ProofKind => $proof->kind,
             $this->sessions('api')->proofs($key, $time->setTimezone($zone)),
         );
@@ -287,6 +290,7 @@ final class LooksUpSessionsTest extends TestCase
         self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], $since($signedInAt));
         self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($at->subSecond()));
         self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($at));
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since(Carbon::instance($at)));
         self::assertSame([], $since($at->addSecond()));
     }
 

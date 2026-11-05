@@ -164,23 +164,22 @@ active session's counting proofs and the first factor it signed in with through 
 id or as a `Session` it holds:
 
 ```php
-use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 
 $sessions = Auth::sessions('api');
 
-$since   = CarbonImmutable::now()->subMinutes(15);
-$stepUps = $sessions->proofs($sessionId, $since, [ProofKind::ADDITIONAL_FACTOR], limit: 10);
+$stepUps = $sessions->proofs($sessionId, now()->subMinutes(15), [ProofKind::ADDITIONAL_FACTOR], limit: 10);
 $first   = $sessions->firstFactor(Auth::session());
 ```
 
 `proofs()` answers a list of `Proofs\RecordedProof`: the session's counting proofs (not voided, and a further factor or
 recovery code only when its adapter accepted it), newest first by time and then by id, only those made at or after
-`$since` when it is given (the same instant in whichever time zone it is given) and of `$kinds` when they are given, at
-most `$limit` of them (50 by default, 1 to 200; anything else is an `InvalidArgumentException`, before anything is
-read): exactly what `PendingSession::proofs()` answers for a pending session. `firstFactor()` answers the session's
-oldest counting first-factor proof, or `null` when it no longer counts.
+`$since` when it is given (any Carbon time, mutable or not, the same instant in whichever time zone it is given, and
+never changed by the read) and of `$kinds` when they are given, at most `$limit` of them (50 by default, 1 to 200;
+anything else is an `InvalidArgumentException`, before anything is read): exactly what `PendingSession::proofs()`
+answers for a pending session. `firstFactor()` answers the session's oldest counting first-factor proof, or `null` when
+it no longer counts.
 
 Both answer only for one of this guard's live, active sessions of a person. An id that cannot be a key of the session
 model (not a UUID, for the shipped model), one that names no session, and a session of another guard, a revoked one, a

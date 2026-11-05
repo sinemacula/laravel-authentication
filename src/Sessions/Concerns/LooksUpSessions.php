@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
-use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
@@ -85,13 +85,13 @@ trait LooksUpSessions
      * person, named by its identifier or given as a `Session`, for a factor
      * package's proof store, a requirement checker or a confirmation that reads
      * what a session proved: newest first by time and then by id, only those
-     * made at or after `$since` when it is given (the same instant in any time
-     * zone) and of the given kinds when they are, at most `$limit` of them (1
-     * to `RequirementSubject::MAX_LIMIT`, an `InvalidArgumentException`
-     * otherwise, before anything is read), exactly as
-     * `PendingSession::proofs()` reads a pending session's. Counting proofs are
-     * those not voided, and a further factor or recovery code only when
-     * accepted.
+     * made at or after `$since` when it is given (any Carbon time, mutable or
+     * not, the same instant in any time zone, and never changed) and of the
+     * given kinds when they are, at most `$limit` of them (1 to
+     * `RequirementSubject::MAX_LIMIT`, an `InvalidArgumentException` otherwise,
+     * before anything is read), exactly as `PendingSession::proofs()` reads a
+     * pending session's. Counting proofs are those not voided, and a further
+     * factor or recovery code only when accepted.
      *
      * An identifier names whichever session holds the key now. A `Session`
      * names only itself: it is answered only while its key still holds that
@@ -118,7 +118,7 @@ trait LooksUpSessions
      * nothing.
      *
      * @param  mixed  $session
-     * @param  ?\Carbon\CarbonImmutable  $since
+     * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
      * @param  int  $limit
      * @return list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>
@@ -129,7 +129,7 @@ trait LooksUpSessions
      *
      * @phpstan-impure
      */
-    public function proofs(mixed $session, ?CarbonImmutable $since = null, ?array $kinds = null, int $limit = 50): array
+    public function proofs(mixed $session, ?CarbonInterface $since = null, ?array $kinds = null, int $limit = 50): array
     {
         return ActiveSessionProofs::query($this->context->name(), $session, $since, $kinds, $limit);
     }

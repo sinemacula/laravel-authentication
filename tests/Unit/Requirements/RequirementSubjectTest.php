@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Requirements;
 
+use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -60,6 +61,34 @@ final class RequirementSubjectTest extends TestCase
         self::assertSame($first, $subject->firstFactor);
         self::assertSame('api', $subject->application);
         self::assertNull($subject->session);
+    }
+
+    /**
+     * A mutable time reaches the reader as an immutable copy of the same
+     * instant, and the time given is left as it was.
+     *
+     * @return void
+     */
+    public function testAMutableTimeReachesTheReaderAsAnImmutableCopy(): void
+    {
+        $now   = CarbonImmutable::parse('2026-04-06 12:00:00');
+        $first = SignInProof::unattested('password', $now)->recorded();
+        $given = Carbon::parse('2026-04-06 07:59:30.250000', 'America/New_York');
+        $asked = [];
+
+        $reader = static function (?CarbonImmutable $since) use (&$asked): array {
+            $asked[] = $since;
+
+            return [];
+        };
+
+        $subject = new RequirementSubject(new PlainIdentityFixture(7), 'api', null, $first, $now, $reader);
+
+        self::assertSame([], $subject->proofs($given));
+        self::assertCount(1, $asked);
+        self::assertInstanceOf(CarbonImmutable::class, $asked[0]);
+        self::assertTrue($asked[0]->equalTo($given));
+        self::assertSame('2026-04-06 07:59:30.250000 America/New_York', $given->format('Y-m-d H:i:s.u e'));
     }
 
     /**

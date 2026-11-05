@@ -182,13 +182,14 @@ policies](sessions.md#tenant-authentication-policies)). A `null` version is neve
 Whether a session's proofs meet a further factor is `Contracts\RequirementCheck`'s to judge: `evaluate()` takes a
 `Requirements\RequirementSubject` (the identity, the application, the session, the first factor it signed in with, the
 time, and `proofs($since, $kinds, $limit)`, a bounded query over its counting proofs, newest first, at most
-`RequirementSubject::MAX_LIMIT`) and the `Requirement`, and answers a `Requirements\RequirementEvaluation` listing the
-kinds left unmet. It judges the identity-level requirement the additional-factor policy answers as well as a tenant's.
-The default, `MeetNoRequirement`, meets nothing: an identity or a tenant that requires a further factor admits no
-session until a factor package binds its check. The package never asks it with an empty requirement, nor when an
-external provider's accepted evidence already meets the whole requirement (see below). An external provider's proof
-reads back with no evaluation: its evidence was accepted for the whole application, of any age and for no tenant, so
-the evidence policy alone judges it, and a check counts no part of a requirement met by one.
+`RequirementSubject::MAX_LIMIT`, only those made at or after `$since` when it is given, any Carbon time, the same
+instant in any time zone) and the `Requirement`, and answers a `Requirements\RequirementEvaluation` listing the kinds
+left unmet. It judges the identity-level requirement the additional-factor policy answers as well as a tenant's. The
+default, `MeetNoRequirement`, meets nothing: an identity or a tenant that requires a further factor admits no session
+until a factor package binds its check. The package never asks it with an empty requirement, nor when an external
+provider's accepted evidence already meets the whole requirement (see below). An external provider's proof reads back
+with no evaluation: its evidence was accepted for the whole application, of any age and for no tenant, so the evidence
+policy alone judges it, and a check counts no part of a requirement met by one.
 
 Whether an external identity provider's evidence counts is `Contracts\ExternalEvidencePolicy`'s to say, in two
 questions about an `External\ExternalEvidence` (the provider's `amr` values, its `acr` value or SAML authentication

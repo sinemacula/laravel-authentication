@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Session;
@@ -60,14 +61,14 @@ final class ActiveSessionProofs
      *
      * @param  string  $guard
      * @param  mixed  $session
-     * @param  ?\Carbon\CarbonImmutable  $since
+     * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
      * @param  int  $limit
      * @return list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>
      *
      * @throws \InvalidArgumentException
      */
-    public static function query(string $guard, mixed $session, ?CarbonImmutable $since, ?array $kinds, int $limit): array
+    public static function query(string $guard, mixed $session, ?CarbonInterface $since, ?array $kinds, int $limit): array
     {
         if ($limit < 1 || $limit > RequirementSubject::MAX_LIMIT) {
             throw new \InvalidArgumentException(sprintf('A session returns between 1 and %d proofs at a time.', RequirementSubject::MAX_LIMIT));
