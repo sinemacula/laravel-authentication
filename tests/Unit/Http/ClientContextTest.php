@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use Symfony\Component\HttpFoundation\Exception\ConflictingHeadersException;
 use Symfony\Component\HttpFoundation\Exception\SuspiciousOperationException;
 
 /**
@@ -24,7 +25,7 @@ use Symfony\Component\HttpFoundation\Exception\SuspiciousOperationException;
 final class ClientContextTest extends TestCase
 {
     /**
-     * Forget the trusted hosts a test set.
+     * Forget the trusted hosts and proxies a test set.
      *
      * @return void
      */
@@ -32,6 +33,7 @@ final class ClientContextTest extends TestCase
     protected function tearDown(): void
     {
         Request::setTrustedHosts([]);
+        Request::setTrustedProxies([], -1);
 
         parent::tearDown();
     }
@@ -241,6 +243,33 @@ final class ClientContextTest extends TestCase
         $this->expectException(SuspiciousOperationException::class);
 
         $request->getHost();
+    }
+
+    /**
+     * A request from a trusted proxy whose forwarded headers disagree on the
+     * scheme has no scheme and host however often its context is read, and the
+     * request still refuses those headers to the application afterwards.
+     *
+     * @return void
+     */
+    public function testConflictingForwardedHeadersLeaveNoSchemeAndHost(): void
+    {
+        Request::setTrustedProxies(['10.0.0.1'], Request::HEADER_FORWARDED | Request::HEADER_X_FORWARDED_PROTO);
+
+        $request = Request::create('http://api.example.test/auth/sign-in', 'POST', server: [
+            'REMOTE_ADDR'            => '10.0.0.1',
+            'HTTP_FORWARDED'         => 'proto=https',
+            'HTTP_X_FORWARDED_PROTO' => 'http',
+        ]);
+
+        $first  = ClientContext::fromRequest($request);
+        $second = ClientContext::fromRequest($request);
+
+        self::assertSame([null, null], [$first->schemeAndHost, $second->schemeAndHost]);
+
+        $this->expectException(ConflictingHeadersException::class);
+
+        $request->isSecure();
     }
 
     /**
