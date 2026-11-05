@@ -216,29 +216,33 @@ final readonly class SessionService
      * Sign in with the named sign-in method and the input the client sent.
      *
      * In order: Laravel's `Attempting` (with only the identifier the input
-     * names, never the input itself); the application policy must allow the
-     * method (`method_not_allowed`, nothing counted); the identifier and the
-     * client's IP address must have attempts left (`rate_limited`); then,
-     * inside the credential timebox, the method must verify the input (its
-     * `FirstFactor` is the session's first proof, timed when it returned) and
-     * the identity must be human, active and admitted with the identifier type
-     * the input used. Then the sign-in follows the order the service describes:
-     * a deadline the context supplies that has already passed fails as
-     * `session_expired`; the principal the context names, or the only one the
-     * application admits, is selected, or a choice is left outstanding (with
-     * none left, the sign-in fails with the reason the last was refused, or
-     * `principal_unresolved`); a password is rehashed when its hash is
-     * outdated; the client's refresh token, if any, is checked as proof of an
-     * existing session; the identity-level factor policy is asked; a selected
-     * principal's tenant (the context's, or its own) is admitted; and that
-     * tenant's authentication policy is asked, judged against the sign-in's own
-     * proof and provenance: one requiring sign-in through a connection the
-     * sign-in did not come through fails it as `sso_required`, writing nothing,
-     * and a further factor it requires is outstanding as the identity's own is.
-     * With nothing outstanding the session starts and the sign-in gives back
-     * the attempt's slots and those the method took on the accounts it
-     * checked; otherwise the session is pending and keeps them all until it
-     * first activates.
+     * names, never the input itself); a cookie application's request must come
+     * from a page of its own site (`cross_site_request`, before anything is
+     * read, counted or written: see
+     * `RefreshTokenTransport::isSameSiteClient()`, judged on the context's
+     * client, the guard request's unless a context is given); the application
+     * policy must allow the method (`method_not_allowed`, nothing counted); the
+     * identifier and the client's IP address must have attempts left
+     * (`rate_limited`); then, inside the credential timebox, the method must
+     * verify the input (its `FirstFactor` is the session's first proof, timed
+     * when it returned) and the identity must be human, active and admitted
+     * with the identifier type the input used. Then the sign-in follows the
+     * order the service describes: a deadline the context supplies that has
+     * already passed fails as `session_expired`; the principal the context
+     * names, or the only one the application admits, is selected, or a choice
+     * is left outstanding (with none left, the sign-in fails with the reason
+     * the last was refused, or `principal_unresolved`); a password is rehashed
+     * when its hash is outdated; the client's refresh token, if any, is checked
+     * as proof of an existing session; the identity-level factor policy is
+     * asked; a selected principal's tenant (the context's, or its own) is
+     * admitted; and that tenant's authentication policy is asked, judged
+     * against the sign-in's own proof and provenance: one requiring sign-in
+     * through a connection the sign-in did not come through fails it as
+     * `sso_required`, writing nothing, and a further factor it requires is
+     * outstanding as the identity's own is. With nothing outstanding the
+     * session starts and the sign-in gives back the attempt's slots and those
+     * the method took on the accounts it checked; otherwise the session is
+     * pending and keeps them all until it first activates.
      *
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
@@ -259,27 +263,34 @@ final readonly class SessionService
         $this->context->dispatch(new Attempting($this->context->name(), $safe, false));
 
         $subject = new AttemptSubject($this->context->name(), AttemptFlow::SIGN_IN, $identifier, $type, $context->client->ip);
-        $outcome = $this->signInWith($driver, $method, $input, $context, $subject, $transport);
+        $outcome = SessionPreconditions::crossSite($transport, $context->client) ?? $this->signInWith($driver, $method, $input, $context, $subject, $transport);
 
         if (!$outcome instanceof Refused) {
             return $outcome;
         }
 
-        return $this->fail($outcome, $method, $context, $identifier, $safe, $outcome->reason === FailureReason::METHOD_NOT_ALLOWED ? null : $driver->challenge($input));
+        $unanswered = in_array($outcome->reason, [FailureReason::METHOD_NOT_ALLOWED, FailureReason::CROSS_SITE_REQUEST], true);
+
+        return $this->fail($outcome, $method, $context, $identifier, $safe, $unanswered ? null : $driver->challenge($input));
     }
 
     /**
      * Start a session for an identity verified outside the guard, through the
      * named method.
      *
-     * The identity is reloaded through the guard's identity provider from the
-     * write connection and must come back as the same class and key
-     * (`identity_unknown`), so the provider's scopes apply. Then the
-     * application policy must allow the method, and the sign-in follows the
-     * order `signIn()` does from the identity on (with no identifier type, so
-     * the verified-identifier requirement does not apply), so a sign-in from
-     * outside cannot skip a required factor or the choice of principal. No
-     * attempt limit or timebox applies: nothing is guessed here.
+     * A cookie application's request must come from a page of its own site, as
+     * `signIn()`'s must (`cross_site_request`, before the identity is
+     * reloaded): an application whose own verification arrives as a cross-site
+     * callback lands it on a page of its own site that calls this from there,
+     * or signs in with `signInExternally()`, which is exempt. The identity is
+     * reloaded through the guard's identity provider from the write connection
+     * and must come back as the same class and key (`identity_unknown`), so the
+     * provider's scopes apply. Then the application policy must allow the
+     * method, and the sign-in follows the order `signIn()` does from the
+     * identity on (with no identifier type, so the verified-identifier
+     * requirement does not apply), so a sign-in from outside cannot skip a
+     * required factor or the choice of principal. No attempt limit or timebox
+     * applies: nothing is guessed here.
      *
      * The principal to act as is given here or on the context, not both. The
      * method may not be a machine credential kind (`api_key`,
@@ -311,7 +322,7 @@ final readonly class SessionService
         $pinned = SessionPreconditions::pinnedPrincipal($principal, $context);
         $proof  = SignInProof::unattested($method, CarbonImmutable::now());
 
-        $outcome = $this->startFor($identity, $pinned, $method, $context, $proof);
+        $outcome = SessionPreconditions::crossSite($transport, $context->client) ?? $this->startFor($identity, $pinned, $method, $context, $proof);
 
         return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $this->bound($outcome, $transport);
     }
@@ -361,7 +372,9 @@ final readonly class SessionService
      * credential consumed), stays pending, or moves on to the choice of
      * principal. A refusal leaves the session pending and the proof unstored; a
      * credential that names no live pending session of this guard fails as
-     * `pending_invalid`. Every refusal is reported with Laravel's `Failed` and
+     * `pending_invalid`. A cookie application's request that did not come from
+     * a page of its own site fails as `cross_site_request` before the pending
+     * session is read. Every refusal is reported with Laravel's `Failed` and
      * `AuthenticationFailed`.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
@@ -373,8 +386,10 @@ final readonly class SessionService
     public function satisfy(#[\SensitiveParameter] Secret|string $credential, ProofResult $proof): SignInResult
     {
         $transport = $this->transport();
+        $outcome   = SessionPreconditions::crossSite($transport, $this->context->client())
+            ?? $this->pendings->satisfy($credential, $proof, CarbonImmutable::now()->startOfSecond());
 
-        return $this->acted($this->pendings->satisfy($credential, $proof, CarbonImmutable::now()->startOfSecond()), $transport);
+        return $this->acted($outcome, $transport);
     }
 
     /**
@@ -395,7 +410,9 @@ final readonly class SessionService
      * meet, records the principal and tenant and leaves the session waiting for
      * it; otherwise the session activates. A refusal leaves the session pending
      * for another choice; a credential that names no live pending session of
-     * this guard fails as `pending_invalid`.
+     * this guard fails as `pending_invalid`; a cookie application's request
+     * that did not come from a page of its own site fails as
+     * `cross_site_request` before the pending session is read.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -407,8 +424,10 @@ final readonly class SessionService
     public function choose(#[\SensitiveParameter] Secret|string $credential, Principal $principal, ?TenantSelection $tenant = null): SignInResult
     {
         $transport = $this->transport();
+        $outcome   = SessionPreconditions::crossSite($transport, $this->context->client())
+            ?? $this->pendings->choose($credential, $principal, $tenant, CarbonImmutable::now()->startOfSecond());
 
-        return $this->acted($this->pendings->choose($credential, $principal, $tenant, CarbonImmutable::now()->startOfSecond()), $transport);
+        return $this->acted($outcome, $transport);
     }
 
     /**

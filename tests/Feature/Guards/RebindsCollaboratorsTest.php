@@ -39,7 +39,7 @@ final class RebindsCollaboratorsTest extends AbstractGuardTestCase
 
         $guard->authenticateAs($this->mockIdentity(), $this->mockPrincipal(), $this->mockSession());
 
-        $next = \Mockery::mock(Request::class);
+        $next = Request::create('/');
 
         self::assertSame($guard, $guard->setRequest($next));
         self::assertFalse($guard->hasUser());

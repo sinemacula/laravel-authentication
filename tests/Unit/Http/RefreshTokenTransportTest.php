@@ -12,6 +12,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\Enums\Transport;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
@@ -20,6 +21,7 @@ use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use Symfony\Component\HttpFoundation\Cookie;
+use Symfony\Component\HttpFoundation\Exception\ConflictingHeadersException;
 use Tests\Unit\Stubs\PlainSessionFixture;
 
 /**
@@ -47,6 +49,19 @@ final class RefreshTokenTransportTest extends TestCase
 
     /** @var string An origin the application allows besides the request's own. */
     private const string ALLOWED_ORIGIN = 'https://app.example.test';
+
+    /**
+     * Forget the trusted proxies a test set.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        Request::setTrustedProxies([], -1);
+
+        parent::tearDown();
+    }
 
     /**
      * A request that carries no token in any carrier presents nothing, by
@@ -388,6 +403,127 @@ final class RefreshTokenTransportTest extends TestCase
         self::assertFalse($transport->isSameSiteRequest(self::signIn($origin, $csrf)));
         self::assertTrue($transport->isSameSiteRequest(self::signIn('http://localhost', 'fetch')));
         self::assertTrue($transport->isSameSiteRequest(self::signIn(self::ALLOWED_ORIGIN, 'fetch')));
+    }
+
+    /**
+     * Rows of `[client context, whether it is same-site]`, each fact failing
+     * alone: the own origin and the allowed origin pass only with the custom
+     * header carried with a value, and only an origin that is the request's own
+     * or allowed passes.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Http\ClientContext, 1: bool}>
+     */
+    public static function provideClients(): iterable
+    {
+        $own    = 'http://localhost';
+        $header = ['x-requested-with'];
+
+        yield 'the own origin with the header' => [new ClientContext(null, null, $own, $own, $header), true];
+        yield 'an allowed origin with the header' => [new ClientContext(null, null, self::ALLOWED_ORIGIN, $own, $header), true];
+        yield 'an allowed origin with no scheme and host' => [new ClientContext(null, null, self::ALLOWED_ORIGIN, null, $header), true];
+        yield 'the header spelt in another case' => [new ClientContext(null, null, $own, $own, ['X-Requested-With']), true];
+        yield 'an unapproved origin with the header' => [new ClientContext(null, null, 'https://evil.example.test', $own, $header), false];
+        yield 'the own origin without the header' => [new ClientContext(null, null, $own, $own, ['origin']), false];
+        yield 'an allowed origin without the header' => [new ClientContext(null, null, self::ALLOWED_ORIGIN, $own, []), false];
+        yield 'the header with no origin' => [new ClientContext(null, null, null, $own, $header), false];
+        yield 'the header with neither origin nor scheme and host' => [new ClientContext(null, null, null, null, $header), false];
+        yield 'the header with an origin and no scheme and host' => [new ClientContext(null, null, $own, null, $header), false];
+        yield 'nothing but the plain values' => [new ClientContext('203.0.113.7', 'Browser/1.0'), false];
+    }
+
+    /**
+     * A client is same-site only when it carried the custom header with a value
+     * and presented the request's own origin or an allowed one; a fact it lacks
+     * fails the check.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  bool  $sameSite
+     * @return void
+     */
+    #[DataProvider('provideClients')]
+    public function testOnlyAClientFromTheOwnSiteWithTheHeaderIsSameSite(ClientContext $client, bool $sameSite): void
+    {
+        self::assertSame($sameSite, self::transport(Transport::COOKIE)->isSameSiteClient($client));
+    }
+
+    /**
+     * The configured header is judged as the header bag files names, so one
+     * configured with `_` for `-` or in any case matches the header a request
+     * sent, and only that header counts.
+     *
+     * @return void
+     */
+    public function testTheConfiguredHeaderIsJudgedAsTheHeaderBagFilesIt(): void
+    {
+        $spelt   = new RefreshTokenTransport(new RefreshTokenSettings(Transport::COOKIE, 'token', null, 'refresh', '/auth', [], 'x_CSRF_token'));
+        $request = Request::create('/auth/sign-in', 'POST', server: ['HTTP_ORIGIN' => 'http://localhost', 'HTTP_X_CSRF_TOKEN' => '1']);
+
+        self::assertTrue($spelt->isSameSiteClient(ClientContext::fromRequest($request)));
+        self::assertTrue($spelt->isSameSiteRequest($request));
+        self::assertFalse(self::transport(Transport::COOKIE)->isSameSiteRequest($request));
+    }
+
+    /**
+     * The request's check and the client's agree on the same request, for the
+     * requests a cookie refresh is refused for and for same-site ones.
+     *
+     * @param  ?string  $origin
+     * @param  ?string  $csrf
+     * @return void
+     */
+    #[DataProvider('provideCrossSiteRequests')]
+    public function testTheRequestsCheckIsTheClientsCheck(?string $origin, ?string $csrf): void
+    {
+        $transport = self::transport(Transport::COOKIE);
+
+        foreach ([self::signIn($origin, $csrf), self::signIn('http://localhost', 'fetch'), self::signIn(self::ALLOWED_ORIGIN, 'fetch')] as $request) {
+            self::assertSame($transport->isSameSiteClient(ClientContext::fromRequest($request)), $transport->isSameSiteRequest($request));
+        }
+    }
+
+    /**
+     * The check and a cookie read leave the IP address unread: a same-site
+     * request from a trusted proxy whose forwarded client addresses conflict is
+     * judged same-site however often it is checked, its token is read, and the
+     * request still refuses those addresses to the application afterwards.
+     *
+     * @return void
+     */
+    public function testConflictingForwardedAddressesAreLeftToTheApplication(): void
+    {
+        Request::setTrustedProxies(['10.0.0.1'], Request::HEADER_FORWARDED | Request::HEADER_X_FORWARDED_FOR);
+
+        $request = self::cookie(self::TOKEN, 'http://localhost', 'fetch');
+
+        $request->server->set('REMOTE_ADDR', '10.0.0.1');
+        $request->headers->set('Forwarded', 'for=198.51.100.1');
+        $request->headers->set('X-Forwarded-For', '198.51.100.2');
+
+        $transport = self::transport(Transport::COOKIE);
+
+        self::assertTrue($transport->isSameSiteRequest($request));
+        self::assertTrue($transport->isSameSiteRequest($request));
+        self::assertSame(self::TOKEN, self::presented($transport->read($request))->token->reveal());
+
+        $this->expectException(ConflictingHeadersException::class);
+
+        $request->ip();
+    }
+
+    /**
+     * A request whose host Symfony refuses is not same-site, and reading it
+     * throws nothing, though it carries the header and an origin naming that
+     * host.
+     *
+     * @return void
+     */
+    public function testARequestWithARefusedHostIsNotSameSite(): void
+    {
+        $request = self::signIn('http://bad!host', 'fetch');
+
+        $request->headers->set('Host', 'bad!host');
+
+        self::assertFalse(self::transport(Transport::COOKIE)->isSameSiteRequest($request));
     }
 
     /**

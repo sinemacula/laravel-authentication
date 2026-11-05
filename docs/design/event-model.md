@@ -12,17 +12,18 @@ to these events, so the shape and the timing are a contract.
   (`context()` returns it), so one listener on the contract receives them all. Laravel's own auth events (`Attempting`,
   `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) do not.
 - A context holds the guard (`null` only for a session that records none, or a verification link refused before its
-  guard could be trusted), the client of the request being served (IP address and user agent, cleaned by
-  `ClientContext`), and, as far as the flow established them, the identity, the principal, the tenant it acts within
-  and the session, each by morph class and identifier only, and the sign-in method (for a session's events, the method
-  it records). Where a credential is involved it also holds the credential's id (`credentialId`: an API key's or a
-  passkey's id) and the scopes it grants (`scopes`: the granted list for an API key or a client credentials token, `[]`
-  for a machine bound without one, `null` for a human identity's session). A redeemed external result's own events
-  (`ExternalResultRedeemed`, and a refused redemption's `AuthenticationFailed` and `ExternalResultUnlinked`) also hold
-  the connection (`connectionId`) and the authorisation request's public reference (`requestReference`, when the result
-  had one), so a listener correlates them with the provider-side completion; the session events a redemption causes do
-  not, and correlate with `ExternalResultRedeemed` by the session's identifier. A part that was not established is
-  `null`.
+  guard could be trusted), the client of the request being served (`ClientContext`: the IP address and user agent,
+  cleaned, and the same-site facts a cookie application's checks judge: the `Origin` presented, the request's own scheme
+  and host, and the names of the headers it carried with a value, never their values), and, as far as the flow
+  established them, the identity, the principal, the tenant it acts within and the session, each by morph class and
+  identifier only, and the sign-in method (for a session's events, the method it records). Where a credential is
+  involved it also holds the credential's id (`credentialId`: an API key's or a passkey's id) and the scopes it grants
+  (`scopes`: the granted list for an API key or a client credentials token, `[]` for a machine bound without one, `null`
+  for a human identity's session). A redeemed external result's own events (`ExternalResultRedeemed`, and a refused
+  redemption's `AuthenticationFailed` and `ExternalResultUnlinked`) also hold the connection (`connectionId`) and the
+  authorisation request's public reference (`requestReference`, when the result had one), so a listener correlates them
+  with the provider-side completion; the session events a redemption causes do not, and correlate with
+  `ExternalResultRedeemed` by the session's identifier. A part that was not established is `null`.
 - A context snapshots, when it is built, when (`occurredAt`, a `CarbonImmutable` to the microsecond), and, as strings,
   the identity's morph class (an Eloquent model's morph class, else its class name; the class name too for a model an
   enforced morph map leaves out, so building a context never throws `ClassMorphViolationException` for a tenant that
@@ -41,9 +42,9 @@ to these events, so the shape and the timing are a contract.
   and a switch refused for its target name no principal.
 - Everything in a context is the snapshot: facts fixed at event time, the record audit sinks keep, which survives a
   queue unchanged; `toArray()` gives it as scalars (snake_case keys, `occurred_at` as an ISO 8601 UTC string to the
-  microsecond, the client as `ip` and `user_agent`, and `connection_id` and `request_reference`), a payload a sink can
-  store or queue on its own. It is attribution, not the whole record: the event's class and its own fields (a failure's
-  flow, reason and challenge, a switch's previous principal) say what happened.
+  microsecond, the client as `ip` and `user_agent` only, and `connection_id` and `request_reference`), a payload a sink
+  can store or queue on its own. It is attribution, not the whole record: the event's class and its own fields (a
+  failure's flow, reason and challenge, a switch's previous principal) say what happened.
 - No package event holds a model. `EventContext` takes the identity, principal, tenant and session as constructor inputs
   only, reads their types and identifiers once and keeps none of them, and an event's own fields are values too
   (`PrincipalSwitched` keeps the previous principal's morph class and identifier, not the principal). So no package
