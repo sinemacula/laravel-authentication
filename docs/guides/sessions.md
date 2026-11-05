@@ -1201,8 +1201,8 @@ delete left with `exists` `false` (a hard delete, also one inside a savepoint th
 ended but not its session-less tokens, so pass the model loaded from its row (`User::query()->findOrFail($id)`). This
 holds for every bulk revocation, not only a deletion's: an optional listener revokes once the transaction commits, on
 the model as it is then, which a delete later in the same transaction has removed. A `HasTokensValidAfter` of your own
-is therefore never called on a model whose row is gone, and persisting the cutoff through `save()` never inserts a
-deleted row again.
+is therefore never called on a model whose `exists` is `false`, and persisting the cutoff through `save()` never
+inserts a deleted row again.
 
 ### Tenant authentication policies
 
