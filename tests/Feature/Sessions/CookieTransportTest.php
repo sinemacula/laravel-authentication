@@ -522,7 +522,9 @@ final class CookieTransportTest extends TestCase
      * A cookie application refuses a refresh token its own code read and handed
      * in, to refresh, to switch or to sign out, before anything is attempted:
      * its token is read only from its cookie, with the cookie's cross-site
-     * checks. A body application takes one.
+     * checks. The message points every call at the `*FromRequest()` methods,
+     * and only a refresh or sign-out at the plain forms, there being no plain
+     * switch. A body application takes one.
      *
      * @return void
      *
@@ -550,6 +552,8 @@ final class CookieTransportTest extends TestCase
                 self::fail('A cookie application took a refresh token handed in.');
             } catch (\LogicException $exception) {
                 self::assertSame(SessionRefresh::COOKIE_ONLY, $exception->getMessage());
+                self::assertStringContainsString('refresh, switch or sign out with the *FromRequest() methods', $exception->getMessage());
+                self::assertStringContainsString('or refresh and sign out with refreshPresented() and signOutPresented()', $exception->getMessage());
             }
         }
 

@@ -286,9 +286,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     /**
      * A cookie application's refresh from plain values, judged on the token's
      * carriers and the client given and reading nothing from the guard's
-     * request, costs what a refresh costs; a token the judgement refuses, from
-     * a client the same-site check refuses or with conflicting carriers, is
-     * refused before the exchange: no query, and no limit counted.
+     * request, costs what a refresh costs; nothing presented, a reason handed
+     * in, and a token the judgement refuses (from a client the same-site check
+     * refuses, with conflicting carriers, or from a carrier that is not the
+     * application's) are answered before the exchange: no query, and no limit
+     * counted.
      *
      * @return void
      *
@@ -325,13 +327,59 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             $sameSite,
         ));
 
+        $mismatch = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshPresented(
+            new PresentedRefreshToken($token, RefreshTokenSource::BODY, [RefreshTokenSource::BODY]),
+            $sameSite,
+        ));
+        $handedIn = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshPresented(FailureReason::TOKEN_INVALID, $sameSite));
+
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $crossSite->reason);
         self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $conflict->reason);
+        self::assertSame(FailureReason::REFRESH_TRANSPORT_MISMATCH, $mismatch->reason);
+        self::assertSame(FailureReason::TOKEN_INVALID, $handedIn->reason);
+        self::assertNull($this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshPresented(null, $sameSite)));
 
         $result = $this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refreshPresented($presented, $sameSite));
 
         self::assertTrue($result->isRefreshed());
         self::assertSame(self::COOKIE_NAME, $result->session?->tokens->refreshCookie?->name);
+    }
+
+    /**
+     * A body application's refresh from plain values, from a client without the
+     * same-site facts, costs what a refresh costs.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testAPlainBodyRefreshCostsWhatARefreshCosts(): void
+    {
+        $identity   = $this->seedIdentity();
+        $rotationId = 'plain-body-refresh-rotation-id';
+
+        $session = new Session;
+        $session->forceFill([
+            ...self::liveSession('api', $identity),
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+            'last_used_at'         => $this->now,
+        ])->save();
+
+        $jwt = PackageAuth::jwt(self::GUARD);
+        self::assertNotNull($jwt);
+
+        $presented = new PresentedRefreshToken($jwt->issueRefreshToken($session, $rotationId, $identity), RefreshTokenSource::BODY, [RefreshTokenSource::BODY]);
+
+        app()->instance('request', Request::create('/elsewhere', 'POST'));
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        $result = $this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refreshPresented($presented, new ClientContext('192.0.2.44', 'Plain/1.0')));
+
+        self::assertTrue($result->isRefreshed());
+        self::assertNotNull($result->session?->tokens->refreshToken);
     }
 
     /**

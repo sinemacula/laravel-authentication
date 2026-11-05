@@ -249,10 +249,10 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
      * A controller that extracts the cookie and hands the token and the
      * request's client to its service as plain values refreshes, the response
      * setting the rotated cookie, and signs out, the response clearing it,
-     * whether or not the routes encrypt it; the same request from another
-     * site's form is refused as `cross_site_request`, setting no cookie and
-     * writing nothing, and one that carries the cookie twice is refused as
-     * `refresh_token_conflict`.
+     * whether or not the routes encrypt it; the same refresh or sign-out from
+     * another site's form is refused as `cross_site_request`, setting or
+     * clearing no cookie and writing nothing, and a refresh that carries the
+     * cookie twice is refused as `refresh_token_conflict`.
      *
      * @param  string  $guard
      * @param  bool  $excluded
@@ -291,6 +291,14 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
 
         $twice->assertUnauthorized()->assertJson(['reason' => 'refresh_token_conflict']);
         self::assertSame($digest, Session::query()->sole()->getRawOriginal('refresh_key'));
+
+        Auth::forgetGuards();
+
+        $crossSiteSignOut = $this->call('POST', $prefix . '/auth/plain/sign-out', [], $held, [], $this->transformHeadersToServerVars(['Origin' => 'https://evil.example']));
+
+        $crossSiteSignOut->assertOk()->assertJson(['signed_out' => false, 'source' => 'cookie', 'reason' => 'cross_site_request']);
+        self::assertSame([], $crossSiteSignOut->headers->getCookies());
+        self::assertNull(Session::query()->sole()->getRevokedReason());
 
         $signedOut = $this->browser('POST', $prefix . '/auth/plain/sign-out', $rotated)->assertOk()->assertJson(['signed_out' => true, 'source' => 'cookie']);
         $cleared   = self::refreshCookie($signedOut, $guard);

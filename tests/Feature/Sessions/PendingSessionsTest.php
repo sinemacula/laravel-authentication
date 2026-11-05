@@ -1110,8 +1110,10 @@ final class PendingSessionsTest extends TestCase
      * factor for it, and before the activation could supersede it, is judged
      * again without it, the factor policy asked again: the session waits on the
      * factor, the chosen principal and tenant recorded, when the policy now
-     * asks for one, and otherwise activates superseding nothing. The changed
-     * session stays as its change left it either way.
+     * asks for one, and otherwise activates superseding nothing, for the client
+     * the choice was given, which `SignedIn` carries and the activation writes
+     * as the session's last use. The changed session stays as its change left
+     * it either way.
      *
      * @param  bool  $required
      * @param  bool  $activates
@@ -1155,7 +1157,8 @@ final class PendingSessionsTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
-        $chosen = $this->sessions(self::CHOOSERS)->choose($result->credential->reveal(), $first);
+        $given  = self::crossSiteClient();
+        $chosen = $this->sessions(self::CHOOSERS)->choose($result->credential->reveal(), $first, null, $given);
 
         $told = array_map(static fn (AdditionalFactorContext $asked): mixed => $asked->provenSession?->getSessionIdentifier(), array_slice($this->factorContexts, $before));
 
@@ -1171,6 +1174,13 @@ final class PendingSessionsTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($first->tenant_id), $row->getTenantId());
         self::assertNull(DB::table('authentication_sessions')->where('id', $proven)->value('revoked_at'));
         self::assertSame($rotated, DB::table('authentication_sessions')->where('id', $proven)->value('refresh_key'));
+
+        if (!$activates) {
+            return;
+        }
+
+        self::assertSame($given, $this->recordedEvent(SignedIn::class)->context->client);
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], self::lastUseOf($result->pending->id));
     }
 
     /**

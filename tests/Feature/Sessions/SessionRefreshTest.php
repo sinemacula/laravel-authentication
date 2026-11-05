@@ -615,6 +615,38 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
+     * The guard's bind after a plain refresh describes the guard's own request,
+     * so with a last-use throttle that records every use its
+     * `SessionAuthenticated` records that request as the session's last use,
+     * while `Refreshed` keeps the client given.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheBindAfterAPlainRefreshRecordsTheGuardsOwnRequestAsTheLastUse(): void
+    {
+        config()->set('authentication.session.last_used_throttle_seconds', 0);
+
+        $this->seedIdentity();
+
+        $session   = $this->signedIn(self::BROWSER);
+        $presented = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
+        $client    = self::sameSiteClient();
+
+        $this->recordEvents(self::EVENTS);
+
+        self::assertTrue(self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($presented, $client)->isRefreshed());
+
+        $record = Session::query()->whereKey($session->record->getKey())->sole();
+
+        self::assertSame($client, $this->recordedEvent(Refreshed::class)->context->client);
+        self::assertSame(self::CROSS_SITE_IP, $this->recordedEvent(SessionAuthenticated::class)->context->client->ip);
+        self::assertSame(self::CROSS_SITE_IP, $record->getRawOriginal('last_used_ip'));
+        self::assertSame('CrossSite/1.0', $record->getRawOriginal('last_used_user_agent'));
+    }
+
+    /**
      * A cookie application refuses a token presented from its cookie with a
      * client the same-site check refuses, as `cross_site_request`, though the
      * guard's own request is same-site and carries the same cookie: the refusal
@@ -850,7 +882,12 @@ final class SessionRefreshTest extends TestCase
 
         self::assertNotNull($current);
         self::assertNotNull($retried);
-        self::assertSame($this->rotationOf($current->cookie()->getValue()), $this->rotationOf($retried->cookie()->getValue()));
+
+        $rotation = $this->rotationOf($current->cookie()->getValue());
+
+        self::assertIsString($rotation);
+        self::assertNotSame('', $rotation);
+        self::assertSame($rotation, $this->rotationOf($retried->cookie()->getValue()));
 
         $this->moveTo(CarbonImmutable::now()->addMinute());
         $this->recordEvents([SessionRevoked::class]);
@@ -866,8 +903,9 @@ final class SessionRefreshTest extends TestCase
     /**
      * The attempt limit of a plain refresh counts the client given: a refusal
      * from its address limits the next from it, as `rate_limited` with the
-     * wait, but not one from another address, nor one from a client with no
-     * address, which no address's count holds.
+     * wait, but not one from another address; and a client with no address is
+     * not counted by the guard's own request's address, though that address's
+     * count is full.
      *
      * @return void
      *
@@ -886,6 +924,11 @@ final class SessionRefreshTest extends TestCase
 
         self::assertSame([FailureReason::RATE_LIMITED, 60], [$limited->reason, $limited->retryAfter]);
         self::assertSame(FailureReason::TOKEN_INVALID, $refresh(new ClientContext('192.0.2.45', self::PLAIN_AGENT))->reason);
+
+        $guardsAddress = new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT);
+
+        self::assertSame(FailureReason::TOKEN_INVALID, $refresh($guardsAddress)->reason);
+        self::assertSame(FailureReason::RATE_LIMITED, $refresh($guardsAddress)->reason);
         self::assertSame(FailureReason::TOKEN_INVALID, $refresh(new ClientContext(null, self::PLAIN_AGENT))->reason);
     }
 

@@ -680,9 +680,9 @@ final class SessionSignOutTest extends TestCase
      * A cookie application's sign-out from plain values signs out only a token
      * presented from its cookie by a same-site client; a refusal is reported
      * with the flow `sign_out` and the client given, and no `Failed`, and
-     * leaves the session live; the result carries the expired cookie only for a
-     * same-site client whose token was not refused as a conflict, so neither a
-     * cross-site page nor a request whose session stays live clears it.
+     * leaves the session live; the result carries the expired cookie for every
+     * same-site client, whether or not a session was revoked, unless its token
+     * was refused as a conflict, so a cross-site page never clears it.
      *
      * @param  non-empty-list<\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource>|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -836,7 +836,8 @@ final class SessionSignOutTest extends TestCase
 
     /**
      * A plain sign-out inside the caller's transaction that rolls back revokes
-     * nothing and reports nothing.
+     * nothing and reports no revocation: `SessionRevoked` waits on the commit,
+     * while Laravel's `Logout` is dispatched at once.
      *
      * @return void
      *
@@ -849,7 +850,7 @@ final class SessionSignOutTest extends TestCase
         $session  = $this->signedIn(self::BROWSER);
         $sessions = $this->serving(guard: self::BROWSER);
 
-        $this->recordEvents([SessionRevoked::class]);
+        $this->recordEvents([SessionRevoked::class, Logout::class]);
 
         DB::beginTransaction();
 
@@ -857,7 +858,7 @@ final class SessionSignOutTest extends TestCase
 
         DB::rollBack();
 
-        self::assertSame([], $this->recordedClasses());
+        self::assertSame([Logout::class], $this->recordedClasses());
         self::assertNull($this->revokedReasonOf($session));
     }
 
