@@ -131,10 +131,8 @@ final readonly class RefreshTokenTransport
      * without the cookie's same-site judgement: `null`,
      * `refresh_token_conflict`, `refresh_transport_mismatch` or
      * `token_invalid`, as `read()` answers them, and never
-     * `cross_site_request`. For a controller that hands the token to a service
-     * layer as a plain value, with the request's `ClientContext`: the session
-     * service's `refreshPresented()` and `signOutPresented()` judge the two
-     * together (`judge()`), so the same-site rule still holds. Extracting has
+     * `cross_site_request`. The session service's `refreshPresented()` and
+     * `signOutPresented()` judge it with the client (`judge()`). Extracting has
      * no side effects and reads no IP address.
      *
      * @param  \Illuminate\Http\Request  $request

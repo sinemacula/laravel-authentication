@@ -107,19 +107,17 @@ trait RefreshesSessions
      * a body application alike; nothing is read from the guard's request to
      * judge the token or to report what this call dispatches.
      *
-     * The package judges every fact again, never trusting how the value was
-     * obtained (`RefreshTokenTransport::judge()`): a token whose carriers are
-     * not its source alone fails as `refresh_token_conflict`, one whose source
-     * is not the application's transport as `refresh_transport_mismatch`, and
-     * one from the cookie whose client fails the same-site check, as a context
-     * without its `Origin`, scheme and host or custom header does, as
-     * `cross_site_request`. A reason the transport answers
-     * (`refresh_token_conflict`, `refresh_transport_mismatch`,
-     * `cross_site_request`, `token_invalid`) is reported as
-     * `refreshFromRequest()` reports it; any other is a caller's error
-     * (`InvalidArgumentException`), and nothing is dispatched. A refusal here
-     * dispatches `Attempting`, `Failed` and `AuthenticationFailed` and touches
-     * no session; `null` returns `null`, dispatching nothing.
+     * The package judges every fact again (`RefreshTokenTransport::judge()`): a
+     * token whose carriers are not its source alone fails as
+     * `refresh_token_conflict`, one whose source is not the application's
+     * transport as `refresh_transport_mismatch`, and one from the cookie whose
+     * client fails the same-site check, as a context without its `Origin`,
+     * scheme and host or custom header does, as `cross_site_request`. A reason
+     * `extract()` answered is reported as `refreshFromRequest()` reports it;
+     * any other is a caller's error (`InvalidArgumentException`), and nothing
+     * is dispatched. A refusal here dispatches `Attempting`, `Failed` and
+     * `AuthenticationFailed` and touches no session; `null` returns `null`,
+     * dispatching nothing.
      *
      * Otherwise the token is refreshed as `refresh()` refreshes it, with the
      * client in place of the request's: the attempt limit counts the client's

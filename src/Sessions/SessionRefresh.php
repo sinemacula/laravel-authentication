@@ -158,9 +158,7 @@ final readonly class SessionRefresh
 
     /**
      * Refuse, as a caller's error (`InvalidArgumentException`), a reason handed
-     * in as what the transport read that the transport never answers: only
-     * `refresh_token_conflict`, `refresh_transport_mismatch`,
-     * `cross_site_request` and `token_invalid` may be.
+     * in that is not one the transport answers (`READ_REFUSALS`).
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @return void
@@ -199,15 +197,9 @@ final readonly class SessionRefresh
 
     /**
      * Refresh with what the caller's code extracted from a request, judged
-     * again with the client, for a cookie or a body application, reading
-     * nothing from the guard's request: a reason the transport never answers
-     * is refused (`InvalidArgumentException`) before anything is dispatched;
-     * `null` returns `null`, dispatching nothing; the transport's reason, or
-     * its refusal of the token on judging it with the client, is answered after
-     * `Attempting`, `Failed` and `AuthenticationFailed`, touching no session;
-     * otherwise the token is exchanged as `refreshFromRequest()` exchanges it,
-     * with the client in place of the request's. A refused or exchanged token's
-     * result says where it was presented.
+     * again with the client and answered as `refreshFromRequest()` answers what
+     * it reads, with the client in place of the request's. A reason handed in
+     * is checked before anything is dispatched.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client

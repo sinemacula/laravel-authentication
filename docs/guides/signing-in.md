@@ -947,7 +947,7 @@ leaving it pending, its credential unconsumed and the proof unstored (see
 out passes the `ClientContext` its controller built from the request, as the last argument.
 
 ```php
-$client = ClientContext::fromRequest($request); // in the controller
+$client = ClientContext::fromRequest($request);
 
 $result = Auth::sessions('browser')->satisfy($credential, $proof, $client);
 $result = Auth::sessions('browser')->choose($credential, $principal, TenantSelection::principalDefault(), $client);

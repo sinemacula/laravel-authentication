@@ -128,13 +128,9 @@ final readonly class SessionSignOut
 
     /**
      * Sign out by what the caller's code extracted from a request, judged again
-     * with the client, for a cookie or a body application, reading nothing from
-     * the guard's request: a reason the transport never answers is refused
-     * (`InvalidArgumentException`) before anything is dispatched; `null` signs
-     * nothing out; the transport's reason, or its refusal of the token on
-     * judging it with the client, is reported; otherwise the session the token
-     * proves is signed out, as `fromRequest()` signs it out, with the client in
-     * place of the request's. Only a binding to that session is forgotten.
+     * with the client and answered as `fromRequest()` answers what it reads by
+     * its refresh credential, with the client in place of the request's. A
+     * reason handed in is checked before anything is dispatched.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -190,11 +186,10 @@ final readonly class SessionSignOut
 
     /**
      * The expired cookie a cookie application's sign-out by refresh credential
-     * clears the browser's with: only for a client that passes the cookie's
+     * clears the browser's with: for a client that passes the cookie's
      * same-site checks (the one given, or the guard's request) and whose token
-     * the transport did not refuse as a conflict, so neither a cross-site page
-     * nor a request whose session stays live clears it; `null` otherwise, and
-     * for a body application.
+     * was not refused as a conflict, so a cross-site page never clears it;
+     * `null` otherwise, and for a body application.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client

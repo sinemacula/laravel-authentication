@@ -672,11 +672,11 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 Route::post('/auth/logout', function (Request $request) {
-    $presented = Auth::refreshTransport('browser')->extract($request);   // in the controller
+    $presented = Auth::refreshTransport('browser')->extract($request);
 
-    abort_if($presented === null, 401);   // no refresh credential: nothing signed out
+    abort_if($presented === null, 401); // no refresh credential in the request
 
-    $result = Auth::sessions('browser')->signOutPresented($presented, ClientContext::fromRequest($request)); // in the service
+    $result = Auth::sessions('browser')->signOutPresented($presented, ClientContext::fromRequest($request));
 
     return $result->attachTo($result->isFailed() ? response()->json(['reason' => $result->reason?->value], 401) : response()->noContent());
 });

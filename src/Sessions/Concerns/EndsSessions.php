@@ -93,7 +93,7 @@ trait EndsSessions
      * client whose access token has expired, and to clear a cookie
      * application's refresh cookie, use `signOutFromRequest()`, or
      * `signOutPresented()` with the refresh credential and the client as plain
-     * values (whose same-site check `isSameSiteClient()` judges).
+     * values.
      *
      * @return bool
      *
@@ -194,7 +194,7 @@ trait EndsSessions
      * the session it proves, inside the grace window too, is revoked
      * (`signed_out`, reported by `SessionRevoked` once committed), Laravel's
      * `Logout` firing for its owner when the guard's provider still returns it.
-     * Every event this call dispatches carries the client. A cookie
+     * Every package event this call dispatches carries the client. A cookie
      * application's result carries the expired cookie that clears the browser's
      * (`SignOutResult::attachTo()`) when the client passes the cookie's
      * same-site checks and the token was not refused as

@@ -73,8 +73,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * session for an action, `satisfy()` hands it the proof of a further factor,
  * `choose()` makes the choice, and `discard()` ends it; each takes the pending
  * credential, which travels only in a response body. `satisfy()` and `choose()`
- * judge the client they are given, as a service layer that keeps HTTP out gives
- * it, or the guard's request's.
+ * judge the client they are given, or the guard's request's.
  *
  * Every sign-in creates a new session, which records the proof of its first
  * factor (and the provenance of a session an external provider established) in
