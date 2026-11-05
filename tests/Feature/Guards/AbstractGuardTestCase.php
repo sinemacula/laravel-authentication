@@ -76,7 +76,7 @@ abstract class AbstractGuardTestCase extends TestCase
         $this->provider = \Mockery::mock(IdentityProvider::class);
         $this->resolver = \Mockery::mock(PrincipalResolver::class);
         $this->events   = \Mockery::mock(Dispatcher::class);
-        $this->request  = \Mockery::mock(Request::class);
+        $this->request  = \Mockery::mock(Request::class . '[ip,userAgent]', [[], [], [], [], [], [], null]);
         $this->timebox  = \Mockery::mock(Timebox::class);
         $this->timebox->shouldReceive('dontReturnEarly')->andReturnSelf();
 
