@@ -183,13 +183,9 @@ revoked, and when a session that ended is deleted. Starting a session is in
   out, would leave that attempt's rehash revoking. Without the observer the tracking costs no query and no hash check:
   it keeps each open attempt's password, wrapped in a `SensitiveParameterValue`, until the attempt ends (or the request
   or job, for one that threw), and only the observer's `unlessRehash()` checks a hash.
-- Pruning (`Sessions\SessionPruning`, run by `authentication:prune-sessions`) deletes a session of the configured model
-  revoked, or past either deadline, at or before now less `authentication.session.prune_after_days`, taken once when the
-  run starts: counted from the end of the session, never from creation. The model carries no pruning, so `model:prune`
-  cannot prune sessions. Each chunk, in one transaction on the session model's connection, reads up to a chunk of
-  prunable keys, deletes their proofs and provenance (by the keys as strings) and force-deletes the sessions.
-  `ModelsPruned` and the optional progress callback follow each chunk's transaction: committed outside a caller's
-  transaction, provisional inside one.
+- Pruning (`PrunesSessions`, with Laravel's `model:prune`) deletes a session revoked, or past either deadline, at or
+  before now less `authentication.session.prune_after_days`: counted from the end of the session, never from creation.
+  Each chunk is one conditional `DELETE`; nothing is read first.
 - A pruned session is indistinguishable from an unknown one: its tokens already failed once it was revoked or ended, so
   retention never changes who authenticates.
 
@@ -207,8 +203,7 @@ revoked, and when a session that ended is deleted. Starting a session is in
 
 - `Auth::sessions('api')->sessions($identity, 20)` costs a count and a select and returns a `LengthAwarePaginator` of
   `SessionSummary`, whose JSON uses snake_case keys and ISO-8601 times.
-- `authentication:prune-sessions` deletes ceil(N / chunk) chunks of one key read and three deletes each, and
-  ends with one read that finds nothing; `--pretend` is one `COUNT` on the writer.
+- `model:prune --model=...Session` deletes ceil(N / chunk) chunks and ends with one `DELETE` that finds nothing.
 
 ## Failure / Edge Cases
 
@@ -228,14 +223,10 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - A page size outside 1 to 100 is an `InvalidArgumentException` before any read. An identity without `HasSessions`, or a
   `sessions()` relation over a model that is not an `EloquentSession`, is a `LogicException`.
 - A retention that is not an integer (or canonical digit string) from 0 to 3650 is an `InvalidArgumentException` when
-  pruning runs, before anything is read. With 0, a session is pruned from the second it ends. A chunk size below 1 is an
-  `InvalidArgumentException` before any read; the command refuses a `--chunk` that is not an integer of 1 or more (an
-  int, or digits within PHP's range), with `FAILURE`. `--pretend` with any truthy value (code may pass `1` or `'1'`)
-  counts and deletes nothing, as `model:prune` reads it.
-- A custom session model needs nothing to be pruned: the configured model is. A global scope on the model still narrows
-  pruning: the three conditions are grouped. A soft-deleting model's pruned sessions are deleted outright; a session it
-  already soft-deleted is outside its scope and never selected.
-- A `ModelsPruned` listener or progress callback that throws stops the run; chunks already committed stay deleted.
+  pruning runs. With 0, a session is pruned from the second it ends.
+- `PrunesSessions` composes `MassPrunable` and replaces its `prunable()`; using `MassPrunable` beside it is a PHP trait
+  collision, so a custom model uses `PrunesSessions` alone. A global scope on the model still narrows pruning: the three
+  conditions are grouped.
 - A pending session can remember a session that is pruned before it first activates; its activation then supersedes
   nothing.
 - Queued listeners of an event about a pruned session cannot re-fetch it.
@@ -245,8 +236,7 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - `src/Sessions/ActiveSessions.php`, `src/Sessions/SessionSummary.php`, `src/Sessions/Concerns/EndsSessions.php`
   (`sessions()`)
 - `src/Concerns/ScopesActiveSessions.php` (`scopeActive()`, composed by `ActsAsSession`),
-  `src/Sessions/SessionPruning.php`, `src/Console/PruneSessionsCommand.php`, `src/Database/SessionRetention.php`,
-  `src/Models/Session.php`
+  `src/Concerns/PrunesSessions.php`, `src/Database/SessionRetention.php`, `src/Models/Session.php`
 - `src/Sessions/FactorRevocations.php` (behind `factorRemoved()`, `factorReset()` and `factorChanged()`),
   `src/Sessions/FactorRemoval.php`, `src/Sessions/FactorChangeResult.php`, `src/Sessions/Enums/FactorChangeStatus.php`,
   `src/Factors/Enums/FactorChangeMade.php`
@@ -295,8 +285,8 @@ revoked, and when a session that ended is deleted. Starting a session is in
   `tests/Feature/Listeners/RevokeSessionsOn*Test.php`, `tests/Unit/Sessions/Methods/RehashingTest.php`,
   `tests/Feature/Listeners/TrackCredentialAttemptsTest.php`, `tests/Feature/Sessions/Methods/RehashingAccountsTest.php`,
   `tests/Integration/Process/QueueWorkerRehashingTest.php`, `tests/Performance/RehashingBudgetTest.php`
-- `tests/Feature/Sessions/SessionPruningTest.php`, `tests/Feature/Console/PruneSessionsCommandTest.php`,
-  `tests/Feature/Database/SessionRetentionTest.php`, `tests/Integration/Sessions/SessionPruningIntegrationTest.php`
+- `tests/Feature/Models/PrunesSessionsTest.php`, `tests/Feature/Database/SessionRetentionTest.php`,
+  `tests/Integration/Models/SessionPruningIntegrationTest.php`
 - `tests/Performance/SessionListingQueryBudgetTest.php`, `tests/Performance/SessionPruneQueryBudgetTest.php`
 
 ## Change Triggers
@@ -309,4 +299,4 @@ Update this note when any of the following change:
   which order it reports
 - what a session summary holds, the listing's order, page bounds or connection
 - what a sign-out by refresh credential checks, revokes or reports
-- what pruning selects, how retention is counted or configured, or which session model is pruned
+- what pruning selects, how retention is counted or configured, or how a custom model opts in

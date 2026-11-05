@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsSession;
+use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 
 /**
@@ -21,7 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
  */
 final class SoftDeletingPruningSession extends Model implements EloquentSession
 {
-    use ActsAsSession, SoftDeletes;
+    use ActsAsSession, PrunesSessions, SoftDeletes;
 
     /** @var bool Indicates if the model should be timestamped. */
     public $timestamps = false;

@@ -6,11 +6,8 @@ namespace Tests\Feature\Models;
 
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Database\Eloquent\MassPrunable;
-use Illuminate\Database\Eloquent\Prunable;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Foundation\Application;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -411,39 +408,6 @@ final class SessionTest extends TestCase
         $fresh = Session::query()->findOrFail($session->id);
 
         self::assertNull($fresh->getRefreshKey());
-    }
-
-    /**
-     * The shipped model carries no pruning: neither of Laravel's pruning
-     * traits, nor a `prunable()` or `pruneAll()` of its own, so
-     * `SessionPruning` is the only thing that prunes sessions.
-     *
-     * @return void
-     */
-    public function testTheShippedModelCarriesNoPruning(): void
-    {
-        $traits = class_uses_recursive(Session::class);
-
-        self::assertNotContains(Prunable::class, $traits);
-        self::assertNotContains(MassPrunable::class, $traits);
-        self::assertFalse(method_exists(Session::class, 'prunable'));
-        self::assertFalse(method_exists(Session::class, 'pruneAll'));
-    }
-
-    /**
-     * Naming the shipped model in `model:prune` deletes none of its sessions,
-     * however long ago they ended.
-     *
-     * @return void
-     */
-    public function testModelPruneLeavesTheShippedModelsSessions(): void
-    {
-        $session = new Session;
-        $session->forceFill(['revoked_at' => Carbon::parse('2020-01-01 00:00:00')])->save();
-
-        Artisan::call('model:prune', ['--model' => [Session::class]]);
-
-        self::assertTrue(Session::query()->whereKey($session->getKey())->exists());
     }
 
     /**

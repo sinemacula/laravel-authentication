@@ -160,19 +160,18 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 
 ## Pruning
 
-Rows whose use has ended stay in their tables until they are pruned, in chunks. Sessions are pruned by the package's
-`authentication:prune-sessions`, in chunks that each read the keys of up to a chunk of prunable sessions and delete their
-proofs, their provenance and the sessions, in one transaction; every other model by Laravel's `model:prune`, in chunks
-of one conditional `DELETE` that reads nothing:
+Rows whose use has ended stay in their tables until Laravel's `model:prune` deletes them, in chunks: a session model in
+chunks that each read the keys of its prunable sessions and delete their proofs, their provenance and the sessions, in
+one transaction; every other model in chunks of one conditional `DELETE` that reads nothing:
 
-| Rows                      | Pruned by                        | Pruned once                                                                                                   |
-|---------------------------|----------------------------------|---------------------------------------------------------------------------------------------------------------|
-| Sessions                  | `authentication:prune-sessions`  | it has been over (revoked, or past a deadline) for `session.prune_after_days`, with its proofs and provenance |
-| `Models\RateLimit`        | `model:prune`                    | its window has ended                                                                                          |
-| `Models\OneTimeCode`      | `model:prune`                    | it has expired                                                                                                |
-| `Models\PasskeyChallenge` | `model:prune`                    | it has expired                                                                                                |
-| `Models\ApiKey`           | `model:prune`                    | it was revoked or expired more than `api_keys.prune_after_days` ago                                           |
-| `Models\IdentifierChange` | `model:prune`                    | it has expired                                                                                                |
+| Model                     | Pruned once                                                                                                   |
+|---------------------------|---------------------------------------------------------------------------------------------------------------|
+| `Models\Session`          | it has been over (revoked, or past a deadline) for `session.prune_after_days`, with its proofs and provenance |
+| `Models\RateLimit`        | its window has ended                                                                                          |
+| `Models\OneTimeCode`      | it has expired                                                                                                |
+| `Models\PasskeyChallenge` | it has expired                                                                                                |
+| `Models\ApiKey`           | it was revoked or expired more than `api_keys.prune_after_days` ago                                           |
+| `Models\IdentifierChange` | it has expired                                                                                                |
 
 Passkeys are never pruned: one lasts until its owner removes it.
 
@@ -181,26 +180,22 @@ Revoked and ended sessions are kept for audit: a session is pruned once it has b
 first (a pending session's idle deadline is its credential's expiry), never from when it was created, so a long session
 is kept as long after it ends as a short one; a session with no absolute deadline is pruned once it went idle or was
 revoked. With 0, a session is pruned from the second it ends. The value must be an integer, or a digit string as `env()`
-returns one; anything else fails with an `InvalidArgumentException` when pruning runs, before anything is read. The
-cutoff is taken once, when the run starts. Each chunk, in one transaction on the session's connection, reads the keys of
-up to a chunk of prunable sessions, then deletes the proofs and the provenance recorded for those keys (by the keys as
-strings, the form the proofs record them in, whatever the session model's key type), then the sessions; `ModelsPruned`
-reports the sessions pruned so far after each chunk's transaction returns (committed when pruning runs outside a
-transaction, provisional inside one of yours, whose rollback brings every chunk back). A listener of it that throws
-stops the run, and the chunks already committed stay deleted. The proofs and provenance have no pruning of their own:
-they go with their session, so a session deleted any other way (a truncation included) leaves them behind, and an
-application that deletes sessions itself deletes, in the same transaction, the rows of the `proofs.table` and
-`proofs.provenance_table` tables whose `session_id` is the session's key as a string (the form they record it in,
-whatever the session model's key type, so an integer key is compared as its digits). Every sign-in also deletes whatever
-is recorded under its new session's key before it records its own, so a key the database issues again (an integer key
-whose counter a truncation reset) does not inherit an earlier session's proofs. That deletion reads as of its
-transaction's snapshot: on MySQL at REPEATABLE READ, a sign-in inside a transaction of your own that read the database
-before the earlier session's rows were committed does not see them, so delete a session's rows with it rather than rely
-on the sign-in. The connection guards in `proofs.guards_table` are never pruned: they name no session, and a connection
-has at most 64.
+returns one; anything else fails with an `InvalidArgumentException` when pruning runs. Each chunk, in one transaction on
+the session's connection, reads the keys of up to a chunk of prunable sessions, deletes the proofs and the provenance
+recorded for those keys (by the keys as strings, the form the proofs record them in, whatever the session model's key
+type), then deletes the sessions; `ModelsPruned` reports the sessions pruned so far after each chunk. The proofs and
+provenance have no pruning of their own: they go with their session, so a session deleted any other way (a truncation
+included) leaves them behind, and an application that deletes sessions itself deletes, in the same transaction, the rows
+of the `proofs.table` and `proofs.provenance_table` tables whose `session_id` is the session's key as a string (the form
+they record it in, whatever the session model's key type, so an integer key is compared as its digits). Every sign-in
+also deletes whatever is recorded under its new session's key before it records its own, so a key the database issues
+again (an integer key whose counter a truncation reset) does not inherit an earlier session's proofs. That deletion
+reads as of its transaction's snapshot: on MySQL at REPEATABLE READ, a sign-in inside a transaction of your own that
+read the database before the earlier session's rows were committed does not see them, so delete a session's rows with it
+rather than rely on the sign-in. The connection guards in `proofs.guards_table` are never pruned: they name no session,
+and a connection has at most 64.
 
-Schedule both commands. The package's models live outside your application's `app/Models`, so name them for
-`model:prune`:
+The package's models live outside your application's `app/Models`, so name them when you schedule the command:
 
 ```php
 use Illuminate\Support\Facades\Schedule;
@@ -209,11 +204,11 @@ use SineMacula\Laravel\Authentication\Models\IdentifierChange;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
-
-Schedule::command('authentication:prune-sessions')->hourly();
+use SineMacula\Laravel\Authentication\Models\Session;
 
 Schedule::command('model:prune', [
     '--model' => [
+        Session::class,
         RateLimit::class,
         OneTimeCode::class,
         PasskeyChallenge::class,
@@ -223,20 +218,13 @@ Schedule::command('model:prune', [
 ])->hourly();
 ```
 
-`model:prune` cannot prune sessions: the session model has no pruning of its own, so leave it out of `model:prune`'s
-`--model` list (named there, it prunes nothing, and a run with `--pretend` fails), and count what would go with
-`authentication:prune-sessions --pretend`. `authentication:prune-sessions` prunes the configured session model
-(`session.model`), so a custom model needs nothing of its own: pruning reads its columns from the `EloquentSession` name
-accessors, and its global scopes still narrow what is pruned. A custom model that soft-deletes has its pruned sessions
-deleted outright, so their IP addresses and user agents are not kept; a session it has already soft-deleted is outside
-its scope and never pruned. `--chunk` sets how many sessions each chunk deletes (default 1000; an integer of 1 or more,
-or the command fails before reading anything), and `--pretend` prints how many sessions would go and deletes nothing.
-The command prints what `model:prune` prints for a model and dispatches `ModelPruningStarting` and
-`ModelPruningFinished` around the run as it does. To prune from code of your own, resolve `Sessions\SessionPruning` from
-the container: `prune($chunkSize, $progress)` returns how many sessions it deleted and calls `$progress` with the
-running total after each chunk, and `count()` answers how many sessions pruning would delete now. Pruning changes
-nothing about authentication: a pruned session's tokens fail as an unknown session, exactly as they already failed once
-it was revoked or ended. Queued listeners of an event about a session that has since been pruned cannot re-fetch it (see
+A custom session model opts in with the `PrunesSessions` trait alone (it brings Laravel's `MassPrunable` with it, and
+using `MassPrunable` beside it is a PHP trait collision), and pruning reads its columns from the `EloquentSession` name
+accessors; schedule it under its own class name. A custom model that soft-deletes has its pruned sessions deleted
+outright, as Laravel's mass pruning force-deletes, so their IP addresses and user agents are not kept. Run `php artisan
+model:prune --model="App\Models\Session" --pretend` to see how many sessions would go. Pruning changes nothing about
+authentication: a pruned session's tokens fail as an unknown session, exactly as they already failed once it was revoked
+or ended. Queued listeners of an event about a session that has since been pruned cannot re-fetch it (see
 [Events](events.md#events)).
 
 Before a token's `sid` is looked up, it is checked against the session model's primary key: a UUID for `HasUuids`, a
@@ -259,7 +247,7 @@ policy, its settings) and rate limits; and, for the whole package, the storage a
 (`authentication.storage.connection`, `authentication.rate_limits.connection`: a connection name configured in
 `database.connections`, or none), the configured session model, which must live on the storage connection, and the
 pruning retention while any `jwt` guard is configured (`authentication.session.prune_after_days`, otherwise checked only
-when pruning runs), the pending credential lifetime (`authentication.session.pending_ttl_seconds`, otherwise
+when `model:prune` runs), the pending credential lifetime (`authentication.session.pending_ttl_seconds`, otherwise
 checked only when a session becomes pending), the password policy settings (`authentication.passwords`), the one-time
 code settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when any guard allows a code sign-in
 method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the delivery queue

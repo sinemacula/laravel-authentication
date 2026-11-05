@@ -9,13 +9,14 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsSession;
+use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 
 /**
- * Custom session model with its revocation time and deadlines in renamed
- * columns and a global scope that keeps it to the `api` guard's sessions, so
- * pruning must take its columns from the name accessors and keep its conditions
- * grouped inside the scope.
+ * Custom session model that opts into pruning, with its revocation time and
+ * deadlines in renamed columns and a global scope that keeps it to the `api`
+ * guard's sessions, so pruning must take its columns from the name accessors
+ * and keep its conditions grouped inside the scope.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,7 +25,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
  */
 final class ScopedRenamedPruningSession extends Model implements EloquentSession
 {
-    use ActsAsSession, HasUuids;
+    use ActsAsSession, HasUuids, PrunesSessions;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'scoped_renamed_pruning_sessions';

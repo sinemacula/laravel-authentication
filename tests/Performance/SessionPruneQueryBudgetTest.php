@@ -6,22 +6,23 @@ namespace Tests\Performance;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Sessions\SessionPruning;
+use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
+use SineMacula\Laravel\Authentication\Models\Session;
 
 /**
  * Query-budget contracts for pruning sessions: each chunk reads the keys of up
  * to a chunk of prunable sessions and deletes, by those keys, their proofs,
  * their provenance and the sessions themselves, and the run ends with the one
  * read that finds nothing left, so N prunable sessions cost ceil(N / chunk) + 1
- * reads and three deletes per chunk. Counting them is one read.
+ * reads and three deletes per chunk.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(SessionPruning::class)]
+#[CoversTrait(PrunesSessions::class)]
 final class SessionPruneQueryBudgetTest extends PerformanceContractTestCase
 {
     /**
@@ -38,7 +39,7 @@ final class SessionPruneQueryBudgetTest extends PerformanceContractTestCase
 
         DB::table('authentication_sessions')->insert($this->record(0, false));
 
-        $pruned = $this->assertQueryBudget(4, 9, static fn (): int => app(SessionPruning::class)->prune());
+        $pruned = $this->assertQueryBudget(4, 9, static fn (): int => (new Session)->pruneAll());
 
         self::assertSame(2500, $pruned);
         self::assertSame(1, DB::table('authentication_sessions')->count());
@@ -53,19 +54,7 @@ final class SessionPruneQueryBudgetTest extends PerformanceContractTestCase
     {
         DB::table('authentication_sessions')->insert($this->record(0, false));
 
-        self::assertSame(0, $this->assertQueryBudget(1, 0, static fn (): int => app(SessionPruning::class)->prune()));
-    }
-
-    /**
-     * Counting the prunable sessions is one read, whatever their number.
-     *
-     * @return void
-     */
-    public function testCountingIsOneRead(): void
-    {
-        DB::table('authentication_sessions')->insert(array_map(fn (int $index): array => $this->record($index, $index > 0), range(0, 250)));
-
-        self::assertSame(250, $this->assertQueryBudget(1, 0, static fn (): int => app(SessionPruning::class)->count()));
+        self::assertSame(0, $this->assertQueryBudget(1, 0, static fn (): int => (new Session)->pruneAll()));
     }
 
     /**

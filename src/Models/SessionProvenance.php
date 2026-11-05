@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * `authentication.proofs.provenance_table`, written once with the session and
  * never rewritten by a later reauthentication. Indexed by connection, which
  * finds a connection's sessions to revoke, and by tenant, which nothing queries
- * yet. Session pruning (`Sessions\SessionPruning`) deletes it with its session.
+ * yet. The session model's pruning deletes it with its session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

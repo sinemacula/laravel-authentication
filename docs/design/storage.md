@@ -80,7 +80,7 @@ and how the runtime models and the published migrations are kept choosing the sa
 - The constructors of `src/Models/Session.php`, `SessionProof.php`, `SessionProvenance.php`,
   `RateLimit.php`, `OneTimeCode.php`, `Passkey.php`, `PasskeyChallenge.php`, `ApiKey.php` and `IdentifierChange.php`;
   `getConnection()` in every migration under `database/migrations/`.
-- `src/Proofs/ProofWriter.php` (writes on the session's connection), `src/Sessions/SessionPruning.php`: `prune()`.
+- `src/Proofs/ProofWriter.php` (writes on the session's connection), `src/Concerns/PrunesSessions.php`: `pruneAll()`.
 - `src/SessionRecords/SessionLookup.php`: `model()`; `src/Exceptions/InvalidSessionModelConfigurationException.php`:
   `offStorage()`; `src/Database/SharedConnection.php`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()`, `createApiKeyGuard()`;
@@ -102,8 +102,7 @@ and how the runtime models and the published migrations are kept choosing the sa
 - `tests/Feature/Database/SharedConnectionTest.php`,
   `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`
 - `tests/Feature/Console/CheckConfigurationCommandTest.php`
-- `tests/Integration/Migration/ProofTablesSchemaTest.php`,
-  `tests/Integration/Sessions/SessionPruningIntegrationTest.php`
+- `tests/Integration/Migration/ProofTablesSchemaTest.php`, `tests/Integration/Models/SessionPruningIntegrationTest.php`
 
 ## Change Triggers
 
