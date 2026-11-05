@@ -60,9 +60,9 @@ a cookie application's results hand back the cookie instead of the token.
   response may set it, so a route outside the path may clear it. A response may carry it only for a request that
   signed its session out by its access token (which a cross-site page cannot send) or that passes
   `isSameSiteRequest()` (`isSameSiteClient()` for a client handed in as plain values), or a cross-site form could sign
-  the browser out; `SessionSignOut` attaches it on those terms,
-  and the guides tell a route of the application's own to do the same. It throws a `LogicException` for a body
-  application, and `deliver()` an `InvalidArgumentException` for a session that has ended.
+  the browser out; `SessionSignOut` attaches it on those terms, and the guides tell a route of the application's own to
+  do the same. It throws a `LogicException` for a body application, and `deliver()` an `InvalidArgumentException` for a
+  session that has ended.
 - A cookie application's token is read only from its cookie, through the transport: `refresh(string)`,
   `switchTo(string, SwitchTarget)` and `signOutWith(string)` throw a `LogicException` on a cookie application
   (`SessionRefresh::refuseHandedIn()`, the one place it is thrown); `refreshFromRequest()`, `switchFromRequest()`,
@@ -88,8 +88,8 @@ a cookie application's results hand back the cookie instead of the token.
   rule by the package: `signIn()`, `start()`, `satisfy()` and `choose()` refuse as `cross_site_request`
   (`SessionPreconditions::crossSite()`) after the transport is built and before the package's first read or write (only
   the driver's resolution, the identifier's extraction and `Attempting` listeners, the application's code, run before it
-  on `signIn()`), and refresh and switch read the token only through `read()`, or, from plain values, through
-  `judge()`, which makes the same checks on the client given. Without it a cross-site page could
+  on `signIn()`), and refresh and switch read the token only through `read()`, and a refresh or sign-out from plain
+  values through `judge()`, which makes the same checks on the client given. Without it a cross-site page could
   auto-submit a form with an attacker's credentials and leave the attacker's refresh cookie in the victim's browser (a
   browser keeps a `SameSite=Strict` cookie set by the response to a top-level navigation), where the victim's own
   scripts would then pass every refresh check. `signIn()` and `start()` judge the `SignInContext`'s client, `satisfy()`

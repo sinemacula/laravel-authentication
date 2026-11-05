@@ -91,7 +91,9 @@ trait EndsSessions
      * An access-only token, which names no stored session, has nothing to
      * revoke and is only forgotten; a guest request does nothing. To sign out a
      * client whose access token has expired, and to clear a cookie
-     * application's refresh cookie, use `signOutFromRequest()`.
+     * application's refresh cookie, use `signOutFromRequest()`, or
+     * `signOutPresented()` with the refresh credential and the client as plain
+     * values (whose same-site check `isSameSiteClient()` judges).
      *
      * @return bool
      *

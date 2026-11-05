@@ -383,12 +383,14 @@ final readonly class SessionService
      * The client is the request's unless one is given: a service layer that
      * keeps HTTP out passes the `ClientContext` its controller built, which is
      * judged by the same-site rule (a context without its `Origin`, scheme and
-     * host or custom header fails it on a cookie application), recorded as the
-     * session's last use on activation, and carried by the events that report
-     * the action (`AuthenticationFailed`, `SessionCreated` or
+     * host or custom header fails it on a cookie application), written by the
+     * activation as the session's last use, and carried by the events that
+     * report the action (`AuthenticationFailed`, `SessionCreated` or
      * `SessionActivated`, `SignedIn`, a superseded session's `SessionRevoked`);
      * the guard's bind describes the guard's own request, as every later event
-     * of the guard does.
+     * of the guard does, so its `SessionAuthenticated` records that request as
+     * the last use whenever `session.last_used_throttle_seconds` allows a use
+     * so soon after the activation (with `0`, always).
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof

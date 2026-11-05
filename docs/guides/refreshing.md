@@ -378,7 +378,19 @@ final class RefreshService
 }
 ```
 
-A body application's controller is the same, its pair carrying `refreshToken` for the body and no cookie.
+A body application's controller answers the same outcomes, but its pair carries the new refresh token for the body
+(`refreshToken`) and no cookie (`refreshCookie` is `null`), so it returns the token instead of attaching a cookie, and
+needs no `403` branch (a body application's token is never judged same-site):
+
+```php
+$tokens = $result->session->tokens;
+
+return SecretResponse::json([
+    'access_token'  => $tokens->accessToken,
+    'refresh_token' => $tokens->refreshToken,
+    'expires_in'    => $tokens->expiresIn,
+]);
+```
 
 `extract($request)` reads the request as `read()` does but leaves the cookie's same-site judgement out: it answers
 `null`, `refresh_token_conflict`, `refresh_transport_mismatch` or `token_invalid` as `read()` would, and otherwise a

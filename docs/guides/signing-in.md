@@ -956,10 +956,12 @@ $result = Auth::sessions('browser')->choose($credential, $principal, TenantSelec
 A cookie application judges the same-site check on that client alone, failing closed: one built without its `Origin`,
 scheme and host or header names is refused as `cross_site_request` before the pending session is read, whatever the
 guard's request. The client is your trusted description of the request (see
-[Refresh token cookie](refreshing.md#refresh-token-cookie)). An activation records it as the session's last use, and it
+[Refresh token cookie](refreshing.md#refresh-token-cookie)). An activation writes it as the session's last use, and it
 is carried by the events that report the action (`AuthenticationFailed`, `SessionCreated` or `SessionActivated`,
 `SignedIn`, a superseded session's `SessionRevoked`); the guard's bind describes the guard's own request, as every later
-event of the guard does. A body application is never held to the check, with a client or without.
+event of the guard does, so its `SessionAuthenticated` records that request as the last use whenever
+`session.last_used_throttle_seconds` allows a use so soon after the activation (with `0`, always). A body application
+is never held to the check, with a client or without.
 
 ## Additional factors
 

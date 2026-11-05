@@ -673,14 +673,20 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 Route::post('/auth/logout', function (Request $request) {
     $presented = Auth::refreshTransport('browser')->extract($request);   // in the controller
-    $result    = Auth::sessions('browser')->signOutPresented($presented, ClientContext::fromRequest($request)); // in the service
+
+    abort_if($presented === null, 401);   // no refresh credential: nothing signed out
+
+    $result = Auth::sessions('browser')->signOutPresented($presented, ClientContext::fromRequest($request)); // in the service
 
     return $result->attachTo($result->isFailed() ? response()->json(['reason' => $result->reason?->value], 401) : response()->noContent());
 });
 ```
 
 It signs out by the refresh credential alone, as `signOutWith()` does: the guard's binding is not consulted, and only a
-binding to the session it revokes is forgotten, so a guard bound to another session stays bound to it. The package
+binding to the session it revokes is forgotten, so a guard bound to another session stays bound to it. Unlike
+`signOutFromRequest()`, it never ends the session the guard is bound to through its access token, so a request that
+carries the access token and no refresh credential revokes nothing: answer a `null` extraction as not signed out, as the
+example does, or end the bound session with `Auth::sessions('browser')->signOut()` as well. The package
 judges the token again with the client, never trusting how the value was built (see [Refreshing from plain
 values](refreshing.md#refreshing-from-plain-values)): carriers that are not its source alone are
 `refresh_token_conflict`, a source that is not the application's transport `refresh_transport_mismatch`, and a token

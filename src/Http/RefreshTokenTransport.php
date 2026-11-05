@@ -213,10 +213,12 @@ final readonly class RefreshTokenTransport
      * it, though only a route under the path receives the cookie to sign out
      * by. Send it only for a request that signed its session out by its access
      * token, which a cross-site page cannot send, or that passes
-     * `isSameSiteRequest()`: a response that clears it whatever the request
+     * `isSameSiteRequest()`, or whose client, handed in as plain values, passes
+     * `isSameSiteClient()`: a response that clears it whatever the request
      * carried lets a cross-site form sign the browser out.
-     * `signOutFromRequest()`'s result carries it on exactly those terms. A body
-     * application has no cookie to clear (`LogicException`).
+     * `signOutFromRequest()`'s result carries it on exactly those terms, and
+     * `signOutPresented()`'s for the client it is given. A body application has
+     * no cookie to clear (`LogicException`).
      *
      * @return \Symfony\Component\HttpFoundation\Cookie
      *
