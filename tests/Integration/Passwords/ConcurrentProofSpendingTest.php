@@ -726,6 +726,10 @@ final class ConcurrentProofSpendingTest extends TestCase
 
         $pid = pcntl_fork();
 
+        if ($pid < 0) {
+            self::fail('The second side could not be forked.');
+        }
+
         if ($pid === 0) {
             $this->crossInChild($neighbour);
         }

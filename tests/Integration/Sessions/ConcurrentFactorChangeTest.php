@@ -278,6 +278,10 @@ final class ConcurrentFactorChangeTest extends TestCase
 
         $pid = pcntl_fork();
 
+        if ($pid < 0) {
+            self::fail('The second side could not be forked.');
+        }
+
         if ($pid === 0) {
             $this->runInChild($second, $prepare);
         }

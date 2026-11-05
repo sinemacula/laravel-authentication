@@ -204,6 +204,10 @@ final class ConcurrentResetSubmissionsTest extends TestCase
 
             $pid = pcntl_fork();
 
+            if ($pid < 0) {
+                self::fail('The second side could not be forked.');
+            }
+
             if ($pid === 0) {
                 self::crossInChild($outcomes, $identity->getKey());
             }
