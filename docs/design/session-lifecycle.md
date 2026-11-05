@@ -229,8 +229,9 @@ revoked, and when a session that ended is deleted. Starting a session is in
   `sessions()` relation over a model that is not an `EloquentSession`, is a `LogicException`.
 - A retention that is not an integer (or canonical digit string) from 0 to 3650 is an `InvalidArgumentException` when
   pruning runs, before anything is read. With 0, a session is pruned from the second it ends. A chunk size below 1 is an
-  `InvalidArgumentException` before any read; the command refuses a `--chunk` that is not digits naming an integer from
-  1 up to PHP's largest, with `FAILURE`.
+  `InvalidArgumentException` before any read; the command refuses a `--chunk` that is not an integer of 1 or more (an
+  int, or digits within PHP's range), with `FAILURE`. `--pretend` with any truthy value (code may pass `1` or `'1'`)
+  counts and deletes nothing, as `model:prune` reads it.
 - A custom session model needs nothing to be pruned: the configured model is. A global scope on the model still narrows
   pruning: the three conditions are grouped. A soft-deleting model's pruned sessions are deleted outright; a session it
   already soft-deleted is outside its scope and never selected.
@@ -308,4 +309,4 @@ Update this note when any of the following change:
   which order it reports
 - what a session summary holds, the listing's order, page bounds or connection
 - what a sign-out by refresh credential checks, revokes or reports
-- what pruning selects, how retention is counted or configured, or how a custom model opts in
+- what pruning selects, how retention is counted or configured, or which session model is pruned

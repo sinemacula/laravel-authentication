@@ -20,8 +20,9 @@ use Symfony\Component\Console\Attribute\AsCommand;
  *
  * It prints what Laravel's `model:prune` prints for a model, and dispatches
  * `ModelPruningStarting` and `ModelPruningFinished` around the run as it does,
- * so a scheduler's logs and listeners read the same. With `--pretend` it counts
- * the sessions it would delete and deletes nothing. A chunk size that is not an
+ * so a scheduler's logs and listeners read the same. With `--pretend` (any
+ * truthy value code passes for it, as `model:prune` reads it) it counts the
+ * sessions it would delete and deletes nothing. A chunk size that is not an
  * integer of 1 or more fails before anything is read; an invalid retention or
  * session model propagates.
  *
@@ -64,7 +65,7 @@ final class PruneSessionsCommand extends Command
 
         $model = SessionLookup::model()::class;
 
-        if ($this->option('pretend') === true) {
+        if ((bool) $this->option('pretend')) {
             $this->pretendToPrune($pruning, $model);
 
             return self::SUCCESS;

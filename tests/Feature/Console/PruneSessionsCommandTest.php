@@ -131,6 +131,40 @@ final class PruneSessionsCommandTest extends TestCase
     }
 
     /**
+     * A chunk of 1, the smallest, as a command line passes it and as code may.
+     *
+     * @return iterable<string, array{0: int|string}>
+     */
+    public static function chunksOfOne(): iterable
+    {
+        yield 'digits' => ['1'];
+        yield 'an integer' => [1];
+    }
+
+    /**
+     * The smallest chunk is accepted, whether given as digits or an integer:
+     * each session is deleted in a chunk of its own.
+     *
+     * @param  int|string  $chunk
+     * @return void
+     */
+    #[DataProvider('chunksOfOne')]
+    public function testAcceptsAChunkOfOne(int|string $chunk): void
+    {
+        $this->insertSessions(2);
+
+        self::assertSame(Command::SUCCESS, Artisan::call('authentication:prune-sessions', ['--chunk' => $chunk]));
+
+        $output = Artisan::output();
+
+        self::assertSame(1, substr_count($output, 'Pruning [' . Session::class . '] records.'));
+        self::assertSame(1, preg_match_all('/\b1 records/', $output));
+        self::assertSame(1, preg_match_all('/\b2 records/', $output));
+        self::assertLessThan(strpos($output, '2 records'), strpos($output, '1 records'));
+        self::assertSame(0, DB::table('authentication_sessions')->count());
+    }
+
+    /**
      * With nothing to prune the command says so, deletes nothing, and prints no
      * heading.
      *
@@ -193,19 +227,35 @@ final class PruneSessionsCommandTest extends TestCase
     }
 
     /**
+     * `--pretend` as a command line passes it, and the truthy values code may
+     * pass for it, which `model:prune` also reads as a dry run.
+     *
+     * @return iterable<string, array{0: bool|int|string}>
+     */
+    public static function pretends(): iterable
+    {
+        yield 'the flag' => [true];
+        yield 'the integer 1' => [1];
+        yield 'the digit 1' => ['1'];
+        yield 'yes' => ['yes'];
+    }
+
+    /**
      * `--pretend` counts the sessions pruning would delete, deletes nothing and
      * dispatches no pruning event.
      *
+     * @param  bool|int|string  $pretend
      * @return void
      */
-    public function testPretendCountsWithoutDeleting(): void
+    #[DataProvider('pretends')]
+    public function testPretendCountsWithoutDeleting(bool|int|string $pretend): void
     {
         $this->insertSessions(2);
         $this->insertSession(null);
 
         Event::fake([ModelPruningStarting::class, ModelPruningFinished::class, ModelsPruned::class]);
 
-        self::assertSame(Command::SUCCESS, Artisan::call('authentication:prune-sessions', ['--pretend' => true]));
+        self::assertSame(Command::SUCCESS, Artisan::call('authentication:prune-sessions', ['--pretend' => $pretend]));
 
         $output = Artisan::output();
 
