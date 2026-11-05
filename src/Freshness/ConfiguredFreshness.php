@@ -95,12 +95,8 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * or is no longer live for that application, or no proof meets it. A proof
      * made with the excluded factor, if one is named, never meets it.
      *
-     * Asked current (`$current`), it is judged inside the caller's transaction
-     * on the session model's connection on the session as committed: its row
-     * read with a lock held until the transaction ends, its proofs read
-     * current. Outside a transaction on that connection a `LogicException` is
-     * thrown before anything is read: two statements outside one would make no
-     * atomic judgement, and a plain read serves the caller that needs none.
+     * Asked current outside a transaction on the session model's connection, a
+     * `LogicException` is thrown before anything is read.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
@@ -164,8 +160,7 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
 
     /**
      * The newest proof that meets the effective requirement now, with that
-     * requirement, or `null` (see `freshProof()`); with `$current`, the
-     * session's row is read locked and its proofs current.
+     * requirement, or `null` (see `freshProof()`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation

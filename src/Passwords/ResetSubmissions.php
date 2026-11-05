@@ -58,13 +58,9 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * identity sets the password (see `PasswordWriter`, flow `reset`) and commits.
  * Any exception rolls everything back together, at once outside a caller's
  * transaction and inside one once the caller rolls back. Inside a caller's
- * transaction the reset's writes are a nested transaction of it: a deadlock or
- * serialisation failure, or on MySQL and MariaDB a lock wait timeout, is thrown
- * on as Laravel's `DeadlockException` with the caller's transaction level
- * restored, and the reset's writes so far may still be in the caller's
- * transaction, for the caller to roll back, never commit, and retry whole;
- * PostgreSQL's lock timeout is thrown as raised, the reset rolled back to its
- * savepoint.
+ * transaction the reset is a nested transaction of it: after a concurrency
+ * error the caller rolls back, never commits, and retries whole (see
+ * `spend()`).
  *
  * Every refusal but a rejected password is reported by `AuthenticationFailed`
  * (`password_reset`) with its reason; the result says only `invalid`. A reset

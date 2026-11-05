@@ -19,10 +19,8 @@ use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
  * configured one applies. An operation with neither is never fresh. The package
  * binds `Freshness\ConfiguredFreshness`, which reads the configured
  * requirements per application; an application or an adapter rebinds the
- * contract for a requirement the stored proofs cannot express, and reads the
- * session as committed when asked (`$current`), as the package asks wherever it
- * judges a session under its lock. An implementation must keep no state between
- * calls.
+ * contract for a requirement the stored proofs cannot express. An
+ * implementation must keep no state between calls.
  *
  * @api
  *

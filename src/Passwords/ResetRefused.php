@@ -9,8 +9,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 /**
  * Thrown inside a password reset's transaction when its proof was accepted for
  * no identity that may reset, so the transaction rolls back and the proof stays
- * unspent; `ResetSubmissions` catches it and answers `invalid` with the reason.
- * Never leaves `ResetSubmissions`.
+ * unspent; `ResetSubmissions` catches it and answers `invalid` with the reason,
+ * so it is never seen outside the package.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

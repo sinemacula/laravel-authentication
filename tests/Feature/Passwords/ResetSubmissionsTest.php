@@ -804,10 +804,9 @@ final class ResetSubmissionsTest extends TestCase
     /**
      * A deadlock raised inside a reset's transaction within a caller's is
      * thrown on as Laravel's `DeadlockException`, with the caller's transaction
-     * level restored (on MySQL and MariaDB the deadlock has already rolled the
-     * whole transaction back, its savepoints with it). The caller rolls its
-     * whole transaction back: nothing the reset did is kept, nothing is
-     * reported, and its retry of the whole transaction resets.
+     * level restored. The caller rolls its whole transaction back: nothing the
+     * reset did is kept, nothing is reported, and its retry of the whole
+     * transaction resets.
      *
      * @return void
      *
