@@ -397,8 +397,25 @@ or issued, and `authentication:check` warns about it. A provider whose configura
 `Auth::provider()` driver) cannot be checked in advance: its identity is checked once a reset's proof is accepted, so
 only someone holding a valid link or code ever sees the refusal, and the proof stays unspent. Of two
 resets with one token or code exactly one resets; a reset that loses to a newer link or code is `invalid`; and any
-failure after the proof is accepted (or a transaction of yours rolled back around the call) undoes the proof, the
-password, the cutoff and the revocations together.
+failure after the proof is accepted undoes the proof, the password, the cutoff and the revocations together: at once
+outside a transaction of yours, and inside one once you roll it back.
+
+Inside a transaction of yours the reset's transaction is nested in it: a refused proof completes it with its attempt
+counted, kept only when you commit; a proof accepted for no identity that may reset rolls back only what the reset
+wrote, so the proof stays unspent and your own writes stay; and a deadlock or serialisation failure, or on MySQL and
+MariaDB a lock wait timeout, reaches you as Laravel's `Illuminate\Database\DeadlockException` with your transaction
+level restored. Rolling your transaction back after an `invalid` result gives the code's attempt back, and the
+reset's `password_reset` counts too while `rate_limits.connection` is the storage connection (its default), so a caller
+that rolls back on every `invalid` result (by throwing a validation exception inside the transaction, say) lets codes
+be guessed without either limit: commit after an `invalid` result, or point `rate_limits.connection` at a connection of
+its own (see [Rate limits](configuration.md#rate-limits)). On MySQL and MariaDB a deadlock has already rolled your
+whole transaction back, but after a lock wait timeout (MySQL rolls back only the statement that timed out) or a
+serialisation failure that leaves your transaction open, what the reset wrote before it may still be in your
+transaction: the new password, the spent proof, the cutoff and some of the revocations. Never commit after the
+exception: roll your whole transaction back and retry it. PostgreSQL's `lock_timeout` is no concurrency error to
+Laravel: it reaches you as the `Illuminate\Database\QueryException` the database raised, with the reset already
+rolled back to its savepoint and your transaction level restored. Outside one, a concurrency failure rolls the reset
+back and is thrown as the database raised it.
 
 The package does not use Laravel's password broker, and does not dispatch Laravel's `PasswordReset` event (in Laravel
 that is your controller's). The broker answers differently for an unknown address, sends inline, can spend one token

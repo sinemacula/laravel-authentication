@@ -188,15 +188,17 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
 3. Inside the guard's credential timebox (`$context->timebox()->run()`): a missing or malformed identifier, token, code
    or password is `invalid` (`invalid_credentials`); the policy (`PasswordPolicy::check()`, the breached check included)
    rejects as `password_rejected`, spending nothing and reporting nothing; `ResetRecipient::find()` finds the identity.
-4. One transaction on the codes' connection (the identity's, by the rule): the eligible identity found has its row
+4. One `transaction()` on the codes' connection (the identity's, by the rule): the eligible identity found has its row
    locked first (`IdentityLock`, below) and is judged again, as the row reads under the lock
    (`ResetRecipient::eligible()`), so a deactivation committed since the lookup makes it ineligible; then the proof is
    checked whatever the identity (`checkToken()`: no attempt counted, conditional consume; `check()`: attempt counted,
-   conditional consume). Refused: commit (the attempt stays counted), `invalid` (`invalid_credentials`, `code_expired`,
-   `code_exhausted` or `link_expired`). Accepted for no eligible identity: roll back (the proof stays unspent),
-   `invalid` (the recipient's reason). Accepted for a found model on another connection than the storage connection (a
-   provider whose configuration names no model, which step 1 cannot check): roll back and throw the connection rule's
-   `LogicException`, only now, so the refusal never tells someone without a valid proof that the identifier is held.
+   conditional consume). Refused: the closure returns the refusal and the transaction commits (the attempt stays
+   counted), `invalid` (`invalid_credentials`, `code_expired`, `code_exhausted` or `link_expired`). Accepted for no
+   eligible identity: the closure throws `Passwords\ResetRefused` (internal, caught outside the transaction), which
+   rolls back (the proof stays unspent), `invalid` (the recipient's reason). Accepted for a found model on another
+   connection than the storage connection (a provider whose configuration names no model, which step 1 cannot check):
+   roll back and throw the connection rule's `LogicException`, only now, so the refusal never tells someone without a
+   valid proof that the identifier is held.
    Accepted for an eligible one: `PasswordWriter::write($identity, $password, RESET)` (a savepoint inside), then commit;
    the timebox ends early and the reservation is released.
 5. The reset signs no one in and verifies no identifier.
@@ -227,7 +229,23 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
 - A new request between a reset's read and its consume: the new issuance replaced the row, so the consume matches
   nothing and the reset is `invalid`.
 - A failure after the proof is accepted (a revocation statement failing, say) or a caller's rollback: one transaction,
-  so the proof, the password, the cutoff and the sessions roll back together, and no event is dispatched.
+  so the proof, the password, the cutoff and the sessions roll back together (inside a caller's transaction, once the
+  caller rolls back; see below), and no event is dispatched.
+- A reset inside a caller's transaction: the reset's transaction is a nested one (a savepoint) run by Laravel's
+  `transaction()`, never a hand-rolled `beginTransaction()`/`commit()`/`rollBack()`. A refused proof completes it (the
+  attempt counted, kept only by the caller's commit: a caller's rollback gives it back, and the `password_reset` counts
+  too while `rate_limits.connection` is the storage connection, so the guide tells a caller to commit after an
+  `invalid` result or to give the limits a connection of their own); a proof accepted for no eligible identity rolls
+  back to it, the caller's writes kept. A deadlock or serialisation failure, or on MySQL and MariaDB a lock wait
+  timeout, is thrown on as Laravel's `DeadlockException` with the caller's transaction level restored and nothing
+  rolled back by the package: on MySQL and MariaDB the deadlock has already rolled the caller's whole transaction back
+  and dropped its savepoints, so a rollback to the reset's savepoint would fail with `SAVEPOINT ... does not exist` and
+  leave the level wrong. A lock wait timeout (MySQL rolls back only the statement that timed out) or a serialisation
+  failure that leaves the caller's transaction open may leave what the reset wrote before it (the password, the spent
+  proof, the cutoff, some of the revocations) in the caller's transaction, so the caller never commits after the
+  exception: it rolls back and retries whole. PostgreSQL's `lock_timeout` (SQLSTATE `55P03`) is none of the errors
+  Laravel's concurrency detector names, so `transaction()` rolls the reset back to its savepoint and rethrows the
+  `QueryException` as raised.
 - An identity on another connection than the storage connection: refused with a `LogicException`, since the proof and
   the change could not commit as one; `authentication:check` warns about such a guard, as it does about a non-`email`
   password identifier while Laravel's notification is the sender.
@@ -245,7 +263,8 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
 - `src/Events/PasswordSet.php`
 - `src/Testing/FakeBreachedPasswordChecker.php`
 - `src/Passwords/ResetRequests.php`, `src/Passwords/ResetSubmissions.php`, `src/Passwords/ResetRecipient.php`,
-  `src/Passwords/ResetInput.php`, `src/Passwords/SendPasswordReset.php`, `src/Runtime/JwtGuardContexts.php`
+  `src/Passwords/ResetRefused.php`, `src/Passwords/ResetInput.php`, `src/Passwords/SendPasswordReset.php`,
+  `src/Runtime/JwtGuardContexts.php`
 - `src/Passwords/PasswordResetLink.php`, `src/Passwords/ResetResult.php`, `src/Passwords/Enums/ResetStatus.php`
 - `src/Contracts/PasswordResetLinkSender.php`, `src/Passwords/NotifyingResetLinkSender.php`,
   `src/Testing/FakePasswordResetLinkSender.php`
@@ -256,7 +275,7 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
 
 - `tests/Unit/Passwords/PasswordSettingsTest.php`
 - `tests/Unit/Passwords/PasswordPolicyTest.php`
-- `tests/Unit/Passwords/PasswordResultTest.php`
+- `tests/Unit/Passwords/PasswordResultTest.php`, `tests/Unit/Passwords/ResetRefusedTest.php`
 - `tests/Unit/Passwords/SensitiveParametersTest.php` (every parameter a password, token, code or the input holding one
   passes through is `#[\SensitiveParameter]`)
 - `tests/Unit/Testing/FakeBreachedPasswordCheckerTest.php`
@@ -270,7 +289,9 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
   then delivered by a worker, and a link requested through another driver's `JwtGuard` delivered through its `jwt`
   guard),
 - `tests/Integration/Passwords/ReplicaPasswordResetsTest.php` (a link delivered and spent behind a lagging replica),
-  `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php`,
+  `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php` (and a reset deadlocked inside a caller's
+  transaction by another process, thrown on as `DeadlockException` with the caller's level restored, on PostgreSQL and
+  MySQL),
   `tests/Integration/Passwords/ConcurrentProofSpendingTest.php` (a password write racing a reset, a confirmation and an
   identifier change request, a bulk revocation racing a confirmation and a request, and the documented password change
   racing a reset either way, on PostgreSQL and MySQL), `tests/Integration/Database/IdentityLockTest.php`,
