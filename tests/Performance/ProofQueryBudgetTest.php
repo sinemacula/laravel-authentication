@@ -8,7 +8,10 @@ use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
+use SineMacula\Laravel\Authentication\Context\ContributionSubject;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -21,6 +24,7 @@ use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Freshness\Operations;
+use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationClaims;
 use SineMacula\Laravel\Authentication\Proofs\AuthenticationSummary;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
@@ -40,12 +44,14 @@ use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementJudge;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
+use SineMacula\Laravel\Authentication\Sessions\ActiveSessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\ExternalReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\FactorChangeGate;
 use SineMacula\Laravel\Authentication\Sessions\ProofIssuance;
 use SineMacula\Laravel\Authentication\Sessions\SessionReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\SessionStepUp;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
@@ -56,12 +62,14 @@ use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 /**
  * Query-budget and timing contracts for a session's proofs: what a step-up and
  * a reauthentication cost, what asking the freshness policy and the
- * factor-change gate costs (nothing for an operation with no requirement), and
- * that the claims, freshness and accepted-evidence reads stay one query each,
- * and quick, however many proofs a session holds. Every issuance that records a
- * proof writes the session's issuance guard, one `UPDATE` by key, under the
- * lock and before the proof, so an issuance of the session that overlaps it
- * reads its proof: one write beside the proof itself.
+ * factor-change gate costs (nothing for an operation with no requirement), that
+ * the claims, freshness and accepted-evidence reads stay one query each, and
+ * quick, however many proofs a session holds, and that the public reads of an
+ * active session's proofs (the session service's and a contribution subject's)
+ * read the session and one bounded page of its proofs. Every issuance that
+ * records a proof writes the session's issuance guard, one `UPDATE` by key,
+ * under the lock and before the proof, so an issuance of the session that
+ * overlaps it reads its proof: one write beside the proof itself.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -77,6 +85,8 @@ use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 #[CoversClass(AuthenticationClaims::class)]
 #[CoversClass(FactorChangeGate::class)]
 #[CoversClass(RequirementJudge::class)]
+#[CoversClass(ActiveSessionProofs::class)]
+#[CoversClass(ContributionSubject::class)]
 final class ProofQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
@@ -351,6 +361,91 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
         $requirement = new Requirement(multifactor: new RequirementPart);
 
         self::assertTrue($this->assertQueryBudget(2, 0, static fn (): bool => RequirementJudge::isMet('api', $identity, $record, null, $now, new ProofSource, $requirement)));
+    }
+
+    /**
+     * The session service's read of an active session's proofs, and of its
+     * first factor, reads the session and then one bounded page of its proofs,
+     * inside a transaction as outside one, however many proofs it holds, and
+     * within the ceiling; an identifier that cannot be a key reads nothing, and
+     * an unknown or revoked session only the session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheServicesProofReadsHaveFixedBudgets(): void
+    {
+        $record   = $this->signedIn()->record;
+        $key      = $record->getKey();
+        $sessions = $this->sessions();
+
+        foreach (range(1, self::MANY) as $index) {
+            self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->copy()->addSeconds($index), ['otp'], new Evaluation(true, true));
+        }
+
+        $started = hrtime(true);
+        $proofs  = $this->assertQueryBudget(2, 0, static fn (): array => $sessions->proofs($key, limit: self::MANY));
+        $read    = (hrtime(true) - $started) / 1e9;
+
+        self::assertCount(self::MANY, $proofs);
+        self::assertLessThan(self::READ_CEILING_SECONDS, $read);
+        self::assertCount(self::MANY, $this->assertQueryBudget(2, 0, static fn (): array => DB::transaction(static fn (): array => $sessions->proofs($key, limit: self::MANY))));
+        self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?RecordedProof => $sessions->firstFactor($key)));
+        self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?RecordedProof => DB::transaction(static fn (): ?RecordedProof => $sessions->firstFactor($key))));
+        self::assertSame([], $this->assertQueryBudget(0, 0, static fn (): array => $sessions->proofs('not-a-key')));
+        self::assertNull($this->assertQueryBudget(1, 0, static fn (): ?RecordedProof => $sessions->firstFactor((string) Str::uuid7())));
+
+        DB::table('authentication_sessions')->where('id', $key)->update(['revoked_at' => $this->now, 'revoked_reason' => 'revoked']);
+
+        self::assertSame([], $this->assertQueryBudget(1, 0, static fn (): array => DB::transaction(static fn (): array => $sessions->proofs($key))));
+        self::assertNull($this->assertQueryBudget(1, 0, static fn (): ?RecordedProof => $sessions->firstFactor($key)));
+    }
+
+    /**
+     * A contribution subject's proofs and first factor each read the session
+     * and then its proofs on every call, nothing kept between them; without a
+     * session they read nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASubjectsProofReadsReadOnEveryCall(): void
+    {
+        $signedIn = $this->signedIn();
+        $identity = $signedIn->identity;
+        $id       = IdentifierCoercion::stringify($identity->getAuthIdentifier());
+        $context  = new AuthenticationContext(
+            SubjectType::PERSON,
+            'identity',
+            $id,
+            'identity',
+            $id,
+            null,
+            null,
+            'api',
+            null,
+            [],
+            null,
+            false,
+            false,
+            false,
+            null,
+            null,
+            null,
+            null,
+        );
+        $subject = new ContributionSubject($context, $identity, $identity, null, $signedIn->record);
+        $none    = new ContributionSubject($context, $identity, $identity, null, null);
+
+        for ($call = 1; $call <= 2; $call++) {
+            self::assertCount(1, $this->assertQueryBudget(2, 0, static fn (): array => $subject->proofs()));
+            self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?RecordedProof => $subject->firstFactor()));
+        }
+
+        self::assertSame([], $this->assertQueryBudget(0, 0, static fn (): array => $none->proofs()));
+        self::assertNull($this->assertQueryBudget(0, 0, static fn (): ?RecordedProof => $none->firstFactor()));
     }
 
     /**

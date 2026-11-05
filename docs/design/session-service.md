@@ -146,6 +146,14 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   refusal is a failed `RefreshResult` with the exchange's or the transport's reason, `rate_limited` with its wait, never
   a thrown 429; `refreshFromRequest()` answers `null` only for a request without a token, and says where it read one
   (see `refresh-rotation-and-replay.md` and `refresh-token-transport.md`).
+- Looking up is the service's too, in `Sessions\Concerns\LooksUpSessions`: `session($identity, $id)` and `principal()`
+  (see `callers.md`), and `proofs($session, $since, $kinds, $limit)` and `firstFactor($session)`, which read the
+  counting proofs and the first factor of one of this guard's live, active sessions of a person through
+  `Sessions\ActiveSessionProofs`, named by its id (whichever session holds the key now) or given as a `Session`
+  (answered only while its key still holds that very session, `SessionOwnership::isSameSession()`; one that is not an
+  Eloquent session is not looked up), answering `[]` and `null` alike, with no exception and no event, for every other
+  session, and locking the session's row and reading its proofs current only inside a transaction on the session
+  model's connection (see `proofs-and-freshness.md`). They check no identity, write nothing and report nothing.
 
 ## Success Path
 
@@ -205,6 +213,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `src/Sessions/Concerns/ProvesSessions.php`: `stepUp()` and `reauthenticate()`, delegated to
   `src/Sessions/SessionStepUp.php` and `src/Sessions/SessionReauthentication.php` over `src/Sessions/ProofIssuance.php`
   (see `proofs-and-freshness.md`).
+  `src/Sessions/Concerns/LooksUpSessions.php`: `session()`, `principal()`, `proofs()` and `firstFactor()`, delegated to
+  `src/Sessions/ActiveSessions.php`, `src/Sessions/PendingEvaluation.php` and `src/Sessions/ActiveSessionProofs.php` (a
+  trait for the same reason).
 - `src/Sessions/SessionEstablishment.php`: `select()`, `proceed()`, `establish()`, `wait()`, `write()`, `signedIn()`:
   the session, the factor policy and the scheduled reports, never the bind.
 - `src/Sessions/DeferredBind.php`: the bind of a sign-in, a refresh and a switch once the session commits, and the
@@ -243,6 +254,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`: the revocations on their own and through the service
 - `tests/Feature/Sessions/SessionRoutesTest.php`: the documented sign-in and further-factor routes over HTTP, through
   `Auth::sessions()`, with tokens checked through `auth:api`
+- `tests/Feature/Sessions/LooksUpSessionsTest.php`, `tests/Feature/Sessions/ActiveSessionProofsTest.php`: the lookups,
+  an active session's proofs and first factor over HTTP behind `auth:api`, by id and by instance (an instance whose key
+  a later sign-in reused answering nothing), a time given in any zone, a read and then a step-up and a factor change of
+  the session in one transaction, and every session they answer nothing for
 - `tests/Integration/Sessions/SessionServiceTest.php`
 - `tests/Feature/Sessions/ProvenSessionsTest.php`, `tests/Feature/Sessions/SessionWriterTest.php`
 - `tests/Feature/Sessions/PendingSessionsTest.php`, `tests/Integration/Sessions/ConcurrentPendingSatisfactionTest.php`
@@ -272,3 +287,4 @@ Update this note when any of the following change:
 - what a sign-in records as its proofs or provenance, or which proofs `satisfy()` accepts
 - which of its methods it delegates to `SessionRevocations`, or what of the guard those need
 - what a refresh returns, binds or reports, or what it delegates to `SessionRefresh`
+- which sessions `proofs()` and `firstFactor()` answer for, or what they lock

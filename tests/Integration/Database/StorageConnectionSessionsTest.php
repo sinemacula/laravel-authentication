@@ -6,6 +6,7 @@ namespace Tests\Integration\Database;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
@@ -23,6 +24,7 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
@@ -44,8 +46,9 @@ use Tests\TestCase;
  * pending session are read and written where the shipped migrations created
  * their tables; a failure while a pending session activates rolls the whole
  * activation back there; a rollback there leaves the counters counted; a change
- * of the factor package's follows the caller's transaction there; and a session
- * loads an owner that names its connection from that connection.
+ * of the factor package's follows the caller's transaction there; an active
+ * session's proofs are read, and its row locked, there; and a session loads an
+ * owner that names its connection from that connection.
  *
  * Each connection is a second connection to the test database with a table
  * prefix of its own: a database of its own on SQLite, and prefixed tables
@@ -269,6 +272,50 @@ final class StorageConnectionSessionsTest extends TestCase
         DB::rollBack();
 
         self::assertSame('pending', $this->records()->value('status'));
+    }
+
+    /**
+     * An active session's proofs are read on the storage connection, and its
+     * row is locked there only inside a transaction on the storage connection:
+     * a transaction open only on the default connection locks nothing, and
+     * sends nothing to the default connection either.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnActiveSessionsProofsAreReadAndLockedOnTheStorageConnection(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($session);
+
+        $key        = $session->record->getKey();
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = [$query->connectionName, stripos($query->sql, 'for update') !== false];
+        });
+
+        $storage = DB::connection(self::STORAGE);
+        $read    = fn (): ?ProofKind => $this->sessions()->proofs($key)[0]->kind ?? null;
+        $locks   = $storage->getDriverName() !== 'sqlite';
+
+        DB::beginTransaction();
+
+        self::assertSame(ProofKind::FIRST_FACTOR, $read());
+
+        DB::rollBack();
+
+        $storage->beginTransaction();
+
+        self::assertSame(ProofKind::FIRST_FACTOR, $read());
+
+        $storage->rollBack();
+
+        self::assertSame([[self::STORAGE, false], [self::STORAGE, false], [self::STORAGE, $locks], [self::STORAGE, false]], $statements);
     }
 
     /**

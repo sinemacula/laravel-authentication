@@ -13,10 +13,10 @@ use SineMacula\Laravel\Authentication\Context\ContributionSubject;
  * registered with (`Context\ContextContributors::register()`). It is asked once
  * each time a context is built, after the package's own keys are worked out,
  * and is given them with the live identity, principal, tenant and session, and
- * the session's external provenance on request. It reads only: a contributor
- * that asks for the context being built (`Auth::context()`) gets a
- * `LogicException`, and an exception it throws reaches the caller, since a
- * policy cannot be judged on part of a context.
+ * the session's external provenance, counting proofs and first factor on
+ * request. It reads only: a contributor that asks for the context being built
+ * (`Auth::context()`) gets a `LogicException`, and an exception it throws
+ * reaches the caller, since a policy cannot be judged on part of a context.
  *
  * @api
  *

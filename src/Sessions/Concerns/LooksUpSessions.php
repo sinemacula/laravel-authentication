@@ -4,15 +4,19 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
+use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\Sessions\ActiveSessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 
 /**
- * The session service's lookups of one session and of one principal, which
- * `ActiveSessions` and `PendingEvaluation` carry out, as the session list and
- * `principals()` do.
+ * The session service's lookups of one session, of one principal, and of an
+ * active session's proofs and first factor, which `ActiveSessions`,
+ * `PendingEvaluation` and `ActiveSessionProofs` carry out, as the session list
+ * and `principals()` do.
  *
  * They are delegations with no state of their own; they sit in a trait only so
  * the service stays within the number of methods one class may declare.
@@ -74,5 +78,81 @@ trait LooksUpSessions
     public function principal(Identity $identity, mixed $principalId, ?string $identifierType = null): ?Principal
     {
         return $this->evaluation->principal($identity, $principalId, $identifierType);
+    }
+
+    /**
+     * The counting proofs of one of this guard's live, active sessions of a
+     * person, named by its identifier or given as a `Session`, for a factor
+     * package's proof store, a requirement checker or a confirmation that reads
+     * what a session proved: newest first by time and then by id, only those
+     * made at or after `$since` when it is given (the same instant in any time
+     * zone, and never changed) and of the given kinds when they are, at most
+     * `$limit` of them (1 to `RequirementSubject::MAX_LIMIT`, an
+     * `InvalidArgumentException` otherwise, before anything is read), exactly
+     * as `PendingSession::proofs()` reads a pending session's. Counting proofs
+     * are those not voided, and a further factor or recovery code only when
+     * accepted.
+     *
+     * An identifier names whichever session holds the key now. A `Session`
+     * names only itself: it is answered only while its key still holds that
+     * very session (the same generation and owner), so an instance whose key a
+     * later sign-in reused answers `[]`, and one that is not an Eloquent
+     * session answers `[]` without being looked up.
+     *
+     * `[]` when the session is not one this guard may answer for, without
+     * saying why: an identifier that cannot be a key of the session model (no
+     * query), one that names no session, or a session of another guard, a
+     * revoked, pending (read through its `PendingSession` instead) or ended
+     * one, or a machine's. The proofs are read bound to the session as stored,
+     * so another identity's or application's proof under the key never counts.
+     * No identity is checked: which sessions a caller may ask about is the
+     * application's to decide.
+     *
+     * Outside a transaction on the session model's connection the session and
+     * its proofs are read on the write connection and nothing is locked. Inside
+     * one, the session's row is locked until the transaction ends and the
+     * proofs are read current, so whatever the transaction read before, a
+     * step-up committed before the call is returned and a proof voided before
+     * it never is (at PostgreSQL's REPEATABLE READ the lock fails to serialise
+     * instead, for the whole transaction to be retried). It writes and reports
+     * nothing.
+     *
+     * @param  mixed  $session
+     * @param  ?\Carbon\CarbonInterface  $since
+     * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
+     * @param  int  $limit
+     * @return list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     *
+     * @phpstan-impure
+     */
+    public function proofs(mixed $session, ?CarbonInterface $since = null, ?array $kinds = null, int $limit = 50): array
+    {
+        return ActiveSessionProofs::query($this->context->name(), $session, $since, $kinds, $limit);
+    }
+
+    /**
+     * The first factor one of this guard's live, active sessions of a person
+     * signed in with, named by its identifier or given as a `Session` as for
+     * `proofs()`: its oldest counting first-factor proof. `null` when the
+     * session is not one this guard may answer for, as `proofs()` decides,
+     * without saying why, and when that proof no longer counts. Read, and
+     * locked inside a transaction, as `proofs()` is.
+     *
+     * @param  mixed  $session
+     * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     *
+     * @phpstan-impure
+     */
+    public function firstFactor(mixed $session): ?RecordedProof
+    {
+        return ActiveSessionProofs::firstFactor($this->context->name(), $session);
     }
 }

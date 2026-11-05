@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Requirements;
 
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
@@ -76,22 +77,23 @@ final readonly class RequirementSubject
 
     /**
      * The counting proofs, newest first by time and then by id, only those made
-     * at or after `$since` when it is given and of the given kinds when they
-     * are, at most `$limit` of them (1 to `MAX_LIMIT`).
+     * at or after `$since` when it is given (the same instant in any time zone,
+     * and never changed: the reader is given an immutable copy) and of the
+     * given kinds when they are, at most `$limit` of them (1 to `MAX_LIMIT`).
      *
-     * @param  ?\Carbon\CarbonImmutable  $since
+     * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
      * @param  int  $limit
      * @return list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>
      *
      * @throws \InvalidArgumentException
      */
-    public function proofs(?CarbonImmutable $since = null, ?array $kinds = null, int $limit = 50): array
+    public function proofs(?CarbonInterface $since = null, ?array $kinds = null, int $limit = 50): array
     {
         if ($limit < 1 || $limit > self::MAX_LIMIT) {
             throw new \InvalidArgumentException(sprintf('A requirement subject returns between 1 and %d proofs at a time.', self::MAX_LIMIT));
         }
 
-        return ($this->reader)($since, $kinds, $limit);
+        return ($this->reader)($since?->toImmutable(), $kinds, $limit);
     }
 }

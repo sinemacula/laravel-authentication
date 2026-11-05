@@ -63,12 +63,12 @@ are caught on the server.
   reauthentication with `auth_time` and `amr` derived from the proofs and never going back from one of a session's
   tokens to the next, whatever the isolation level (a per-session issuance guard), except where a factor's removal voids
   them, per-operation freshness judged on the proof that meets it, a gate for changing a further factor, list and get
-  one, sign out (by the access token, or by the refresh credential once the access token has expired), sign out
-  everywhere, revoke on security changes (a further factor's removal ends the other sessions and judges the current one
-  again without it, a replacement counting as the replaced factor's removal, and an addition to the factors judges the
-  current one again, returning it to pending when it falls short) and when a connection is disabled or deleted or a link
-  through it removed or its scope widened (only that link's sessions), and list, get and switch to the principals an
-  identity may use, or switch its active tenant.
+  one, read an active session's proofs and first factor, sign out (by the access token, or by the refresh credential
+  once the access token has expired), sign out everywhere, revoke on security changes (a further factor's removal ends
+  the other sessions and judges the current one again without it, a replacement counting as the replaced factor's
+  removal, and an addition to the factors judges the current one again, returning it to pending when it falls short) and
+  when a connection is disabled or deleted or a link through it removed or its scope widened (only that link's
+  sessions), and list, get and switch to the principals an identity may use, or switch its active tenant.
 - **The caller of a request**: `Auth::caller()` reads who a request is from the access, refresh or pending credential
   its route authenticates with, and says whether a session, identity or principal is the caller's, so an application can
   scope its own route bindings.

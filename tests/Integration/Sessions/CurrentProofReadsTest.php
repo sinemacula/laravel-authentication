@@ -10,6 +10,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\DeadlockException;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
+use SineMacula\Laravel\Authentication\Context\ContributionSubject;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -29,6 +32,7 @@ use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
@@ -51,6 +55,7 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
 use SineMacula\Laravel\Authentication\SessionRecords\IssuanceGuard;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
+use SineMacula\Laravel\Authentication\Sessions\ActiveSessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\ExternalReauthentication;
 use SineMacula\Laravel\Authentication\Sessions\FactorRevocations;
@@ -101,6 +106,16 @@ use Tests\TestCase;
  * waits on, or keep a session the reused key no longer establishes through the
  * tenant's connection.
  *
+ * The public reads of an active session's proofs and first factor (the session
+ * service's and a contribution subject's) are made the same way: asked inside
+ * the caller's transaction, they return a step-up committed meanwhile, never a
+ * proof voided meanwhile, nothing for a session revoked meanwhile, and a reused
+ * key's own first factor, or nothing for the earlier session's instance; a read
+ * of the snapshot would return the opposite of each. A step-up and a factor
+ * change of the session after such a read, in the same transaction, commit with
+ * it. Asked outside a transaction they answer what is committed and lock
+ * nothing.
+ *
  * Skipped on SQLite, whose in-memory database each connection would have to
  * itself.
  *
@@ -118,6 +133,8 @@ use Tests\TestCase;
 #[CoversClass(PendingSessions::class)]
 #[CoversClass(ExternalReauthentication::class)]
 #[CoversClass(TenantPolicyChanges::class)]
+#[CoversClass(ActiveSessionProofs::class)]
+#[CoversClass(ContributionSubject::class)]
 final class CurrentProofReadsTest extends TestCase
 {
     use InteractsWithExternalSignIns, InteractsWithIsolationLevels, InteractsWithProofs, InteractsWithSessions;
@@ -761,6 +778,226 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
+     * A read of a session's proofs inside the caller's transaction returns a
+     * step-up committed after the caller's first read.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testAProofReadReturnsAStepUpCommittedMeanwhile(string $level): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signedIn('api', $identity);
+        $key      = $session->record->getKey();
+
+        $kinds = $this->judgeAfter(
+            $level,
+            fn () => $this->stepUpElsewhere($identity, $session, 'factor-1'),
+            fn (): array => self::kindsOf($this->sessions()->proofs($key)),
+        );
+
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], $kinds);
+    }
+
+    /**
+     * A read of a session's proofs inside the caller's transaction never
+     * returns a proof a factor's removal voided after the caller's first read.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testAProofReadNeverReturnsAProofVoidedMeanwhile(string $level): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signedIn('api', $identity);
+        $key      = $session->record->getKey();
+
+        self::assertTrue($this->sessions()->stepUp($this->proof($identity, 'api', $key, 'factor-2', Purpose::STEP_UP))->isIssued());
+
+        $kinds = $this->judgeAfter(
+            $level,
+            fn () => $this->voidElsewhere('api', $key, 'factor-2'),
+            fn (): array => self::kindsOf($this->sessions()->proofs($key)),
+        );
+
+        self::assertSame([ProofKind::FIRST_FACTOR], $kinds);
+    }
+
+    /**
+     * A read of a session's proofs and first factor inside the caller's
+     * transaction answers nothing for a session revoked after the caller's
+     * first read.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testAProofReadAnswersNothingForASessionRevokedMeanwhile(string $level): void
+    {
+        $identity = $this->seedIdentity();
+        $key      = $this->signedIn('api', $identity)->record->getKey();
+
+        $answers = $this->judgeAfter(
+            $level,
+            fn () => $this->elsewhere(static function () use ($key): void {
+                DB::table('authentication_sessions')->where('id', $key)->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'revoked']);
+            }),
+            fn (): array => [$this->sessions()->proofs($key), $this->sessions()->firstFactor($key)],
+        );
+
+        self::assertSame([[], null], $answers);
+    }
+
+    /**
+     * A read of a session's first factor by its key, inside the caller's
+     * transaction, answers a key another sign-in of the same owner reused after
+     * the caller's first read with the new session's own first factor.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testAFirstFactorReadAnswersAReusedKeyWithItsOwnFirstFactor(string $level): void
+    {
+        [$member] = $this->seedMember();
+
+        $key     = $this->signedIn('members', $member)->record->getKey();
+        $earlier = $this->sessions('members')->firstFactor($key);
+
+        self::assertNotNull($earlier);
+
+        $first = $this->judgeAfter($level, fn () => $this->reuseElsewhere($key), fn (): ?RecordedProof => $this->sessions('members')->firstFactor($key));
+
+        self::assertNotNull($first);
+        self::assertNotSame($earlier->id, $first->id);
+        self::assertSame($first->id, DB::table('authentication_proofs')->where('session_id', $key)->value('id'));
+    }
+
+    /**
+     * A contribution subject's read, inside the caller's transaction, answers
+     * nothing for the session it was given once another sign-in of the same
+     * owner reused its key after the caller's first read.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testASubjectsReadAnswersNothingForAReusedKey(string $level): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        $record  = $this->signedIn('members', $member)->record;
+        $id      = IdentifierCoercion::stringify($member->getKey());
+        $context = new AuthenticationContext(
+            SubjectType::PERSON,
+            'member',
+            $id,
+            'membership',
+            IdentifierCoercion::stringify($membership->getKey()),
+            null,
+            null,
+            'members',
+            null,
+            [],
+            null,
+            false,
+            false,
+            false,
+            null,
+            null,
+            null,
+            null,
+        );
+        $subject = new ContributionSubject($context, $member, $membership, null, $record);
+
+        self::assertNotNull($subject->firstFactor());
+
+        $answers = $this->judgeAfter($level, fn () => $this->reuseElsewhere($record->getKey()), static fn (): array => [$subject->proofs(), $subject->firstFactor()]);
+
+        self::assertSame([[], null], $answers);
+    }
+
+    /**
+     * A read of a session's proofs inside the caller's transaction, then a
+     * step-up and a factor change of the same session in it, lock only the row
+     * the read holds: they commit together with no lock wait and no failure to
+     * serialise, nothing else having changed since the caller's first read, and
+     * a second read in the transaction returns the step-up.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testAProofReadThenAStepUpAndAFactorChangeOfTheSessionCommitInOneTransaction(string $level): void
+    {
+        $identity = $this->seedIdentity();
+        $record   = $this->signedIn('api', $identity)->record;
+        $key      = $record->getKey();
+
+        self::beginTransactionAt($level);
+
+        self::assertGreaterThan(0, DB::table('authentication_proofs')->count());
+
+        $answers = [
+            self::kindsOf($this->sessions()->proofs($key)),
+            $this->sessions()->stepUp($this->proof($identity, 'api', $key, 'factor-1', Purpose::STEP_UP))->isIssued(),
+            $this->sessions()->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $record)->isActive(),
+            self::kindsOf($this->sessions()->proofs($key)),
+        ];
+
+        DB::commit();
+
+        self::assertSame([[ProofKind::FIRST_FACTOR], true, true, [ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR]], $answers);
+        self::assertSame(1, DB::connection(self::OTHER)->table('authentication_proofs')->where('kind', ProofKind::ADDITIONAL_FACTOR->value)->count());
+    }
+
+    /**
+     * Outside a transaction a read of a session's proofs and first factor
+     * answers what another connection has committed, and sends no locking
+     * statement.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAProofReadOutsideATransactionAnswersWhatIsCommittedAndLocksNothing(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signedIn('api', $identity);
+        $key      = $session->record->getKey();
+
+        $this->stepUpElsewhere($identity, $session, 'factor-1');
+
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = strtolower($query->sql);
+        });
+
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], self::kindsOf($this->sessions()->proofs($key)));
+        self::assertSame(ProofKind::FIRST_FACTOR, $this->sessions()->firstFactor($key)?->kind);
+
+        $locking = array_filter($statements, static fn (string $sql): bool => preg_match('/for update|lock in share mode|for share/', $sql) === 1);
+
+        self::assertCount(4, $statements);
+        self::assertSame([], $locking);
+    }
+
+    /**
      * Register the guards, the chooser's among them.
      *
      * @param  mixed  $app
@@ -779,6 +1016,17 @@ final class CurrentProofReadsTest extends TestCase
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
+    }
+
+    /**
+     * The kinds of the proofs, in order.
+     *
+     * @param  list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>  $proofs
+     * @return list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>
+     */
+    private static function kindsOf(array $proofs): array
+    {
+        return array_map(static fn (RecordedProof $proof): ProofKind => $proof->kind, $proofs);
     }
 
     /**

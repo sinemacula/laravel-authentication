@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Proofs;
 
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
@@ -46,24 +47,25 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * what is committed now rather than what the transaction's snapshot holds. They
  * are asked so only by a caller that holds the session's row locked in the
  * transaction (an issuance once it has written the session's issuance guard,
- * every requirement judgement made under the row's lock, and a session's
- * external standing answered under it), and only MySQL and MariaDB need it:
- * their plain reads inside a REPEATABLE READ transaction return the snapshot of
- * its first read, so a current read there takes a shared lock on the rows it
- * reads, held until the transaction ends (outside one, until the statement
- * ends). At REPEATABLE READ that lock also takes the gaps on either side of the
- * session's proofs in their session index, so another transaction's proof that
- * falls there waits for this one to end: a new session's, after the newest
- * session's proofs, and a step-up's or a reauthentication's of the session
- * whose proofs border these, keys being time-ordered; on the provenance, it
- * takes the session's provenance row, or, for a session with none, the gap its
- * key falls in, where only an external sign-in's provenance can fall. Every
- * other engine reads as it does without. PostgreSQL needs no lock for any of
- * them, since at READ COMMITTED each statement reads what is committed once the
- * row's lock or guard has waited for any writer of the session still in flight,
- * and at REPEATABLE READ the lock or guard fails to serialise when one
- * committed after the snapshot (and it refuses a shared lock on a grouped read
- * such as `history()`'s); SQLite lets one writer in at a time.
+ * every requirement judgement made under the row's lock, a session's external
+ * standing answered under it, and a read of an active session's proofs or first
+ * factor inside a transaction), and only MySQL and MariaDB need it: their plain
+ * reads inside a REPEATABLE READ transaction return the snapshot of its first
+ * read, so a current read there takes a shared lock on the rows it reads, held
+ * until the transaction ends (outside one, until the statement ends). At
+ * REPEATABLE READ that lock also takes the gaps on either side of the session's
+ * proofs in their session index, so another transaction's proof that falls
+ * there waits for this one to end: a new session's, after the newest session's
+ * proofs, and a step-up's or a reauthentication's of the session whose proofs
+ * border these, keys being time-ordered; on the provenance, it takes the
+ * session's provenance row, or, for a session with none, the gap its key falls
+ * in, where only an external sign-in's provenance can fall. Every other engine
+ * reads as it does without. PostgreSQL needs no lock for any of them, since at
+ * READ COMMITTED each statement reads what is committed once the row's lock or
+ * guard has waited for any writer of the session still in flight, and at
+ * REPEATABLE READ the lock or guard fails to serialise when one committed after
+ * the snapshot (and it refuses a shared lock on a grouped read such as
+ * `history()`'s); SQLite lets one writer in at a time.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -155,10 +157,13 @@ final class SessionProofs
      * those made at or after `$since` when it is given and of the given kinds
      * when they are, at most `$limit` of them: one `LIMIT` query on the proofs'
      * session, kind and time index, read current when asked, as the class
-     * describes.
+     * describes. `$since` is the same instant in whichever time zone it is
+     * given, mutable or not: an immutable copy of it is compared in the
+     * application's zone, the one proofs are written in, so the time given is
+     * never changed.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @param  ?\Carbon\CarbonImmutable  $since
+     * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
      * @param  int  $limit
      * @param  bool  $current
@@ -166,13 +171,14 @@ final class SessionProofs
      *
      * @throws \InvalidArgumentException
      */
-    public static function query(Session $session, ?CarbonImmutable $since, ?array $kinds, int $limit, bool $current = false): array
+    public static function query(Session $session, ?CarbonInterface $since, ?array $kinds, int $limit, bool $current = false): array
     {
         $model  = new SessionProof;
         $shared = self::sharesLock($model, $current);
+        $from   = $since?->toImmutable()->setTimezone(date_default_timezone_get());
 
         $proofs = WriteConnection::during($model, static fn (): array => self::counting($session)
-            ->when($since !== null, static fn (Builder $query): Builder => $query->where('authenticated_at', '>=', $model->fromDateTime($since)))
+            ->when($from !== null, static fn (Builder $query): Builder => $query->where('authenticated_at', '>=', $model->fromDateTime($from)))
             ->when($kinds !== null, static fn (Builder $query): Builder => $query->whereIn('kind', array_column($kinds ?? [], 'value')))
             ->orderByDesc('authenticated_at')
             ->orderByDesc('id')

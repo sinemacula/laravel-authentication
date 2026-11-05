@@ -182,13 +182,14 @@ policies](sessions.md#tenant-authentication-policies)). A `null` version is neve
 Whether a session's proofs meet a further factor is `Contracts\RequirementCheck`'s to judge: `evaluate()` takes a
 `Requirements\RequirementSubject` (the identity, the application, the session, the first factor it signed in with, the
 time, and `proofs($since, $kinds, $limit)`, a bounded query over its counting proofs, newest first, at most
-`RequirementSubject::MAX_LIMIT`) and the `Requirement`, and answers a `Requirements\RequirementEvaluation` listing the
-kinds left unmet. It judges the identity-level requirement the additional-factor policy answers as well as a tenant's.
-The default, `MeetNoRequirement`, meets nothing: an identity or a tenant that requires a further factor admits no
-session until a factor package binds its check. The package never asks it with an empty requirement, nor when an
-external provider's accepted evidence already meets the whole requirement (see below). An external provider's proof
-reads back with no evaluation: its evidence was accepted for the whole application, of any age and for no tenant, so
-the evidence policy alone judges it, and a check counts no part of a requirement met by one.
+`RequirementSubject::MAX_LIMIT`, only those made at or after `$since` when it is given, any Carbon time, the same
+instant in any time zone) and the `Requirement`, and answers a `Requirements\RequirementEvaluation` listing the kinds
+left unmet. It judges the identity-level requirement the additional-factor policy answers as well as a tenant's. The
+default, `MeetNoRequirement`, meets nothing: an identity or a tenant that requires a further factor admits no session
+until a factor package binds its check. The package never asks it with an empty requirement, nor when an external
+provider's accepted evidence already meets the whole requirement (see below). An external provider's proof reads back
+with no evaluation: its evidence was accepted for the whole application, of any age and for no tenant, so the evidence
+policy alone judges it, and a check counts no part of a requirement met by one.
 
 Whether an external identity provider's evidence counts is `Contracts\ExternalEvidencePolicy`'s to say, in two
 questions about an `External\ExternalEvidence` (the provider's `amr` values, its `acr` value or SAML authentication
@@ -574,6 +575,20 @@ seam has a default that works alone.
   per-identity counts and lockouts are yours. Turn a verified check into a `ProofResult` (its method, the channel, the
   factor, the binding) and hand it to `satisfy()` or `stepUp()`, inside the same transaction when both are to commit
   together. A sent code's `CodeRequest` also says when another may be sent (`resendAvailableAt`).
+- A factor package's proof store and first-factor resolver read an active session's proofs through the session service:
+  `Auth::sessions($guard)->proofs($session, $since, $kinds, $limit)` (its counting proofs, newest first, as
+  `PendingSession::proofs()` reads a pending session's) and `firstFactor($session)` (the first factor it signed in
+  with), the session named by its id (whichever session holds the key now) or given as a `Session` (answered only while
+  its key still holds that very session), each `[]` or `null`, without saying why, for a session that is not one of the
+  guard's live, active sessions of a person; a pending session's are read through its `PendingSession`. Inside the
+  factor package's transaction, after its own locks and before a `stepUp()` or `factorChanged()` of the same session,
+  the read locks the session's row until the transaction ends and reads its proofs current, so the change is decided on
+  what is committed; on MySQL and MariaDB at REPEATABLE READ it holds shared locks on the proofs until you commit, and
+  at PostgreSQL's REPEATABLE READ it fails to serialise when the session changed after your snapshot. `factorRemoved()`
+  moves the identity's token cutoff and revokes its other sessions before it judges the current one again, so do not
+  read the proofs before it in the same transaction unless your transaction already holds those rows: two removals from
+  two of the identity's sessions could deadlock (see [Reading a session's
+  proofs](sessions.md#reading-a-sessions-proofs)).
 - A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see [Proofs and
   provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session service as a
   `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart), method,
@@ -633,6 +648,9 @@ $passed = $result->isVerified();   // else $result->reason
   `AcceptAnyScope`, accepts any well-formed scope).
 - A policy condition reads the request's authentication context (see [Authentication context](#authentication-context)):
   type-hint `Contracts\AuthenticationContexts` and call `current()`, the seam a test rebinds, or call `Auth::context()`.
+- A requirement checker of authorisation's own that judges a session's proofs reads them as a factor package does:
+  `Auth::sessions($guard)->proofs($session, $since, $kinds, $limit)` and `firstFactor($session)`, read current under
+  the session's lock inside a transaction (see [Reading a session's proofs](sessions.md#reading-a-sessions-proofs)).
 
 ### Authentication context
 
@@ -690,15 +708,22 @@ once with a `Context\ContributionSubject`: the package's keys, the live identity
 `provenance()`, the session's external provenance (`Proofs\Provenance`: the connection and its tenant, the provider's
 authentication time and deadline, the policy version, the link, the accepted evidence with the provider's own `amr`, and
 the provider context the adapter gave with the result, its keys the adapter's own), read on the write connection the
-first time it is asked for, in one query. It answers its keys without the namespace: each a lower-case letter and then
-up to 63 lower-case letters, digits or underscores, each value `null`, a scalar or an array of them. Anything else fails
-loudly with a `LogicException` naming the namespace and key, and so does asking for the context it is being asked to
-build; an exception it throws reaches the caller (a policy cannot be judged on part of a context). A namespace is a
-lower-case letter and then up to 31 lower-case letters, digits or underscores; `authentication` is the package's, and a
-second registration of a namespace is a `LogicException`, so no contributor's keys can overwrite another's. `mfa` and
-`sso` are kept for the further-factor and single sign-on packages' adapters, which register them; the package registers
-none. A test builds an `AuthenticationContext` itself (its constructor is public, and refuses contributed keys no
-contributor could give) or binds a fake `AuthenticationContexts`.
+first time it is asked for, in one query. `proofs($since, $kinds, $limit)` and `firstFactor()` read the counting proofs
+and the first factor of the session the subject was given, never the request's, by the session service's rule (see
+[Reading a session's proofs](sessions.md#reading-a-sessions-proofs)): `[]` and `null` without a session, for one that is
+not an Eloquent session, and for one that is no longer one of the context's application's live, active sessions of a
+person or whose key now holds another session; read again on every call (the session and then its proofs), and locked
+and read current inside a transaction on the session model's connection. Each answer is as of its call, so it can show a
+step-up or a void committed after the package's own keys (`amr`, `mfa`, ...) were worked out: nothing makes the two
+agree. It answers its keys without the namespace: each a lower-case letter and then up to 63 lower-case letters, digits
+or underscores, each value `null`, a scalar or an array of them. Anything else fails loudly with a `LogicException`
+naming the namespace and key, and so does asking for the context it is being asked to build; an exception it throws
+reaches the caller (a policy cannot be judged on part of a context). A namespace is a lower-case letter and then up to
+31 lower-case letters, digits or underscores; `authentication` is the package's, and a second registration of a
+namespace is a `LogicException`, so no contributor's keys can overwrite another's. `mfa` and `sso` are kept for the
+further-factor and single sign-on packages' adapters, which register them; the package registers none. A test builds an
+`AuthenticationContext` itself (its constructor is public, and refuses contributed keys no contributor could give) or
+binds a fake `AuthenticationContexts`.
 
 ### Single sign-on (`laravel-sso`)
 

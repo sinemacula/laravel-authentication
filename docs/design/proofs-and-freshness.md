@@ -47,6 +47,25 @@ session holds; the token's claims and every freshness answer are worked out from
   aggregate query grouped by kind, `amr` set, multifactor report and additional verification
   (`SessionProofs::history()`), and freshness reads the newest proof a requirement takes with `LIMIT 1` on the session,
   kind and time index (`SessionProofs::newestMeeting()`), so a session with many step-ups costs what one with few does.
+- Another package reads an active session's proofs only through the session service,
+  `Auth::sessions($guard)->proofs($session, $since, $kinds, $limit)` and `firstFactor($session)`
+  (`Sessions\ActiveSessionProofs`), and a context contributor through its `ContributionSubject` (see
+  `authentication-context.md`). `SessionProofs` stays internal, since its current mode is a precondition (the session's
+  row held locked) only the package can honour, and so does `RequirementSubject`'s constructor. The reads answer
+  `PendingSession::proofs()`'s filter, order and bound (1 to `RequirementSubject::MAX_LIMIT`, checked before anything is
+  read) and the oldest counting first factor, only for one of the guard's live, active sessions of a person: an id that
+  cannot be a key of the session model (no query), one that names no row, and a session of another guard, revoked,
+  pending, past a deadline at this second or without deadlines, or a machine's, answer `[]` and `null` alike, with no
+  exception and no event (`OwnedSession::refusal()` and `SessionOwnership::isMachineOwned()`, as `externalStanding()`).
+  The proofs are bound to the row as stored, so an id names whichever session holds the key now; a `Session` given to
+  the service, and a subject's, answers only while the stored row is still that session
+  (`SessionOwnership::isSameSession()`: its generation and owner, with no query), and one that is not an Eloquent
+  session is not looked up. `$since` is any `CarbonInterface`, as the package's other times from a caller are (so
+  `now()`'s mutable `Carbon` serves), and an immutable copy of it is converted to the application's time zone, the one
+  proofs are written in, before it is compared, so it is the same instant in whichever zone it is given and the caller's
+  time is never changed (as `PendingSession::proofs()` and `RequirementSubject::proofs()` read it too;
+  `RequirementSubject` hands its reader the immutable copy). No identity is checked: which sessions a caller may ask
+  about is the application's to decide.
 - `auth_time` is the newest time of any counting proof. `amr` is the values of the first factor, the further factors,
   the recovery codes and the reauthentications with an accepted evaluation, once each, in the order of their newest
   times and then of their values; `mfa` is added only when an accepted evaluation reported multifactor authentication
@@ -229,6 +248,28 @@ session holds; the token's claims and every freshness answer are worked out from
   the older one it proved, whether it then activates, stays pending, moves on to the choice or is refused. So such an
   operation over both can deadlock with the pending action, as it could at a first activation's supersede before; the
   database fails one, and its caller rolls its whole transaction back and retries it.
+- A public read of an active session's proofs (`ActiveSessionProofs`) locks only inside a transaction on the session
+  model's connection, whether or not the caller already holds the row, which cannot be observed portably and is taken
+  again at no cost: it locks the session's row (`SessionLookup::lock()`, the lock every path takes on it, so a step-up
+  or a factor change after the read in the same transaction is no lock upgrade that could deadlock two such
+  transactions) and reads the proofs current. So on MySQL and MariaDB at REPEATABLE READ a step-up committed before the
+  read is returned and a proof voided before it never is, whatever the transaction read first, and at PostgreSQL's
+  REPEATABLE READ the row's lock fails to serialise when the session was written after the snapshot. It keeps the lock
+  order, the session row and then its proofs, takes no connection guard or other session's row, and on MySQL and
+  MariaDB at REPEATABLE READ its proofs' read holds the next-key and gap locks a judgement's does, until the caller
+  commits. The row is locked before it is known to exist, as `externalStanding()` locks it: for an id that names no row,
+  MySQL and MariaDB at REPEATABLE READ lock the gap in the sessions' primary key where it would fall, and since keys are
+  time-ordered, an id above every key holds up every new sign-in until the caller commits; the guide says to check an
+  id is the caller's first. A `stepUp()` or `factorChanged()` of the same session after the read locks only the row it
+  holds; `factorRemoved()` moves the identity's token cutoff and revokes the identity's other sessions before it
+  judges the current one again, so a read before it in the same transaction would put those rows after a session row
+  and its proofs' locks, and two removals from two of an identity's sessions could deadlock: the guide says not to.
+  Outside a transaction it is two plain reads on the write connection and locks nothing: between them a key passes to
+  another session only if the row is deleted (the package deletes one only when pruning it, `session.prune_after_days`
+  after it ended) and the database issues the key again, a residual the guide states rather than close with a
+  transaction of the read's own, which would lock a session's row on every contributor's read. The binding does not
+  include the generation, so proofs an earlier session left under a reused key are kept out by pruning and
+  `ProofWriter::clear()`, within the limit stated above.
 - On MySQL at REPEATABLE READ, the shared lock of an issuance's or a judgement's current read is a set of next-key locks
   on the proofs' session index (`session_id`, `kind`, `authenticated_at`), so it also locks the gaps on either side of
   the session's proofs, up to the neighbouring entries. Keys are time-ordered, so a proof another transaction inserts
@@ -326,6 +367,8 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
 - `src/Sessions/ProofIssuance.php`, `SessionStepUp.php`, `SessionReauthentication.php`, `ExternalReauthentication.php`,
   `ExternalResults.php`, `AccessTokenResult.php`, `Concerns/ProvesSessions.php`, `Concerns/SignsInExternally.php`,
   `SessionWriter.php` (`record()`).
+- `src/Sessions/ActiveSessionProofs.php`, `src/Sessions/Concerns/LooksUpSessions.php` (`proofs()`, `firstFactor()`),
+  `src/Context/ContributionSubject.php` (`proofs()`, `firstFactor()`): the public reads of an active session's proofs.
 - `src/Contracts/ExternalEvidencePolicy.php`, `src/External/*` (`ExternalEvidence`, `EvidenceSubject`,
   `EvidenceAcceptance`, `InsufficientEvidence`), `src/Requirements/RequirementJudge.php`,
   `src/Tenancy/SessionEvidence.php`.
@@ -342,8 +385,8 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   write rolled back.
 - `tests/Feature/Proofs/SessionProofsTest.php`, `tests/Unit/Proofs/ProofHistoryTest.php`: what counts, the aggregate
   read, `auth_time` and `amr` (order, `mfa`, reauthentications), the additional verification, recovery code,
-  multifactor report and step-up time the authentication context reads, and the current reads' shared lock, on MySQL
-  and MariaDB only, reading what the plain read does.
+  multifactor report and step-up time the authentication context reads, the current reads' shared lock, on MySQL
+  and MariaDB only, reading what the plain read does, and a page's time given in any zone read as its instant.
 - `tests/Feature/Requirements/RequirementJudgeTest.php`, `tests/Feature/Tenancy/TenantPolicyCheckTest.php`,
   `tests/Feature/Sessions/PendingEvaluationTest.php`, `PendingTransitionsTest.php`, `FactorRevocationsTest.php`,
   `PendingSessionsTest.php`, `ExternalReauthenticationTest.php`, `TenantPolicyChangesTest.php`,
@@ -356,7 +399,18 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
   switch and its grace retry, `satisfy()` and `choose()`, a reauthentication at the provider and a policy change) and
   the external standing, inside a caller's transaction that read before another connection committed a step-up, voided
   a proof, accepted evidence or reused the key, judges what was committed at READ COMMITTED and on MySQL at REPEATABLE
-  READ, and fails to serialise at PostgreSQL's REPEATABLE READ.
+  READ, and fails to serialise at PostgreSQL's REPEATABLE READ; so do the public proof reads, after a step-up, a void, a
+  revocation and a reused key (by key the new session's first factor, by a subject's earlier instance nothing), a read
+  followed by a step-up and a factor change of the session in the same transaction commits with no wait and no failure
+  to serialise, and outside a transaction they read what is committed and lock nothing.
+- `tests/Feature/Sessions/ActiveSessionProofsTest.php`, `tests/Feature/Sessions/LooksUpSessionsTest.php`,
+  `tests/Feature/Context/ContributionSubjectTest.php`: the public reads by key and by instance (the service's too), the
+  filter, order and bound, a time given in any zone, the limit refused before any statement, every session they may not
+  answer for answering nothing with at most the row's read, a session that is not an Eloquent model never looked up, a
+  reused key, proofs bound elsewhere under the key, the row's lock and the current read only inside a transaction on
+  the session model's connection, and a read then a step-up and a factor change of the session in one transaction
+  locking only its row; over HTTP through `Auth::sessions()`, and for the subject's given session, never the
+  request's.
 - `tests/Feature/Sessions/SessionStepUpTest.php`, `SessionReauthenticationTest.php`, `ExternalReauthenticationTest.php`:
   every refusal, the token, what is kept, the events; the external one's link checks, the later-time rule, accepted and
   unaccepted evidence, changes under the lock and the standing.
@@ -385,7 +439,9 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
 - `tests/Integration/Sessions/ReplicaExternalSessionsTest.php`: the provenance and the accepted evidence read on the
   primary.
 - `tests/Integration/Proofs/ReplicaProofsTest.php`, `tests/Integration/Migration/ProofTablesSchemaTest.php`,
-  `tests/Performance/ProofQueryBudgetTest.php`, `benchmarks/Proofs/ProofHistoryBench.php`.
+  `tests/Performance/ProofQueryBudgetTest.php`, `benchmarks/Proofs/ProofHistoryBench.php`;
+  `tests/Integration/Database/StorageConnectionSessionsTest.php`: the public reads on the primary and on the storage
+  connection, locking only for a transaction there, and their query budgets.
 
 ## Change Triggers
 
@@ -404,3 +460,6 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
 - Reading a proof history unbounded by the session's distinct combinations.
 - Reading a session's proofs or provenance plainly in a requirement judgement made under the session's lock, taking a
   shared lock in one made without it, or taking a session row after a judgement has read proofs.
+- Answering a public read of a session's proofs for a session that is not one of the guard's live, active sessions of a
+  person (or, by instance, no longer that session), reading them plainly inside a transaction, or making `SessionProofs`
+  public.
