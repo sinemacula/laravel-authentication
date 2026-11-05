@@ -187,7 +187,8 @@ final class LooksUpSessionsTest extends TestCase
      * The route answers the request's own session's counting proofs, the
      * step-up newest, then its first factor, narrowed by kind and by time, and
      * another identity's active session of the guard alike, since no identity
-     * is checked; the proofs hold neither token nor any digest of the session.
+     * is checked; once the session is refreshed, the proofs hold none of its
+     * tokens and neither of its refresh digests.
      *
      * @return void
      *
@@ -203,9 +204,13 @@ final class LooksUpSessionsTest extends TestCase
 
         $this->seedIdentity('grace@example.test');
 
-        $current = $this->signIn('api', 'Phone');
-        $other   = $this->signIn('api', 'Other', 'grace@example.test');
-        $token   = $current->tokens->accessToken->reveal();
+        $current   = $this->signIn('api', 'Phone');
+        $other     = $this->signIn('api', 'Other', 'grace@example.test');
+        $refreshed = $this->sessions()->refresh((string) $current->tokens->refreshToken?->reveal())->session;
+
+        self::assertNotNull($refreshed);
+
+        $token = $refreshed->tokens->accessToken->reveal();
 
         CarbonImmutable::setTestNow($signedInAt->addMinute());
 
@@ -223,11 +228,15 @@ final class LooksUpSessionsTest extends TestCase
         foreach (['refresh_key', 'previous_refresh_key'] as $digest) {
             $stored = Session::query()->whereKey($current->record->getKey())->value($digest);
 
-            self::assertTrue(!is_string($stored) || !str_contains($body, $stored));
+            self::assertIsString($stored);
+            self::assertNotSame('', $stored);
+            self::assertStringNotContainsString($stored, $body);
         }
 
-        self::assertStringNotContainsString($token, $body);
-        self::assertStringNotContainsString((string) $current->tokens->refreshToken?->reveal(), $body);
+        foreach ([$current->tokens, $refreshed->tokens] as $tokens) {
+            self::assertStringNotContainsString($tokens->accessToken->reveal(), $body);
+            self::assertStringNotContainsString((string) $tokens->refreshToken?->reveal(), $body);
+        }
 
         $narrowed = $this->proofsOf($token, self::idOf($current), '?kinds=first_factor,recovery_code');
         $since    = $this->proofsOf($token, self::idOf($current), '?since=' . $signedInAt->addMinute()->getTimestamp());
