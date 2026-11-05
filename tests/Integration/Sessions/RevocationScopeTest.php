@@ -7,6 +7,7 @@ namespace Tests\Integration\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -30,7 +31,8 @@ use Tests\TestCase;
  * has none of the package's tables: an identity without `HasSessions`, and a
  * principal owned by one, can hold no session, pending or active, so revoking
  * their sessions only moves their "tokens valid after" cutoff, which is how
- * their session-less tokens end.
+ * their session-less tokens end; a principal whose owner can no longer be read
+ * has its sessions looked for all the same.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -154,6 +156,93 @@ final class RevocationScopeTest extends TestCase
         EventContextAssertions::assertPrincipal($membership, $this->reported[0]->context);
         self::assertSame(AccessOnlyMember::class, $this->reported[0]->context->identityType);
         self::assertSame((string) $member->id, $this->reported[0]->context->identityId);
+    }
+
+    /**
+     * An access-only identity's deletion moves its cutoff while its row exists,
+     * and once a hard delete has removed the row it moves none; neither touches
+     * the session table, which does not exist.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAccessOnlyIdentitysDeletionNeedsNoSessionTable(): void
+    {
+        $identity = AccessOnlyCutoffIdentity::query()->create(['email' => 'ada@example.test', 'password' => 'unused']);
+        $sessions = Auth::sessions('api');
+
+        self::assertSame(0, $sessions->identityDeleted($identity));
+        self::assertSame(self::NOW, $identity->fresh()?->getTokensValidAfter()?->format('Y-m-d H:i:s'));
+
+        $identity->delete();
+
+        self::assertSame(0, $sessions->identityDeleted($identity));
+        self::assertCount(2, $this->reported);
+        self::assertSame(self::NOW, $this->reported[0]->tokensValidAfter?->format('Y-m-d H:i:s'));
+        self::assertNull($this->reported[1]->tokensValidAfter);
+        self::assertSame(RevocationReason::IDENTITY_DELETED, $this->reported[1]->reason);
+    }
+
+    /**
+     * A principal whose access-only owner can still be read is deleted without
+     * the session table: its deletion reports its owner, before its own delete
+     * and after it, and moves its cutoff while its row exists, and none once a
+     * hard delete has removed the row.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalOfAnAccessOnlyIdentityIsDeletedWithoutTheSessionTable(): void
+    {
+        $member     = AccessOnlyMember::query()->create(['email' => 'member@example.test', 'password' => 'unused']);
+        $membership = CutoffMembership::query()->create(['identity_id' => $member->id]);
+
+        self::assertNull(RevocationScope::principal($membership)->sessions);
+        self::assertSame(0, Auth::sessions('api')->principalDeleted($membership));
+        self::assertSame(self::NOW, $membership->fresh()?->getTokensValidAfter()?->format('Y-m-d H:i:s'));
+
+        $membership->delete();
+
+        self::assertSame(0, Auth::sessions('api')->principalDeleted($membership));
+        self::assertCount(2, $this->reported);
+        self::assertSame(self::NOW, $this->reported[0]->tokensValidAfter?->format('Y-m-d H:i:s'));
+        self::assertNull($this->reported[1]->tokensValidAfter);
+        self::assertSame(RevocationReason::PRINCIPAL_DELETED, $this->reported[1]->reason);
+        self::assertSame((string) $member->id, $this->reported[0]->context->identityId);
+        self::assertSame((string) $member->id, $this->reported[1]->context->identityId);
+    }
+
+    /**
+     * A principal whose access-only owner was deleted first might have belonged
+     * to an identity that holds sessions, so they are looked for, in a session
+     * table that does not exist: the revocation throws, its cutoff already
+     * moved, and reports nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalWhoseAccessOnlyOwnerWasDeletedLooksForSessions(): void
+    {
+        $member     = AccessOnlyMember::query()->create(['email' => 'member@example.test', 'password' => 'unused']);
+        $membership = CutoffMembership::query()->create(['identity_id' => $member->id]);
+
+        $member->delete();
+
+        self::assertNotNull(RevocationScope::principal($membership)->sessions);
+
+        try {
+            Auth::sessions('api')->principalDeleted($membership);
+
+            self::fail('The missing session table was not read.');
+        } catch (QueryException $exception) {
+            self::assertStringContainsString('authentication_sessions', $exception->getMessage());
+        }
+
+        self::assertSame(self::NOW, $membership->fresh()?->getTokensValidAfter()?->format('Y-m-d H:i:s'));
+        self::assertSame([], $this->reported);
     }
 
     /**

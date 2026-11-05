@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOu
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordReset;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessionsOnDeletion;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
@@ -47,6 +48,7 @@ use Tests\TestCase;
 #[CoversClass(SessionService::class)]
 #[CoversClass(SessionRevocations::class)]
 #[CoversTrait(EndsSessions::class)]
+#[CoversTrait(EndsSessionsOnDeletion::class)]
 final class EndedSessionsCancelChangesTest extends TestCase
 {
     use ChangesIdentifiers;
@@ -112,6 +114,7 @@ final class EndedSessionsCancelChangesTest extends TestCase
             'a factor removed'                       => [$removal],
             'the factors reset'                      => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->factorReset($identity)],
             'the identity deactivated'               => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->identityDeactivated($identity)],
+            'the identity deleted'                   => [static fn (SessionService $sessions, ChangeableIdentity $identity): int => $sessions->identityDeleted($identity)],
             'Laravel\'s password reset event'        => [$listener],
         ];
     }
@@ -159,6 +162,30 @@ final class EndedSessionsCancelChangesTest extends TestCase
     }
 
     /**
+     * Ending a deleted identity's sessions cancels its pending changes once its
+     * row is gone: the model as it was deleted keeps its key, which finds them.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheDeletionOfAnIdentityWhoseRowIsGoneCancelsItsChanges(): void
+    {
+        $identity = self::seedChangeable(self::EMAIL, self::PHONE);
+        $other    = self::seedChangeable('grace@example.test');
+
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
+        self::assertTrue($this->changes()->requestByCode($other, 'email', 'grace@new.example.test', self::freshSession($other))->isSent());
+
+        $identity->delete();
+
+        self::assertSame(1, Auth::sessions('web')->identityDeleted($identity));
+        self::assertSame(1, self::rows('identifier_changes'));
+        self::assertNull($this->changes()->pending($identity, 'email'));
+        self::assertNotNull($this->changes()->pending($other, 'email'));
+    }
+
+    /**
      * Rows of revocations that end less than all of the identity's sessions.
      *
      * @return iterable<string, array{0: string}>
@@ -169,6 +196,7 @@ final class EndedSessionsCancelChangesTest extends TestCase
             'revoking one session'             => ['revokeSession'],
             'revoking a principal\'s sessions' => ['revokePrincipalSessions'],
             'the principal deactivated'        => ['principalDeactivated'],
+            'the principal deleted'            => ['principalDeleted'],
         ];
     }
 
@@ -196,7 +224,8 @@ final class EndedSessionsCancelChangesTest extends TestCase
         match ($revocation) {
             'revokeSession'           => $sessions->revokeSession($identity, $session->getKey(), RevocationReason::REVOKED),
             'revokePrincipalSessions' => $sessions->revokePrincipalSessions($identity, RevocationReason::REVOKED),
-            default                   => $sessions->principalDeactivated($identity),
+            'principalDeactivated'    => $sessions->principalDeactivated($identity),
+            default                   => $sessions->principalDeleted($identity),
         };
 
         self::assertNotNull($session->fresh()?->revoked_at);

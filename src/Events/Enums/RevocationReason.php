@@ -54,6 +54,13 @@ enum RevocationReason: string
     // acting in it: `tenantDeactivated()`
     case TENANT_DEACTIVATED = 'tenant_deactivated';
 
+    // The identity was deleted, a soft delete included: `identityDeleted()`
+    case IDENTITY_DELETED = 'identity_deleted';
+
+    // The principal the session acts as was deleted, a soft delete included:
+    // `principalDeleted()`
+    case PRINCIPAL_DELETED = 'principal_deleted';
+
     // The authentication policy of the tenant the session is active in changed
     // and the session no longer meets it: `tenantPolicyChanged()`, or a refresh
     // that finds it must be established through a connection it was not

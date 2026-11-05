@@ -52,12 +52,22 @@ principal auth without session tracking or refresh rotation.
   to start a session (`signIn()`, `start()`) for an identity without `HasSessions` with a `LogicException`: every
   session it starts is a persisted one, and the access token it would issue names one this identity can never resolve.
 - Its revocation methods work, and are how session-less tokens end early: for an identity without `HasSessions`, or a
-  principal whose owner is one, a bulk revocation (`revokeSessions()`, `signOutEverywhere()`, the security-change
-  methods, `principalDeactivated()`, `revokePrincipalSessions()`) only moves the scope's "tokens valid after" cutoff and
-  reports it; it reads no `authentication_sessions` row, since such an identity can hold no session, pending or active,
-  so the table need not exist.
-  `tenantDeactivated()` also ends every session acting in the tenant, whatever its principal, so it reads the
-  `authentication_sessions` table, which must exist for it.
+  principal whose owner is one and can still be read, a bulk revocation (`revokeSessions()`, `signOutEverywhere()`, the
+  security-change methods, `principalDeactivated()`, `principalDeleted()`, `revokePrincipalSessions()`) only moves the
+  scope's "tokens valid after" cutoff and reports it; it reads no `authentication_sessions` row, since such an identity
+  can hold no session, pending or active, so the table need not exist. A principal whose owner cannot be read when the
+  revocation runs (deleted or soft-deleted, or hidden by a scope; for an observer, as the transaction commits, so
+  whichever of the two was deleted first in it) is not known to belong to such an identity, so its sessions are looked
+  for, failing closed, and that reads the `authentication_sessions` table, which then must exist: without it the
+  revocation throws, after moving the principal's cutoff when its row still exists, and when `RevokeSessionsOnDeletion`
+  or `RevokeSessionsOnDeactivation` runs it as a transaction commits, the exception can stop the after-commit callbacks
+  queued after it, other principals' revocations among them. So an access-only application whose identity records the
+  cutoff registers the deletion observer on the identity model only, whose revocation needs no session table and moves
+  the identity's cutoff, which the bearer path checks every session-less token of the identity against, whatever
+  principal it acts as; one whose principals alone record it calls `principalDeleted()` or `principalDeactivated()` for
+  each directly, before deleting the owner, since a direct call reads the owner at once. `tenantDeactivated()` also ends
+  every session acting in the tenant, whatever its principal, so it reads the `authentication_sessions` table, which
+  must exist for it.
 - Guard construction still validates the configured session model: its class, and that it lives on the storage
   connection. The package tolerates a missing table on this path because bearer auth with no `sid` never tries to query
   it.

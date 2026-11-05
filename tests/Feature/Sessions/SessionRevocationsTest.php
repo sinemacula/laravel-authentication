@@ -323,6 +323,12 @@ final class SessionRevocationsTest extends TestCase
             RevocationReason::IDENTITY_DEACTIVATED,
             false,
         ];
+
+        yield 'identity deleted' => [
+            static fn (SessionRevocations $revocations, Identity $identity): int => $revocations->identityDeleted($identity),
+            RevocationReason::IDENTITY_DELETED,
+            false,
+        ];
     }
 
     /**
@@ -406,6 +412,27 @@ final class SessionRevocationsTest extends TestCase
         self::assertSame(1, $revocations->revokePrincipalSessions($identity, RevocationReason::REVOKED, $kept->record));
         self::assertNull(DB::table('authentication_sessions')->where('id', self::idOf($kept))->value('revoked_at'));
         self::assertSame('revoked', DB::table('authentication_sessions')->where('id', self::idOf($ended))->value('revoked_reason'));
+    }
+
+    /**
+     * A principal's deletion ends every session acting as it, with
+     * `principal_deleted`, and a second call finds none left to end.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalsDeletionEndsTheSessionsActingAsIt(): void
+    {
+        $identity    = $this->seedIdentity();
+        $first       = $this->signIn();
+        $second      = $this->signIn();
+        $revocations = SessionRevocations::forContext($this->freshGuard()->context(), app());
+
+        self::assertSame(2, $revocations->principalDeleted($identity));
+        self::assertSame(0, $revocations->principalDeleted($identity));
+        self::assertSame('principal_deleted', DB::table('authentication_sessions')->where('id', self::idOf($first))->value('revoked_reason'));
+        self::assertSame('principal_deleted', DB::table('authentication_sessions')->where('id', self::idOf($second))->value('revoked_reason'));
     }
 
     /**

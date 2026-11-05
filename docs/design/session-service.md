@@ -214,7 +214,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `src/Sessions/SessionService.php`: `signIn()`, `start()`, `pending()`, `satisfy()`, `choose()`, `discard()`,
   `bound()`;
   `src/Sessions/Concerns/EndsSessions.php`: the methods it delegates to `src/Sessions/SessionRevocations.php` (a trait
-  only so the service stays within phpcs's limit of methods a class may declare);
+  only so the service stays within phpcs's limit of methods a class may declare), and
+  `src/Sessions/Concerns/EndsSessionsOnDeletion.php`: `identityDeleted()` and `principalDeleted()`, delegated there too
+  (a trait for the same reason);
   `src/Sessions/Concerns/RefreshesSessions.php`: `refresh()`, `refreshFromRequest()` and `refreshPresented()`,
   delegated to `src/Sessions/SessionRefresh.php` (a trait for the same reason), and `src/Sessions/RefreshResult.php`.
   `src/Sessions/Concerns/ProvesSessions.php`: `stepUp()` and `reauthenticate()`, delegated to

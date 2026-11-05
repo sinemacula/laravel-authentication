@@ -145,9 +145,17 @@ Session tracking and refresh are opt-in. For simple backends or short-lived toke
    `start()`), which throws a `LogicException` for an identity without `HasSessions`. Clients re-authenticate when the
    access token expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens
    valid after" time (below): the session service's revocation methods (`revokeSessions()`, `signOutEverywhere()`,
-   `passwordChanged()` and the other security changes, `principalDeactivated()`, `revokePrincipalSessions()`) move it,
-   and need none of the package's tables for such an identity, except `identifier_changes` for one that implements
-   `HasChangeableIdentifiers`, whose pending changes they cancel, or call `invalidateTokensIssuedBefore()` yourself.
+   `passwordChanged()` and the other security changes, `principalDeactivated()`, `principalDeleted()`,
+   `revokePrincipalSessions()`) move it, and need none of the package's tables for such an identity, except
+   `identifier_changes` for one that implements `HasChangeableIdentifiers`, whose pending changes they cancel, or call
+   `invalidateTokensIssuedBefore()` yourself. A principal's revocation needs no table only while its owner can be read
+   when the revocation runs (for an optional listener, when the transaction commits, so whichever of the two was
+   deleted first in it): once the owner is deleted or soft-deleted, the principal might have belonged to an identity
+   with sessions, so its sessions are looked for in the `authentication_sessions` table, and without that table the
+   revocation throws. So when the identity records the cutoff, register `RevokeSessionsOnDeletion` on the identity
+   model only: its revocation needs no table, and the identity's cutoff ends every token of the identity, whatever
+   principal it acts as. When only its principals record one, call `principalDeleted()` for each yourself before
+   deleting the owner, since a direct call reads the owner at once.
 
 `Auth::session()` returns `null` in this mode; the rest of the contextual surface works normally. Such a token has no
 session to revoke, so an identity or principal model that implements `HasTokensValidAfter` ends them instead: a token

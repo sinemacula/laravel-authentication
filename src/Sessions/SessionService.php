@@ -39,6 +39,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsConnectionSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessionsOnDeletion;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\GatesFactorChanges;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\LooksUpSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ProvesSessions;
@@ -99,8 +100,9 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * active tenant through `SessionSwitch` (`SwitchesSessions`), lists sessions,
  * looks one session or principal, or an active session's proofs and first
  * factor, up (`LooksUpSessions`), and signs out, revokes sessions and ends
- * sessions on security changes through `SessionRevocations` (`EndsSessions`),
- * which the guard's `logout()` and password changes use too, judges the current
+ * sessions on security changes through `SessionRevocations` (`EndsSessions`,
+ * and `EndsSessionsOnDeletion` when an identity or principal is deleted), which
+ * the guard's `logout()` and password changes use too, judges the current
  * session again after the factor package's changes through `FactorRevocations`,
  * signs out by refresh credential through `SessionSignOut`, and ends the
  * sessions a connection established through `ConnectionRevocations`
@@ -121,7 +123,7 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  */
 final readonly class SessionService
 {
-    use EndsConnectionSessions, EndsSessions, GatesFactorChanges, LooksUpSessions, ProvesSessions, RefreshesSessions, SignsInExternally, SwitchesSessions;
+    use EndsConnectionSessions, EndsSessions, EndsSessionsOnDeletion, GatesFactorChanges, LooksUpSessions, ProvesSessions, RefreshesSessions, SignsInExternally, SwitchesSessions;
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionEstablishment Takes an admitted sign-in to its session, active or pending, never binding. */
     private SessionEstablishment $establishment;
