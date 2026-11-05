@@ -21,11 +21,10 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * before, and a deadline of the session's own. The tenant applies once a
  * principal is selected at sign-in; a choice of principal names its own.
  *
- * The same-site facts are the `Origin` the request presented, the request's own
- * scheme and host, and the names of the headers it carried with a value. A
- * cookie application's `signIn()` and `start()` judge them, and refuse a client
- * without them as `cross_site_request`: a `ClientContext` built from the IP
- * address and user agent alone fails there.
+ * A cookie application's `signIn()` and `start()` judge the same-site facts
+ * (see `ClientContext`), and refuse a client without them as
+ * `cross_site_request`: a `ClientContext` built from the IP address and user
+ * agent alone fails there.
  *
  * The client name and platform come from the client, so they are made safe to
  * store as `ClientContext` makes the user agent safe: NUL bytes removed,

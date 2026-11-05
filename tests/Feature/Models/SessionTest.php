@@ -415,8 +415,8 @@ final class SessionTest extends TestCase
 
     /**
      * The shipped model carries no pruning: neither of Laravel's pruning
-     * traits, nor a `prunable()` or `pruneAll()` of its own, so the sessions
-     * service is the only thing that prunes sessions.
+     * traits, nor a `prunable()` or `pruneAll()` of its own, so
+     * `SessionPruning` is the only thing that prunes sessions.
      *
      * @return void
      */

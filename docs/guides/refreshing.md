@@ -278,11 +278,10 @@ $client = new ClientContext($ip, $userAgent, $facts->origin, $facts->schemeAndHo
 An application whose own verification arrives as a cross-site callback lands it on a page of its own site that posts to
 the route calling `start()`.
 
-`signInExternally()` is the one exception: an external provider's callback is a cross-site navigation by design, so
-the check would refuse every one, and the package makes none. The defence against signing a browser into another
-account is then the adapter's to keep, and an adapter that calls `signInExternally()` must keep it: bind the `state`
-(and nonce) it sends the provider to the browser that began the flow, refuse a callback that does not match it, and
-redeem the result once, through a single-use handoff, for the browser that began it.
+`signInExternally()` is the one exception: an external provider's callback arrives cross-site by design, so the
+package makes no check there. The adapter that calls it must bind the `state` (and nonce) it sends the provider to the
+browser that began the flow, refuse a callback that does not match, and redeem the result once, through a single-use
+handoff, for that browser.
 
 `Auth::refreshTransport('browser')->isSameSiteRequest($request)` (or `isSameSiteClient()` of a `ClientContext`) is the
 check on its own, for a route of your own, such as one that clears the cookie. A script refreshes with:

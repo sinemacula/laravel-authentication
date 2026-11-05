@@ -123,7 +123,6 @@ final class SessionPreconditions
      * refresh cookie, so a cross-site form could otherwise sign the browser
      * into another account. A body application's is never refused: its tokens
      * travel only in the response body, which a cross-site page cannot read.
-     * The check reads nothing and writes nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
