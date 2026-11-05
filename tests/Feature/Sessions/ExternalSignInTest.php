@@ -26,6 +26,8 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\ExternalResultRedeemed;
 use SineMacula\Laravel\Authentication\Events\ExternalResultUnlinked;
+use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SessionPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
@@ -266,6 +268,37 @@ final class ExternalSignInTest extends TestCase
         EventContextAssertions::assertPrincipal($identity, $redeemed->context);
         EventContextAssertions::assertSession($session->record, $redeemed->context);
         self::assertSame([null, null], [$this->recordedEvent(SignedIn::class)->context->connectionId, $this->recordedEvent(SignedIn::class)->context->requestReference]);
+    }
+
+    /**
+     * A redemption given a `SignInContext` built from plain values binds the
+     * guard with that context's client: its bind's `PrincipalAssigned` and
+     * `SessionAuthenticated` carry it, and with a last-use throttle that
+     * records every use the session's last use is that client's, not the
+     * guard's own request's.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARedemptionGivenAContextBindsWithItsClient(): void
+    {
+        config()->set('authentication.session.last_used_throttle_seconds', 0);
+
+        $identity = $this->seedIdentity();
+        $context  = new SignInContext(new ClientContext(self::PLAIN_IP, self::PLAIN_AGENT));
+
+        $this->recordEvents([PrincipalAssigned::class, SessionAuthenticated::class]);
+
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity), $context)->session;
+
+        self::assertNotNull($session);
+        self::assertSame($context->client, $this->recordedEvent(PrincipalAssigned::class)->context->client);
+        self::assertSame($context->client, $this->recordedEvent(SessionAuthenticated::class)->context->client);
+
+        $row = Session::query()->whereKey($session->record->getSessionIdentifier())->sole();
+
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], [$row->getRawOriginal('last_used_ip'), $row->getRawOriginal('last_used_user_agent')]);
     }
 
     /**

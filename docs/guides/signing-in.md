@@ -38,11 +38,14 @@ key (or polymorphic type) is a misconfiguration, and the bind throws its `LogicE
 
 `setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
 principal (and no session), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
-`login($identity, $principal, $session)` to bind a specific principal or a session. `actingAs()` binds the guard for
-code that runs in the test itself only: a request the test sends through the HTTP kernel, such as
-`$this->actingAs($user, 'api')->getJson('/me')`, rebinds the guard to its own request and starts the context over. In
-tests, act through `InteractsWithAuthenticationContext` instead (see [Testing](testing.md)), whose context survives
-those requests.
+`login($identity, $principal, $session)` to bind a specific principal or a session; code acting for a client it was
+given as plain values (a console command, a queued job) passes that `ClientContext` as a fourth argument, which the
+bind's `PrincipalAssigned` and `SessionAuthenticated` carry, so the last use it records (as the last-use throttle
+allows) is that client's, for this bind only (the guard keeps no client, and its later events describe its request).
+`actingAs()` binds the guard for code that runs in the test itself only: a request the test sends through the HTTP
+kernel, such as `$this->actingAs($user, 'api')->getJson('/me')`, rebinds the guard to its own request and starts the
+context over. In tests, act through `InteractsWithAuthenticationContext` instead (see [Testing](testing.md)), whose
+context survives those requests.
 
 Sign in with credentials through `attempt()`, optionally pinning the principal and session to act as:
 

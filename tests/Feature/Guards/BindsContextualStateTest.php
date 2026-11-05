@@ -677,6 +677,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         $guard->setSession($this->session);
         $guard->setPrincipal($this->principal);
 
+        self::assertCount(2, [...$this->contextsOf($events, SessionAuthenticated::class), ...$this->contextsOf($events, PrincipalAssigned::class)]);
+
         foreach ([...$this->contextsOf($events, SessionAuthenticated::class), ...$this->contextsOf($events, PrincipalAssigned::class)] as $context) {
             self::assertSame(['10.0.0.1', 'Request/1.0'], [$context->client->ip, $context->client->userAgent]);
         }
