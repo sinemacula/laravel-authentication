@@ -77,10 +77,9 @@ final readonly class RequirementSubject
 
     /**
      * The counting proofs, newest first by time and then by id, only those made
-     * at or after `$since` when it is given (any Carbon time, mutable or not,
-     * the same instant in any time zone, and never changed: the reader is given
-     * an immutable copy) and of the given kinds when they are, at most `$limit`
-     * of them (1 to `MAX_LIMIT`).
+     * at or after `$since` when it is given (the same instant in any time zone,
+     * and never changed: the reader is given an immutable copy) and of the
+     * given kinds when they are, at most `$limit` of them (1 to `MAX_LIMIT`).
      *
      * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds

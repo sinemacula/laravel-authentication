@@ -85,13 +85,13 @@ trait LooksUpSessions
      * person, named by its identifier or given as a `Session`, for a factor
      * package's proof store, a requirement checker or a confirmation that reads
      * what a session proved: newest first by time and then by id, only those
-     * made at or after `$since` when it is given (any Carbon time, mutable or
-     * not, the same instant in any time zone, and never changed) and of the
-     * given kinds when they are, at most `$limit` of them (1 to
-     * `RequirementSubject::MAX_LIMIT`, an `InvalidArgumentException` otherwise,
-     * before anything is read), exactly as `PendingSession::proofs()` reads a
-     * pending session's. Counting proofs are those not voided, and a further
-     * factor or recovery code only when accepted.
+     * made at or after `$since` when it is given (the same instant in any time
+     * zone, and never changed) and of the given kinds when they are, at most
+     * `$limit` of them (1 to `RequirementSubject::MAX_LIMIT`, an
+     * `InvalidArgumentException` otherwise, before anything is read), exactly
+     * as `PendingSession::proofs()` reads a pending session's. Counting proofs
+     * are those not voided, and a further factor or recovery code only when
+     * accepted.
      *
      * An identifier names whichever session holds the key now. A `Session`
      * names only itself: it is answered only while its key still holds that

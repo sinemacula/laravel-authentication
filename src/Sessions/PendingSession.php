@@ -125,11 +125,11 @@ final readonly class PendingSession
     /**
      * The session's counting proofs (not voided, and a further factor or
      * recovery code only when accepted), newest first by time and then by id,
-     * only those made at or after `$since` when it is given (any Carbon time,
-     * mutable or not, the same instant in any time zone, and never changed) and
-     * of the given kinds when they are, at most `$limit` of them (1 to
-     * `RequirementSubject::MAX_LIMIT`): one bounded query on the write
-     * connection each call, as a requirement check's subject reads them.
+     * only those made at or after `$since` when it is given (the same instant
+     * in any time zone, and never changed) and of the given kinds when they
+     * are, at most `$limit` of them (1 to `RequirementSubject::MAX_LIMIT`): one
+     * bounded query on the write connection each call, as a requirement check's
+     * subject reads them.
      *
      * @param  ?\Carbon\CarbonInterface  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
