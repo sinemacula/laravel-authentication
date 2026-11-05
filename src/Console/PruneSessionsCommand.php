@@ -77,7 +77,6 @@ final class PruneSessionsCommand extends Command
         $total = $pruning->prune($chunk, function (int $total) use ($model, &$started): void {
 
             if (!$started) {
-                $this->newLine();
                 $this->components->info("Pruning [{$model}] records.");
 
                 $started = true;
@@ -113,15 +112,20 @@ final class PruneSessionsCommand extends Command
     }
 
     /**
-     * The chunk size the option gives: digits naming an integer from 1 up to
-     * PHP's largest, or `null` for anything else (a sign, a fraction, text,
-     * whitespace, or a number too large).
+     * The chunk size the option gives: an integer of 1 or more, as code calling
+     * the command may pass one, or digits naming an integer from 1 up to PHP's
+     * largest, as a command line passes one; `null` for anything else (a sign,
+     * a fraction, text, whitespace, or a number too large).
      *
      * @param  mixed  $option
      * @return ?int
      */
     private static function chunkSize(mixed $option): ?int
     {
+        if (is_int($option)) {
+            return $option >= 1 ? $option : null;
+        }
+
         if (!is_string($option) || !ctype_digit($option)) {
             return null;
         }

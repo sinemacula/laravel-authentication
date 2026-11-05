@@ -6,6 +6,8 @@ namespace Tests\Feature\Console;
 
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Console\OutputStyle;
+use Illuminate\Console\View\Components\Factory;
 use Illuminate\Database\Events\ModelPruningFinished;
 use Illuminate\Database\Events\ModelPruningStarting;
 use Illuminate\Database\Events\ModelsPruned;
@@ -17,6 +19,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Console\PruneSessionsCommand;
 use SineMacula\Laravel\Authentication\Models\Session;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\Integration\Fixtures\IntegerKeyPruningSession;
 use Tests\TestCase;
 
@@ -67,7 +71,8 @@ final class PruneSessionsCommandTest extends TestCase
 
     /**
      * The command deletes the ended sessions, keeps the live one, and prints
-     * the session model being pruned and the total, as `model:prune` does.
+     * the session model being pruned, first, and the total, as `model:prune`
+     * does.
      *
      * @return void
      */
@@ -81,6 +86,7 @@ final class PruneSessionsCommandTest extends TestCase
 
         $output = Artisan::output();
 
+        self::assertStringStartsWith(self::info('Pruning [' . Session::class . '] records.'), $output);
         self::assertSame(1, substr_count($output, 'Pruning [' . Session::class . '] records.'));
         self::assertMatchesRegularExpression('/' . preg_quote(Session::class, '/') . '\W.*\b3 records/', $output);
         self::assertStringNotContainsString('No prunable', $output);
@@ -88,16 +94,30 @@ final class PruneSessionsCommandTest extends TestCase
     }
 
     /**
-     * `--chunk` sets how many sessions each chunk deletes, and each chunk
-     * prints its running total under the one heading.
+     * A chunk of 2, as a command line passes it and as code may.
      *
+     * @return iterable<string, array{0: int|string}>
+     */
+    public static function chunksOfTwo(): iterable
+    {
+        yield 'digits' => ['2'];
+        yield 'an integer' => [2];
+    }
+
+    /**
+     * `--chunk` sets how many sessions each chunk deletes, whether given as
+     * digits or an integer, and each chunk prints its running total under the
+     * one heading.
+     *
+     * @param  int|string  $chunk
      * @return void
      */
-    public function testPrintsALinePerChunk(): void
+    #[DataProvider('chunksOfTwo')]
+    public function testPrintsALinePerChunk(int|string $chunk): void
     {
         $this->insertSessions(5);
 
-        self::assertSame(Command::SUCCESS, Artisan::call('authentication:prune-sessions', ['--chunk' => '2']));
+        self::assertSame(Command::SUCCESS, Artisan::call('authentication:prune-sessions', ['--chunk' => $chunk]));
 
         $output = Artisan::output();
 
@@ -213,15 +233,18 @@ final class PruneSessionsCommandTest extends TestCase
     }
 
     /**
-     * Chunk options that are not digits naming an integer from 1 up to PHP's
-     * largest.
+     * Chunk options that are neither an integer of 1 or more nor digits naming
+     * an integer from 1 up to PHP's largest.
      *
-     * @return iterable<string, array{0: string}>
+     * @return iterable<string, array{0: float|int|string}>
      */
     public static function refusedChunks(): iterable
     {
         yield 'zero' => ['0'];
         yield 'negative' => ['-1'];
+        yield 'the integer zero' => [0];
+        yield 'a negative integer' => [-1];
+        yield 'a float' => [2.0];
         yield 'signed' => ['+5'];
         yield 'fraction' => ['1.5'];
         yield 'text' => ['abc'];
@@ -234,11 +257,11 @@ final class PruneSessionsCommandTest extends TestCase
      * A refused chunk fails the command before anything is read, and deletes
      * nothing.
      *
-     * @param  string  $chunk
+     * @param  float|int|string  $chunk
      * @return void
      */
     #[DataProvider('refusedChunks')]
-    public function testRefusesAChunkThatIsNotAPositiveInteger(string $chunk): void
+    public function testRefusesAChunkThatIsNotAPositiveInteger(float|int|string $chunk): void
     {
         $this->insertSessions(1);
 
@@ -288,6 +311,23 @@ final class PruneSessionsCommandTest extends TestCase
         }
 
         self::assertSame(1, DB::table('authentication_sessions')->count());
+    }
+
+    /**
+     * The line Laravel's console components print for an informational message,
+     * so the command's output is compared with what Laravel prints rather than
+     * with a copy of its formatting.
+     *
+     * @param  string  $message
+     * @return string
+     */
+    private static function info(string $message): string
+    {
+        $output = new BufferedOutput;
+
+        (new Factory(new OutputStyle(new ArrayInput([]), $output)))->info($message);
+
+        return $output->fetch();
     }
 
     /**

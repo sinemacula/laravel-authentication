@@ -36,23 +36,17 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  *
  * Sessions are pruned in chunks, each in one transaction on the session model's
  * connection (a savepoint inside a caller's): the keys of up to a chunk of
- * prunable sessions are read with a locking read in key order, the order bulk
- * revocations lock sessions in, so each session is judged on its current row
- * rather than an older snapshot, and a refresh that extends a session's idle
- * deadline either commits first (the row no longer matches) or waits until the
- * chunk commits; on PostgreSQL at REPEATABLE READ a row changed after the
- * caller's snapshot fails to serialise instead, deleting nothing. The proofs
- * and provenance recorded for those keys are deleted next (by the keys as
- * strings, bound to the string column they are recorded in, whatever the
- * session model's key type), then the sessions themselves, deleted outright
- * even on a model that soft-deletes (a soft-deleted session would never be
- * selected again, and its IP address and user agent would be kept for good). A
- * session a soft-deleting model has already soft-deleted is outside its scope,
- * so it is never selected. A session deleted any other way leaves its proofs
- * and provenance behind, so whatever deletes sessions otherwise (a truncation
- * included) should delete the rows recorded under their keys too; a sign-in
- * whose new session reuses such a key deletes them before recording its own, so
- * they never count for it.
+ * prunable sessions are read, the proofs and provenance recorded for those keys
+ * are deleted (by the keys as strings, bound to the string column they are
+ * recorded in, whatever the session model's key type), then the sessions
+ * themselves, deleted outright even on a model that soft-deletes (a
+ * soft-deleted session would never be selected again, and its IP address and
+ * user agent would be kept for good). A session a soft-deleting model has
+ * already soft-deleted is outside its scope, so it is never selected. A session
+ * deleted any other way leaves its proofs and provenance behind, so whatever
+ * deletes sessions otherwise (a truncation included) should delete the rows
+ * recorded under their keys too; a sign-in whose new session reuses such a key
+ * deletes them before recording its own, so they never count for it.
  *
  * After each chunk's transaction returns, `ModelsPruned` reports the sessions
  * pruned so far, as Laravel's own pruning does: committed when the call runs
@@ -194,12 +188,7 @@ final readonly class SessionPruning
      */
     private static function pruneChunk(EloquentSession&Model $model, string $cutoff, int $chunkSize): int
     {
-        $keys = WriteConnection::query(self::prunable($model, $cutoff))
-            ->orderBy($model->getQualifiedKeyName())
-            ->limit($chunkSize)
-            ->lockForUpdate()
-            ->pluck($model->getKeyName())
-            ->all();
+        $keys = WriteConnection::query(self::prunable($model, $cutoff))->limit($chunkSize)->pluck($model->getKeyName())->all();
 
         if ($keys === []) {
             return 0;

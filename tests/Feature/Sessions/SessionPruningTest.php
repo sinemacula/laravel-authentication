@@ -93,8 +93,8 @@ final class SessionPruningTest extends TestCase
     /**
      * The count and each chunk's key read select sessions revoked, idle-expired
      * or absolutely expired at or before now less the retention, a whole
-     * second, with the conditions grouped; a chunk reads its keys in key order,
-     * a chunk at most.
+     * second, with the conditions grouped; a chunk reads its keys, a chunk at
+     * most.
      *
      * @return void
      *
@@ -113,7 +113,7 @@ final class SessionPruningTest extends TestCase
 
         $queries = $this->queriesOf(static fn (): int => app(SessionPruning::class)->prune(25));
 
-        self::assertSame([['select id from authentication_sessions ' . $where . ' order by authentication_sessions.id asc limit 25', $cutoff]], $queries);
+        self::assertSame([['select id from authentication_sessions ' . $where . ' limit 25', $cutoff]], $queries);
     }
 
     /**

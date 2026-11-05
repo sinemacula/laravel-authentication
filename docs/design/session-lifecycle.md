@@ -183,16 +183,13 @@ revoked, and when a session that ended is deleted. Starting a session is in
   out, would leave that attempt's rehash revoking. Without the observer the tracking costs no query and no hash check:
   it keeps each open attempt's password, wrapped in a `SensitiveParameterValue`, until the attempt ends (or the request
   or job, for one that threw), and only the observer's `unlessRehash()` checks a hash.
-- Pruning (`Sessions\SessionPruning`, run by `authentication:prune-sessions`) deletes a session of the configured
-  model revoked, or past either deadline, at or before now less `authentication.session.prune_after_days`, taken once
-  when the run starts: counted from the end of the session, never from creation. The model carries no pruning, so
-  `model:prune` cannot prune sessions. Each chunk, in one transaction on the session model's connection, reads up to a
-  chunk of prunable keys with a locking read in key order (the order bulk revocations lock in), so eligibility is judged
-  on the current row and a refresh extending the idle deadline either commits first or waits for the chunk; at
-  PostgreSQL's REPEATABLE READ a row changed after the caller's snapshot fails to serialise instead. MySQL at REPEATABLE
-  READ also locks the rows the read scans until the chunk commits. The chunk then deletes the keys' proofs and
-  provenance (by the keys as strings) and force-deletes the sessions. `ModelsPruned` and the optional progress callback
-  follow each chunk's transaction: committed outside a caller's transaction, provisional inside one.
+- Pruning (`Sessions\SessionPruning`, run by `authentication:prune-sessions`) deletes a session of the configured model
+  revoked, or past either deadline, at or before now less `authentication.session.prune_after_days`, taken once when the
+  run starts: counted from the end of the session, never from creation. The model carries no pruning, so `model:prune`
+  cannot prune sessions. Each chunk, in one transaction on the session model's connection, reads up to a chunk of
+  prunable keys, deletes their proofs and provenance (by the keys as strings) and force-deletes the sessions.
+  `ModelsPruned` and the optional progress callback follow each chunk's transaction: committed outside a caller's
+  transaction, provisional inside one.
 - A pruned session is indistinguishable from an unknown one: its tokens already failed once it was revoked or ended, so
   retention never changes who authenticates.
 
@@ -210,7 +207,7 @@ revoked, and when a session that ended is deleted. Starting a session is in
 
 - `Auth::sessions('api')->sessions($identity, 20)` costs a count and a select and returns a `LengthAwarePaginator` of
   `SessionSummary`, whose JSON uses snake_case keys and ISO-8601 times.
-- `authentication:prune-sessions` deletes ceil(N / chunk) chunks of one locking key read and three deletes each, and
+- `authentication:prune-sessions` deletes ceil(N / chunk) chunks of one key read and three deletes each, and
   ends with one read that finds nothing; `--pretend` is one `COUNT` on the writer.
 
 ## Failure / Edge Cases
@@ -298,9 +295,7 @@ revoked, and when a session that ended is deleted. Starting a session is in
   `tests/Feature/Listeners/TrackCredentialAttemptsTest.php`, `tests/Feature/Sessions/Methods/RehashingAccountsTest.php`,
   `tests/Integration/Process/QueueWorkerRehashingTest.php`, `tests/Performance/RehashingBudgetTest.php`
 - `tests/Feature/Sessions/SessionPruningTest.php`, `tests/Feature/Console/PruneSessionsCommandTest.php`,
-  `tests/Feature/Database/SessionRetentionTest.php`, `tests/Integration/Sessions/SessionPruningIntegrationTest.php`,
-  `tests/Integration/Sessions/ConcurrentSessionPruningTest.php`: pruning against a concurrent refresh on PostgreSQL and
-  MySQL
+  `tests/Feature/Database/SessionRetentionTest.php`, `tests/Integration/Sessions/SessionPruningIntegrationTest.php`
 - `tests/Performance/SessionListingQueryBudgetTest.php`, `tests/Performance/SessionPruneQueryBudgetTest.php`
 
 ## Change Triggers

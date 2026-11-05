@@ -169,7 +169,7 @@ final class SessionPruningIntegrationTest extends TestCase
 
         $this->insertSession('live');
 
-        Artisan::call('authentication:prune-sessions', ['--chunk' => '10']);
+        Artisan::call('authentication:prune-sessions', ['--chunk' => 10]);
 
         self::assertSame(['client-live'], DB::table('authentication_sessions')->pluck('client_name')->all());
     }
@@ -282,7 +282,7 @@ final class SessionPruningIntegrationTest extends TestCase
 
         Event::fake([ModelsPruned::class]);
 
-        Artisan::call('authentication:prune-sessions', ['--chunk' => '2']);
+        Artisan::call('authentication:prune-sessions', ['--chunk' => 2]);
 
         self::assertSame([$live], DB::table('authentication_sessions')->pluck('id')->all());
         self::assertSame([$live], array_values(array_unique(DB::table('authentication_proofs')->pluck('session_id')->all())));
