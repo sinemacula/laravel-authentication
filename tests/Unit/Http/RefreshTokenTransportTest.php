@@ -412,6 +412,7 @@ final class RefreshTokenTransportTest extends TestCase
         yield 'the own origin without the header' => [new ClientContext(null, null, $own, $own, ['origin']), false];
         yield 'an allowed origin without the header' => [new ClientContext(null, null, self::ALLOWED_ORIGIN, $own, []), false];
         yield 'the header with no origin' => [new ClientContext(null, null, null, $own, $header), false];
+        yield 'the header with neither origin nor scheme and host' => [new ClientContext(null, null, null, null, $header), false];
         yield 'the header with an origin and no scheme and host' => [new ClientContext(null, null, $own, null, $header), false];
         yield 'nothing but the plain values' => [new ClientContext('203.0.113.7', 'Browser/1.0'), false];
     }

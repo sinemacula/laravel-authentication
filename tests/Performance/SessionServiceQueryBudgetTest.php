@@ -189,6 +189,63 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * A cookie application's `start()` from another site is refused before the
+     * identity is reloaded, so it costs no query.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACrossSiteStartOnACookieApplicationCostsNoQuery(): void
+    {
+        config()->set('auth.guards.admin.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
+
+        $identity = $this->seedIdentity();
+        $sessions = $this->sessions('admin');
+
+        request()->headers->set('Origin', 'https://evil.example.test');
+        request()->headers->remove('X-Requested-With');
+
+        $result = $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->start($identity, null, 'sso'));
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $result->reason);
+    }
+
+    /**
+     * A cookie application's `satisfy()` and `choose()` from another site, for
+     * a live pending session, are refused before the pending session is read,
+     * so each costs no query.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACrossSitePendingActionOnACookieApplicationCostsNoQuery(): void
+    {
+        config()->set('auth.guards.admin.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
+
+        $identity = $this->seedIdentity();
+
+        self::requireAFurtherFactor();
+
+        $result = $this->sessions('admin')->signIn('password', self::credentials());
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        $credential = $result->credential->reveal();
+        $proof      = self::proofFor($identity, $result->pending->id, 'admin');
+        $sessions   = $this->sessions('admin');
+
+        request()->headers->set('Origin', 'https://evil.example.test');
+        request()->headers->remove('X-Requested-With');
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->reason);
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->choose($credential, $identity))->reason);
+        self::assertNotNull($this->sessions('admin')->pending($credential));
+    }
+
+    /**
      * Replacing a proven session reads the identity and the session, writes one
      * compare-and-swap that revokes it and one insert each of the new session
      * and its first proof, and reads what was left under the new session's key
