@@ -215,7 +215,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
      * A cookie application's `satisfy()` and `choose()` from another site, for
      * a live pending session, are refused before the pending session is read,
      * so each costs no query, as are those given a client the same-site check
-     * refuses; one given a same-site client costs what a satisfaction costs.
+     * refuses.
      *
      * @return void
      *
@@ -247,14 +247,47 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions('admin');
         $client   = self::crossSiteClient();
+        $satisfy  = static fn (): SignInResult => $sessions->satisfy($credential, $proof, $client);
+        $choose   = static fn (): SignInResult => $sessions->choose($credential, $identity, null, $client);
 
-        $satisfy = static fn (ClientContext $client): SignInResult => $sessions->satisfy($credential, $proof, $client);
-
-        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $satisfy($client))->reason);
-        $choose = static fn (): SignInResult => $sessions->choose($credential, $identity, null, $client);
-
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, $satisfy)->reason);
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, $choose)->reason);
-        self::assertTrue($this->assertQueryBudget(5, 6, static fn (): SignInResult => $satisfy(self::sameSiteClient()))->isSignedIn());
+        self::assertNotNull($this->sessions('admin')->pending($credential));
+    }
+
+    /**
+     * A cookie application's satisfaction given a same-site client, though the
+     * guard's own request comes from another site, costs what a satisfaction
+     * without a client costs: judging the client given reads nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASatisfactionGivenASameSiteClientCostsWhatOneWithoutCosts(): void
+    {
+        config()->set('auth.guards.admin.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
+
+        $identity = $this->seedIdentity();
+
+        self::requireAFurtherFactor();
+
+        $result = $this->sessions('admin')->signIn('password', self::credentials());
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        $credential = $result->credential->reveal();
+        $proof      = self::proofFor($identity, $result->pending->id, 'admin');
+
+        request()->headers->set('Origin', 'https://evil.example.test');
+        request()->headers->remove('X-Requested-With');
+
+        $sessions = $this->sessions('admin');
+        $result   = $this->assertQueryBudget(5, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof, self::sameSiteClient()));
+
+        self::assertTrue($result->isSignedIn());
+        self::assertNotNull($result->session?->tokens->refreshCookie);
     }
 
     /**

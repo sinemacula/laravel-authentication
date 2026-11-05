@@ -306,6 +306,32 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * A cookie application's choice given a same-site client, though the
+     * guard's own request comes from another site, costs what a choice without
+     * a client costs: judging the client given reads nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testChoosingForASameSiteClientGivenCostsWhatChoosingCosts(): void
+    {
+        config()->set('auth.guards.choosers.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
+
+        $token  = $this->offerChoice();
+        $chosen = ChoosingMembership::query()->firstOrFail();
+
+        request()->headers->set('Origin', 'https://evil.example.test');
+        request()->headers->remove('X-Requested-With');
+
+        $sessions = $this->sessions('choosers');
+        $result   = $this->assertQueryBudget(7, 4, static fn (): SignInResult => $sessions->choose($token, $chosen, null, self::sameSiteClient()));
+
+        self::assertTrue($result->isSignedIn());
+        self::assertNotNull($result->session?->tokens->refreshCookie);
+    }
+
+    /**
      * Choosing a membership whose tenant's policy asks for a further factor
      * keeps the session pending on it: it locks and reads the session and its
      * identity, reads the chosen membership, its owner and its tenant, and the

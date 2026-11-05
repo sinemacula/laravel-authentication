@@ -867,7 +867,7 @@ final class SessionRefreshTest extends TestCase
      * The attempt limit of a plain refresh counts the client given: a refusal
      * from its address limits the next from it, as `rate_limited` with the
      * wait, but not one from another address, nor one from a client with no
-     * address, which is limited by the token's session alone.
+     * address, which no address's count holds.
      *
      * @return void
      *
@@ -887,7 +887,37 @@ final class SessionRefreshTest extends TestCase
         self::assertSame([FailureReason::RATE_LIMITED, 60], [$limited->reason, $limited->retryAfter]);
         self::assertSame(FailureReason::TOKEN_INVALID, $refresh(new ClientContext('192.0.2.45', self::PLAIN_AGENT))->reason);
         self::assertSame(FailureReason::TOKEN_INVALID, $refresh(new ClientContext(null, self::PLAIN_AGENT))->reason);
-        self::assertSame(FailureReason::TOKEN_INVALID, $refresh(new ClientContext(null, self::PLAIN_AGENT))->reason);
+    }
+
+    /**
+     * A plain refresh from a client with no IP address is limited by the
+     * token's session alone: a replay of the session's token fills its count,
+     * so the session's current token is then refused as `rate_limited` with the
+     * wait, while another session's token still refreshes for the same client.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainRefreshFromAClientWithoutAnAddressIsLimitedByTheTokensSession(): void
+    {
+        config()->set('authentication.rate_limits.refresh.per_identifier.max', 1);
+
+        $this->seedIdentity();
+
+        $client   = new ClientContext(null, self::PLAIN_AGENT);
+        $other    = self::presentedToken((string) $this->signedIn()->tokens->refreshToken?->reveal(), RefreshTokenSource::BODY);
+        $replayed = self::presentedToken((string) $this->signedIn()->tokens->refreshToken?->reveal(), RefreshTokenSource::BODY);
+        $current  = self::sessionsOf($this->crossSiteGuard())->refreshPresented($replayed, $client)->session?->tokens->refreshToken?->reveal();
+
+        $this->moveTo(CarbonImmutable::now()->addMinute());
+
+        self::assertSame(FailureReason::ROTATION_REUSE, self::sessionsOf($this->crossSiteGuard())->refreshPresented($replayed, $client)->reason);
+
+        $limited = self::sessionsOf($this->crossSiteGuard())->refreshPresented(self::presentedToken((string) $current, RefreshTokenSource::BODY), $client);
+
+        self::assertSame([FailureReason::RATE_LIMITED, 60], [$limited->reason, $limited->retryAfter]);
+        self::assertTrue(self::sessionsOf($this->crossSiteGuard())->refreshPresented($other, $client)->isRefreshed());
     }
 
     /**
