@@ -840,6 +840,59 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
+     * Application time zones other than UTC, ahead of it and behind it.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideApplicationTimeZones(): iterable
+    {
+        yield from [
+            'ahead of UTC' => ['Asia/Tokyo'],
+            'behind UTC'   => ['America/New_York'],
+        ];
+    }
+
+    /**
+     * In an application whose zone is not UTC, the proofs are written in that
+     * zone and the time given is compared in it, so it is the same instant
+     * whether it is given in UTC or in the application's zone: a proof made at
+     * it is read and the second after it reads nothing.
+     *
+     * @param  string  $zone
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideApplicationTimeZones')]
+    public function testTheTimeGivenIsTheSameInstantInAnApplicationOutsideUtc(string $zone): void
+    {
+        $timezone = date_default_timezone_get();
+
+        date_default_timezone_set($zone);
+
+        try {
+            $session = $this->signedIn()->record;
+            $at      = $this->now->addMinute();
+
+            self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $at, ['otp'], new Evaluation(true, true));
+
+            foreach (['UTC', $zone] as $given) {
+                $since = static fn (CarbonImmutable $time): array => array_map(
+                    static fn (RecordedProof $proof): ProofKind => $proof->kind,
+                    SessionProofs::query($session, $time->setTimezone($given), null, 10),
+                );
+
+                self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], $since($this->now));
+                self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($at->subSecond()));
+                self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($at));
+                self::assertSame([], $since($at->addSecond()));
+            }
+        } finally {
+            date_default_timezone_set($timezone);
+        }
+    }
+
+    /**
      * The connection is the one the session's provenance records, and none for
      * a session no external provider established.
      *
