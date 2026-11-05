@@ -21,6 +21,8 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
@@ -33,7 +35,9 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
+use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\ProvenSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
@@ -43,8 +47,10 @@ use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubFixedPrincipalResolver;
@@ -68,7 +74,7 @@ use Tests\Unit\Stubs\StubFixedPrincipalResolver;
 #[CoversClass(SignedInSession::class)]
 final class SessionServiceTest extends TestCase
 {
-    use InteractsWithRateLimits, InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithRateLimits, InteractsWithSessions;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -728,6 +734,57 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
+     * A cookie application judges a pending session's satisfaction on the
+     * client given, whatever the guard's own request: one the same-site check
+     * refuses is refused as `cross_site_request` from a same-site request,
+     * leaving the session pending and the proof unstored, and a same-site one
+     * given on a request from another site activates the session with the
+     * cookie, the client written as its last use and carried by `SignedIn`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationSatisfiesAPendingSessionForTheClientGiven(): void
+    {
+        config()->set('auth.guards.admin.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
+
+        $identity = $this->seedIdentity();
+
+        $this->requireAFurtherFactor();
+
+        $pending = self::sessionsOf($this->freshGuard('admin'))->signIn('password', self::credentials());
+
+        self::assertNotNull($pending->pending);
+        self::assertNotNull($pending->credential);
+
+        $credential = $pending->credential->reveal();
+        $proof      = self::adapterProof($identity, 'admin', $pending->pending->id, Purpose::SIGN_IN);
+        $proofs     = DB::table('authentication_proofs')->count();
+        $crossSite  = self::crossSiteClient();
+
+        $this->recordEvents([AuthenticationFailed::class, SignedIn::class]);
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, self::sessionsOf($this->freshGuard('admin'))->satisfy($credential, $proof, $crossSite)->reason);
+        self::assertSame($crossSite, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+        self::assertSame(['pending'], Session::query()->pluck('status')->all());
+        self::assertSame($proofs, DB::table('authentication_proofs')->count());
+
+        $sameSite = self::sameSiteClient();
+
+        $this->recordEvents([SignedIn::class]);
+
+        $activated = self::sessionsOf($this->crossSiteGuard('admin'))->satisfy($credential, $proof, $sameSite);
+        $record    = Session::query()->sole();
+
+        self::assertTrue($activated->isSignedIn());
+        self::assertNotNull($activated->session?->tokens->refreshCookie);
+        self::assertSame($sameSite, $this->recordedEvent(SignedIn::class)->context->client);
+        self::assertSame('active', $record->status);
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], [$record->getRawOriginal('last_used_ip'), $record->getRawOriginal('last_used_user_agent')]);
+    }
+
+    /**
      * Configure the guards.
      *
      * @param  mixed  $app
@@ -817,6 +874,30 @@ final class SessionServiceTest extends TestCase
         Event::listen(Login::class, static function (): never {
             throw new \RuntimeException('listener failed');
         });
+    }
+
+    /**
+     * Require a further factor of every sign-in, judged on the session's
+     * proofs.
+     *
+     * @return void
+     */
+    private function requireAFurtherFactor(): void
+    {
+        app()->instance(AdditionalFactorPolicy::class, new class implements AdditionalFactorPolicy {
+            /**
+             * Always require a further factor.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
+             * @return \SineMacula\Laravel\Authentication\Requirements\Requirement
+             */
+            #[\Override]
+            public function requirementFor(AdditionalFactorContext $context): Requirement
+            {
+                return new Requirement(new RequirementPart);
+            }
+        });
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
     }
 
     /**

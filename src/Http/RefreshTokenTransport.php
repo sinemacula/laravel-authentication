@@ -41,6 +41,12 @@ use Symfony\Component\HttpFoundation\Cookie;
  * provider's callback is cross-site by design: the adapter that calls it must
  * bind the flow to the browser that began it instead.
  *
+ * `extract()` reads a request as `read()` does but without the cookie's
+ * same-site judgement, for a controller that hands the token to a service layer
+ * as a plain value, with the request's `ClientContext`; `judge()` makes the
+ * checks `read()` makes again from those plain values, so a presented token is
+ * never trusted to have passed them, whoever built it.
+ *
  * For a cookie application, `deliver()` puts the refresh token of every pair a
  * sign-in, refresh, switch or activation issues into a `RefreshCookie`, so the
  * plain token never reaches the application's code; `forgetCookie()` makes the
@@ -109,22 +115,62 @@ final readonly class RefreshTokenTransport
      */
     public function read(Request $request): FailureReason|PresentedRefreshToken|null
     {
-        $present = array_values(array_filter(RefreshTokenSource::cases(), fn (RefreshTokenSource $source): bool => $this->carries($request, $source)));
+        $source = $this->carrier($request);
 
-        if (in_array(RefreshTokenSource::COOKIE, $present, true) && $this->cookiesNamed($request) > 1) {
-            return FailureReason::REFRESH_TOKEN_CONFLICT;
+        if (!$source instanceof RefreshTokenSource) {
+            return $source;
         }
 
-        if (count($present) !== 1) {
-            return $present === [] ? null : FailureReason::REFRESH_TOKEN_CONFLICT;
-        }
+        return $source === RefreshTokenSource::COOKIE && !$this->isSameSiteRequest($request)
+            ? FailureReason::CROSS_SITE_REQUEST
+            : $this->presented($request, $source);
+    }
 
-        [$source] = $present;
+    /**
+     * Extract the refresh token the request carries, as `read()` reads it but
+     * without the cookie's same-site judgement: `null`,
+     * `refresh_token_conflict`, `refresh_transport_mismatch` or
+     * `token_invalid`, as `read()` answers them, and never
+     * `cross_site_request`. The session service's `refreshPresented()` and
+     * `signOutPresented()` judge it with the client (`judge()`). Extracting has
+     * no side effects and reads no IP address.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null
+     */
+    public function extract(Request $request): FailureReason|PresentedRefreshToken|null
+    {
+        $source = $this->carrier($request);
+
+        return $source instanceof RefreshTokenSource ? $this->presented($request, $source) : $source;
+    }
+
+    /**
+     * Judge a presented refresh token against the application's transport and
+     * the client, in `read()`'s order, trusting nothing about how it was
+     * obtained: `refresh_token_conflict` when its carriers are not its source
+     * alone (more than one carrier, the cookie twice, none, or not its own);
+     * `refresh_transport_mismatch` when its source is not one of the
+     * application's carriers (the cookie of a body application, the body or
+     * header of a cookie application, or a header a body application has not
+     * configured); `cross_site_request` when it is in the cookie and the client
+     * fails `isSameSiteClient()`, as a context without the same-site facts
+     * does; otherwise `null`. A token `read()` accepted passes for the same
+     * request. Judging has no side effects.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\PresentedRefreshToken  $presented
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     */
+    public function judge(#[\SensitiveParameter] PresentedRefreshToken $presented, ClientContext $client): ?FailureReason
+    {
+        $source = $presented->source;
 
         return match (true) {
-            ($source === RefreshTokenSource::COOKIE) !== $this->usesCookie()              => FailureReason::REFRESH_TRANSPORT_MISMATCH,
-            $source === RefreshTokenSource::COOKIE && !$this->isSameSiteRequest($request) => FailureReason::CROSS_SITE_REQUEST,
-            default                                                                       => $this->presented($request, $source),
+            $presented->carriers !== [$source]                                          => FailureReason::REFRESH_TOKEN_CONFLICT,
+            !$this->isCarrier($source)                                                  => FailureReason::REFRESH_TRANSPORT_MISMATCH,
+            $source === RefreshTokenSource::COOKIE && !$this->isSameSiteClient($client) => FailureReason::CROSS_SITE_REQUEST,
+            default                                                                     => null,
         };
     }
 
@@ -165,10 +211,12 @@ final readonly class RefreshTokenTransport
      * it, though only a route under the path receives the cookie to sign out
      * by. Send it only for a request that signed its session out by its access
      * token, which a cross-site page cannot send, or that passes
-     * `isSameSiteRequest()`: a response that clears it whatever the request
+     * `isSameSiteRequest()`, or whose client, handed in as plain values, passes
+     * `isSameSiteClient()`: a response that clears it whatever the request
      * carried lets a cross-site form sign the browser out.
-     * `signOutFromRequest()`'s result carries it on exactly those terms. A body
-     * application has no cookie to clear (`LogicException`).
+     * `signOutFromRequest()`'s result carries it on exactly those terms, and
+     * `signOutPresented()`'s for the client it is given. A body application has
+     * no cookie to clear (`LogicException`).
      *
      * @return \Symfony\Component\HttpFoundation\Cookie
      *
@@ -260,6 +308,50 @@ final readonly class RefreshTokenTransport
     }
 
     /**
+     * The one carrier the request carries a refresh token in, or why it has
+     * none to read: `null` when no carrier carries one;
+     * `refresh_token_conflict` when more than one does or the request carries
+     * the cookie twice; `refresh_transport_mismatch` when the one that does is
+     * not the application's transport.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource|null
+     */
+    private function carrier(Request $request): FailureReason|RefreshTokenSource|null
+    {
+        $present = array_values(array_filter(RefreshTokenSource::cases(), fn (RefreshTokenSource $source): bool => $this->carries($request, $source)));
+
+        if (in_array(RefreshTokenSource::COOKIE, $present, true) && $this->cookiesNamed($request) > 1) {
+            return FailureReason::REFRESH_TOKEN_CONFLICT;
+        }
+
+        if (count($present) !== 1) {
+            return $present === [] ? null : FailureReason::REFRESH_TOKEN_CONFLICT;
+        }
+
+        [$source] = $present;
+
+        return ($source === RefreshTokenSource::COOKIE) !== $this->usesCookie() ? FailureReason::REFRESH_TRANSPORT_MISMATCH : $source;
+    }
+
+    /**
+     * Whether the source is one the application's transport reads a refresh
+     * token from: the cookie of a cookie application; the body field, or the
+     * header when one is configured, of a body application.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
+     * @return bool
+     */
+    private function isCarrier(RefreshTokenSource $source): bool
+    {
+        return match ($source) {
+            RefreshTokenSource::COOKIE => $this->usesCookie(),
+            RefreshTokenSource::BODY   => !$this->usesCookie(),
+            RefreshTokenSource::HEADER => !$this->usesCookie() && $this->settings->header !== null,
+        };
+    }
+
+    /**
      * Whether the request carries a token in the source, whatever its value.
      *
      * @param  \Illuminate\Http\Request  $request
@@ -318,6 +410,6 @@ final readonly class RefreshTokenTransport
 
         $value = count($values) === 1 ? reset($values) : null;
 
-        return is_string($value) && $value !== '' ? new PresentedRefreshToken(new Secret($value), $source) : FailureReason::TOKEN_INVALID;
+        return is_string($value) && $value !== '' ? new PresentedRefreshToken(new Secret($value), $source, [$source]) : FailureReason::TOKEN_INVALID;
     }
 }

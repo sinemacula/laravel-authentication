@@ -18,8 +18,8 @@ use Symfony\Component\HttpFoundation\Response;
  * A sign-out is never a failed authentication: a refusal only says why the
  * refresh credential proved no session, and a session it leaves unproven stays
  * live. `signOutFromRequest()` signs the guard out either way; `signOutWith()`
- * forgets only a binding to the session it revoked, so a guard bound to another
- * session stays bound.
+ * and `signOutPresented()` forget only a binding to the session they revoked,
+ * so a guard bound to another session stays bound.
  *
  * @api
  *

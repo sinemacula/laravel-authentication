@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -158,6 +159,38 @@ final class PendingTransitionsTest extends TestCase
         self::assertNull($event->previousPrincipalId);
         self::assertNull($event->previousPrincipalType);
         self::assertNull($event->previousTenantId);
+        self::assertSame([self::CLIENT_IP, self::CLIENT_AGENT], [$event->context->client->ip, $event->context->client->userAgent]);
+    }
+
+    /**
+     * Transitions built with a client report a return with that client, not the
+     * guard's request's: a refresh from plain values reports its own.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReturnIsReportedWithTheClientTheTransitionsWereGiven(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+        $client  = new ClientContext('192.0.2.44', 'Plain/1.0');
+
+        $this->recordEvents([SessionReturnedToPending::class]);
+
+        $returned = $this->transitions('members', $client)->returnToPending(
+            $session,
+            new Admitted($member, $membership, $tenant),
+            'v3',
+            self::requirement(),
+            self::firstFactorOf($session),
+            AuthenticationFlow::REFRESH,
+            $this->now,
+        );
+
+        self::assertNotNull($returned);
+        self::assertSame($client, $this->recordedEvent(SessionReturnedToPending::class)->context->client);
     }
 
     /**
@@ -426,14 +459,16 @@ final class PendingTransitionsTest extends TestCase
     }
 
     /**
-     * The transitions of the guard, the members' unless another is named.
+     * The transitions of the guard, the members' unless another is named,
+     * reporting with the client given, if any.
      *
      * @param  string  $guard
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\PendingTransitions
      */
-    private function transitions(string $guard = 'members'): PendingTransitions
+    private function transitions(string $guard = 'members', ?ClientContext $client = null): PendingTransitions
     {
-        return new PendingTransitions($this->freshGuard($guard)->context(), new AfterCommit(static fn (): mixed => app('db.transactions')), app(ConfigRepository::class));
+        return new PendingTransitions($this->freshGuard($guard)->context(), new AfterCommit(static fn (): mixed => app('db.transactions')), app(ConfigRepository::class), $client);
     }
 
     /**

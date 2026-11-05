@@ -25,8 +25,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `signIn()` order: the method is resolved (unknown throws); `Attempting`; a cookie application's request must come
   from a page of its own site (`SessionPreconditions::crossSite()`: `cross_site_request`, nothing read, counted or
   written, judged on the context's client; `start()`, `satisfy()` and `choose()` are held to it too, the last two on
-  the guard's request, before the pending session is read, and only `signInExternally()` is exempt; see
-  `refresh-token-transport.md`); the application policy must allow the method
+  the `ClientContext` they are given or else the guard's request, before the pending session is read, and only
+  `signInExternally()` is exempt; see `refresh-token-transport.md`); the application policy must allow the method
   (`method_not_allowed`, nothing counted, no timebox); the attempt limiter must grant a slot (`rate_limited`); then, in
   the guard's credential timebox, cut short only for an admitted identity: the method verifies the input, the identity
   must not be a `MachineIdentity` (`machine_identity`) and must be active, and the application policy must admit it with
@@ -142,14 +142,15 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `revokePrincipalSessions()` and the security-change methods delegate to `SessionRevocations` (see
   `session-lifecycle.md`), on the guard's context, with the guard as the `Contracts\GuardBinding` the two sign-out calls
   read and forget. The guard's `logout()` and the password writer use the same revocations without a session service.
-- Refreshing is the service's too, beside switching principal or tenant: `refresh()` and `refreshFromRequest()` delegate
-  to `SessionRefresh`, which runs the refresh exchange the service builds on the guard's context and token service,
-  schedules `Refreshed` and `SignedIn` (a refresh) for the rotation's commit, and only then, at the same commit, binds
-  the guard as a sign-in through the binding's `loginVerified()`, with the tenant and the sign-in method the exchange
-  established. Every
-  refusal is a failed `RefreshResult` with the exchange's or the transport's reason, `rate_limited` with its wait, never
-  a thrown 429; `refreshFromRequest()` answers `null` only for a request without a token, and says where it read one
-  (see `refresh-rotation-and-replay.md` and `refresh-token-transport.md`).
+- Refreshing is the service's too, beside switching principal or tenant: `refresh()`, `refreshFromRequest()` and
+  `refreshPresented()` (from what the transport's `extract()` answered and a `ClientContext`, judged again with
+  `judge()`, see `refresh-token-transport.md`) delegate to `SessionRefresh`, which runs the refresh exchange the service
+  builds on the guard's context and token service, schedules `Refreshed` and `SignedIn` (a refresh) for the rotation's
+  commit, and only then, at the same commit, binds the guard as a sign-in through the binding's `loginVerified()`, with
+  the tenant and the sign-in method the exchange established. Every refusal is a failed `RefreshResult` with the
+  exchange's or the transport's reason, `rate_limited` with its wait, never a thrown 429; `refreshFromRequest()` answers
+  `null` only for a request without a token, and says where it read one (see `refresh-rotation-and-replay.md` and
+  `refresh-token-transport.md`).
 - Looking up is the service's too, in `Sessions\Concerns\LooksUpSessions`: `session($identity, $id)` and `principal()`
   (see `callers.md`), and `proofs($session, $since, $kinds, $limit)` and `firstFactor($session)`, which read the
   counting proofs and the first factor of one of this guard's live, active sessions of a person through
@@ -186,8 +187,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   to the most permissive `per_identifier` limit among the guards that check the account (see `application-policy.md`);
   for a method that counts no account, only by its identifier's and the IP address's limits. A pending session from
   `start()` or `signInExternally()` holds no slots (nothing was guessed), so its external verifier bounds it.
-- An activation runs in the acting request's client: its events and the session's last use carry that client, while
-  the session keeps the client the sign-in came from as its creation.
+- An activation runs in the acting request's client, or the one `satisfy()` or `choose()` is given: its events and the
+  session's last use carry that client, while the session keeps the client the sign-in came from as its creation. The
+  bind's `SessionAuthenticated` describes the guard's own request, and records it as the last use whenever the
+  last-use throttle allows a use so soon after the activation (with `0`, always).
 - Inside a caller's transaction the service's transaction is a savepoint: the lifecycle events, the bind and the
   give-back of the slots wait for the caller's commit, and a rollback withdraws all three with the session, leaving the
   guard unbound (and, unless the counters are on a connection of their own, the sign-in's attempts uncounted). A
@@ -212,8 +215,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `bound()`;
   `src/Sessions/Concerns/EndsSessions.php`: the methods it delegates to `src/Sessions/SessionRevocations.php` (a trait
   only so the service stays within phpcs's limit of methods a class may declare);
-  `src/Sessions/Concerns/RefreshesSessions.php`: `refresh()` and `refreshFromRequest()`, delegated to
-  `src/Sessions/SessionRefresh.php` (a trait for the same reason), and `src/Sessions/RefreshResult.php`.
+  `src/Sessions/Concerns/RefreshesSessions.php`: `refresh()`, `refreshFromRequest()` and `refreshPresented()`,
+  delegated to `src/Sessions/SessionRefresh.php` (a trait for the same reason), and `src/Sessions/RefreshResult.php`.
   `src/Sessions/Concerns/ProvesSessions.php`: `stepUp()` and `reauthenticate()`, delegated to
   `src/Sessions/SessionStepUp.php` and `src/Sessions/SessionReauthentication.php` over `src/Sessions/ProofIssuance.php`
   (see `proofs-and-freshness.md`).

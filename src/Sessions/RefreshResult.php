@@ -21,9 +21,10 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
  * token pair but the pending session and its credential, which only ever goes
  * in the response's body; `SessionReturnedToPending` reports it, and the
  * session's tokens are refused until it is satisfied. A refresh read from the
- * request (`refreshFromRequest()`) says where the refresh token came from
- * (`source`). A cookie application's refreshed pair carries the cookie that
- * sets the new refresh token, never the token itself.
+ * request (`refreshFromRequest()`), or from a token presented as plain values
+ * (`refreshPresented()`), says where the refresh token came from (`source`). A
+ * cookie application's refreshed pair carries the cookie that sets the new
+ * refresh token, never the token itself.
  *
  * `refreshed()` makes a refresh that succeeded and `isRefreshed()` says whether
  * it did; `pending()` makes one returned to pending and `isPending()` says

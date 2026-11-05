@@ -98,7 +98,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   transaction open there), then `Validated` and the full bind
   (`Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated`), through the binding's `loginVerified()` with
   the tenant and sign-in method the exchange established. `refreshFromRequest()` emits the same once its transport has
-  read the token; a request that carries none emits nothing, and one its transport refuses (`refresh_token_conflict`,
+  read the token, and `refreshPresented()` once its transport has judged the token handed in, its own events carrying
+  the client given while the bind describes the guard's request; a request that carries none (or `null` handed in)
+  emits nothing, and one its transport refuses (`refresh_token_conflict`, `refresh_transport_mismatch`,
   `cross_site_request`, `token_invalid`) emits `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`), as
   any failed refresh does (see `refresh-token-transport.md`).
 - A new request (`setRequest()`, which the `request` rebind calls) resets the guard: the bound context, the last

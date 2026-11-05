@@ -12,7 +12,12 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -45,11 +50,38 @@ trait InteractsWithSessions
     /** @var string User agent sign-ins come with. */
     protected const string CLIENT_AGENT = 'SessionTest/1.0';
 
+    /** @var string IP address a client handed in as plain values comes from, unlike the guard's request. */
+    protected const string PLAIN_IP = '192.0.2.44';
+
+    /** @var string User agent a client handed in as plain values comes with. */
+    protected const string PLAIN_AGENT = 'PlainClient/1.0';
+
+    /** @var string IP address a cross-site request to the guard comes from. */
+    protected const string CROSS_SITE_IP = '198.51.100.9';
+
     /** @var list<object> Events of interest dispatched since recording began. */
     protected array $recorded = [];
 
     /** @var array<class-string, true> Event classes a recording listener is registered for. */
     private array $listening = [];
+
+    /**
+     * Rows of `[the client]` a cookie application's same-site check refuses,
+     * each lacking one fact, or all of them.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Http\ClientContext}>
+     */
+    public static function provideCrossSiteClients(): iterable
+    {
+        $own    = 'http://localhost';
+        $header = ['x-requested-with'];
+
+        yield 'no origin' => [new ClientContext(self::PLAIN_IP, self::PLAIN_AGENT, null, $own, $header)];
+        yield 'no custom header' => [new ClientContext(self::PLAIN_IP, self::PLAIN_AGENT, $own, $own, [])];
+        yield 'an unapproved origin' => [new ClientContext(self::PLAIN_IP, self::PLAIN_AGENT, 'https://evil.example.test', $own, $header)];
+        yield 'no scheme and host' => [new ClientContext(self::PLAIN_IP, self::PLAIN_AGENT, $own, null, $header)];
+        yield 'the address and user agent alone' => [new ClientContext(self::PLAIN_IP, self::PLAIN_AGENT)];
+    }
 
     /**
      * Create the identity, member, membership and tenant tables.
@@ -217,6 +249,83 @@ trait InteractsWithSessions
         self::assertInstanceOf(JwtGuard::class, $resolved);
 
         return $resolved;
+    }
+
+    /**
+     * Start a request from another site, as a cross-site form sends it: from
+     * another address, with no `Origin`, no custom header and no refresh token,
+     * and resolve the named guard afresh for it. A call that judged or reported
+     * this request, rather than the plain values it was given, would show it.
+     *
+     * @param  string  $guard
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     */
+    protected function crossSiteGuard(string $guard = 'api'): JwtGuard
+    {
+        app()->instance('request', Request::create('/elsewhere', 'POST', server: [
+            'REMOTE_ADDR'     => self::CROSS_SITE_IP,
+            'HTTP_USER_AGENT' => 'CrossSite/1.0',
+        ]));
+
+        Auth::forgetGuards();
+
+        $resolved = app('auth')->guard($guard);
+
+        self::assertInstanceOf(JwtGuard::class, $resolved);
+
+        return $resolved;
+    }
+
+    /**
+     * A client built from plain values, as a controller copies it from a
+     * request a page of the API's own site sent with the custom header, from
+     * another address and user agent than the guard's request.
+     *
+     * @return \SineMacula\Laravel\Authentication\Http\ClientContext
+     */
+    protected static function sameSiteClient(): ClientContext
+    {
+        return new ClientContext(self::PLAIN_IP, self::PLAIN_AGENT, 'http://localhost', 'http://localhost', ['x-requested-with']);
+    }
+
+    /**
+     * A client built from its IP address and user agent alone, without the
+     * facts the same-site check judges.
+     *
+     * @return \SineMacula\Laravel\Authentication\Http\ClientContext
+     */
+    protected static function crossSiteClient(): ClientContext
+    {
+        return new ClientContext(self::PLAIN_IP, self::PLAIN_AGENT);
+    }
+
+    /**
+     * The refresh token as a controller hands it on: presented from the source,
+     * that carrier alone unless others are given.
+     *
+     * @param  string  $token
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
+     * @param  ?list<\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource>  $carriers
+     * @return \SineMacula\Laravel\Authentication\Http\PresentedRefreshToken
+     */
+    protected static function presentedToken(#[\SensitiveParameter] string $token, RefreshTokenSource $source, ?array $carriers = null): PresentedRefreshToken
+    {
+        return new PresentedRefreshToken(new Secret($token), $source, $carriers ?? [$source]);
+    }
+
+    /**
+     * The refresh token a cookie application's session carries in its cookie.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return string
+     */
+    protected static function cookieTokenOf(SignedInSession $session): string
+    {
+        $value = $session->tokens->refreshCookie?->cookie()->getValue();
+
+        self::assertIsString($value);
+
+        return $value;
     }
 
     /**

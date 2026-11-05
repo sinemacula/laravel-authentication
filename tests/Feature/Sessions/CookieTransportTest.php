@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
@@ -59,8 +60,9 @@ use Tests\TestCase;
  * cookie that carries the new refresh token, named after the application,
  * and never the token itself, while a body application's hand back the token;
  * a cookie application's token is read only from its cookie, by the
- * `*FromRequest()` methods; and the cookie, the application and the session
- * must agree for a refresh to succeed.
+ * `*FromRequest()` methods, or extracted from it and handed to the
+ * `*Presented()` methods with the request's client; and the cookie, the
+ * application and the session must agree for a refresh to succeed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -520,7 +522,9 @@ final class CookieTransportTest extends TestCase
      * A cookie application refuses a refresh token its own code read and handed
      * in, to refresh, to switch or to sign out, before anything is attempted:
      * its token is read only from its cookie, with the cookie's cross-site
-     * checks. A body application takes one.
+     * checks. The message points every call at the `*FromRequest()` methods,
+     * and only a refresh or sign-out at the plain forms, there being no plain
+     * switch. A body application takes one.
      *
      * @return void
      *
@@ -548,6 +552,8 @@ final class CookieTransportTest extends TestCase
                 self::fail('A cookie application took a refresh token handed in.');
             } catch (\LogicException $exception) {
                 self::assertSame(SessionRefresh::COOKIE_ONLY, $exception->getMessage());
+                self::assertStringContainsString('refresh, switch or sign out with the *FromRequest() methods', $exception->getMessage());
+                self::assertStringContainsString('or refresh and sign out with refreshPresented() and signOutPresented()', $exception->getMessage());
             }
         }
 
@@ -557,6 +563,69 @@ final class CookieTransportTest extends TestCase
 
         self::assertNotNull($body);
         self::assertTrue($this->sessions(self::BODY)->refresh($body->reveal())->isRefreshed());
+    }
+
+    /**
+     * A controller that keeps HTTP out of its service layer extracts the token
+     * from the cookie and hands it on with the request's client: the service
+     * refreshes from those plain values and the response sets the new cookie,
+     * which a later request extracts and signs out by, the response clearing
+     * the cookie. The same request sent from another site extracts the token
+     * all the same, and the plain refresh refuses it as `cross_site_request`,
+     * as the request form does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAControllerExtractsTheCookieAndTheServiceRefreshesAndSignsOutFromPlainValues(): void
+    {
+        $this->seedIdentity();
+
+        $first     = self::cookieValue($this->sessions(self::BROWSER)->signIn('password', self::credentials())->session?->tokens);
+        $transport = Auth::refreshTransport(self::BROWSER);
+
+        $this->fromCookie(self::BROWSER, $first);
+
+        $request   = request();
+        $refreshed = Auth::sessions(self::BROWSER)->refreshPresented($transport->extract($request), ClientContext::fromRequest($request));
+
+        self::assertNotNull($refreshed);
+        self::assertSame(RefreshTokenSource::COOKIE, $refreshed->source);
+        self::assertNotNull($refreshed->session);
+        self::assertCookiePair(self::BROWSER, $refreshed->session->tokens, $refreshed->session->record);
+
+        $set = $refreshed->session->tokens->refreshCookie?->attachTo(new Response)->headers->getCookies();
+
+        self::assertNotNull($set);
+        self::assertCount(1, $set);
+        self::assertSame(self::cookieValue($refreshed->session->tokens), $set[0]->getValue());
+
+        $value     = $set[0]->getValue();
+        $crossSite = Request::create('/auth/refresh', 'POST', [], [self::COOKIES[self::BROWSER][0] => $value], [], [
+            'REMOTE_ADDR'     => self::CLIENT_IP,
+            'HTTP_USER_AGENT' => self::CLIENT_AGENT,
+        ]);
+
+        $refused = Auth::sessions(self::BROWSER)->refreshPresented($transport->extract($crossSite), ClientContext::fromRequest($crossSite));
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $refused?->reason);
+        self::assertIsString($value);
+
+        $this->fromCookie(self::BROWSER, $value);
+
+        $request = request();
+        $signOut = Auth::sessions(self::BROWSER)->signOutPresented($transport->extract($request), ClientContext::fromRequest($request));
+
+        self::assertTrue($signOut->isSignedOut());
+        self::assertSame(RefreshTokenSource::COOKIE, $signOut->source);
+
+        $cleared = $signOut->attachTo(new Response)->headers->getCookies();
+
+        self::assertCount(1, $cleared);
+        self::assertTrue($cleared[0]->isCleared());
+        self::assertSame(self::COOKIES[self::BROWSER], [$cleared[0]->getName(), $cleared[0]->getPath()]);
+        self::assertSame('signed_out', Session::query()->whereKey($refreshed->session->record->getKey())->value('revoked_reason'));
     }
 
     /**

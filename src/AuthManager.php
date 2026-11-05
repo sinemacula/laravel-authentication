@@ -189,8 +189,9 @@ class AuthManager extends IlluminateAuthManager
     /**
      * Return the refresh token transport of the named JWT guard, or of the
      * current default guard when the name is omitted, to read a refresh token
-     * from a request by the application's own transport, check that a request
-     * is same-site, or clear a cookie application's refresh cookie.
+     * from a request by the application's own transport, extract one for a
+     * service layer to hand on as plain values, check that a request is
+     * same-site, or clear a cookie application's refresh cookie.
      *
      * @param  ?string  $guard
      * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport

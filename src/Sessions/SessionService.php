@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
@@ -71,7 +72,8 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * factor, then the choice, and holding no token. `pending()` reads a pending
  * session for an action, `satisfy()` hands it the proof of a further factor,
  * `choose()` makes the choice, and `discard()` ends it; each takes the pending
- * credential, which travels only in a response body.
+ * credential, which travels only in a response body. `satisfy()` and `choose()`
+ * judge the client they are given, or the guard's request's.
  *
  * Every sign-in creates a new session, which records the proof of its first
  * factor (and the provenance of a session an external provider established) in
@@ -372,24 +374,38 @@ final readonly class SessionService
      * credential consumed), stays pending, or moves on to the choice of
      * principal. A refusal leaves the session pending and the proof unstored; a
      * credential that names no live pending session of this guard fails as
-     * `pending_invalid`. A cookie application's request that did not come from
-     * a page of its own site fails as `cross_site_request` before the pending
+     * `pending_invalid`. A cookie application's client that did not come from a
+     * page of its own site fails as `cross_site_request` before the pending
      * session is read. Every refusal is reported with Laravel's `Failed` and
      * `AuthenticationFailed`.
      *
+     * The client is the request's unless one is given: a service layer that
+     * keeps HTTP out passes the `ClientContext` its controller built, which is
+     * judged by the same-site rule (a context without its `Origin`, scheme and
+     * host or custom header fails it on a cookie application), written by the
+     * activation as the session's last use, and carried by the events that
+     * report the action (`AuthenticationFailed`, `SessionCreated` or
+     * `SessionActivated`, `SignedIn`, a superseded session's `SessionRevoked`);
+     * the guard's bind describes the guard's own request, as every later event
+     * of the guard does, so its `SessionAuthenticated` records that request as
+     * the last use whenever `session.last_used_throttle_seconds` allows a use
+     * so soon after the activation (with `0`, always).
+     *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function satisfy(#[\SensitiveParameter] Secret|string $credential, ProofResult $proof): SignInResult
+    public function satisfy(#[\SensitiveParameter] Secret|string $credential, ProofResult $proof, ?ClientContext $client = null): SignInResult
     {
         $transport = $this->transport();
-        $outcome   = SessionPreconditions::crossSite($transport, $this->context->client())
-            ?? $this->pendings->satisfy($credential, $proof, CarbonImmutable::now()->startOfSecond());
+        $client ??= $this->context->client();
+        $outcome = SessionPreconditions::crossSite($transport, $client)
+            ?? $this->pendings->satisfy($credential, $proof, CarbonImmutable::now()->startOfSecond(), $client);
 
-        return $this->acted($outcome, $transport);
+        return $this->acted($outcome, $transport, $client);
     }
 
     /**
@@ -410,24 +426,27 @@ final readonly class SessionService
      * meet, records the principal and tenant and leaves the session waiting for
      * it; otherwise the session activates. A refusal leaves the session pending
      * for another choice; a credential that names no live pending session of
-     * this guard fails as `pending_invalid`; a cookie application's request
-     * that did not come from a page of its own site fails as
-     * `cross_site_request` before the pending session is read.
+     * this guard fails as `pending_invalid`; a cookie application's client that
+     * did not come from a page of its own site fails as `cross_site_request`
+     * before the pending session is read. The client is the request's unless
+     * one is given, as for `satisfy()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $tenant
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function choose(#[\SensitiveParameter] Secret|string $credential, Principal $principal, ?TenantSelection $tenant = null): SignInResult
+    public function choose(#[\SensitiveParameter] Secret|string $credential, Principal $principal, ?TenantSelection $tenant = null, ?ClientContext $client = null): SignInResult
     {
         $transport = $this->transport();
-        $outcome   = SessionPreconditions::crossSite($transport, $this->context->client())
-            ?? $this->pendings->choose($credential, $principal, $tenant, CarbonImmutable::now()->startOfSecond());
+        $client ??= $this->context->client();
+        $outcome = SessionPreconditions::crossSite($transport, $client)
+            ?? $this->pendings->choose($credential, $principal, $tenant, CarbonImmutable::now()->startOfSecond(), $client);
 
-        return $this->acted($outcome, $transport);
+        return $this->acted($outcome, $transport, $client);
     }
 
     /**
@@ -687,17 +706,18 @@ final readonly class SessionService
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult  $outcome
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \InvalidArgumentException
      */
-    private function acted(Refused|SignInResult $outcome, RefreshTokenTransport $transport): SignInResult
+    private function acted(Refused|SignInResult $outcome, RefreshTokenTransport $transport, ClientContext $client): SignInResult
     {
         if ($outcome instanceof SignInResult) {
             return $this->bound($outcome, $transport);
         }
 
-        return $this->fail($outcome, $outcome->session?->getSignInMethod(), SignInContext::fromRequest($this->context->request()), null, []);
+        return $this->fail($outcome, $outcome->session?->getSignInMethod(), new SignInContext($client), null, []);
     }
 
     /**
