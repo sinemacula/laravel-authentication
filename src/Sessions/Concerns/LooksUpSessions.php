@@ -82,24 +82,31 @@ trait LooksUpSessions
 
     /**
      * The counting proofs of one of this guard's live, active sessions of a
-     * person, by its identifier, for a factor package's proof store, a
-     * requirement checker or a confirmation that reads what a session proved:
-     * newest first by time and then by id, only those made at or after `$since`
-     * when it is given and of the given kinds when they are, at most `$limit`
-     * of them (1 to `RequirementSubject::MAX_LIMIT`, an
-     * `InvalidArgumentException` otherwise, before anything is read), exactly
-     * as `PendingSession::proofs()` reads a pending session's. Counting proofs
-     * are those not voided, and a further factor or recovery code only when
+     * person, named by its identifier or given as a `Session`, for a factor
+     * package's proof store, a requirement checker or a confirmation that reads
+     * what a session proved: newest first by time and then by id, only those
+     * made at or after `$since` when it is given (the same instant in any time
+     * zone) and of the given kinds when they are, at most `$limit` of them (1
+     * to `RequirementSubject::MAX_LIMIT`, an `InvalidArgumentException`
+     * otherwise, before anything is read), exactly as
+     * `PendingSession::proofs()` reads a pending session's. Counting proofs are
+     * those not voided, and a further factor or recovery code only when
      * accepted.
+     *
+     * An identifier names whichever session holds the key now. A `Session`
+     * names only itself: it is answered only while its key still holds that
+     * very session (the same generation and owner), so an instance whose key a
+     * later sign-in reused answers `[]`, and one that is not an Eloquent
+     * session answers `[]` without being looked up.
      *
      * `[]` when the session is not one this guard may answer for, without
      * saying why: an identifier that cannot be a key of the session model (no
      * query), one that names no session, or a session of another guard, a
      * revoked, pending (read through its `PendingSession` instead) or ended
      * one, or a machine's. The proofs are read bound to the session as stored,
-     * whichever session holds the key now, so another identity's or
-     * application's proof under the key never counts. No identity is checked:
-     * which sessions a caller may ask about is the application's to decide.
+     * so another identity's or application's proof under the key never counts.
+     * No identity is checked: which sessions a caller may ask about is the
+     * application's to decide.
      *
      * Outside a transaction on the session model's connection the session and
      * its proofs are read on the write connection and nothing is locked. Inside
@@ -110,7 +117,7 @@ trait LooksUpSessions
      * instead, for the whole transaction to be retried). It writes and reports
      * nothing.
      *
-     * @param  mixed  $sessionId
+     * @param  mixed  $session
      * @param  ?\Carbon\CarbonImmutable  $since
      * @param  ?list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>  $kinds
      * @param  int  $limit
@@ -122,19 +129,20 @@ trait LooksUpSessions
      *
      * @phpstan-impure
      */
-    public function proofs(mixed $sessionId, ?CarbonImmutable $since = null, ?array $kinds = null, int $limit = 50): array
+    public function proofs(mixed $session, ?CarbonImmutable $since = null, ?array $kinds = null, int $limit = 50): array
     {
-        return ActiveSessionProofs::query($this->context->name(), $sessionId, $since, $kinds, $limit);
+        return ActiveSessionProofs::query($this->context->name(), $session, $since, $kinds, $limit);
     }
 
     /**
      * The first factor one of this guard's live, active sessions of a person
-     * signed in with, by its identifier: its oldest counting first-factor
-     * proof. `null` when the session is not one this guard may answer for, as
-     * `proofs()` decides, without saying why, and when that proof no longer
-     * counts. Read, and locked inside a transaction, as `proofs()` is.
+     * signed in with, named by its identifier or given as a `Session` as for
+     * `proofs()`: its oldest counting first-factor proof. `null` when the
+     * session is not one this guard may answer for, as `proofs()` decides,
+     * without saying why, and when that proof no longer counts. Read, and
+     * locked inside a transaction, as `proofs()` is.
      *
-     * @param  mixed  $sessionId
+     * @param  mixed  $session
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
      * @throws \InvalidArgumentException
@@ -143,8 +151,8 @@ trait LooksUpSessions
      *
      * @phpstan-impure
      */
-    public function firstFactor(mixed $sessionId): ?RecordedProof
+    public function firstFactor(mixed $session): ?RecordedProof
     {
-        return ActiveSessionProofs::firstFactor($this->context->name(), $sessionId);
+        return ActiveSessionProofs::firstFactor($this->context->name(), $session);
     }
 }

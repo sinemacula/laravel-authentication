@@ -575,15 +575,19 @@ seam has a default that works alone.
   factor, the binding) and hand it to `satisfy()` or `stepUp()`, inside the same transaction when both are to commit
   together. A sent code's `CodeRequest` also says when another may be sent (`resendAvailableAt`).
 - A factor package's proof store and first-factor resolver read an active session's proofs through the session service:
-  `Auth::sessions($guard)->proofs($sessionId, $since, $kinds, $limit)` (its counting proofs, newest first, as
-  `PendingSession::proofs()` reads a pending session's) and `firstFactor($sessionId)` (the first factor it signed in
-  with), each `[]` or `null`, without saying why, for a session that is not one of the guard's live, active sessions of
-  a person; a pending session's are read through its `PendingSession`. Inside the factor package's transaction, after
-  its own locks and before the call that changes the session (`stepUp()`, `factorRemoved()`, `factorChanged()`), the
-  read locks the session's row until the transaction ends and reads its proofs current, so the change is decided on what
-  is committed; on MySQL and MariaDB at REPEATABLE READ it holds shared locks on the proofs until you commit, and at
-  PostgreSQL's REPEATABLE READ it fails to serialise when the session changed after your snapshot (see [Reading a
-  session's proofs](sessions.md#reading-a-sessions-proofs)).
+  `Auth::sessions($guard)->proofs($session, $since, $kinds, $limit)` (its counting proofs, newest first, as
+  `PendingSession::proofs()` reads a pending session's) and `firstFactor($session)` (the first factor it signed in
+  with), the session named by its id (whichever session holds the key now) or given as a `Session` (answered only while
+  its key still holds that very session), each `[]` or `null`, without saying why, for a session that is not one of the
+  guard's live, active sessions of a person; a pending session's are read through its `PendingSession`. Inside the
+  factor package's transaction, after its own locks and before a `stepUp()` or `factorChanged()` of the same session,
+  the read locks the session's row until the transaction ends and reads its proofs current, so the change is decided on
+  what is committed; on MySQL and MariaDB at REPEATABLE READ it holds shared locks on the proofs until you commit, and
+  at PostgreSQL's REPEATABLE READ it fails to serialise when the session changed after your snapshot. `factorRemoved()`
+  moves the identity's token cutoff and revokes its other sessions before it judges the current one again, so do not
+  read the proofs before it in the same transaction unless your transaction already holds those rows: two removals from
+  two of the identity's sessions could deadlock (see [Reading a session's
+  proofs](sessions.md#reading-a-sessions-proofs)).
 - A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see [Proofs and
   provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session service as a
   `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart), method,
@@ -644,7 +648,7 @@ $passed = $result->isVerified();   // else $result->reason
 - A policy condition reads the request's authentication context (see [Authentication context](#authentication-context)):
   type-hint `Contracts\AuthenticationContexts` and call `current()`, the seam a test rebinds, or call `Auth::context()`.
 - A requirement checker of authorisation's own that judges a session's proofs reads them as a factor package does:
-  `Auth::sessions($guard)->proofs($sessionId, $since, $kinds, $limit)` and `firstFactor($sessionId)`, read current under
+  `Auth::sessions($guard)->proofs($session, $since, $kinds, $limit)` and `firstFactor($session)`, read current under
   the session's lock inside a transaction (see [Reading a session's proofs](sessions.md#reading-a-sessions-proofs)).
 
 ### Authentication context

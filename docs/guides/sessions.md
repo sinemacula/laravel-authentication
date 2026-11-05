@@ -161,7 +161,7 @@ whole transaction. At READ COMMITTED MySQL locks no gap, and PostgreSQL takes no
 
 A factor package's proof store, a requirement checker or a confirmation that depends on what a session proved reads an
 active session's counting proofs and the first factor it signed in with through the session service, by the session's
-id:
+id or as a `Session` it holds:
 
 ```php
 use Carbon\CarbonImmutable;
@@ -172,26 +172,28 @@ $sessions = Auth::sessions('api');
 
 $since   = CarbonImmutable::now()->subMinutes(15);
 $stepUps = $sessions->proofs($sessionId, $since, [ProofKind::ADDITIONAL_FACTOR], limit: 10);
-$first   = $sessions->firstFactor($sessionId);
+$first   = $sessions->firstFactor(Auth::session());
 ```
 
 `proofs()` answers a list of `Proofs\RecordedProof`: the session's counting proofs (not voided, and a further factor or
 recovery code only when its adapter accepted it), newest first by time and then by id, only those made at or after
-`$since` when it is given and of `$kinds` when they are given, at most `$limit` of them (50 by default, 1 to 200;
-anything else is an `InvalidArgumentException`, before anything is read): exactly what `PendingSession::proofs()`
-answers for a pending session. `firstFactor()` answers the session's oldest counting first-factor proof, or `null` when
-it no longer counts.
+`$since` when it is given (the same instant in whichever time zone it is given) and of `$kinds` when they are given, at
+most `$limit` of them (50 by default, 1 to 200; anything else is an `InvalidArgumentException`, before anything is
+read): exactly what `PendingSession::proofs()` answers for a pending session. `firstFactor()` answers the session's
+oldest counting first-factor proof, or `null` when it no longer counts.
 
 Both answer only for one of this guard's live, active sessions of a person. An id that cannot be a key of the session
 model (not a UUID, for the shipped model), one that names no session, and a session of another guard, a revoked one, a
 pending one, one past its idle or absolute deadline, or a machine's, all answer `[]` and `null` alike, with no exception
 and no event, so a caller cannot tell them apart. A pending session's proofs are read through its `PendingSession`,
 behind its pending credential, instead. The proofs are read bound to the session as stored (its key, guard and owner),
-so another identity's or application's proof under the same key never counts, and the id names whichever session holds
-the key now. No identity is checked: which sessions a caller may ask about is yours to decide, so never pass a
-client-supplied id without checking it is the caller's (`Auth::caller()?->owns($session)`, or `session($identity, $id)`
-first). The answers hold personal and provider data (a code's destination, an external provider's accepted evidence): do
-not return them to a client as they are.
+so another identity's or application's proof under the same key never counts. An id names whichever session holds the
+key now; a `Session` names only itself, and is answered only while its key still holds that very session (the same
+generation and owner), so an instance whose key a later sign-in reused answers `[]` and `null`, and one that is not an
+Eloquent session answers them without being looked up. No identity is checked: which sessions a caller may ask about is
+yours to decide, so never pass a client-supplied id without checking it is the caller's
+(`Auth::caller()?->owns($session)`, or `session($identity, $id)` first). The answers hold personal and provider data (a
+code's destination, an external provider's accepted evidence): do not return them to a client as they are.
 
 Asked outside a transaction on the session model's connection, the session and then its proofs are read on the write
 connection, two queries for the shipped model (a session model that eager-loads relations adds its own), and nothing is
@@ -205,11 +207,19 @@ committed before the call is returned and a proof voided before it never is, and
 steps up or reuses the session until you commit. On MySQL and MariaDB at REPEATABLE READ the proofs' read holds shared
 locks until you commit, as a judgement's does (see [Issuance order](#issuance-order)); at PostgreSQL's REPEATABLE READ
 the row's lock fails to serialise when the session was written after your snapshot, for you to roll back and retry the
-whole transaction. The read takes the session's row and then its proofs, as every path of the package does, and no
-connection guard or other session's row: take any of those your transaction needs before the call. A later `stepUp()` or
-`factorChanged()` of the same session in the same transaction locks the row your transaction already holds. "Read-only"
-means it writes and reports nothing; inside a transaction its locks can still make writers wait, and take part in a
-deadlock.
+whole transaction. An id that names no session is locked as well: on MySQL and MariaDB at REPEATABLE READ the read then
+locks the gap in the sessions' keys where it would fall, and keys being time-ordered, an id above every key (a random
+UUID, say) holds up every new sign-in until you commit, as `externalStanding()` asked with one does. Check an id is the
+caller's before you read it inside a transaction, too.
+
+The read takes the session's row and then its proofs, as every path of the package does, and no connection guard or
+other session's row: take any of those your transaction needs before the call. A later `stepUp()` or `factorChanged()`
+of the same session in the same transaction locks the row your transaction already holds. `factorRemoved()` does not
+keep to that row: it moves the identity's token cutoff (a write of the identity's row, where it keeps one) and revokes
+the identity's other sessions in key order before it judges the current one again, so do not read the session's proofs
+before it in the same transaction unless your transaction already holds those rows; otherwise two removals from two of
+the identity's sessions, or a removal and a neighbouring session's step-up, can deadlock. "Read-only" means it writes
+and reports nothing; inside a transaction its locks can still make writers wait, and take part in a deadlock.
 
 A contributor to the authentication context reads the same from its `ContributionSubject` (see [Authentication
 context](extending.md#authentication-context)).

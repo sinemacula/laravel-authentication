@@ -85,14 +85,15 @@ permission: a policy that reads the context is the application's.
   namespace can collide with another's.
 - The subject's `proofs($since, $kinds, $limit)` and `firstFactor()` read the counting proofs and the first factor of
   the session the subject was given, never `Auth::session()` or the request's, by the session service's rule
-  (`Sessions\ActiveSessionProofs`, see `proofs-and-freshness.md`) with two differences that keep it to that session:
-  the guard is the context's `application`, and the stored row must still be the instance given (its generation and
-  owner, `SessionOwnership::isSameSession()`), so a key that now holds another session answers nothing. `[]` and
-  `null` without a session or for one that is not an Eloquent session (no query, the session model never resolved), and
-  for one no longer the application's live, active session of a person; `proofs()` checks its limit (1 to
-  `RequirementSubject::MAX_LIMIT`) first, whatever the session. Neither is memoised: each call reads the session's row
-  and then its proofs, locked and read current inside a transaction on the session model's connection, so each answer
-  is as of its call. `provenance()` keeps its memo, since a session's provenance never changes within a generation.
+  (`Sessions\ActiveSessionProofs`, see `proofs-and-freshness.md`) with two differences that keep it to that session: the
+  guard is the context's `application`, and the stored row must still be the instance given (its generation and owner,
+  `SessionOwnership::isSameSession()`, as for a `Session` given to the service), so a key that now holds another session
+  answers nothing. `[]` and `null` without a session or for one that is not an Eloquent session (no query, the session
+  model never resolved), and for one no longer the application's live, active session of a person; `proofs()` checks its
+  limit (1 to `RequirementSubject::MAX_LIMIT`) first, whatever the session, and reads `$since` as the same instant in
+  any time zone. Neither is memoised: each call reads the session's row and then its proofs, locked and read current
+  inside a transaction on the session model's connection, so each answer is as of its call. `provenance()` keeps its
+  memo, since a session's provenance never changes within a generation.
 - The context holds plain values only: no model and no secret, so it can be logged, compared or queued as it is. Its
   constructor is public, for tests, and checks contributed keys as the builder does (`InvalidArgumentException`).
   `get('namespace.key', $default)` gives the default only for an absent key; `has()` is true for a key held with
@@ -172,10 +173,11 @@ permission: a policy that reads the context is the application's.
   `testASatisfiedFactorIsSeenByTheContextOfAGuardBoundToTheSession`; `tests/Feature/Sessions/FactorRevocationsTest.php`
   `testAVoidedProofIsForgottenFromTheContextAtOnce`
 - `tests/Feature/Context/ContributionSubjectTest.php`: the provenance read once, its provider context with it; the
-  proofs and first factor of the session given, never the request's, nothing read without an Eloquent session, every
-  session it may not answer for (another application's and a reused key's included) answering nothing, each ask read
-  again, a contributor seeing a step-up recorded after the package's keys while `authentication.mfa` stays `false`, and
-  the locks inside a transaction; `tests/Feature/Context/ContextBuilderTest.php`
+  proofs and first factor of the session given, never the request's, nothing read without an Eloquent session (one that
+  declares the contract without being a model included), every session it may not answer for (another application's, a
+  machine's and a reused key's included) answering nothing with only the row's read, a time given in any zone, each ask
+  read again, a contributor seeing a step-up recorded after the package's keys while `authentication.mfa` stays `false`,
+  and the locks inside a transaction; `tests/Feature/Context/ContextBuilderTest.php`
   `testAContributorReportsTheProviderContextUnderItsOwnNamespace`;
   `tests/Integration/Sessions/CurrentProofReadsTest.php` `testASubjectsReadAnswersNothingForAReusedKey`;
   `tests/Performance/ProofQueryBudgetTest.php` `testASubjectsProofReadsReadOnEveryCall`
