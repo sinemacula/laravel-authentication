@@ -18,7 +18,8 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   that found nothing (`sessions()->pending()`, `apiKeys()->find()`, `identifierChanges()->pending()`),
   `apiKeys()->rotate()` when the principal has no rotatable key by that id (unknown, revoked, expired or already
   rotated, so nothing changed), or a call that reads a credential from the request when the request carries none
-  (`refreshFromRequest()`, `switchFromRequest()`), in which case nothing was dispatched.
+  (`refreshFromRequest()`, `switchFromRequest()`, and `refreshPresented()` handed `null` for such a request), in which
+  case nothing was dispatched.
 - **A result object when success carries a payload or the flow can be throttled.** It is `final readonly`, made only
   through named constructors (one per outcome), and says which outcome it is through `is<Outcome>()` predicates. The
   payload is in nullable public properties, set only for the outcome that has it. A refusal is named by `status` or by
@@ -50,9 +51,10 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 - Success is a named outcome: `isSignedIn()`, `isRefreshed()`, `isSwitched()`, `isSent()`, `isReset()`, `isSet()`,
   `isGranted()`, `isRegistered()`, `isVerified()`, or the enum's success case. Its payload (the session, the passkey's
   summary, the code's expiry) is read only once the predicate or the case says it is there.
-- `sessions()->refresh()` and `refreshFromRequest()` answer a `RefreshResult`: refreshed on the same session, with its
-  rotated `TokenPair`, or failed with the exchange's or the transport's reason, `rate_limited` with `retryAfter`; one
-  read from the request says where its token came from (`source`).
+- `sessions()->refresh()`, `refreshFromRequest()` and `refreshPresented()` answer a `RefreshResult`: refreshed on the
+  same session, with its rotated `TokenPair`, or failed with the exchange's or the transport's reason, `rate_limited`
+  with `retryAfter`; one read from the request, or presented as plain values, says where its token came from
+  (`source`).
 - Every `TokenPair` (a sign-in's, a pending session's once it activates, a refresh's and its grace retry's, a switch's)
   says when its access token expires, as the token itself does: `expiresAt`, the signed `exp`, and `expiresIn`, `exp`
   minus `iat` in seconds and at least one, the `expires_in` of an RFC 6749 section 5.1 response, so a caller answers a

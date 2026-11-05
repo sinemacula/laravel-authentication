@@ -694,13 +694,12 @@ carries the expired cookie only when the client passes the same-site check and t
 on a pending session take the client the same way: `satisfy()` and `choose()` judge the `ClientContext` they are given
 (see [Acting from plain values](signing-in.md#acting-from-plain-values)).
 
-`logout()` and `signOut()` cannot reach the
-response either, so a route that calls them clears a cookie application's cookie with
-`Auth::refreshTransport('browser')->forgetCookie()` only when `signOut()` returned `true` (or `Auth::check()` held
-before `logout()`): a cross-site page cannot send the access token, but it can make a browser post to the route, and a
-response that clears the cookie whatever the request carried lets any site sign the browser out. A route that must also
-clear for a request without an access token checks `isSameSiteRequest($request)` first, or uses `signOutFromRequest()`,
-which makes both checks (see [Refresh token cookie](refreshing.md#refresh-token-cookie)).
+`logout()` and `signOut()` cannot reach the response either, so a route that calls them clears a cookie application's
+cookie with `Auth::refreshTransport('browser')->forgetCookie()` only when `signOut()` returned `true` (or
+`Auth::check()` held before `logout()`): a cross-site page cannot send the access token, but it can make a browser post
+to the route, and a response that clears the cookie whatever the request carried lets any site sign the browser out. A
+route that must also clear for a request without an access token checks `isSameSiteRequest($request)` first, or uses
+`signOutFromRequest()`, which makes both checks (see [Refresh token cookie](refreshing.md#refresh-token-cookie)).
 
 The session service also revokes sessions for the application's own screens and flows:
 
@@ -1218,7 +1217,7 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 
 | Reason                  | Recorded when                                                                                                                              |
 |-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutFromRequest()`, `signOutWith()`                          |
+| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutFromRequest()`, `signOutWith()`, `signOutPresented()`    |
 | `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                                        |
 | `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                             |
 | `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch, a sign-out or the caller of a refresh credential                             |
