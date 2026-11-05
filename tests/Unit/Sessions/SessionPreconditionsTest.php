@@ -15,13 +15,17 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\Enums\Transport;
+use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
+use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 /**
  * Unit tests for the checks the session service makes of what a caller hands
  * it: the principal a session for an externally verified identity is pinned to,
- * and whether a reloaded identity is the one that was verified.
+ * whether a reloaded identity is the one that was verified, and whether a
+ * cookie application's request came from its own site.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -186,6 +190,36 @@ final class SessionPreconditionsTest extends TestCase
 
         $instance = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($instance);
+    }
+
+    /**
+     * A cookie application refuses a client that did not come from a page of
+     * its own site as `cross_site_request`, a context without the facts
+     * included, and lets a same-site one through; a body application never
+     * refuses, whatever the client.
+     *
+     * @return void
+     */
+    public function testOnlyACookieApplicationRefusesACrossSiteClient(): void
+    {
+        $cookie   = new RefreshTokenTransport(new RefreshTokenSettings(Transport::COOKIE, 'refresh_token', null, 'refresh', '/auth', [], 'X-Requested-With'));
+        $body     = new RefreshTokenTransport(new RefreshTokenSettings(Transport::BODY, 'refresh_token', null, 'refresh', null, [], 'X-Requested-With'));
+        $sameSite = new ClientContext(null, null, 'http://localhost', 'http://localhost', ['x-requested-with']);
+        $other    = new ClientContext(null, null, 'https://evil.example.test', 'http://localhost', []);
+        $plain    = new ClientContext('203.0.113.7', 'Browser/1.0');
+
+        foreach ([$other, $plain] as $client) {
+
+            $refused = SessionPreconditions::crossSite($cookie, $client);
+
+            self::assertNotNull($refused);
+            self::assertSame(FailureReason::CROSS_SITE_REQUEST, $refused->reason);
+            self::assertNull($refused->identity);
+            self::assertNull(SessionPreconditions::crossSite($body, $client));
+        }
+
+        self::assertNull(SessionPreconditions::crossSite($cookie, $sameSite));
+        self::assertNull(SessionPreconditions::crossSite($body, $sameSite));
     }
 
     /**

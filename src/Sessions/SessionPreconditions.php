@@ -4,12 +4,15 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
@@ -18,8 +21,9 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * principal a session for an externally verified identity is pinned to, whether
  * the guard's provider returned the very identity that was verified, that a
  * session is never started under a machine credential kind or, outside the
- * external sign-in, under `external_provider`, and that a sign-in method
- * refused only as a method may.
+ * external sign-in, under `external_provider`, that a sign-in method refused
+ * only as a method may, and that a cookie application's request that would set
+ * the refresh cookie came from its own site.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -110,6 +114,23 @@ final class SessionPreconditions
         if ($method === SignInMethodManager::EXTERNAL_METHOD) {
             throw new \InvalidArgumentException(sprintf('[%s] is not a sign-in method: only a result an external provider verified signs a session in under it.', $method));
         }
+    }
+
+    /**
+     * Refuse, as `cross_site_request`, a cookie application's sign-in, start or
+     * pending-session action whose client did not come from a page of its own
+     * site (`RefreshTokenTransport::isSameSiteClient()`): each would set the
+     * refresh cookie, so a cross-site form could otherwise sign the browser
+     * into another account. A body application's is never refused: its tokens
+     * travel only in the response body, which a cross-site page cannot read.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return ?\SineMacula\Laravel\Authentication\Admission\Refused
+     */
+    public static function crossSite(RefreshTokenTransport $transport, ClientContext $client): ?Refused
+    {
+        return $transport->usesCookie() && !$transport->isSameSiteClient($client) ? new Refused(FailureReason::CROSS_SITE_REQUEST) : null;
     }
 
     /**

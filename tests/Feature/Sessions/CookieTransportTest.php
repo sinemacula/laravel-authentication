@@ -479,8 +479,9 @@ final class CookieTransportTest extends TestCase
 
         $other   = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
         $second  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
+        $members = $this->sessions(self::MEMBERS);
         $context = SignInContext::fromRequest(request(), principal: $first);
-        $tokens  = $this->sessions(self::MEMBERS)->signIn('password', self::credentials('member@example.test'), $context)->session?->tokens;
+        $tokens  = $members->signIn('password', self::credentials('member@example.test'), $context)->session?->tokens;
         $binds   = $this->countBinds();
 
         self::assertNotNull($tokens);

@@ -15,11 +15,16 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 
 /**
  * Where a sign-in comes from and what it asks for: the client (its IP address
- * and user agent), the name and platform it gives itself, the principal it
- * wants to act as and the tenant it wants to act in, the refresh token it holds
- * for a session it signed in on before, and a deadline of the session's own.
- * The tenant applies once a principal is selected at sign-in; a choice of
- * principal names its own.
+ * and user agent, and the same-site facts of its request), the name and
+ * platform it gives itself, the principal it wants to act as and the tenant it
+ * wants to act in, the refresh token it holds for a session it signed in on
+ * before, and a deadline of the session's own. The tenant applies once a
+ * principal is selected at sign-in; a choice of principal names its own.
+ *
+ * A cookie application's `signIn()` and `start()` judge the same-site facts
+ * (see `ClientContext`), and refuse a client without them as
+ * `cross_site_request`: a `ClientContext` built from the IP address and user
+ * agent alone fails there.
  *
  * The client name and platform come from the client, so they are made safe to
  * store as `ClientContext` makes the user agent safe: NUL bytes removed,

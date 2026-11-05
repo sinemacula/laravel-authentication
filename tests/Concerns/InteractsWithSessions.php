@@ -194,8 +194,9 @@ trait InteractsWithSessions
     }
 
     /**
-     * Start a request from the test client and resolve the named guard afresh
-     * for it.
+     * Start a request from the test client, a page of the API's own site that
+     * sends the custom header, as a browser application's script does (a body
+     * application ignores both), and resolve the named guard afresh for it.
      *
      * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
@@ -203,8 +204,10 @@ trait InteractsWithSessions
     protected function freshGuard(string $guard = 'api'): JwtGuard
     {
         app()->instance('request', Request::create('/sign-in', 'POST', server: [
-            'REMOTE_ADDR'     => self::CLIENT_IP,
-            'HTTP_USER_AGENT' => self::CLIENT_AGENT,
+            'REMOTE_ADDR'           => self::CLIENT_IP,
+            'HTTP_USER_AGENT'       => self::CLIENT_AGENT,
+            'HTTP_ORIGIN'           => 'http://localhost',
+            'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest',
         ]));
 
         Auth::forgetGuards();

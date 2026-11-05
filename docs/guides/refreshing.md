@@ -187,14 +187,14 @@ use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 Route::post('/auth/sign-in', function (Request $request) {
-    $transport = Auth::refreshTransport('browser');
-
-    abort_unless($transport->isSameSiteRequest($request), 403);
-
     // A browser that still holds a refresh cookie proves its session, which the sign-in then replaces.
-    $presented = $transport->read($request);
+    $presented = Auth::refreshTransport('browser')->read($request);
     $context   = SignInContext::fromRequest($request, refreshToken: $presented instanceof PresentedRefreshToken ? $presented->token : null);
-    $tokens    = Auth::sessions('browser')->signIn('password', $request->only('email', 'password'), $context)->session?->tokens;
+    $result    = Auth::sessions('browser')->signIn('password', $request->only('email', 'password'), $context);
+
+    abort_if($result->reason === FailureReason::CROSS_SITE_REQUEST, 403);
+
+    $tokens = $result->session?->tokens;
 
     abort_if($tokens === null, 401);
 
@@ -249,14 +249,42 @@ cross-site page cannot pass: its `Origin` must be the API's own (the request's s
 `cookie.allowed_origins` (each exactly `scheme://host[:port]`), and it must carry the `cookie.csrf_header` header
 (`X-Requested-With` by default) with a value, which a form or a simple request cannot send; a header a browser sends on
 its own (`Content-Type`, `Origin`, any `Sec-` header and the like, also when spelt with `_` for `-`) is refused as the
-`csrf_header`. Anything else is `cross_site_request`. A route that sets the cookie must hold its request to the same
-checks, the sign-in above all: a cross-site page can auto-submit a form to it with an attacker's credentials, and a
-browser keeps a `SameSite=Strict` cookie set by the response to such a top-level navigation, so without the check the
-victim's browser would hold the attacker's refresh cookie and its own scripts would then pass the refresh checks inside
-the attacker's account. The package cannot make that check for you, since the callback of an external provider's sign-in
-(`start()`) arrives as just such a cross-site navigation;
-`Auth::refreshTransport('browser')->isSameSiteRequest($request)` is the check, as the sign-in route above uses it. A
-script refreshes with:
+`csrf_header`. Anything else is `cross_site_request`.
+
+Every path that sets a cookie application's refresh cookie is held to the same checks by the package itself, before it
+reads, counts or writes anything: `signIn()`, `start()`, `satisfy()` and `choose()` (refused as `cross_site_request`,
+reported with `Failed` and `AuthenticationFailed`, no attempt counted, no session written and a pending session left as
+it was), and refresh and switch, which read the token only from the cookie. Without it a cross-site page could
+auto-submit a form to the sign-in route with an attacker's credentials, and a browser keeps a `SameSite=Strict` cookie
+set by the response to such a top-level navigation, so the victim's browser would hold the attacker's refresh cookie
+and its own scripts would then pass the refresh checks inside the attacker's account. A body application is never
+refused: its tokens travel only in a response body, which a cross-site page cannot read. Answer `cross_site_request`
+with `403`, as the sign-in route above does.
+
+`signIn()` and `start()` judge the client of the `SignInContext` they are given (the guard's request when none is), and
+`satisfy()` and `choose()` the guard's request. `SignInContext::fromRequest()` fills the client's `Origin`, the
+request's own scheme and host and the names of the headers it carried; a `ClientContext` you build from plain values is
+your trusted description of the request, and one built without those facts is refused on a cookie application. Its
+constructor takes them after the IP address and user agent: the `Origin` the request presented, the request's own scheme
+and host, and the names (never the values) of the headers it actually carried with a value (the check looks for the
+`csrf_header` among them). Copy them from the request each time; constant values pass the check for every request,
+a cross-site form post among them, and so turn it off. Here an application supplies its own IP address and user agent:
+
+```php
+$facts  = ClientContext::fromRequest($request);
+$client = new ClientContext($ip, $userAgent, $facts->origin, $facts->schemeAndHost, $facts->nonEmptyHeaders);
+```
+
+An application whose own verification arrives as a cross-site callback lands it on a page of its own site that posts to
+the route calling `start()`.
+
+`signInExternally()` is the one exception: an external provider's callback arrives cross-site by design, so the
+package makes no check there. The adapter that calls it must bind the `state` (and nonce) it sends the provider to the
+browser that began the flow, refuse a callback that does not match, and redeem the result once, through a single-use
+handoff, for that browser.
+
+`Auth::refreshTransport('browser')->isSameSiteRequest($request)` (or `isSameSiteClient()` of a `ClientContext`) is the
+check on its own, for a route of your own, such as one that clears the cookie. A script refreshes with:
 
 ```js
 await fetch('/auth/refresh', {method: 'POST', credentials: 'include', headers: {'X-Requested-With': 'fetch'}});

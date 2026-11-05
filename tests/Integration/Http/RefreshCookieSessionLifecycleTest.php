@@ -271,9 +271,11 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * A sign-in posted from another site, or without the custom header, is
-     * refused before any session starts and sets no cookie, so a cross-site
-     * form cannot sign the browser into another account.
+     * A sign-in posted from another site (a cross-site form carries another
+     * site's `Origin` and no custom header), or without the custom header, or
+     * with no `Origin`, is refused by the session service before any session
+     * starts, though the route makes no check of its own, and sets no cookie,
+     * so a cross-site form cannot sign the browser into another account.
      *
      * @return void
      */
@@ -281,14 +283,24 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     {
         $this->seedMemberships();
 
-        foreach ([['Origin' => 'https://evil.example', 'X-Requested-With' => 'XMLHttpRequest'], ['Origin' => 'http://localhost'], []] as $headers) {
+        $refused = [
+            ['Origin' => 'https://evil.example', 'X-Requested-With' => 'XMLHttpRequest'],
+            ['Origin' => 'http://localhost'],
+            ['Origin' => 'https://evil.example'],
+            [],
+        ];
 
-            $response = $this->browser('POST', '/auth/sign-in', headers: $headers)->assertForbidden();
+        foreach ($refused as $headers) {
+
+            $response = $this->browser('POST', '/auth/sign-in', headers: $headers);
+
+            $response->assertForbidden()->assertJson(['reason' => 'cross_site_request']);
 
             self::assertSame([], $response->headers->getCookies());
         }
 
         self::assertSame(0, DB::table('authentication_sessions')->count());
+        self::assertSame(0, DB::table('authentication_proofs')->count());
     }
 
     /**
@@ -418,9 +430,9 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
      * Sign the member in as its default membership, named at sign-in (a member
      * with more than one membership would otherwise be held pending for the
      * choice), and answer with the access token in the body and the refresh
-     * token in the cookie, for a request from the API's own site only: a
-     * cross-site form must not sign the browser in. A browser that holds the
-     * cookie proves its session with it.
+     * token in the cookie. The route makes no same-site check of its own: the
+     * session service refuses a request from another site, which it answers
+     * with a 403. A browser that holds the cookie proves its session with it.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -429,17 +441,17 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
      */
     private static function signInRoute(Request $request): JsonResponse
     {
-        $transport = Auth::refreshTransport(self::GUARD);
-
-        if (!$transport->isSameSiteRequest($request)) {
-            return new JsonResponse(['reason' => 'cross_site_request'], 403);
-        }
-
         $member    = ActivatableTenantMember::query()->where('email', 'member@example.test')->firstOrFail();
-        $presented = $transport->read($request);
+        $presented = Auth::refreshTransport(self::GUARD)->read($request);
         $proven    = $presented instanceof PresentedRefreshToken ? $presented->token : null;
         $context   = SignInContext::fromRequest($request, principal: $member->resolveDefaultPrincipal(), refreshToken: $proven);
-        $tokens    = Auth::sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context)->session?->tokens;
+        $result    = Auth::sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context);
+
+        if ($result->reason === FailureReason::CROSS_SITE_REQUEST) {
+            return new JsonResponse(['reason' => $result->reason->value], 403);
+        }
+
+        $tokens = $result->session?->tokens;
 
         assert($tokens?->refreshCookie !== null);
 
