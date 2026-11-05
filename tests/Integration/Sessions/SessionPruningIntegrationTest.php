@@ -25,8 +25,9 @@ use Tests\TestCase;
  * Integration tests for pruning sessions with `authentication:prune-sessions`,
  * against the shipped table on each supported database: which ended sessions
  * are deleted at each boundary of the retention, with their proofs and
- * provenance, and how a configured custom model is pruned, an integer-keyed and
- * a soft-deleting one included.
+ * provenance, how a configured custom model is counted and pruned, an
+ * integer-keyed and a soft-deleting one included, and that each chunk is one
+ * transaction, a savepoint inside a caller's.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -57,7 +58,7 @@ final class SessionPruningIntegrationTest extends TestCase
     }
 
     /**
-     * Release the clock and drop the custom model's table.
+     * Release the clock and drop the custom models' tables.
      *
      * @return void
      */
@@ -183,30 +184,124 @@ final class SessionPruningIntegrationTest extends TestCase
      */
     public function testACustomModelPrunesThroughItsOwnColumnsAndScope(): void
     {
-        Schema::create('scoped_renamed_pruning_sessions', static function (Blueprint $table): void {
-            $table->uuid('id')->primary();
-            $table->string('guard');
-            $table->dateTime('ended_at', 0)->nullable();
-            $table->dateTime('idle_until', 0);
-            $table->dateTime('valid_until', 0);
-        });
-
-        $cutoff = Carbon::parse(self::CUTOFF);
-        $future = Carbon::parse(self::NOW)->addDays(30);
-
-        DB::table('scoped_renamed_pruning_sessions')->insert([
-            ['id' => (string) Str::uuid7(), 'guard' => 'api', 'ended_at' => $cutoff, 'idle_until' => $future, 'valid_until' => $future],
-            ['id' => (string) Str::uuid7(), 'guard' => 'api', 'ended_at' => null, 'idle_until' => $cutoff, 'valid_until' => $future],
-            ['id' => (string) Str::uuid7(), 'guard' => 'api', 'ended_at' => null, 'idle_until' => $future, 'valid_until' => $cutoff],
-            ['id' => $live = (string) Str::uuid7(), 'guard' => 'api', 'ended_at' => null, 'idle_until' => $future, 'valid_until' => $future],
-            ['id' => $other = (string) Str::uuid7(), 'guard' => 'web', 'ended_at' => null, 'idle_until' => $cutoff, 'valid_until' => $future],
-        ]);
-
-        config()->set('authentication.session.model', ScopedRenamedPruningSession::class);
+        [$live, $other] = $this->insertScopedRenamedSessions();
 
         Artisan::call('authentication:prune-sessions');
 
         self::assertEqualsCanonicalizing([$live, $other], DB::table('scoped_renamed_pruning_sessions')->pluck('id')->all());
+    }
+
+    /**
+     * `--pretend` counts a configured custom model's sessions through its
+     * renamed columns and within its scope, as pruning would select them, and
+     * deletes nothing.
+     *
+     * @return void
+     */
+    public function testPretendCountsACustomModelThroughItsOwnColumnsAndScope(): void
+    {
+        $this->insertScopedRenamedSessions();
+
+        Artisan::call('authentication:prune-sessions', ['--pretend' => true]);
+
+        self::assertStringContainsString('3 [' . ScopedRenamedPruningSession::class . '] records will be pruned.', Artisan::output());
+        self::assertSame(3, app(SessionPruning::class)->count());
+        self::assertSame(5, DB::table('scoped_renamed_pruning_sessions')->count());
+    }
+
+    /**
+     * A chunk that fails partway is undone whole: when the second chunk's
+     * session delete fails after its proofs and provenance were deleted, those
+     * sessions keep their proofs and provenance, nothing is reported for the
+     * chunk, and the first chunk stays deleted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChunkThatFailsPartwayIsUndoneWhole(): void
+    {
+        for ($index = 0; $index < 4; $index++) {
+            $this->insertProofsOf($this->insertSession('revoked-' . $index, revokedAt: Carbon::parse(self::CUTOFF)));
+        }
+
+        $this->insertProofsOf($this->insertSession('live'));
+
+        $sessionDeletes = 0;
+        $childDeletes   = 0;
+
+        DB::connection()->beforeExecuting(static function (string $query) use (&$sessionDeletes, &$childDeletes): void {
+            if (!str_starts_with($query, 'delete')) {
+                return;
+            }
+
+            if (!str_contains($query, 'authentication_sessions')) {
+                $childDeletes++;
+
+                return;
+            }
+
+            if (++$sessionDeletes === 2) {
+                throw new \RuntimeException('The session delete failed.');
+            }
+        });
+
+        Event::fake([ModelsPruned::class]);
+
+        $totals = [];
+
+        try {
+            app(SessionPruning::class)->prune(2, static function (int $total) use (&$totals): void {
+                $totals[] = $total;
+            });
+
+            self::fail('The failed chunk was not reported.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('The session delete failed.', $exception->getMessage());
+        }
+
+        self::assertSame(4, $childDeletes);
+        self::assertSame(0, DB::transactionLevel());
+        self::assertSame([2], $totals);
+
+        $events = array_map(static fn (array $dispatched): int => $dispatched[0]->count, Event::dispatched(ModelsPruned::class)->all());
+
+        self::assertSame([2], $events);
+
+        $kept = DB::table('authentication_sessions')->pluck('id')->all();
+
+        self::assertCount(3, $kept);
+        self::assertEqualsCanonicalizing([...$kept, ...$kept], DB::table('authentication_proofs')->pluck('session_id')->all());
+        self::assertEqualsCanonicalizing($kept, DB::table('authentication_provenance')->pluck('session_id')->all());
+    }
+
+    /**
+     * Inside a caller's transaction each chunk is a savepoint: rolling the
+     * caller's transaction back brings every pruned session back with its
+     * proofs and provenance.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnOuterRollbackBringsEveryChunkBack(): void
+    {
+        for ($index = 0; $index < 3; $index++) {
+            $this->insertProofsOf($this->insertSession('revoked-' . $index, revokedAt: Carbon::parse(self::CUTOFF)));
+        }
+
+        DB::beginTransaction();
+
+        try {
+            self::assertSame(3, app(SessionPruning::class)->prune(2));
+            self::assertSame(0, DB::table('authentication_sessions')->count());
+        } finally {
+            DB::rollBack();
+        }
+
+        self::assertSame(3, DB::table('authentication_sessions')->count());
+        self::assertSame(6, DB::table('authentication_proofs')->count());
+        self::assertSame(3, DB::table('authentication_provenance')->count());
     }
 
     /**
@@ -379,6 +474,40 @@ final class SessionPruningIntegrationTest extends TestCase
         self::assertNotNull($remaining[1]->deleted_at);
         self::assertEqualsCanonicalizing(['2', '2', '3', '3'], DB::table('authentication_proofs')->pluck('session_id')->all());
         self::assertEqualsCanonicalizing(['2', '3'], DB::table('authentication_provenance')->pluck('session_id')->all());
+    }
+
+    /**
+     * Create the scoped, renamed custom model's table, configure the model, and
+     * insert three sessions of its `api` guard that ended at the cutoff (one by
+     * each condition), a live one, and one of another guard past its idle
+     * deadline; return the keys of the last two.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function insertScopedRenamedSessions(): array
+    {
+        Schema::create('scoped_renamed_pruning_sessions', static function (Blueprint $table): void {
+            $table->uuid('id')->primary();
+            $table->string('guard');
+            $table->dateTime('ended_at', 0)->nullable();
+            $table->dateTime('idle_until', 0);
+            $table->dateTime('valid_until', 0);
+        });
+
+        $cutoff = Carbon::parse(self::CUTOFF);
+        $future = Carbon::parse(self::NOW)->addDays(30);
+
+        DB::table('scoped_renamed_pruning_sessions')->insert([
+            ['id' => (string) Str::uuid7(), 'guard' => 'api', 'ended_at' => $cutoff, 'idle_until' => $future, 'valid_until' => $future],
+            ['id' => (string) Str::uuid7(), 'guard' => 'api', 'ended_at' => null, 'idle_until' => $cutoff, 'valid_until' => $future],
+            ['id' => (string) Str::uuid7(), 'guard' => 'api', 'ended_at' => null, 'idle_until' => $future, 'valid_until' => $cutoff],
+            ['id' => $live = (string) Str::uuid7(), 'guard' => 'api', 'ended_at' => null, 'idle_until' => $future, 'valid_until' => $future],
+            ['id' => $other = (string) Str::uuid7(), 'guard' => 'web', 'ended_at' => null, 'idle_until' => $cutoff, 'valid_until' => $future],
+        ]);
+
+        config()->set('authentication.session.model', ScopedRenamedPruningSession::class);
+
+        return [$live, $other];
     }
 
     /**

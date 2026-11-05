@@ -259,8 +259,8 @@ final class SessionPruningTest extends TestCase
                     $call();
 
                     self::fail('The session model was accepted.');
-                } catch (InvalidSessionModelConfigurationException) {
-                    self::assertTrue(true);
+                } catch (InvalidSessionModelConfigurationException $exception) {
+                    self::assertStringContainsString('got [stdClass]', $exception->getMessage());
                 }
             }));
         }
