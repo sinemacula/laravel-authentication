@@ -408,13 +408,14 @@ final class ClientContextTest extends TestCase
 
     /**
      * Header names given to the constructor are filed as the header bag files
-     * them, once each, and any that is not an HTTP token is dropped.
+     * them, once each, and any that is not an HTTP token, one with a trailing
+     * newline included, is dropped.
      *
      * @return void
      */
     public function testFilesTheHeaderNamesItIsGiven(): void
     {
-        $client = new ClientContext(null, null, null, null, ['X-Requested-With', 'x_requested_with', 'X-CSRF', 'not a token', '', 'a:b', 'key' => 'Accept']);
+        $client = new ClientContext(null, null, null, null, ['X-Requested-With', 'x_requested_with', 'X-CSRF', "X-CSRF\n", 'not a token', '', 'a:b', 'key' => 'Accept']);
 
         self::assertSame(['x-requested-with', 'x-csrf', 'accept'], $client->nonEmptyHeaders);
     }

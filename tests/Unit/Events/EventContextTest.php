@@ -330,7 +330,8 @@ final class EventContextTest extends TestCase
     /**
      * `toArray()` is every value as scalars: the time as an ISO 8601 UTC string
      * to the microsecond whatever the clock's timezone, and the client as its
-     * IP address and user agent. It encodes as JSON.
+     * IP address and user agent alone, never its same-site facts. It encodes as
+     * JSON.
      *
      * @return void
      */
@@ -403,7 +404,8 @@ final class EventContextTest extends TestCase
     }
 
     /**
-     * A context with every part established.
+     * A context with every part established, its client carrying the same-site
+     * facts too.
      *
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
@@ -411,7 +413,7 @@ final class EventContextTest extends TestCase
     {
         return new EventContext(
             'api',
-            new ClientContext('203.0.113.7', 'agent'),
+            new ClientContext('203.0.113.7', 'agent', 'https://app.example.test', 'https://api.example.test', ['X-Requested-With', 'Origin']),
             new PlainIdentityFixture(7),
             self::principal(),
             new PlainTenantFixture(3),
