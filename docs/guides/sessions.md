@@ -868,7 +868,8 @@ enforcement](identity-models.md#active-state-enforcement)); revoking makes the e
 why. `identityDeleted()` and `principalDeleted()` take the model as it was deleted, or soft-deleted (it keeps its key),
 or one about to be; calling one again is safe: it revokes only a session written since, keeps the first revocation's
 time and reason, and reports `SignedOutEverywhere` with a count of `0` when there is none. While the row still exists
-(soft-deleted), each call moves its cutoff to now.
+(soft-deleted), each call moves its cutoff to now; once a hard delete has removed it, none (see [Access tokens without a
+session](#access-tokens-without-a-session) for which models have their cutoff moved).
 
 Four optional listeners call them for you. Registering one is the opt-in, and each revokes only once the change that
 triggered it is committed on the changed model's connection, so a change that is rolled back revokes nothing:
@@ -933,10 +934,14 @@ Membership::observe(RevokeSessionsOnDeletion::class);
   cascades. A principal a cascade removes with its tenant is covered by no identity's revocation, so call
   `tenantDeactivated()` with the tenant's principals before deleting it. Registering the observer on a model that is
   neither an identity nor a principal throws a `LogicException` when that model is deleted. In access-only mode (no
-  `authentication_sessions` table), register it on the identity model only: a principal deleted after its owner, whose
-  owner can no longer be read, has its sessions looked for in that table, and the revocation throws without it (see
-  [Access-only mode](installation.md#access-only-mode-no-sessions-no-refresh)); the identity's own revocation needs no
-  table, and its cutoff ends every session-less token of the identity, whatever principal it acts as.
+  `authentication_sessions` table), a principal whose owner cannot be read when the revocation runs (for the observer,
+  when the transaction commits, so whichever of the two was deleted first in it) has its sessions looked for in that
+  table, and the revocation throws without it (see [Access-only
+  mode](installation.md#access-only-mode-no-sessions-no-refresh)). So when the identity records the cutoff
+  (`HasTokensValidAfter`), register the observer on the identity model only: its revocation needs no table, and its
+  cutoff ends every session-less token of the identity, whatever principal it acts as. When only its principals record
+  one, call `principalDeleted()` for each yourself before deleting the owner, since a direct call reads the owner at
+  once.
 
   Deletion already stops every token while the provider and principal resolver do not resolve the deleted model
   (Eloquent's `SoftDeletes` scope hides a soft-deleted one); a provider or resolver that includes trashed models keeps
@@ -1190,8 +1195,13 @@ session-less token issued in that second is rejected too. Tokens that name a ses
 (revoking the session ends them, and the session a sign-out everywhere keeps must keep working). The cutoff only ever
 moves forward, with one conditional update on the model's own connection (`invalidateTokensIssuedBefore()`); the column
 must be loaded, or reading it throws a `LogicException`, and the column name comes from `getTokensValidAfterName()`. A
-`HasTokensValidAfter` of your own is called on a soft-deleted model, whose row still exists, but never on an Eloquent
-model that is not stored (hard-deleted, or never saved), so persisting the cutoff through `save()` never inserts a
+bulk revocation moves the cutoff only of a model loaded from its row (Eloquent's `exists` is `true`, a soft-deleted
+model among them): one built from its key alone (`(new User)->setAttribute('id', $id)`), one never saved, or one a
+delete left with `exists` `false` (a hard delete, also one inside a savepoint that was rolled back) has its sessions
+ended but not its session-less tokens, so pass the model loaded from its row (`User::query()->findOrFail($id)`). This
+holds for every bulk revocation, not only a deletion's: an optional listener revokes once the transaction commits, on
+the model as it is then, which a delete later in the same transaction has removed. A `HasTokensValidAfter` of your own
+is therefore never called on a model whose row is gone, and persisting the cutoff through `save()` never inserts a
 deleted row again.
 
 ### Tenant authentication policies

@@ -186,8 +186,9 @@ final class RevocationScopeTest extends TestCase
 
     /**
      * A principal whose access-only owner can still be read is deleted without
-     * the session table: its deletion moves its cutoff and reports its owner,
-     * before its own delete and after it.
+     * the session table: its deletion reports its owner, before its own delete
+     * and after it, and moves its cutoff while its row exists, and none once a
+     * hard delete has removed the row.
      *
      * @return void
      *
@@ -206,6 +207,8 @@ final class RevocationScopeTest extends TestCase
 
         self::assertSame(0, Auth::sessions('api')->principalDeleted($membership));
         self::assertCount(2, $this->reported);
+        self::assertSame(self::NOW, $this->reported[0]->tokensValidAfter?->format('Y-m-d H:i:s'));
+        self::assertNull($this->reported[1]->tokensValidAfter);
         self::assertSame(RevocationReason::PRINCIPAL_DELETED, $this->reported[1]->reason);
         self::assertSame((string) $member->id, $this->reported[1]->context->identityId);
     }

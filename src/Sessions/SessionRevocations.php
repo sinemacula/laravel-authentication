@@ -39,9 +39,10 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * the first revocation's time and reason kept, and only the call that changed
  * the row reporting `SessionRevoked`, once the revocation is committed on the
  * session's own connection. A bulk revocation moves the scope's "tokens valid
- * after" cutoff when it records one, ends its pending sessions with the rest
- * and, for an identity, cancels its pending identifier changes; it reports each
- * session it revoked and then `SignedOutEverywhere`, also when it revoked none.
+ * after" cutoff when it records one on a model loaded from its row (see
+ * `RevocationScope`), ends its pending sessions with the rest and, for an
+ * identity, cancels its pending identifier changes; it reports each session it
+ * revoked and then `SignedOutEverywhere`, also when it revoked none.
  * Deactivation already stops every token at once through the live activity
  * checks; revoking makes the end outlast a reactivation and records why.
  *

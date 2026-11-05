@@ -163,12 +163,17 @@ revoked, and when a session that ended is deleted. Starting a session is in
   identity's `sessions()` and the principal's session query find the rows. `RevocationScope` moves no cutoff on an
   Eloquent model that is not stored (`exists` is `false`): a hard-deleted row has none left to move, and an
   application's own `HasTokensValidAfter` that persists through `save()` would insert the row again, bringing the
-  deleted account back. The events hold plain values, so a queued listener never needs the gone row. A deleted
-  principal's owner is read afresh and is `null` when it cannot be read (gone or soft-deleted with it), and its sessions
-  are then looked for anyway, since that owner may have held them: in access-only mode, where the
-  `authentication_sessions` table may not exist, that lookup fails, so such an application ends a principal's tokens
-  while its owner can still be read, or observes the identity model only (its cutoff ends every token of the identity,
-  whatever principal it acts as). Deletes that fire no model event (query deletes and `MassPrunable` prunes,
+  deleted account back. The check covers every bulk revocation, not only a deletion's, since an optional listener
+  revokes at commit on the model as it is then: a deactivation or password change followed by a hard delete in one
+  transaction reaches its revocation with `exists` `false`. A model built from its key alone has `exists` `false` too,
+  so its sessions end but its cutoff does not move; callers pass the model loaded from its row. The events hold plain
+  values, so a queued listener never needs the gone row. A deleted principal's owner is read afresh when the revocation
+  runs (for the observer, at commit, so whichever was deleted first in the transaction) and is `null` when it cannot be
+  read (gone or soft-deleted), and its sessions are then looked for anyway, since that owner may have held them: in
+  access-only mode, where the `authentication_sessions` table may not exist, that lookup fails, so such an application
+  observes the identity model only when the identity records the cutoff (its cutoff ends every token of the identity,
+  whatever principal it acts as), and calls `principalDeleted()` for each principal directly, before deleting the owner,
+  when only the principals record one. Deletes that fire no model event (query deletes and `MassPrunable` prunes,
   `deleteQuietly()`, `forceDeleteQuietly()`, `withoutEvents()`, database cascades) end nothing here: a principal a
   cascade removes with its identity is covered by the identity's own revocation, since an identity's sessions are all
   those it holds whatever principal they act as, so the observer belongs on the identity model; one a cascade removes

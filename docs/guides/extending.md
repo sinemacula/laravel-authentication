@@ -10,7 +10,7 @@ inheritance:
 |-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                                                                   |
 | Custom session model              | Implement `EloquentSession`, use `ActsAsSession` (and `PrunesSessions` to be pruned), on the storage connection                                          |
-| Ending session-less access tokens | Implement `HasTokensValidAfter` on the identity or principal (only ever called on a stored model), or use `ProvidesTokensValidAfter`                     |
+| Ending session-less access tokens | Implement `HasTokensValidAfter` on the identity or principal (only ever called on a model loaded from its row), or use `ProvidesTokensValidAfter`        |
 | Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                                                                |
 | Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                                                                     |
 | Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                                                                      |
