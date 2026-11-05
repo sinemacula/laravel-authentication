@@ -165,6 +165,30 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * A cookie application's sign-in from another site is refused before
+     * anything is read or counted, so it costs no query.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACrossSiteSignInOnACookieApplicationCostsNoQuery(): void
+    {
+        config()->set('auth.guards.admin.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
+
+        $this->seedIdentity();
+
+        $sessions = $this->sessions('admin');
+
+        request()->headers->set('Origin', 'https://evil.example.test');
+        request()->headers->remove('X-Requested-With');
+
+        $result = $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $result->reason);
+    }
+
+    /**
      * Replacing a proven session reads the identity and the session, writes one
      * compare-and-swap that revokes it and one insert each of the new session
      * and its first proof, and reads what was left under the new session's key

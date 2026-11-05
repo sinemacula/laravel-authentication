@@ -750,6 +750,37 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
+     * A cookie application's external sign-in is not held to the same-site
+     * check `signIn()` and `start()` are: the provider's callback arrives as a
+     * cross-site navigation, with another site's `Origin` and no custom header,
+     * and with a context built from plain values, and the session still starts
+     * with the refresh token in its cookie.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationsExternalSignInIsExemptFromTheSameSiteCheck(): void
+    {
+        config()->set('auth.guards.api.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
+
+        $identity = $this->seedIdentity();
+        $sessions = $this->sessions();
+
+        request()->headers->set('Origin', 'https://provider.example.test');
+        request()->headers->remove('X-Requested-With');
+
+        foreach ([null, new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT))] as $context) {
+
+            $session = $sessions->signInExternally($this->linkedResult($identity), $context)->session;
+
+            self::assertNotNull($session);
+            self::assertNull($session->tokens->refreshToken);
+            self::assertNotNull($session->tokens->refreshCookie);
+        }
+    }
+
+    /**
      * Define the guards the tests sign in through.
      *
      * @param  mixed  $app

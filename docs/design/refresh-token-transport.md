@@ -27,7 +27,12 @@ a cookie application's results hand back the cookie instead of the token.
 - A token read from the cookie must come with an `Origin` that is the request's own (`getSchemeAndHttpHost()`, so
   behind a proxy it needs `TrustProxies`) or one of `allowed_origins`, compared exactly, and with a non-empty
   `csrf_header` header, which a cross-site form cannot send; otherwise `cross_site_request`. The checks come before the
-  value is looked at.
+  value is looked at. The rule is `isSameSiteClient(ClientContext)`, judged on the facts `ClientContext::fromRequest()`
+  reads: the `Origin` as presented (kept only when 1 to 512 printable ASCII characters, never cut), the request's own
+  scheme and host (`null` when Symfony refuses the host or forwarded headers), and the names of the headers whose first
+  value is a non-empty string (lower case, `_` read as `-`, never their values); the guard's configured `csrf_header`
+  is applied when judging. A missing fact fails it. `isSameSiteRequest($request)` is the same rule on the request's
+  context.
 - A present value that is not one non-empty string (an empty field, `null`, an array, a header sent twice, a cookie
   that could not be decrypted) is `token_invalid`. A token read is a `PresentedRefreshToken` holding it as a `Secret`.
 - Reading has no side effects: it changes nothing on the request and runs no query.
@@ -62,12 +67,20 @@ a cookie application's results hand back the cookie instead of the token.
   own and unique; the carrier is its transport; the token's `client_id` is the application (`token_invalid`); the
   session it names is the application's (`session_guard_mismatch`); and the cookie a result sets is that
   application's.
-- `isSameSiteRequest($request)` is the cookie's same-site check on its own (the `Origin` and the `csrf_header`), for a
-  route that sets the cookie: the browser sign-in must pass it before signing in, or a cross-site page could auto-submit
-  a form with an attacker's credentials and leave the attacker's refresh cookie in the victim's browser (a browser keeps
-  a `SameSite=Strict` cookie set by the response to a top-level navigation), where the victim's own scripts would then
-  pass every refresh check. The package cannot impose it on `signInExternally()`, whose external provider's callback
-  is a cross-site top-level navigation, so it stays the application's check on the routes that set the cookie.
+- Every path that sets a cookie application's refresh cookie from credentials or a pending session is held to the same
+  rule by the package: `signIn()`, `start()`, `satisfy()` and `choose()` refuse as `cross_site_request`
+  (`SessionPreconditions::crossSite()`) after the transport is built and before the package's first read or write
+  (only the driver's resolution, the identifier's extraction and `Attempting` listeners, the application's code, run
+  before it on `signIn()`), and refresh and switch read the token only through `read()`. Without it a cross-site page
+  could auto-submit a form with an attacker's credentials and leave the attacker's refresh cookie in the victim's
+  browser (a browser keeps a `SameSite=Strict` cookie set by the response to a top-level navigation), where the
+  victim's own scripts would then pass every refresh check. `signIn()` and `start()` judge the `SignInContext`'s
+  client, `satisfy()` and `choose()` the guard's request. The check is pure (no query, no lock, no event of its own)
+  and fails closed. A body application is never refused. `signInExternally()` is exempt: an external provider's
+  callback is a cross-site top-level navigation by design, and its defence is the provider flow's browser-bound state
+  (the adapter's `state` and nonce bound to the browser that began the flow, and the single-use handoff).
+  `isSameSiteRequest()` and `isSameSiteClient()` stay public for an application's own routes, such as one that clears
+  the cookie.
 - The pending credential is never a cookie: a cookie application's pending results carry it in the body.
 
 ## Success Path
@@ -101,13 +114,15 @@ a cookie application's results hand back the cookie instead of the token.
 ## Implementation Anchors
 
 - `src/Http/RefreshTokenTransport.php`: `read()`, `usesCookie()`, `deliver()`, `isSameSiteRequest()`,
-  `forgetCookie()`; `src/Http/RefreshCookie.php`; `src/Http/Enums/Transport.php`; `src/Jwt/TokenPair.php`;
-  `src/Http/RequestBody.php` (the body fields and the field names, shared with the pending credential's field).
-- `src/Sessions/SessionService.php`: `bound()`; `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`,
-  `switchFromRequest()`, `switched()`; `src/Sessions/SessionRefresh.php`: `refresh()`, `refreshFromRequest()`,
-  `credentialFromRequest()`, `refuseHandedIn()`; and `src/Sessions/SessionSignOut.php`: `fromRequest()`, `with()`;
-  which build the application's transport from the configuration (`RefreshTokenTransport::forGuard()`), as the guard's
-  own factory does.
+  `isSameSiteClient()`, `forgetCookie()`; `src/Http/ClientContext.php`: `fromRequest()`, `carriesHeader()`;
+  `src/Sessions/SessionPreconditions.php`: `crossSite()`; `src/Http/RefreshCookie.php`; `src/Http/Enums/Transport.php`;
+  `src/Jwt/TokenPair.php`; `src/Http/RequestBody.php` (the body fields and the field names, shared with the pending
+  credential's field).
+- `src/Sessions/SessionService.php`: `signIn()`, `start()`, `satisfy()`, `choose()`, `bound()`;
+  `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`, `switchFromRequest()`, `switched()`;
+  `src/Sessions/SessionRefresh.php`: `refresh()`, `refreshFromRequest()`, `credentialFromRequest()`, `refuseHandedIn()`;
+  and `src/Sessions/SessionSignOut.php`: `fromRequest()`, `with()`; which build the application's transport from the
+  configuration (`RefreshTokenTransport::forGuard()`), as the guard's own factory does.
 - `src/Http/RefreshTokenSettings.php`: `forGuard()`.
 - `src/Guards/JwtGuard.php`: `refreshTransport()`.
 - `src/AuthManager.php`: `refreshTransport()`.
@@ -115,7 +130,11 @@ a cookie application's results hand back the cookie instead of the token.
 
 ## Authoritative Tests
 
-- `tests/Unit/Http/RefreshTokenTransportTest.php`
+- `tests/Unit/Http/RefreshTokenTransportTest.php`, `tests/Unit/Http/ClientContextTest.php`,
+  `tests/Unit/Sessions/SessionPreconditionsTest.php`
+- `tests/Feature/Sessions/SessionServiceTest.php`: each cookie-setting path refused cross-site with nothing written, a
+  body application unaffected, `signInExternally()` exempt; `tests/Performance/SessionServiceQueryBudgetTest.php`: a
+  refused sign-in costs no query
 - `tests/Unit/Http/RefreshTokenSettingsTest.php`
 - `tests/Unit/Http/RefreshCookieTest.php`
 - `tests/Unit/Jwt/TokenPairTest.php`
@@ -147,7 +166,7 @@ Update this note when any of the following change:
 - the transports an application may use, the carriers read, or where the body is read from
 - how a token carried more than once is treated, the cookie sent twice included
 - the names the settings accept
-- the cookie's origin and custom header checks
+- the cookie's origin and custom header checks, or the paths held to them
 - the events and return value of a refusal by the transport
 - how the guard and package settings merge
 - the refresh cookie's name, attributes or expiry, how it is delivered, or how it is cleared

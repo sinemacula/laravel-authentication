@@ -149,8 +149,9 @@ enum FailureReason: string
     // cookie application
     case REFRESH_TRANSPORT_MISMATCH = 'refresh_transport_mismatch';
 
-    // A refresh token in the cookie came without an allowed origin or the
-    // custom header
+    // A refresh token in the cookie, or a cookie application's sign-in, start
+    // or pending-session action, came without an allowed origin or the custom
+    // header
     case CROSS_SITE_REQUEST = 'cross_site_request';
 
     // The one-time code exists but has expired; only on the event

@@ -237,7 +237,11 @@ link the adapter redeemed it through (`ExternalResult::$linkId`) fails as `link_
 exactly that link, so a link removed and made again since cannot take its place. From the linked identity on, the
 sign-in follows `start()`'s order under the method `external_provider`: reloaded, admitted, the principal the context
 names or the only one, or a choice, the factor policy, the tenant and its authentication policy (one requiring another
-connection refuses it as `sso_required`). No `Attempting` is dispatched, and no attempt limit or timebox applies.
+connection refuses it as `sso_required`). No `Attempting` is dispatched, and no attempt limit or timebox applies. Nor
+is it held to a cookie application's same-site check, as `signIn()`, `start()`, `satisfy()` and `choose()` are: the
+provider's callback is a cross-site navigation by design, so its defence against signing a browser into another account
+is the provider flow's browser-bound state, which the adapter keeps (see
+[Refresh token cookie](refreshing.md#refresh-token-cookie)).
 
 The session's first proof is the provider's: the connection as an `external_provider` channel, the private `amr` value
 `urn:sinemacula:amr:external_provider` (RFC 8176 names none for it; the provider's own values are its package's to
@@ -797,7 +801,9 @@ when the pending session has simply ended. It is a `Secret` here, as the token p
 
 ### In order
 
-A sign-in follows one order whichever way it starts:
+A sign-in follows one order whichever way it starts. First, before anything is read, counted or written, a cookie
+application's `signIn()` or `start()` must come from a page of its own site, or it fails as `cross_site_request` (see
+[Refresh token cookie](refreshing.md#refresh-token-cookie)); `signInExternally()` is exempt. Then:
 
 1. the credential is verified, and the identity checked (not a machine identity, active, and admitted with the
    identifier type the sign-in used);
@@ -924,7 +930,10 @@ holds the refresh token it was proven with, records the same owner, guard and pr
 When it changed, the session is judged again without it, the additional-factor policy included: it activates and
 supersedes nothing, or stays pending on a further factor the policy now asks for without the proven session's trust. A
 pending session is never listed, and no access or refresh token of it is accepted (`session_pending`) until it
-activates.
+activates. Activating sets a cookie application's refresh cookie, so its `satisfy()` and `choose()` are held to the
+cookie's same-site check on the guard's request: one from another site fails as `cross_site_request` before the
+pending session is read, leaving it pending, its credential unconsumed and the proof unstored (see
+[Refresh token cookie](refreshing.md#refresh-token-cookie)).
 
 ## Additional factors
 

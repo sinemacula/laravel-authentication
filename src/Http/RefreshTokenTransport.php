@@ -34,7 +34,10 @@ use Symfony\Component\HttpFoundation\Cookie;
  * transport is refused as `refresh_transport_mismatch`. A token read from the
  * cookie, which a browser attaches by itself, must come with an `Origin` that
  * is the request's own or an allowed one, and with the custom header, which a
- * cross-site form cannot send.
+ * cross-site form cannot send; the session service holds every other path that
+ * sets a cookie application's cookie from credentials or a pending session to
+ * the same rule (`isSameSiteClient()`), so a cross-site form cannot sign the
+ * browser into another account.
  *
  * For a cookie application, `deliver()` puts the refresh token of every pair a
  * sign-in, refresh, switch or activation issues into a `RefreshCookie`, so the
@@ -176,26 +179,40 @@ final readonly class RefreshTokenTransport
 
     /**
      * Whether the request came from a page of the API's own site, as the
-     * refresh cookie's checks require: its `Origin` is the request's own
-     * (scheme and host) or one of the allowed origins, and it carries the
-     * custom header with a value, which a cross-site form or simple request
-     * cannot send. `read()` holds a token from the cookie to it; a route that
-     * sets the cookie, a browser sign-in above all, must hold its request to it
-     * too, or a cross-site form could sign the browser into another account.
+     * refresh cookie's checks require: `isSameSiteClient()` of the request's
+     * client context. `read()` holds a token from the cookie to it, and the
+     * session service holds every sign-in, start and pending-session action of
+     * a cookie application to the same rule; an application's own route that
+     * clears the cookie holds its request to it.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return bool
      */
     public function isSameSiteRequest(Request $request): bool
     {
-        $origin = $request->headers->get('Origin');
-        $csrf   = $request->headers->get($this->settings->csrfHeader);
+        return $this->isSameSiteClient(ClientContext::fromRequest($request));
+    }
 
-        if ($csrf === null || $csrf === '') {
+    /**
+     * Whether the client came from a page of the API's own site: it carried the
+     * custom header with a value, which a cross-site form or simple request
+     * cannot send, and presented an `Origin` that is the request's own (scheme
+     * and host) or one of the allowed origins. A fact the context lacks fails
+     * the check, so a context built from plain values without them never
+     * passes.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return bool
+     */
+    public function isSameSiteClient(ClientContext $client): bool
+    {
+        $origin = $client->origin;
+
+        if ($origin === null || !$client->carriesHeader($this->settings->csrfHeader)) {
             return false;
         }
 
-        return $origin === $request->getSchemeAndHttpHost() || in_array($origin, $this->settings->allowedOrigins, true);
+        return $origin === $client->schemeAndHost || in_array($origin, $this->settings->allowedOrigins, true);
     }
 
     /**

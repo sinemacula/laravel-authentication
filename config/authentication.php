@@ -488,7 +488,11 @@ return [
     | cookie must come with an `Origin` that is the request's own or one of
     | `allowed_origins` (each exactly `scheme://host[:port]`, in lower case) and
     | a non-empty `csrf_header` header (a custom one: a header a browser sends
-    | on its own is refused), else `cross_site_request`. The cookie is host-only
+    | on its own is refused), else `cross_site_request`; a cookie
+    | application's sign-in, `start()`, `satisfy()` and `choose()` are held to
+    | the same checks before anything is read or written (an external
+    | provider's sign-in, a cross-site callback by design, is exempt and
+    | relies on the provider flow's browser-bound state). The cookie is host-only
     | (no `Domain`). Its `name` is the application's own:
     | `__Host-<guard>_refresh_token` for a cookie application whose `path` is
     | `/`, otherwise `__Secure-<guard>_refresh_token`, unless a name is set (a

@@ -136,7 +136,8 @@ final class SignInEventSerializationTest extends TestCase
             EventContextAssertions::assertSession($session->record, $event->context);
             self::assertSame('members', $event->context->guard);
             self::assertSame('password', $event->context->method);
-            self::assertEquals(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $event->context->client);
+            self::assertEquals(ClientContext::fromRequest(request()), $event->context->client);
+            self::assertSame([self::CLIENT_IP, self::CLIENT_AGENT], [$event->context->client->ip, $event->context->client->userAgent]);
         }
 
         self::assertFalse($signedIn->refresh);

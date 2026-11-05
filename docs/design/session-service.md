@@ -22,7 +22,11 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - No event ever receives the sign-in input. `Attempting` and `Failed` carry only `[type => identifier]` (or
   `['identifier' => ...]` for a method without a type, or nothing); `AuthenticationFailed` carries the identifier as
   given.
-- `signIn()` order: the method is resolved (unknown throws); `Attempting`; the application policy must allow the method
+- `signIn()` order: the method is resolved (unknown throws); `Attempting`; a cookie application's request must come
+  from a page of its own site (`SessionPreconditions::crossSite()`: `cross_site_request`, nothing read, counted or
+  written, judged on the context's client; `start()`, `satisfy()` and `choose()` are held to it too, the last two on
+  the guard's request, before the pending session is read, and only `signInExternally()` is exempt; see
+  `refresh-token-transport.md`); the application policy must allow the method
   (`method_not_allowed`, nothing counted, no timebox); the attempt limiter must grant a slot (`rate_limited`); then, in
   the guard's credential timebox, cut short only for an admitted identity: the method verifies the input, the identity
   must not be a `MachineIdentity` (`machine_identity`) and must be active, and the application policy must admit it with

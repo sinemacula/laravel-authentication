@@ -16,6 +16,7 @@ use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -35,6 +36,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
@@ -102,6 +104,21 @@ use Tests\TestCase;
 final class SessionServiceTest extends TestCase
 {
     use InteractsWithProofs, InteractsWithSessions;
+
+    /** @var string Cookie application over identities. */
+    private const string BROWSER = 'browser';
+
+    /** @var string Cookie application over members with no default principal. */
+    private const string BROWSER_CHOOSERS = 'browser_choosers';
+
+    /** @var string The test request's own origin. */
+    private const string OWN_ORIGIN = 'http://localhost';
+
+    /** @var string An origin the cookie applications allow besides their own. */
+    private const string ALLOWED_ORIGIN = 'https://app.example.test';
+
+    /** @var array<string, string> The headers a page of the cookie applications' own site sends. */
+    private const array SAME_SITE = ['Origin' => self::OWN_ORIGIN, 'X-Requested-With' => 'fetch'];
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -1501,8 +1518,293 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Configure the guards, a guard over identities without sessions, and one
-     * over members with no default principal.
+     * Rows of the headers a request to a cookie application sends that does not
+     * come from a page of its own site, each fact failing alone.
+     *
+     * @return iterable<string, array{0: array<string, string>}>
+     */
+    public static function provideCrossSiteHeaders(): iterable
+    {
+        yield 'another site\'s form' => [['Origin' => 'https://evil.example.test']];
+        yield 'another site with the header' => [['Origin' => 'https://evil.example.test', 'X-Requested-With' => 'fetch']];
+        yield 'an allowed origin without the header' => [['Origin' => self::ALLOWED_ORIGIN]];
+        yield 'the own origin without the header' => [['Origin' => self::OWN_ORIGIN]];
+        yield 'the own origin with an empty header' => [['Origin' => self::OWN_ORIGIN, 'X-Requested-With' => '']];
+        yield 'the header without an origin' => [['X-Requested-With' => 'fetch']];
+        yield 'neither' => [[]];
+    }
+
+    /**
+     * A cookie application's sign-in that does not come from a page of its own
+     * site is refused as `cross_site_request` before the method policy is asked
+     * or an attempt counted, so the input is never checked: it writes no
+     * session or proof, binds nothing, and is reported after `Attempting` by
+     * `Failed` and `AuthenticationFailed` (flow `sign_in`, with the identifier
+     * and the request's client, no identity).
+     *
+     * @param  array<string, string>  $headers
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideCrossSiteHeaders')]
+    public function testACookieApplicationRefusesACrossSiteSignInBeforeAnythingIsChecked(array $headers): void
+    {
+        $this->seedIdentity();
+
+        $policy = $this->policy();
+        $policy->shouldNotReceive('allowsMethod');
+
+        $limiter = $this->bindMock(AttemptLimiter::class);
+        $limiter->shouldNotReceive('acquire');
+
+        $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class, Login::class]);
+
+        $this->assertSignInFails(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER, $headers)->signIn('password', self::credentials()));
+
+        self::assertSame([Attempting::class, Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertNull($this->recordedEvent(Failed::class)->user);
+
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([AuthenticationFlow::SIGN_IN, FailureReason::CROSS_SITE_REQUEST, 'ada@example.test'], [$failed->flow, $failed->reason, $failed->identifier]);
+        self::assertSame([self::BROWSER, null, $headers['Origin'] ?? null], [$failed->context->guard, $failed->context->identityId, $failed->context->client->origin]);
+        self::assertSame(0, DB::table('authentication_proofs')->count());
+        self::assertTrue(app('auth')->guard(self::BROWSER)->guest());
+    }
+
+    /**
+     * Rows of the headers a page of a cookie application's own site sends: the
+     * request's own origin or an allowed one, with the custom header.
+     *
+     * @return iterable<string, array{0: array<string, string>}>
+     */
+    public static function provideSameSiteHeaders(): iterable
+    {
+        yield 'the own origin' => [['Origin' => self::OWN_ORIGIN, 'X-Requested-With' => 'fetch']];
+        yield 'an allowed origin' => [['Origin' => self::ALLOWED_ORIGIN, 'X-Requested-With' => 'fetch']];
+    }
+
+    /**
+     * A cookie application's sign-in from the request's own origin or an
+     * allowed one, with the custom header, signs in and hands the refresh token
+     * over only in its cookie.
+     *
+     * @param  array<string, string>  $headers
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideSameSiteHeaders')]
+    public function testACookieApplicationSignsInFromItsOwnSite(array $headers): void
+    {
+        $identity = $this->seedIdentity();
+        $tokens   = self::sessionOf($this->sessionsOn(self::BROWSER, $headers)->signIn('password', self::credentials()))->tokens;
+
+        self::assertNull($tokens->refreshToken);
+        self::assertNotNull($tokens->refreshCookie);
+        self::assertSame($identity->getKey(), app('auth')->guard(self::BROWSER)->id());
+    }
+
+    /**
+     * A cross-site sign-in fails with no challenge named, since the input was
+     * never checked, while a same-site one the method refuses names the
+     * challenge its input answered.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACrossSiteSignInNamesNoChallenge(): void
+    {
+        $this->registerTrustedMethod(FailureReason::INVALID_CREDENTIALS);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER, [])->signIn('trusted', ['challenge' => 'challenge-1'])->reason);
+        self::assertNull($this->recordedEvent(AuthenticationFailed::class)->challengeId);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessionsOn(self::BROWSER, self::SAME_SITE)->signIn('trusted', ['challenge' => 'challenge-1'])->reason);
+        self::assertSame('challenge-1', $this->recordedEvent(AuthenticationFailed::class)->challengeId);
+    }
+
+    /**
+     * `signIn()` judges the client of the context it is given, not the
+     * request's: one built from plain values without the same-site facts is
+     * refused on a same-site request, and one built with them passes on a
+     * cross-site request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInJudgesTheContextsClient(): void
+    {
+        $this->seedIdentity();
+
+        $plain  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT));
+        $facts  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT, self::OWN_ORIGIN, self::OWN_ORIGIN, ['X-Requested-With']));
+        $result = $this->sessionsOn(self::BROWSER, self::SAME_SITE)->signIn('password', self::credentials(), $plain);
+
+        $this->assertSignInFails(FailureReason::CROSS_SITE_REQUEST, $result);
+
+        self::assertTrue($this->sessionsOn(self::BROWSER, [])->signIn('password', self::credentials(), $facts)->isSignedIn());
+    }
+
+    /**
+     * The check follows the guard's request from one request to the next: a
+     * guard that signed a same-site request in refuses the cross-site request
+     * it serves next.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEachRequestOnOneGuardIsJudgedOnItsOwn(): void
+    {
+        $this->seedIdentity();
+
+        self::assertTrue($this->sessionsOn(self::BROWSER, self::SAME_SITE)->signIn('password', self::credentials())->isSignedIn());
+
+        $guard = app('auth')->guard(self::BROWSER);
+
+        app()->instance('request', self::requestWith(['Origin' => 'https://evil.example.test']));
+
+        self::assertSame($guard, app('auth')->guard(self::BROWSER));
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, Auth::sessions(self::BROWSER)->signIn('password', self::credentials())->reason);
+        self::assertSame(1, Session::query()->count());
+    }
+
+    /**
+     * A cookie application's `start()` that does not come from a page of its
+     * own site is refused as `cross_site_request` before anything is read,
+     * reported by `Failed` and `AuthenticationFailed` with no `Attempting`, and
+     * writes nothing; one built from plain values is refused too, and a
+     * same-site one starts the session with the cookie.
+     *
+     * @param  array<string, string>  $headers
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideCrossSiteHeaders')]
+    public function testACookieApplicationRefusesACrossSiteStart(array $headers): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class]);
+
+        $this->assertSignInFails(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER, $headers)->start($identity, null, 'sso'));
+
+        self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([AuthenticationFlow::SIGN_IN, 'sso'], [$failed->flow, $failed->context->method]);
+
+        $plain = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT));
+
+        $this->assertSignInFails(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER, self::SAME_SITE)->start($identity, null, 'sso', $plain));
+
+        self::assertNotNull(self::sessionOf($this->sessionsOn(self::BROWSER, self::SAME_SITE)->start($identity, null, 'sso'))->tokens->refreshCookie);
+    }
+
+    /**
+     * A cookie application's satisfaction that does not come from a page of its
+     * own site is refused as `cross_site_request` before the pending session is
+     * read: the session stays pending, the proof unstored and the credential
+     * unconsumed, so the same satisfaction from the application's own site then
+     * activates it with the cookie.
+     *
+     * @param  array<string, string>  $headers
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideCrossSiteHeaders')]
+    public function testACookieApplicationRefusesACrossSiteSatisfaction(array $headers): void
+    {
+        $identity             = $this->seedIdentity();
+        [$credential, $proof] = $this->pendingWithProof($identity, self::BROWSER);
+        $proofs               = DB::table('authentication_proofs')->count();
+
+        $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class]);
+
+        $refused = $this->sessionsOn(self::BROWSER, $headers)->satisfy($credential, $proof);
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $refused->reason);
+        self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertNull($this->recordedEvent(AuthenticationFailed::class)->context->sessionId);
+        self::assertSame([SessionStatus::PENDING->value], Session::query()->pluck('status')->all());
+        self::assertSame($proofs, DB::table('authentication_proofs')->count());
+        self::assertTrue(app('auth')->guard(self::BROWSER)->guest());
+
+        $activated = self::sessionOf($this->sessionsOn(self::BROWSER, self::SAME_SITE)->satisfy($credential, $proof));
+
+        self::assertNotNull($activated->tokens->refreshCookie);
+        self::assertSame([SessionStatus::ACTIVE->value], Session::query()->pluck('status')->all());
+    }
+
+    /**
+     * A cookie application's choice of principal that does not come from a page
+     * of its own site is refused as `cross_site_request` before the pending
+     * session is read: no principal is recorded and the session stays pending,
+     * so the same choice from the application's own site then activates it with
+     * the cookie.
+     *
+     * @param  array<string, string>  $headers
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideCrossSiteHeaders')]
+    public function testACookieApplicationRefusesACrossSiteChoice(array $headers): void
+    {
+        [$credential, $chosen] = $this->pendingChoice(self::BROWSER_CHOOSERS);
+
+        $this->recordEvents([Failed::class, AuthenticationFailed::class, PrincipalAssigned::class]);
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER_CHOOSERS, $headers)->choose($credential, $chosen)->reason);
+        self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame([SessionStatus::PENDING->value], Session::query()->pluck('status')->all());
+        self::assertSame([null], Session::query()->pluck('principal_id')->all());
+
+        $activated = self::sessionOf($this->sessionsOn(self::BROWSER_CHOOSERS, self::SAME_SITE)->choose($credential, $chosen));
+
+        self::assertNotNull($activated->tokens->refreshCookie);
+        self::assertSame($chosen->getKey(), $activated->principal->getPrincipalIdentifier());
+    }
+
+    /**
+     * A body application is never held to the check, whatever the request
+     * carried: its sign-in, start, satisfaction and choice from another site
+     * each go ahead, since its tokens travel only in the response body.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABodyApplicationIsNotHeldToTheSameSiteCheck(): void
+    {
+        $crossSite = ['Origin' => 'https://evil.example.test'];
+        $identity  = $this->seedIdentity();
+
+        self::assertNotNull(self::sessionOf($this->sessionsOn('api', $crossSite)->signIn('password', self::credentials()))->tokens->refreshToken);
+        self::assertTrue($this->sessionsOn('api', $crossSite)->start($identity, null, 'sso')->isSignedIn());
+
+        [$credential, $chosen] = $this->pendingChoice('choosers');
+
+        self::assertTrue($this->sessionsOn('choosers', $crossSite)->choose($credential, $chosen)->isSignedIn());
+
+        [$credential, $proof] = $this->pendingWithProof($identity, 'api');
+
+        self::assertTrue($this->sessionsOn('api', $crossSite)->satisfy($credential, $proof)->isSignedIn());
+    }
+
+    /**
+     * Configure the guards, a guard over identities without sessions, one over
+     * members with no default principal, and cookie applications over each.
      *
      * @param  mixed  $app
      * @return void
@@ -1524,6 +1826,21 @@ final class SessionServiceTest extends TestCase
         $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain', 'application' => ['methods' => ['password']]]);
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.guards.choosers', ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password', 'sso']]]);
+
+        $cookie = ['transport' => 'cookie', 'cookie' => ['path' => '/auth', 'allowed_origins' => [self::ALLOWED_ORIGIN]]];
+
+        $config->set('auth.guards.' . self::BROWSER, [
+            'driver'        => 'jwt',
+            'provider'      => 'identities',
+            'application'   => ['methods' => ['password', 'sso', 'trusted']],
+            'refresh_token' => $cookie,
+        ]);
+        $config->set('auth.guards.' . self::BROWSER_CHOOSERS, [
+            'driver'        => 'jwt',
+            'provider'      => 'choosers',
+            'application'   => ['methods' => ['password']],
+            'refresh_token' => $cookie,
+        ]);
         $config->set('database.connections.elsewhere', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
     }
 
@@ -1533,24 +1850,85 @@ final class SessionServiceTest extends TestCase
      * bound to it.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  string  $guard
      * @return array{0: string, 1: \SineMacula\Laravel\Authentication\Proofs\ProofResult}
      *
      * @throws \Throwable
      */
-    private function pendingWithProof(IntegrationIdentity $identity): array
+    private function pendingWithProof(IntegrationIdentity $identity, string $guard = 'api'): array
     {
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requirementFor')->andReturn(new Requirement(new RequirementPart));
 
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions($guard)->signIn('password', self::credentials());
 
         self::assertTrue($result->isPending());
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
 
-        return [$result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN)];
+        return [$result->credential->reveal(), self::adapterProof($identity, $guard, $result->pending->id, Purpose::SIGN_IN)];
+    }
+
+    /**
+     * Sign a member with two memberships in on the guard, from the
+     * application's own site, and return the pending session's credential and
+     * the second membership to choose.
+     *
+     * @param  string  $guard
+     * @return array{0: string, 1: \Tests\Integration\Fixtures\ChoosingMembership}
+     *
+     * @throws \Throwable
+     */
+    private function pendingChoice(string $guard): array
+    {
+        $member = ChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+        $tenant = ActivatableTenant::query()->create(['name' => 'Tenant', 'is_active' => true]);
+
+        ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+
+        $chosen = ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+        $result = $this->sessions($guard)->signIn('password', self::credentials('chooser@example.test'));
+
+        self::assertTrue($result->isPending());
+        self::assertNotNull($result->credential);
+
+        return [$result->credential->reveal(), $chosen];
+    }
+
+    /**
+     * Serve a request with the headers from the test client and resolve the
+     * named guard's session service afresh for it.
+     *
+     * @param  string  $guard
+     * @param  array<string, string>  $headers
+     * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
+     */
+    private function sessionsOn(string $guard, array $headers): SessionService
+    {
+        app()->instance('request', self::requestWith($headers));
+
+        Auth::forgetGuards();
+
+        return self::sessionsOf(app('auth')->guard($guard));
+    }
+
+    /**
+     * A sign-in request from the test client carrying the headers.
+     *
+     * @param  array<string, string>  $headers
+     * @return \Illuminate\Http\Request
+     */
+    private static function requestWith(array $headers): Request
+    {
+        $server = ['REMOTE_ADDR' => self::CLIENT_IP, 'HTTP_USER_AGENT' => self::CLIENT_AGENT];
+
+        foreach ($headers as $name => $value) {
+            $server['HTTP_' . strtoupper(str_replace('-', '_', $name))] = $value;
+        }
+
+        return Request::create('/auth/sign-in', 'POST', server: $server);
     }
 
     /**

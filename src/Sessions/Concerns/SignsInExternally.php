@@ -54,7 +54,12 @@ trait SignsInExternally
      * identity as `start()` does, judged against the provider's proof, a tenant
      * that requires another connection refusing it as `sso_required`. No
      * attempt limit or timebox applies, and no `Attempting` is dispatched:
-     * nothing is guessed here.
+     * nothing is guessed here. Unlike `start()`, it is not held to a cookie
+     * application's same-site check: the provider's callback is a cross-site
+     * navigation by design, and its defence against signing a browser into
+     * another account is the provider flow's browser-bound state (the adapter's
+     * `state` and nonce, bound to the browser that began the flow, and the
+     * single-use handoff).
      *
      * The session's first proof is the provider's: the connection as its
      * channel, the private `urn:sinemacula:amr:external_provider` `amr` value,
