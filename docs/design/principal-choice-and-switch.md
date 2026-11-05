@@ -202,18 +202,24 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 - `src/Sessions/ProvenSessions.php`: `provenSessionOf()`, which proves a session without a principal for a choice.
 - `src/Events/SessionPending.php`, `src/Events/PrincipalSwitched.php`, `src/Sessions/PendingSession.php`,
   `src/Sessions/SwitchResult.php`, `src/SessionRecords/SwitchFloor.php`.
+- `src/Sessions/AdmissionRecheck.php`: `choice()` and `switch()`, the check of what a choice or a switch newly acts as
+  once it commits (see `session-lifecycle.md`).
 
 ## Authoritative Tests
 
 - `tests/Feature/Sessions/PendingSessionsTest.php` (a choice offered and listed, the factor before it, a choice
-  refused and made again, a factor asked after it, the proven session, the slots, discard)
+  refused and made again, a factor asked after it, the proven session, the slots, discard, a tenant deactivated before
+  the choice commits)
+- `tests/Feature/Sessions/AdmissionRecheckTest.php` and
+  `tests/Integration/Sessions/ConcurrentSignInAndDeactivationTest.php` (a choice and a switch racing a deactivation of
+  what they move the session to)
 - `tests/Feature/Sessions/SessionSwitchTest.php` (the switch over HTTP, the old access token refused at once, A -> B ->
   A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a switch read
   from the request and the transport's refusals, a switch screen's listing, a tenant-only switch and one of both,
   switching back to a tenant, two switches in one second, the destination tenant's refusals, the proofs kept, the
   identity-level factor policy not asked by a switch the destination lets through, its requirement named by one the
-  destination returns to pending, and a retry judged on the row read after the issuance guard, after a revocation, a
-  return to pending or another switch committed before it)
+  destination returns to pending, a retry judged on the row read after the issuance guard, after a revocation, a
+  return to pending or another switch committed before it, and a destination deactivated before the switch commits)
 - `tests/Integration/Sessions/SessionSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch, a
   different switch, a deadline change, a tenant or policy version change, a deletion and an owner change, and a swap
   lost to a refresh with no grace window or to two refreshes, which revokes the session)

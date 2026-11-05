@@ -1059,16 +1059,17 @@ never need it.
 
 Either the revocation reads the session, or the call's check, made after its commit, reads the change. So no session
 established before or concurrently with a deactivation or deletion works after the reactivation or restore, with the
-observers or with direct calls (inside the change's transaction or after it), on every engine and isolation level, with
-the models on any connection, for any principal and tenant the guard's resolvers resolve. The one exception is a change
-undone (reactivated, restored) before a call in flight checks its session: the check sees the subject standing again,
-and only the "tokens valid after" cutoff the revocation moved after the call began records the change, so a call in
-flight is ended when its identity's or principal's cutoff moved strictly after the second it began (as
-`issued_before_cutoff`, revoked as `signed_out_everywhere`). A subject that records no cutoff (a tenant always; an
-identity or principal without `HasTokensValidAfter`), or an undo within the second the call began, leaves that call's
-session standing: give identities and principals `ProvidesTokensValidAfter`. The cutoff ends a call in flight whatever
-moved it, so a sign-in, choice or switch under way while its identity signs out everywhere, changes or resets its
-password or removes a factor is ended too: it proved itself before that revocation.
+observers or with direct calls (inside the change's transaction or after it), on MySQL and PostgreSQL at READ COMMITTED
+and REPEATABLE READ (the levels the package's race tests run; MariaDB follows MySQL), with the models on any connection,
+for any principal and tenant the guard's resolvers resolve. The one exception is a change undone (reactivated, restored)
+before a call in flight checks its session: the check sees the subject standing again, and only the "tokens valid after"
+cutoff the revocation moved after the call began records the change, so a call in flight is ended when its identity's or
+principal's cutoff moved strictly after the second it began (as `issued_before_cutoff`, revoked as
+`signed_out_everywhere`). A subject that records no cutoff (a tenant always; an identity or principal without
+`HasTokensValidAfter`), or an undo within the second the call began, leaves that call's session standing: give
+identities and principals `ProvidesTokensValidAfter`. The cutoff ends a call in flight whatever moved it, so a sign-in,
+choice or switch under way while its identity signs out everywhere, changes or resets its password or removes a factor
+is ended too: it proved itself before that revocation.
 
 The check and the second pass run after durable commits. Outside your transaction a database error in either is
 thrown from the call with the session (or the change) committed, and the call is not answered with the session: call

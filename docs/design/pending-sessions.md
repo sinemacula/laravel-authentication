@@ -174,13 +174,16 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 - `src/Concerns/RecordsSessionStanding.php` and `src/Contracts/EloquentSessionStanding.php`: the record's columns.
 - `src/Events/SessionPending.php`, `src/Events/SessionReturnedToPending.php`, `src/Events/SessionActivated.php`.
 - `src/Sessions/SessionService.php`: `satisfy()`, `choose()`; `src/Sessions/SessionPreconditions.php`: `crossSite()`.
+- `src/Sessions/AdmissionRecheck.php`: `choice()`, `then()`, `refusal()` (the check a choice's write is held to once it
+  commits).
 
 ## Authoritative Tests
 
 - `tests/Feature/Sessions/PendingSessionsTest.php` (the actions per requirement, an unknown, expired, revoked,
   other-guard or tampered credential, every acceptance refusal, activation, moving on to the choice, a bootstrap
   enrolment proof, a recovery code, the gate's refusals, the proven session and its lock, the current reads, a refusal
-  and a deadlock inside a caller's transaction, the slots, discard), `tests/Unit/Sessions/PendingActionRefusedTest.php`
+  and a deadlock inside a caller's transaction, the slots, discard, a choice whose tenant is deactivated before it
+  commits), `tests/Unit/Sessions/PendingActionRefusedTest.php`
 - `tests/Feature/Sessions/PendingTransitionsTest.php` (a return to pending, its compare-and-swap, the version it
   records, its event)
 - `tests/Feature/Sessions/PendingEvaluationTest.php` (the gate's checks on their own) and

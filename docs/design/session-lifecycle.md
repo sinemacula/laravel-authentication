@@ -184,7 +184,7 @@ revoked, and when a session that ended is deleted. Starting a session is in
   model; revoking records why, ends the sessions in listings and makes the end outlast a restore. A sign-in that
   admitted the identity before the delete committed, and writes its session after the revocation read the sessions,
   ends that session itself: see "A session written while what it acts as was being deactivated or deleted" below.
-- A session written while what it acts as was being deactivated or deleted (BL-127). A sign-in, a pending session's
+- A session written while what it acts as was being deactivated or deleted. A sign-in, a pending session's
   choice of principal and a switch admit the identity, principal and tenant long before they write the session, so a
   deactivation or deletion committing in between is followed by a revocation that finds nothing. Closed without a lock
   (the sign-in path takes none on the identity, principal or tenant rows, and the lock order is unchanged), by two
@@ -327,6 +327,9 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - `src/Sessions/SessionRevocations.php`, `src/Sessions/RevocationWriter.php`, `src/Sessions/RevocationScope.php`,
   `src/SessionRecords/IdentitySessions.php`, `src/Jwt/RefreshRotationStore.php` (`revoke()`), `src/Guards/JwtGuard.php`
   (`logout()`), `src/Contracts/GuardBinding.php`, `src/Guards/AbstractGuard.php` (`forgetUser()`)
+- `src/Sessions/AdmissionRecheck.php` (the check after commit of a sign-in, choice or switch),
+  `src/Sessions/RevocationWriter.php` (`revokeAgain()`, the second pass), `src/Database/AfterCommit.php`
+  (`runAcross()`)
 
 ## Authoritative Tests
 
@@ -352,7 +355,14 @@ revoked, and when a session that ended is deleted. Starting a session is in
   inside the attempt, leaving the session working
 - `tests/Integration/Listeners/RevokeSessionsOnDeletionTest.php`: a soft-deleted identity's or principal's session
   refused at the `auth` middleware and at refresh beyond a restore, a force delete after a restore, a foreign-key
-  cascade from the identity, and the cutoff a soft delete moves, on SQLite, PostgreSQL and MySQL
+  cascade from the identity, the cutoff a soft delete moves, and a sign-in admitted before an identity's or principal's
+  soft delete never outliving the restore, on SQLite, PostgreSQL and MySQL
+- `tests/Feature/Sessions/AdmissionRecheckTest.php`: every refusal of the check after commit and its revocation reason,
+  the cutoff before, at and after the call's start, and the deferral across connections;
+  `tests/Feature/Sessions/SessionRevocationsTest.php`, `tests/Feature/Sessions/RevocationWriterTest.php`: the second
+  pass; `tests/Integration/Sessions/ConcurrentSignInAndDeactivationTest.php`: a sign-in, choice and switch racing a
+  deactivation or deletion in two processes on PostgreSQL and MySQL, at READ COMMITTED and REPEATABLE READ, the change
+  undone with and without a cutoff among them
 - `tests/Feature/Sessions/RevocationWriterTest.php`, `tests/Integration/Sessions/RevocationWriterTest.php`,
   `tests/Integration/Sessions/SeparateConnectionRevocationWriterTest.php`,
   `tests/Integration/Sessions/RevocationScopeTest.php`, `tests/Feature/Sessions/RevocationScopeTest.php`,
