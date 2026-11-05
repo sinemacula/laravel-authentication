@@ -236,8 +236,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `src/Proofs/FirstFactor.php` and the drivers' `authenticate()`: what a sign-in proves and how its session records it.
 - `src/Sessions/ProvenSessions.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`),
   `src/SessionRecords/SessionLookup.php`.
-- `src/Sessions/SessionPreconditions.php`: the `HasSessions` refusal, and `start()`'s one-principal rule and
-  reloaded-identity check.
+- `src/Sessions/SessionPreconditions.php`: the `HasSessions` refusal, `start()`'s one-principal rule and
+  reloaded-identity check, and the cookie application's same-site check (`crossSite()`).
 - `src/Admission/SignInAdmission.php`, shared with `attempt()`; `src/Admission/PinnedPrincipal.php`.
 - `src/Database/AfterCommit.php`, shared with the refresh exchange's revocation report.
 - `src/AuthManager.php`: `sessions()`, which builds the service per call; `src/Guards/JwtGuard.php`: `tokens()`.

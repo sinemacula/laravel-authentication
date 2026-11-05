@@ -52,6 +52,10 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   bootstrap enrolment applies is that package's to judge. `pending()` also answers `null` when the gate would refuse the
   identity, the method, or the principal and active tenant the session records (below, `PendingEvaluation::recorded()`),
   so nothing is sent or enrolled for a session that can never activate.
+- On a cookie application the session service holds `satisfy()` and `choose()` to the refresh cookie's same-site check
+  on the guard's request before it calls `PendingSessions` (`SessionPreconditions::crossSite()`): an activation sets the
+  cookie, so a request from another site fails as `cross_site_request` before the pending session is read, leaving it
+  pending, its credential unconsumed and the proof unstored (see `refresh-token-transport.md`).
 - `satisfy()` and `choose()` run in one transaction on the session's connection that locks the row, finds the credential
   again under the lock, and rolls back on any refusal, so a refused proof is never stored, a refused choice records
   nothing, and no refusal revokes the session: it waits until its credential expires, and only `discard()` ends it
@@ -159,6 +163,7 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   `src/Jwt/RefreshJudgment.php`: `classify()`.
 - `src/Concerns/RecordsSessionStanding.php` and `src/Contracts/EloquentSessionStanding.php`: the record's columns.
 - `src/Events/SessionPending.php`, `src/Events/SessionReturnedToPending.php`, `src/Events/SessionActivated.php`.
+- `src/Sessions/SessionService.php`: `satisfy()`, `choose()`; `src/Sessions/SessionPreconditions.php`: `crossSite()`.
 
 ## Authoritative Tests
 
@@ -176,6 +181,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 - `tests/Feature/Proofs/ProofAcceptanceTest.php`, `tests/Unit/Sessions/PendingSessionTest.php`,
   `tests/Unit/Sessions/PendingStateTest.php`, `tests/Unit/Sessions/Enums/PendingRequirementTest.php`,
   `tests/Unit/Traits/RecordsSessionStandingTest.php`, `tests/Unit/SessionRecords/SwitchFloorTest.php`
+- `tests/Feature/Sessions/SessionServiceTest.php` `testACookieApplicationRefusesACrossSiteSatisfaction`,
+  `testACookieApplicationRefusesACrossSiteChoice` (refused before the pending session is read, which stays pending)
 - `tests/Integration/Sessions/ConcurrentPendingSatisfactionTest.php` (two calls on one credential) and
   `tests/Integration/Sessions/ConcurrentPendingLocksTest.php` (satisfy, discard and the policy-change helper waiting on
   one another's row lock, and a satisfaction deadlocked on the proven session inside a caller's transaction, on
