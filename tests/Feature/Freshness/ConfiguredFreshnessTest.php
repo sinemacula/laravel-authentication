@@ -7,6 +7,7 @@ namespace Tests\Feature\Freshness;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -32,11 +33,13 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
+use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
@@ -46,7 +49,8 @@ use Tests\TestCase;
  * requirement each operation has on an application (configured, the caller's,
  * the stricter of both, or none), and whether a session holds a proof fresh
  * enough, judged on the newest that meets the requirement, on the session as
- * stored.
+ * stored; asked plainly and, inside a transaction, current, on the session as
+ * committed, which answer alike.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,7 +63,10 @@ use Tests\TestCase;
 #[CoversClass(SessionProofs::class)]
 final class ConfiguredFreshnessTest extends TestCase
 {
-    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions, MarksSharedLocks;
+
+    /** @var string What a current judgement outside a transaction is refused with. */
+    private const string OUTSIDE_A_TRANSACTION = 'A current freshness judgement is asked inside a transaction on the session model\'s connection.';
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -155,12 +162,12 @@ final class ConfiguredFreshnessTest extends TestCase
 
         $this->clockAt($this->now->addSeconds(899));
 
-        self::assertSame(ProofKind::FIRST_FACTOR, self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE)?->kind);
+        self::assertSame(ProofKind::FIRST_FACTOR, self::freshProof($record, Operations::IDENTIFIER_CHANGE)?->kind);
 
         $this->clockAt($this->now->addSeconds(900));
 
-        self::assertNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
-        self::assertNull(self::policy()->freshProof($record, Operations::PASSWORD_ESTABLISHMENT));
+        self::assertNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::freshProof($record, Operations::PASSWORD_ESTABLISHMENT));
     }
 
     /**
@@ -177,11 +184,11 @@ final class ConfiguredFreshnessTest extends TestCase
 
         $this->clockAt($this->now->addDays(20));
 
-        self::assertNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
 
         self::recordProof($record, ProofKind::FIRST_FACTOR_REAUTHENTICATION, $this->now->addDays(20)->subMinute(), ['pwd']);
 
-        self::assertSame(ProofKind::FIRST_FACTOR_REAUTHENTICATION, self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE)?->kind);
+        self::assertSame(ProofKind::FIRST_FACTOR_REAUTHENTICATION, self::freshProof($record, Operations::IDENTIFIER_CHANGE)?->kind);
     }
 
     /**
@@ -197,15 +204,15 @@ final class ConfiguredFreshnessTest extends TestCase
     {
         $record = $this->signedIn();
 
-        self::assertNull(self::policy()->freshProof($record, Operations::FACTOR_CHANGE));
+        self::assertNull(self::freshProof($record, Operations::FACTOR_CHANGE));
 
         self::recordProof($record, ProofKind::FIRST_FACTOR_REAUTHENTICATION, $this->now, ['pwd']);
 
-        self::assertNull(self::policy()->freshProof($record, Operations::FACTOR_CHANGE));
+        self::assertNull(self::freshProof($record, Operations::FACTOR_CHANGE));
 
         self::recordProof($record, ProofKind::RECOVERY_CODE, $this->now, ['otp'], new Evaluation(true, false));
 
-        self::assertSame(ProofKind::RECOVERY_CODE, self::policy()->freshProof($record, Operations::FACTOR_CHANGE)?->kind);
+        self::assertSame(ProofKind::RECOVERY_CODE, self::freshProof($record, Operations::FACTOR_CHANGE)?->kind);
     }
 
     /**
@@ -296,8 +303,8 @@ final class ConfiguredFreshnessTest extends TestCase
             $queries++;
         });
 
-        self::assertNull(self::policy()->freshProof($record, 'mfa.add_factor'));
-        self::assertNull(self::policy()->freshProof($record, 'Not An Operation'));
+        self::assertNull(self::freshProof($record, 'mfa.add_factor'));
+        self::assertNull(self::freshProof($record, 'Not An Operation'));
         self::assertSame(0, $queries);
     }
 
@@ -317,9 +324,9 @@ final class ConfiguredFreshnessTest extends TestCase
 
         config()->set('auth.guards.api.freshness', ['identifier_change' => ['max_age_seconds' => 1800, 'proofs' => ['first_factor']], 'factor_change' => null]);
 
-        self::assertNotNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
-        self::assertNull(self::policy()->freshProof($record, Operations::FACTOR_CHANGE));
-        self::assertNotNull(self::policy()->freshProof($record, Operations::FACTOR_CHANGE, new FreshnessRequirement(1800, [ProofKind::FIRST_FACTOR])));
+        self::assertNotNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::freshProof($record, Operations::FACTOR_CHANGE));
+        self::assertNotNull(self::freshProof($record, Operations::FACTOR_CHANGE, new FreshnessRequirement(1800, [ProofKind::FIRST_FACTOR])));
     }
 
     /**
@@ -335,24 +342,24 @@ final class ConfiguredFreshnessTest extends TestCase
     {
         $record = $this->signedIn();
 
-        self::assertNotNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNotNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
 
         DB::table('authentication_sessions')->update(['revoked_at' => $this->now]);
 
-        self::assertNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
 
         DB::table('authentication_sessions')->update(['revoked_at' => null, 'idle_expires_at' => $this->now]);
 
-        self::assertNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
 
         DB::table('authentication_sessions')->update(['idle_expires_at' => $this->now->addDay(), 'guard' => 'admin']);
 
-        self::assertNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
 
         Session::query()->delete();
 
-        self::assertNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
-        self::assertNull(self::policy()->freshProof(new Session, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::freshProof(new Session, Operations::IDENTIFIER_CHANGE));
     }
 
     /**
@@ -391,8 +398,8 @@ final class ConfiguredFreshnessTest extends TestCase
 
         self::recordProof($replacement, ProofKind::FIRST_FACTOR, $this->now);
 
-        self::assertNotNull(self::policy()->freshProof($replacement, Operations::IDENTIFIER_CHANGE));
-        self::assertNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNotNull(self::freshProof($replacement, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
     }
 
     /**
@@ -435,8 +442,8 @@ final class ConfiguredFreshnessTest extends TestCase
 
         self::recordProof($replacement, ProofKind::ADDITIONAL_FACTOR, $started, ['otp'], new Evaluation(true, true));
 
-        self::assertSame(ProofKind::ADDITIONAL_FACTOR, self::policy()->freshProof($replacement, Operations::FACTOR_CHANGE)?->kind);
-        self::assertNull(self::policy()->freshProof($retained, Operations::FACTOR_CHANGE));
+        self::assertSame(ProofKind::ADDITIONAL_FACTOR, self::freshProof($replacement, Operations::FACTOR_CHANGE)?->kind);
+        self::assertNull(self::freshProof($retained, Operations::FACTOR_CHANGE));
     }
 
     /**
@@ -451,14 +458,14 @@ final class ConfiguredFreshnessTest extends TestCase
     {
         $record = $this->signedIn();
 
-        self::assertNotNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNotNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
 
         foreach ([Contract::class, EloquentSession::class] as $contract) {
             $session = \Mockery::mock($contract);
             $session->shouldReceive('getGuard')->andReturn('api');
             $session->shouldReceive('getSessionIdentifier')->andReturn($record->getKey());
 
-            self::assertNull(self::policy()->freshProof($session, Operations::IDENTIFIER_CHANGE), $contract);
+            self::assertNull(self::freshProof($session, Operations::IDENTIFIER_CHANGE), $contract);
         }
     }
 
@@ -489,6 +496,107 @@ final class ConfiguredFreshnessTest extends TestCase
     }
 
     /**
+     * Asked current inside a transaction, for a proof or until when, the policy
+     * reads the session's row with a lock held until the transaction ends and
+     * its proofs with a shared lock (on MySQL and MariaDB, the marked SQLite
+     * included): still two queries. Asked plainly, it takes neither.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAskingCurrentLocksTheSessionAndReadsItsProofsCurrent(): void
+    {
+        $record = $this->signedIn();
+
+        self::markSharedLocks();
+
+        $policy = self::policy();
+
+        $judge   = static fn (): ?RecordedProof => $policy->freshProof($record, Operations::IDENTIFIER_CHANGE, current: true);
+        $current = self::statementsDuring(static fn (): mixed => DB::transaction($judge));
+        $plain   = self::statementsDuring(static fn (): ?RecordedProof => $policy->freshProof($record, Operations::IDENTIFIER_CHANGE));
+        $until   = self::statementsDuring(static fn (): ?CarbonImmutable => $policy->freshUntil($record, Operations::IDENTIFIER_CHANGE));
+        $lasts   = static fn (): ?CarbonImmutable => $policy->freshUntil($record, Operations::IDENTIFIER_CHANGE, current: true);
+        $lasting = self::statementsDuring(static fn (): mixed => DB::transaction($lasts));
+
+        self::assertSame($current, $lasting);
+        self::assertCount(2, $current);
+        self::assertTrue(str_contains($current[0], 'authentication_sessions') && self::locksForUpdate($current[0]));
+        self::assertSame([self::takesSharedLocks()], array_map(self::sharesLock(...), array_values(array_filter($current, self::readsProofs(...)))));
+        self::assertCount(2, $plain);
+        self::assertSame($plain, $until);
+        self::assertSame([], array_filter($plain, static fn (string $sql): bool => self::locksForUpdate($sql) || self::sharesLock($sql)));
+        self::assertSame(str_replace([' /* for update */', ' /* lock in share mode */', ' for update', ' lock in share mode'], '', $current), $plain);
+    }
+
+    /**
+     * Asked current outside any transaction, for a proof or until when, the
+     * policy refuses with a `LogicException` before it reads anything, the
+     * requirement included, for an operation with a requirement or with none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAskingCurrentOutsideATransactionThrowsAndReadsNothing(): void
+    {
+        $record = $this->signedIn();
+
+        $asks = [];
+
+        foreach ([Operations::IDENTIFIER_CHANGE, 'mfa.add_factor'] as $operation) {
+            $asks["freshProof: {$operation}"] = static fn (): ?RecordedProof => self::policy()->freshProof($record, $operation, current: true);
+            $asks["freshUntil: {$operation}"] = static fn (): ?CarbonImmutable => self::policy()->freshUntil($record, $operation, current: true);
+        }
+
+        foreach ($asks as $asked => $ask) {
+
+            $statements = self::statementsDuring(static function () use ($ask): void {
+                try {
+                    $ask();
+
+                    self::fail('A current judgement outside a transaction was answered.');
+                } catch (\LogicException $exception) {
+                    self::assertSame(self::OUTSIDE_A_TRANSACTION, $exception->getMessage());
+                }
+            });
+
+            self::assertSame([], $statements, $asked);
+        }
+    }
+
+    /**
+     * A session that is not an Eloquent session (a plain one, one that only
+     * names the boundary, or a model that does not implement it) is answered
+     * with no proof without a query, asked plainly or current.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionThatIsNotAnEloquentSessionIsAnsweredWithoutAQuery(): void
+    {
+        $record = $this->signedIn();
+
+        foreach ([Contract::class, EloquentSession::class, Model::class . ', ' . Contract::class] as $contract) {
+            $session = \Mockery::mock($contract);
+            $session->shouldReceive('getGuard')->andReturn('api');
+            $session->shouldReceive('getSessionIdentifier')->andReturn($record->getKey());
+            $session->shouldReceive('getConnection')->andReturn(DB::connection());
+
+            $statements = self::statementsDuring(static function () use ($session): void {
+                self::assertNull(self::policy()->freshProof($session, Operations::IDENTIFIER_CHANGE));
+                self::assertNull(self::policy()->freshUntil($session, Operations::IDENTIFIER_CHANGE));
+                self::assertNull(DB::transaction(static fn (): ?RecordedProof => self::policy()->freshProof($session, Operations::IDENTIFIER_CHANGE, current: true)));
+                self::assertNull(DB::transaction(static fn (): ?CarbonImmutable => self::policy()->freshUntil($session, Operations::IDENTIFIER_CHANGE, current: true)));
+            });
+
+            self::assertSame([], $statements, $contract);
+        }
+    }
+
+    /**
      * A session stays fresh until its newest qualifying proof is as old as the
      * effective requirement's maximum age: that second is the first that is no
      * longer fresh, and a stricter caller's age brings it forward. A session
@@ -506,23 +614,23 @@ final class ConfiguredFreshnessTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(3));
 
-        $until = self::policy()->freshUntil($record, Operations::IDENTIFIER_CHANGE);
+        $until = self::freshUntil($record, Operations::IDENTIFIER_CHANGE);
 
         self::assertSame($this->now->addMinutes(2)->addSeconds(900)->getTimestamp(), $until?->getTimestamp());
-        $stricter = self::policy()->freshUntil($record, Operations::IDENTIFIER_CHANGE, FreshnessRequirement::within(120));
+        $stricter = self::freshUntil($record, Operations::IDENTIFIER_CHANGE, FreshnessRequirement::within(120));
 
         self::assertSame($this->now->addMinutes(2)->addSeconds(120)->getTimestamp(), $stricter?->getTimestamp());
-        self::assertNull(self::policy()->freshUntil($record, Operations::FACTOR_CHANGE));
-        self::assertNull(self::policy()->freshUntil($record, 'mfa.add_factor'));
+        self::assertNull(self::freshUntil($record, Operations::FACTOR_CHANGE));
+        self::assertNull(self::freshUntil($record, 'mfa.add_factor'));
 
         $this->clockAt($until->subSecond());
 
-        self::assertNotNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNotNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
 
         $this->clockAt($until);
 
-        self::assertNull(self::policy()->freshProof($record, Operations::IDENTIFIER_CHANGE));
-        self::assertNull(self::policy()->freshUntil($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::freshProof($record, Operations::IDENTIFIER_CHANGE));
+        self::assertNull(self::freshUntil($record, Operations::IDENTIFIER_CHANGE));
     }
 
     /**
@@ -545,12 +653,12 @@ final class ConfiguredFreshnessTest extends TestCase
 
         self::assertSame('factor-b', $policy->freshProof($record, Operations::FACTOR_CHANGE)?->factor);
         self::assertSame('factor-a', $policy->freshProof($record, Operations::FACTOR_CHANGE, null, 'factor-b')?->factor);
-        self::assertSame($this->now->subMinutes(2)->addSeconds(900)->getTimestamp(), $policy->freshUntil($record, Operations::FACTOR_CHANGE, null, 'factor-b')?->getTimestamp());
+        self::assertSame($this->now->subMinutes(2)->addSeconds(900)->getTimestamp(), self::freshUntil($record, Operations::FACTOR_CHANGE, null, 'factor-b')?->getTimestamp());
 
         DB::table('authentication_proofs')->where('factor_reference', 'factor-a')->delete();
 
         self::assertNull($policy->freshProof($record, Operations::FACTOR_CHANGE, null, 'factor-b'));
-        self::assertNull($policy->freshUntil($record, Operations::FACTOR_CHANGE, null, 'factor-b'));
+        self::assertNull(self::freshUntil($record, Operations::FACTOR_CHANGE, null, 'factor-b'));
         self::assertNotNull($policy->freshProof($record, Operations::FACTOR_CHANGE, null, 'factor-c'));
     }
 
@@ -599,6 +707,52 @@ final class ConfiguredFreshnessTest extends TestCase
     private static function policy(): FreshnessPolicy
     {
         return app(FreshnessPolicy::class);
+    }
+
+    /**
+     * What the policy answers for the session, asked plainly and, inside a
+     * transaction, current, which must answer alike.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $operation
+     * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  ?string  $excludingFactor
+     * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
+     *
+     * @throws \Throwable
+     */
+    private static function freshProof(Contract $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?RecordedProof
+    {
+        $policy  = self::policy();
+        $plain   = $policy->freshProof($session, $operation, $requirement, $excludingFactor);
+        $current = DB::transaction(static fn (): ?RecordedProof => $policy->freshProof($session, $operation, $requirement, $excludingFactor, true));
+
+        self::assertEquals($plain, $current);
+
+        return $plain;
+    }
+
+    /**
+     * Until when the policy answers the session stays fresh, asked plainly and,
+     * inside a transaction, current, which must answer alike.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  string  $operation
+     * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
+     * @param  ?string  $excludingFactor
+     * @return ?\Carbon\CarbonImmutable
+     *
+     * @throws \Throwable
+     */
+    private static function freshUntil(Contract $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?CarbonImmutable
+    {
+        $policy  = self::policy();
+        $plain   = $policy->freshUntil($session, $operation, $requirement, $excludingFactor);
+        $current = DB::transaction(static fn (): ?CarbonImmutable => $policy->freshUntil($session, $operation, $requirement, $excludingFactor, true));
+
+        self::assertEquals($plain, $current);
+
+        return $plain;
     }
 
     /**

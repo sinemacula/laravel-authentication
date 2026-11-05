@@ -43,14 +43,19 @@ outdates, and why the change stands when the notice to the old identifier fails.
   locked until the commit and MySQL deadlocks two transactions that each create a counter in one gap of the index. Then,
   in one transaction on the identity's connection, it locks the identity's row (`Database\IdentityLock`), and, for a
   session proof, the session's row (`SessionRecords\SessionLookup::lock()`), and checks again that the proof stands
-  (`RecentAuthentication::stands()`: the session as locked and the freshness policy asked again; for a password, the
-  locked row's hash is the one read before the password was checked) and that the new identifier is not the current one.
-  A password write takes the identity's lock with its `UPDATE`, and a standalone bulk revocation updates the session's
-  row before it deletes the pending changes, so a password write racing a request proven by the old password, and a
-  revocation of the proving session, come either before that check, which then fails, or after the change is written,
-  which they then cancel. A password proof racing a revocation that leaves the password as it is is not serialised. The
-  current identifier and whether it is verified are read from the row as locked. A refusal under the lock writes
-  nothing, commits, and gives the `identifier_change` slots back.
+  (`RecentAuthentication::stands()`: the session as locked and the freshness policy asked again, under that lock, on
+  the session's proofs as committed, `freshProof()` asked current; for a password, the locked row's hash is the one
+  read before the password was checked) and that the new identifier is not the current one. So a step-up a factor's
+  removal voided before the lock never counts, whatever a caller's transaction read first.
+  The first check reads plainly and locks nothing (locking there would take the session's row before the identity's,
+  against the order the transaction takes): inside a caller's transaction at REPEATABLE READ it misses a step-up
+  committed after the caller's snapshot and refuses (`reauthentication_required`), failing closed. A password write
+  takes the identity's lock with its `UPDATE`, and a standalone bulk revocation updates the session's row before it
+  deletes the pending changes, so a password write racing a request proven by the old password, and a revocation of the
+  proving session, come either before that check, which then fails, or after the change is written, which they then
+  cancel. A password proof racing a revocation that leaves the password as it is is not serialised. The current
+  identifier and whether it is verified are read from the row as locked. A refusal under the lock writes nothing,
+  commits, and gives the `identifier_change` slots back.
 - A request needs a new identifier the type's normaliser accepts (a type without a normaliser is a misconfiguration)
   that is not the current one in canonical form, and a slot of `rate_limits.identifier_change` for the new identifier,
   the identity's account and the IP address, given back only by a refusal under the lock. It never looks for another
@@ -170,7 +175,12 @@ outdates, and why the change stands when the notice to the old identifier fails.
   invalidated proofs, notices and their failure.
 - `tests/Feature/IdentifierChanges/RecentAuthenticationTest.php`: the requirement's age from its first second to its
   last, sessions that prove nothing, a refresh that does not renew, a step-up and a reauthentication that do, a password
-  taken only when the requirement allows one, checked and counted.
+  taken only when the requirement allows one, checked and counted; only the check under the lock reads the session's
+  proofs current. `ReboundFreshnessPolicyTest.php`: the bound policy's current answer under the lock decides (fresh
+  plainly but not current refuses).
+- `tests/Integration/Sessions/CurrentFreshnessReadsTest.php`: inside a caller's transaction that read first, a step-up
+  voided meanwhile refuses the request at READ COMMITTED and REPEATABLE READ on PostgreSQL and MySQL, and one committed
+  meanwhile is counted at READ COMMITTED and refused by the plain first check at REPEATABLE READ.
 - `tests/Feature/IdentifierChanges/IdentifierChangeServiceTest.php` (misconfiguration, the connection rule),
   `IdentifierChangeRoutesTest.php`, `ChangeLinksTest.php`; `tests/Feature/Database/SharedConnectionTest.php`.
 - `tests/Feature/IdentifierChanges/EndedSessionsCancelChangesTest.php`: every bulk revocation of the identity cancels

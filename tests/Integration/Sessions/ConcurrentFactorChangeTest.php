@@ -11,24 +11,30 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
+use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Sessions\FactorChangeGate;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use Tests\Concerns\InteractsWithIsolationLevels;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
 /**
  * Races the factor-change gate against a revocation of the session it is asked
- * about, on PostgreSQL and MySQL, each in a process with a database connection
- * of its own: the gate's lock on the session's row is held until the caller's
+ * about, and against a factor's removal that voids the step-up it would count,
+ * on PostgreSQL and MySQL, each in a process with a database connection of its
+ * own: the gate's lock on the session's row is held until the caller's
  * transaction commits, so a revocation started meanwhile waits for the change,
- * and a gate started while a revocation holds the row waits and then finds the
- * session revoked.
+ * a gate started while a revocation holds the row waits and then finds the
+ * session revoked, and a gate started while a removal holds it waits and then
+ * judges the session's proofs as committed, whatever its caller's transaction
+ * read first.
  *
  * Skipped on SQLite, where each process would have an in-memory database of its
  * own, and where `pcntl` is not available.
@@ -41,7 +47,7 @@ use Tests\TestCase;
 #[CoversClass(FactorChangeGate::class)]
 final class ConcurrentFactorChangeTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithIsolationLevels, InteractsWithProofs, InteractsWithSessions;
 
     /** @var int How long the first call holds its transaction open once the second has started, in microseconds. */
     private const int HOLD_MICROSECONDS = 1000000;
@@ -160,6 +166,60 @@ final class ConcurrentFactorChangeTest extends TestCase
     }
 
     /**
+     * A change asked inside a caller's transaction that read the session's
+     * proofs first, while a removal of the step-up's factor on another
+     * connection holds the session's row, waits on it, then never counts the
+     * step-up the removal voided: it is refused (`step_up_required`) with no
+     * proof. At PostgreSQL's REPEATABLE READ the gate's lock fails to serialise
+     * first, and the caller's retry of its whole transaction is refused the
+     * same way. A gate that judged the caller's snapshot would allow the change
+     * on a proof that no longer counts.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testAChangeWaitingOnAFactorRemovalNeverCountsTheStepUpItVoided(string $level): void
+    {
+        $signedIn = $this->steppedUp();
+        $snapshot = self::readsASnapshot($level);
+
+        [$removal, $second] = $this->race(
+            function () use ($signedIn): array {
+                $removal = $this->sessions()->factorRemoved($signedIn->identity, 'factor-1', $signedIn->record);
+
+                return [$removal->revoked, $removal->currentRevoked, $removal->isPending()];
+            },
+            function () use ($level, $signedIn, $snapshot): array {
+                $change  = fn (): FactorChangeVerdict => $this->sessions()->factorChange($signedIn->record, FactorChange::ADD);
+                $failure = $snapshot ? self::serializationFailure($change) : null;
+
+                if ($snapshot) {
+                    self::beginTransactionAt($level);
+                }
+
+                $verdict = $change();
+
+                DB::commit();
+
+                return ['failure' => $failure, 'reason' => $verdict->reason?->value, 'proof' => $verdict->proof?->id];
+            },
+            static function () use ($level): void {
+                self::beginTransactionAt($level);
+
+                self::assertSame(0, DB::table('authentication_proofs')->whereNotNull('voided_at')->count());
+            },
+        );
+
+        self::assertSame([0, false, false], $removal);
+        self::assertSame([$snapshot ? '40001' : null, FailureReason::STEP_UP_REQUIRED->value, null], [$second['failure'], $second['reason'], $second['proof']]);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertSame(1, DB::table('authentication_proofs')->whereNotNull('voided_at')->count());
+    }
+
+    /**
      * Configure the guards.
      *
      * @param  mixed  $app
@@ -201,22 +261,31 @@ final class ConcurrentFactorChangeTest extends TestCase
      * Run the first call here inside a transaction, start the second in another
      * process once the first has taken its locks, hold the transaction open
      * while the second waits on them, then commit, and return the first's
-     * outcome and the second's, with how long it waited.
+     * outcome and the second's, with how long it waited. Work to prepare the
+     * second, given, runs in the other process before the first starts (a
+     * caller's transaction opened and read first, say).
      *
      * @param  \Closure(): mixed  $first
      * @param  \Closure(): array<string, mixed>  $second
+     * @param  ?\Closure(): void  $prepare
      * @return array{0: mixed, 1: array<array-key, mixed>}
      *
      * @throws \Throwable
      */
-    private function race(\Closure $first, \Closure $second): array
+    private function race(\Closure $first, \Closure $second, ?\Closure $prepare = null): array
     {
         DB::disconnect();
 
         $pid = pcntl_fork();
 
         if ($pid === 0) {
-            $this->runInChild($second);
+            $this->runInChild($second, $prepare);
+        }
+
+        $deadline = microtime(true) + self::START_TIMEOUT_SECONDS;
+
+        while ($prepare !== null && !is_file("{$this->outcomes}/prepared") && !is_file("{$this->outcomes}/outcome") && microtime(true) < $deadline) {
+            usleep(5000);
         }
 
         DB::beginTransaction();
@@ -239,16 +308,23 @@ final class ConcurrentFactorChangeTest extends TestCase
     }
 
     /**
-     * In the forked process: wait to be started, run the call on a connection
-     * of its own, report its outcome and how long it took, and end without
-     * running the parent's shutdown.
+     * In the forked process: run the preparation, if any, and say so, wait to
+     * be started, run the call on a connection of its own, report its outcome
+     * and how long it took, and end without running the parent's shutdown.
      *
      * @param  \Closure(): array<string, mixed>  $call
+     * @param  ?\Closure(): void  $prepare
      * @return never
      */
-    private function runInChild(\Closure $call): never
+    private function runInChild(\Closure $call, ?\Closure $prepare): never
     {
         try {
+            if ($prepare !== null) {
+                $prepare();
+
+                touch("{$this->outcomes}/prepared");
+            }
+
             $deadline = microtime(true) + self::START_TIMEOUT_SECONDS;
 
             while (!is_file("{$this->outcomes}/start") && microtime(true) < $deadline) {

@@ -94,7 +94,12 @@ transaction that locks that row (and the proving session's row, for a session pr
 stands and that the identifier is not the current one, and writes the change. A refusal there gives the
 `identifier_change` slots back. So a password change or a reset racing a request proven by the old password, and a
 revocation of the session that proves one, come either before the check under the lock, which then fails, or after the
-change is written, which they then cancel. A password proof racing a revocation that leaves the password as it is is not
+change is written, which they then cancel. The check under the lock judges a session proof's freshness on the session's
+proofs as committed, the freshness policy asked current (see [Issuance order](sessions.md#issuance-order)): a step-up
+a factor's removal voided before it never counts, whatever a transaction of yours around the call read first. The first
+check, before the transaction, reads plainly, so inside a transaction of yours at REPEATABLE READ it may miss a proof
+recorded after your first read and refuse (`reauthentication_required`); it never lets a voided one through, as the
+check under the lock refuses it. A password proof racing a revocation that leaves the password as it is is not
 serialised. The current identifier is read from the row as locked. The limits are counted before the transaction, never
 inside it, so no counter's row stays locked until its commit: on MySQL, two transactions that each create a counter in
 the same gap of the index deadlock (inside a transaction of yours, see the note on transactions under [Rate

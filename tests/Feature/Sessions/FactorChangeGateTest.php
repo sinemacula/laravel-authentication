@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\Reauthenticated;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
 use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
+use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
@@ -37,8 +38,10 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\FactorChangeGate;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
+use Tests\Fixtures\Freshness\DecoratingFreshness;
 use Tests\Fixtures\Freshness\ScriptedFreshness;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
@@ -58,7 +61,7 @@ use Tests\TestCase;
 #[CoversTrait(GatesFactorChanges::class)]
 final class FactorChangeGateTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithSessions, MarksSharedLocks;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -264,7 +267,7 @@ final class FactorChangeGateTest extends TestCase
 
         $verdict = $this->sessions()->factorChange($signedIn->record, FactorChange::REMOVE, factor: 'factor-a');
 
-        self::assertSame(['requirement:api:factor_change', 'freshProof:factor_change:factor-a'], $policy->asked);
+        self::assertSame(['requirement:api:factor_change', 'freshProof:factor_change:factor-a (current)'], $policy->asked);
         self::assertSame($this->now->addSeconds(120)->getTimestamp(), $verdict->freshUntil?->getTimestamp());
 
         $refusing = new ScriptedFreshness(null);
@@ -460,6 +463,46 @@ final class FactorChangeGateTest extends TestCase
         $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
 
         self::assertContains(Reauthenticated::class, $events);
+    }
+
+    /**
+     * The gate judges freshness on the session's proofs as committed: inside
+     * its lock, the package's policy reads the session's row again with a
+     * locking read and its proofs with a shared lock (on MySQL and MariaDB, the
+     * marked SQLite included). A bound policy is asked current too, and one
+     * that passes that on to the package's reads the same way.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheGateJudgesFreshnessOnTheProofsAsCommitted(): void
+    {
+        $signedIn = $this->signedIn();
+
+        $this->stepUp($signedIn, 'factor-a', $this->now);
+
+        self::markSharedLocks();
+
+        $gate = fn (): FactorChangeVerdict => DB::transaction(fn (): FactorChangeVerdict => $this->sessions()->factorChange($signedIn->record, FactorChange::ADD));
+
+        $verdict    = null;
+        $statements = self::statementsDuring(static function () use ($gate, &$verdict): void {
+            $verdict = $gate();
+        });
+
+        self::assertTrue($verdict?->isAllowed());
+        self::assertCount(3, $statements);
+        self::assertSame([true, true], array_map(self::locksForUpdate(...), array_slice($statements, 0, 2)));
+        self::assertStringContainsString('authentication_sessions', $statements[1]);
+        self::assertSame([self::takesSharedLocks()], self::proofReadLocks($gate));
+
+        $decorating = new DecoratingFreshness(app(ConfiguredFreshness::class));
+
+        app()->instance(FreshnessPolicy::class, $decorating);
+
+        self::assertSame([self::takesSharedLocks()], self::proofReadLocks($gate));
+        self::assertSame(['requirement', 'freshProof (current)'], $decorating->asked);
     }
 
     /**

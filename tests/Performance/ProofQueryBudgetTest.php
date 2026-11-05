@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Context\ContributionSubject;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Session as Contract;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
@@ -234,8 +235,10 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Asking the freshness policy reads the session and its freshest proof;
-     * an operation with no requirement reads nothing.
+     * Asking the freshness policy, for a proof or until when, reads the session
+     * and its freshest proof, plainly or, inside a transaction, current (the
+     * session's row locked); an operation with no requirement, or a session
+     * that is not an Eloquent session, reads nothing.
      *
      * @return void
      *
@@ -245,17 +248,33 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     {
         $record = $this->signedIn()->record;
         $policy = app(FreshnessPolicy::class);
+        $plain  = \Mockery::mock(Contract::class);
+
+        $plain->shouldReceive('getGuard')->andReturn('api');
+        $plain->shouldReceive('getSessionIdentifier')->andReturn($record->getKey());
+
+        $current = static fn (Contract $session, string $operation): ?RecordedProof => DB::transaction(
+            static fn (): ?RecordedProof => $policy->freshProof($session, $operation, current: true),
+        );
 
         self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?RecordedProof => $policy->freshProof($record, Operations::IDENTIFIER_CHANGE)));
         self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?CarbonImmutable => $policy->freshUntil($record, Operations::IDENTIFIER_CHANGE, null, 'factor-a')));
+        self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?RecordedProof => $current($record, Operations::IDENTIFIER_CHANGE)));
+        self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?CarbonImmutable => DB::transaction(
+            static fn (): ?CarbonImmutable => $policy->freshUntil($record, Operations::IDENTIFIER_CHANGE, current: true),
+        )));
         self::assertNull($this->assertQueryBudget(0, 0, static fn (): ?RecordedProof => $policy->freshProof($record, 'mfa.add_factor')));
         self::assertNull($this->assertQueryBudget(0, 0, static fn (): ?CarbonImmutable => $policy->freshUntil($record, 'mfa.add_factor')));
+        self::assertNull($this->assertQueryBudget(0, 0, static fn (): ?RecordedProof => $current($record, 'mfa.add_factor')));
+        self::assertNull($this->assertQueryBudget(0, 0, static fn (): ?RecordedProof => $policy->freshProof($plain, Operations::IDENTIFIER_CHANGE)));
+        self::assertNull($this->assertQueryBudget(0, 0, static fn (): ?RecordedProof => $current($plain, Operations::IDENTIFIER_CHANGE)));
     }
 
     /**
-     * Asking the factor-change gate locks the session's row, then reads it and
-     * its freshest proof as the freshness policy does, and writes nothing,
-     * however many proofs the session holds.
+     * Asking the factor-change gate locks the session's row, then reads it
+     * again, locked, and its freshest proof current, as the freshness policy
+     * does under the lock, and writes nothing, however many proofs the session
+     * holds.
      *
      * @return void
      *

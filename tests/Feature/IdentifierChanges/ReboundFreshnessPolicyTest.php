@@ -31,7 +31,7 @@ use Tests\TestCase;
  * ask the bound policy, whose requirement decides whether a password is taken
  * and whose answer decides whether a session is fresh, while the package still
  * judges the session itself, before the transaction and on its locked row
- * inside it.
+ * inside it, where the policy is asked current.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -78,7 +78,7 @@ final class ReboundFreshnessPolicyTest extends TestCase
      * signed in days ago, stale under the configured freshness, is fresh when
      * the policy finds a proof, and one that signed in just now is not when it
      * finds none. It is asked for the requirement up front, then for a proof
-     * before the transaction and again inside it.
+     * before the transaction and again, current, inside it.
      *
      * @return void
      *
@@ -91,7 +91,7 @@ final class ReboundFreshnessPolicyTest extends TestCase
         $request  = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity, 'web', $this->now->subDays(10))));
 
         self::assertSame(IdentifierChangeRequestStatus::SENT, $request->status);
-        self::assertSame(['requirement:web:identifier_change', 'freshProof:identifier_change', 'freshProof:identifier_change'], $policy->asked);
+        self::assertSame(['requirement:web:identifier_change', 'freshProof:identifier_change', 'freshProof:identifier_change (current)'], $policy->asked);
 
         DB::table('identifier_changes')->delete();
 
@@ -156,6 +156,27 @@ final class ReboundFreshnessPolicyTest extends TestCase
         $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session));
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
+        self::assertSame([0, 0], [self::rows('identifier_changes'), self::rows('one_time_codes')]);
+    }
+
+    /**
+     * The bound policy is asked plainly for the check before the transaction
+     * and current for the check under the lock, and the current answer decides:
+     * a session it finds fresh plainly but not as committed (a proof voided
+     * after the first check) refuses the request, with nothing written or sent.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheCurrentAnswerUnderTheLockDecides(): void
+    {
+        $identity = self::seedChangeable();
+        $policy   = $this->bind(new ScriptedFreshness(null, true, null, false));
+        $request  = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity)));
+
+        self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
+        self::assertSame(['requirement:web:identifier_change', 'freshProof:identifier_change', 'freshProof:identifier_change (current)'], $policy->asked);
         self::assertSame([0, 0], [self::rows('identifier_changes'), self::rows('one_time_codes')]);
     }
 

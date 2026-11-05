@@ -140,11 +140,14 @@ only duplicate them.
 - The policy judges the new password before the transaction. In it the identity's row is locked, then the session's
   (the order identifier changes take); the session is judged again as locked; a change's hash must still be the one
   the current password was checked against (`invalid_credentials`), an establishment's row must still have none and its
-  session a proof fresh enough for `password_establishment` (`reauthentication_required`). `PasswordWriter` writes it;
-  an establishment's `UPDATE` matches only a row whose password is `null` or empty, and one that matches none throws
-  `PasswordAlreadySet`, which rolls the transaction back and answers `password_already_set`, so of two establishments,
-  or an establishment and a reset, at most one writes. Every other session ends (`password_changed`,
-  `password_established`); `PasswordSet` follows the commit. Refusals are reported on the `password_change` flow.
+  session a proof fresh enough for `password_establishment` (`reauthentication_required`), judged under the lock on the
+  session's proofs as committed (`freshProof()` asked current, see `proofs-and-freshness.md`), so a proof voided before
+  the establishment never counts and one recorded before it does, whatever a caller's transaction read first.
+  `PasswordWriter` writes it; an establishment's `UPDATE` matches only a row whose password is `null` or empty, and one
+  that matches none throws `PasswordAlreadySet`, which rolls the transaction back and answers `password_already_set`, so
+  of two establishments, or an establishment and a reset, at most one writes. Every other session ends
+  (`password_changed`, `password_established`); `PasswordSet` follows the commit. Refusals are reported on the
+  `password_change` flow.
 - Reset tokens and codes reach the API only in a request's body: `resetFromRequest()` and `resetWithCodeFromRequest()`
   read `Http\RequestBody::fields()` (JSON or form, never the query string). There is no reset status lookup.
 
@@ -246,6 +249,15 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
   exception: it rolls back and retries whole. PostgreSQL's `lock_timeout` (SQLSTATE `55P03`) is none of the errors
   Laravel's concurrency detector names, so `transaction()` rolls the reset back to its savepoint and rethrows the
   `QueryException` as raised.
+- An establishment racing a request on a neighbouring session of the same identity: on MySQL and MariaDB at REPEATABLE
+  READ the judgement's current read holds the gap at the edge of the session's proofs until the establishment's
+  transaction ends, and the establishment then ends the identity's other sessions. A step-up or reauthentication of a
+  neighbouring session that holds that session's row while its proof waits on the gap, and the establishment waiting on
+  that row, deadlock; the database fails one side with nothing half-written (inside a caller's transaction, as
+  `DeadlockException` with the caller's level restored), and the caller retries whole. Not reordered: locking every live
+  session of the identity before each judgement would gap-lock the identity's range in the owner index and hold up its
+  every sign-in on every establishment (see `proofs-and-freshness.md`). At READ COMMITTED it waits and completes; at
+  PostgreSQL's REPEATABLE READ it fails to serialise, and a retry completes.
 - An identity on another connection than the storage connection: refused with a `LogicException`, since the proof and
   the change could not commit as one; `authentication:check` warns about such a guard, as it does about a non-`email`
   password identifier while Laravel's notification is the sender.
@@ -279,7 +291,8 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
 - `tests/Unit/Passwords/SensitiveParametersTest.php` (every parameter a password, token, code or the input holding one
   passes through is `#[\SensitiveParameter]`)
 - `tests/Unit/Testing/FakeBreachedPasswordCheckerTest.php`
-- `tests/Feature/Passwords/PasswordServiceTest.php`
+- `tests/Feature/Passwords/PasswordServiceTest.php`, `tests/Feature/Passwords/PasswordChangesTest.php` (a change and an
+  establishment, the establishment's freshness judged under the lock on the proofs as committed)
 - `tests/Integration/Passwords/PasswordWriterTest.php`
 - `tests/Integration/Passwords/SeparateConnectionPasswordWriterTest.php`
 - `tests/Performance/PasswordSetQueryBudgetTest.php`
@@ -293,8 +306,11 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
   transaction by another process, thrown on as `DeadlockException` with the caller's level restored, on PostgreSQL and
   MySQL),
   `tests/Integration/Passwords/ConcurrentProofSpendingTest.php` (a password write racing a reset, a confirmation and an
-  identifier change request, a bulk revocation racing a confirmation and a request, and the documented password change
-  racing a reset either way, on PostgreSQL and MySQL), `tests/Integration/Database/IdentityLockTest.php`,
+  identifier change request, a bulk revocation racing a confirmation and a request, the documented password change
+  racing a reset either way, and an establishment crossing a neighbouring session's proof, on PostgreSQL and MySQL),
+  `tests/Integration/Sessions/CurrentFreshnessReadsTest.php` (an establishment inside a caller's transaction that read
+  first: a step-up voided meanwhile refuses, one committed meanwhile sets),
+  `tests/Integration/Database/IdentityLockTest.php`,
   `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`,
   `tests/Feature/Database/SharedConnectionTest.php`
 - `tests/Integration/Codes/OneTimeCodesTest.php` (the token tests), `tests/Unit/Config/JwtGuardsTest.php`

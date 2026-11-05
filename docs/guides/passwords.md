@@ -152,10 +152,22 @@ An establishment needs the identity to have no password (`password_already_set`,
 identity's lock) and a proof on the session fresh enough for the `password_establishment` operation
 (`reauthentication_required` otherwise; configure it under `freshness`, see [Freshness](sessions.md#freshness)): by
 default, any proof made within the last 900 seconds, so a session signed in moments ago establishes one, and an older
-one reauthenticates first. The password is written only while the row still has none, in the same statement, so of two
-establishments, or an establishment and a reset, at most one writes; every other session ends
-(`password_established`), and `PasswordSet` reports the flow `establishment`. Every refusal but a rejected password is
-reported by `AuthenticationFailed` on the `password_change` flow.
+one reauthenticates first. The freshness is judged under the identity's and the session's locks, the freshness policy
+asked current, on the session's proofs as committed (see [Issuance order](sessions.md#issuance-order)): a proof voided
+before the establishment never counts, and one recorded before it does, whatever a transaction of yours around the call
+read first. The password is written
+only while the row still has none, in the same statement, so of two establishments, or an establishment and a reset, at
+most one writes; every other session ends (`password_established`), and `PasswordSet` reports the flow
+`establishment`. Every refusal but a rejected password is reported by `AuthenticationFailed` on the `password_change`
+flow.
+
+On MySQL and MariaDB at REPEATABLE READ the judgement's read of the proofs holds the gaps beside the session's proofs
+until the establishment's transaction ends (yours, when you wrap the call), and the establishment then ends the
+identity's other sessions. A request on a neighbouring session of the same identity that holds that session's row while
+it records a proof falling in one of those gaps (a step-up, a reauthentication) waits on the establishment while the
+establishment waits on its row, and the database fails one of them as a deadlock: nothing is half-written, and inside a
+transaction of yours it reaches you as Laravel's `DeadlockException` with your level restored. Roll your whole
+transaction back and retry it.
 
 ## Setting a password
 

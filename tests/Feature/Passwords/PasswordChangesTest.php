@@ -11,6 +11,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -30,7 +31,9 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use Tests\Concerns\InteractsWithPasswords;
 use Tests\Concerns\InteractsWithRateLimits;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Events\EventContextAssertions;
+use Tests\Fixtures\Freshness\ScriptedFreshness;
 use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\Integration\Fixtures\PasswordMachine;
 use Tests\TestCase;
@@ -55,7 +58,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 #[CoversClass(PasswordResult::class)]
 final class PasswordChangesTest extends TestCase
 {
-    use InteractsWithPasswords, InteractsWithRateLimits;
+    use InteractsWithPasswords, InteractsWithRateLimits, MarksSharedLocks;
 
     /** @var string A new password the default policy accepts. */
     private const string NEW_PASSWORD = 'a brand new passphrase';
@@ -388,6 +391,81 @@ final class PasswordChangesTest extends TestCase
         self::assertSame(['password_established'], DB::table('authentication_sessions')->whereNotNull('revoked_at')->pluck('revoked_reason')->all());
         self::assertSame(self::NOW, $identity->fresh()?->tokens_valid_after?->format('Y-m-d H:i:s'));
         self::assertSame(PasswordFlow::ESTABLISHMENT, $this->recordedEvent(PasswordSet::class)->flow);
+    }
+
+    /**
+     * An establishment judges its freshness under the session's lock on the
+     * session's proofs as committed: after the plain read before the
+     * transaction, the session's row is read with a lock held until the
+     * transaction ends, once by the establishment and once more by the
+     * freshness policy, and its proofs with a shared lock (on MySQL and
+     * MariaDB, the marked SQLite included); a change locks the row once, asks
+     * no freshness and reads no proof.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnEstablishmentJudgesFreshnessOnTheProofsAsCommitted(): void
+    {
+        $identity = self::seedPasswordIdentity(attributes: ['password' => null]);
+        $session  = $this->started($identity);
+
+        self::markSharedLocks();
+
+        $results     = [];
+        $established = self::statementsDuring(static function () use ($session, &$results): void {
+            $results[] = Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->isSet();
+        });
+        $changed = self::statementsDuring(static function () use ($session, &$results): void {
+            $results[] = Auth::passwords('web')->change($session, self::NEW_PASSWORD, 'another new passphrase')->isSet();
+        });
+        $readsSession = static fn (string $sql): bool => str_starts_with($sql, 'select') && str_contains($sql, 'authentication_sessions');
+        $sessionReads = static fn (array $statements): array => array_filter($statements, $readsSession);
+        $locks        = static fn (array $statements): array => array_map(self::locksForUpdate(...), array_values($sessionReads($statements)));
+
+        self::assertSame([true, true], $results);
+        self::assertSame([false, true, true], array_slice($locks($established), 0, 3));
+        self::assertSame([self::takesSharedLocks()], array_map(self::sharesLock(...), array_values(array_filter($established, self::readsProofs(...)))));
+        self::assertSame([false, true], array_slice($locks($changed), 0, 2));
+        self::assertSame([], array_filter($changed, self::readsProofs(...)));
+    }
+
+    /**
+     * A freshness policy the application binds is asked current under the
+     * session's lock, and its current answer decides: one that finds a fresh
+     * proof plainly but none current refuses the establishment
+     * (`reauthentication_required`) with nothing written, and one that finds
+     * none plainly but one current establishes.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABoundFreshnessPolicyIsAskedCurrentAndItsCurrentAnswerDecides(): void
+    {
+        $identity = self::seedPasswordIdentity(attributes: ['password' => null]);
+        $session  = $this->started($identity);
+
+        $this->started($identity, 'admin');
+
+        $stale = new ScriptedFreshness(null, true, null, false);
+
+        app()->instance(FreshnessPolicy::class, $stale);
+
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->reason);
+        self::assertSame(['freshProof:password_establishment (current)'], $stale->asked);
+        self::assertNull(DB::table('password_identities')->value('password'));
+        self::assertNull($identity->fresh()?->tokens_valid_after);
+        self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
+
+        $fresh = new ScriptedFreshness(null, false, null, true);
+
+        app()->instance(FreshnessPolicy::class, $fresh);
+
+        self::assertTrue(Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->isSet());
+        self::assertSame(['freshProof:password_establishment (current)'], $fresh->asked);
+        self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) $identity->fresh()?->password));
     }
 
     /**

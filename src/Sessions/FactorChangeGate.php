@@ -32,12 +32,15 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
  * owner), this guard's, not revoked, not pending (a pending session enrols its
  * bootstrap factor through the pending credential's actions instead) and not
  * ended, and a person's. Then the freshness policy judges it for the change's
- * operation: `first_additional_factor` for an identity's first additional
- * factor, which has no factor to step up with and so takes a reauthentication
- * with the first factor (`reauthentication_required`), and `factor_change` for
- * every other change, which takes a step-up (`step_up_required`). A replacement
- * or removal names the factor it acts on, whose own proofs never count. The
- * stricter of the caller's requirement and the configured one applies.
+ * operation, under the lock, on the session's proofs as committed (asked
+ * current), so a step-up voided before the gate never counts, whatever the
+ * transaction read first: `first_additional_factor` for an identity's first
+ * additional factor, which has no factor to step up with and so takes a
+ * reauthentication with the first factor (`reauthentication_required`), and
+ * `factor_change` for every other change, which takes a step-up
+ * (`step_up_required`). A replacement or removal names the factor it acts on,
+ * whose own proofs never count. The stricter of the caller's requirement and
+ * the configured one applies.
  *
  * It decides; it writes nothing and reports nothing. Whether the identity
  * already has a further factor, and what an added factor's destination is, are
@@ -85,7 +88,8 @@ final readonly class FactorChangeGate
     }
 
     /**
-     * Lock the session and judge it for the change, in the transaction.
+     * Lock the session and judge it for the change, in the transaction, its
+     * freshness on its proofs as committed.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Factors\Enums\FactorChange  $change
@@ -108,7 +112,7 @@ final readonly class FactorChangeGate
         $policy    = $this->container->make(FreshnessPolicy::class);
         $operation = $change->operation();
         $effective = $policy->requirement($this->context->name(), $operation, $requirement);
-        $proof     = $effective === null ? null : $policy->freshProof($locked, $operation, $requirement, $factor);
+        $proof     = $effective === null ? null : $policy->freshProof($locked, $operation, $requirement, $factor, current: true);
 
         if ($effective === null || $proof === null) {
             return FactorChangeVerdict::refused($change === FactorChange::ADD_FIRST ? FailureReason::REAUTHENTICATION_REQUIRED : FailureReason::STEP_UP_REQUIRED);

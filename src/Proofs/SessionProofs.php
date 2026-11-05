@@ -42,17 +42,18 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * evidence its proofs hold accepted, `connectionId()` the connection its
  * provenance records, and `provenance()` the whole provenance.
  *
- * `history()`, `query()`, `firstFactor()`, `acceptedEvidence()`,
- * `connectionId()` and `provenance()` read current when asked (`$current`):
- * what is committed now rather than what the transaction's snapshot holds. They
- * are asked so only by a caller that holds the session's row locked in the
- * transaction (an issuance once it has written the session's issuance guard,
- * every requirement judgement made under the row's lock, a session's external
- * standing answered under it, and a read of an active session's proofs or first
- * factor inside a transaction), and only MySQL and MariaDB need it: their plain
- * reads inside a REPEATABLE READ transaction return the snapshot of its first
- * read, so a current read there takes a shared lock on the rows it reads, held
- * until the transaction ends (outside one, until the statement ends). At
+ * `history()`, `newestMeeting()`, `query()`, `firstFactor()`,
+ * `acceptedEvidence()`, `connectionId()` and `provenance()` read current when
+ * asked (`$current`): what is committed now rather than what the transaction's
+ * snapshot holds. They are asked so only by a caller that holds the session's
+ * row locked in the transaction (an issuance once it has written the session's
+ * issuance guard, every requirement judgement and every freshness judgement
+ * made under the row's lock, a session's external standing answered under it,
+ * and a read of an active session's proofs or first factor inside a
+ * transaction), and only MySQL and MariaDB need it: their plain reads inside
+ * a REPEATABLE READ transaction return the snapshot of its first read, so a
+ * current read there takes a shared lock on the rows it reads, held until the
+ * transaction ends (outside one, until the statement ends). At
  * REPEATABLE READ that lock also takes the gaps on either side of the session's
  * proofs in their session index, so another transaction's proof that falls
  * there waits for this one to end: a new session's, after the newest session's
@@ -122,19 +123,28 @@ final class SessionProofs
      * the proof is timed when the provider authenticated the identity, not when
      * that evidence is from, so freshness takes no provider's evidence. With a
      * factor excluded, a proof made with that factor (its factor reference,
-     * compared byte for byte) never meets it.
+     * compared byte for byte) never meets it. Read current when asked, as the
+     * class describes: a freshness judgement made under the session's lock
+     * asks.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?string  $excludingFactor
+     * @param  bool  $current
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
      * @throws \InvalidArgumentException
      */
-    public static function newestMeeting(Session $session, FreshnessRequirement $requirement, CarbonImmutable $now, ?string $excludingFactor = null): ?RecordedProof
-    {
-        $model = new SessionProof;
+    public static function newestMeeting(
+        Session $session,
+        FreshnessRequirement $requirement,
+        CarbonImmutable $now,
+        ?string $excludingFactor = null,
+        bool $current = false,
+    ): ?RecordedProof {
+        $model  = new SessionProof;
+        $shared = self::sharesLock($model, $current);
 
         $proof = WriteConnection::during($model, static fn (): mixed => self::counting($session)
             ->whereIn('kind', array_column($requirement->proofs, 'value'))
@@ -147,6 +157,7 @@ final class SessionProofs
             ->when($requirement->phishingResistant, static fn (Builder $query): Builder => $query->where('phishing_resistant', true))
             ->orderByDesc('authenticated_at')
             ->orderByDesc('id')
+            ->when($shared, static fn (Builder $query): Builder => $query->sharedLock())
             ->first());
 
         return $proof instanceof SessionProof ? self::recorded($proof) : null;

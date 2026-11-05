@@ -414,6 +414,15 @@ even once it has resolved, for every caller that resolves it afterwards; a defer
 one only for a service that has no instance yet. Resolve none of them while providers register, or a deferred provider's
 binding of it is passed over.
 
+A `FreshnessPolicy` of your own is asked `freshProof()` plainly wherever the package judges a session without its lock,
+and with the read mode set (`current: true`) under a session's lock (the factor-change gate, an identifier change
+request, a password establishment), and `freshUntil()` takes the same mode for a caller of yours. Honour it: one that
+decorates `Freshness\ConfiguredFreshness` passes `$current` on, and one of your own reads the session as the package's
+does when asked (its row locked and judged, its proofs current, through `Auth::sessions()->proofs()` inside the
+transaction, say, only inside a transaction on the session model's connection).
+A policy that ignores it judges the transaction's snapshot under the package's locks: on MySQL and MariaDB at REPEATABLE
+READ a proof voided before the judgement may still count there, and one recorded since may be missed.
+
 Register a sign-in method once the registry resolves, which works in either order (a registry made with `make()` before
 the package registers is not the one the package uses):
 
@@ -490,14 +499,14 @@ seam has a default that works alone.
   $requirement, $factor)` (`Factors\Enums\FactorChange`: `mfa.add_factor`, `mfa.add_first_additional_factor`,
   `mfa.replace_factor`, `mfa.remove_factor`, `mfa.generate_recovery_codes`). It locks the session's row until that
   transaction ends, checks it is still the session given, one of this guard's live, active sessions, and a person's,
-  then asks the freshness policy: every change takes a fresh step-up (`factor_change`, refused as `step_up_required`),
-  except an identity's first additional factor (`ADD_FIRST`, which the factor package names, knowing the identity has
-  none), which takes a fresh reauthentication with the first factor (`first_additional_factor`, refused as
-  `reauthentication_required`): the sign-in's own first factor never counts, so whoever holds a session cannot enrol a
-  factor on it without proving the first factor again. A replacement or removal names its factor (required for those,
-  refused for the others), whose own proofs never count for its change. The answer, a `Factors\FactorChangeVerdict`,
-  carries the fresh proof and `freshUntil` (when the session stops being fresh for it, for a grant that outlives the
-  request), or the reason; it writes and reports nothing.
+  then asks the freshness policy, on the session's proofs as committed (`current: true`): every change takes a
+  fresh step-up (`factor_change`, refused as `step_up_required`), except an identity's first additional factor
+  (`ADD_FIRST`, which the factor package names, knowing the identity has none), which takes a fresh reauthentication
+  with the first factor (`first_additional_factor`, refused as `reauthentication_required`): the sign-in's own first
+  factor never counts, so whoever holds a session cannot enrol a factor on it without proving the first factor again. A
+  replacement or removal names its factor (required for those, refused for the others), whose own proofs never count for
+  its change. The answer, a `Factors\FactorChangeVerdict`, carries the fresh proof and `freshUntil` (when the session
+  stops being fresh for it, for a grant that outlives the request), or the reason; it writes and reports nothing.
 - A factor removed, inside the same transaction and after the same locks: `Auth::sessions()->factorRemoved($identity,
   $factor->reference(), Auth::session())` ends the identity's other sessions, voids the current session's proofs made
   with that factor, and judges the current session again: it stays active, returns to pending (its
@@ -621,7 +630,11 @@ seam has a default that works alone.
   seconds" passes `FreshnessRequirement::within($seconds)`, which takes every proof kind: a list of kinds of its own
   narrows the configured kinds to those both take. `freshUntil()` answers until when the session stays fresh, and both
   take an excluded factor (`$excludingFactor`), whose proofs never count: a removal's requirement is met only by the
-  session's other proofs.
+  session's other proofs. When it acts on the answer in the same transaction, it asks with the read mode set
+  (`freshProof($session, 'mfa.some_operation', current: true)`, and `freshUntil(..., current: true)` for a grant's
+  expiry) inside that transaction, on the storage connection, after its own identity and factor locks and after any
+  other session's row it needs (take those before the call), and never acts on a plain answer there: the policy locks
+  and judges the session's row and reads its proofs current, so a step-up voided meanwhile never counts.
 - The factor package's own requirement for a change (its `mfa.add_factor`, say) is the caller's requirement the gate
   takes as `$requirement`: the stricter of it and `factor_change` (or `first_additional_factor`) applies.
 - The active tenant the factor package acts in comes from the validated session or caller, never from an event's

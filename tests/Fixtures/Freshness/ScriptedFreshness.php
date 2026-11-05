@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
  * answers the requirement it was given for every operation, finds a proof for
  * every session it is asked about (or none), whatever the session's proofs and
  * state, and notes what it was asked, so a test sees that the package asks the
- * bound policy and still judges the session itself.
+ * bound policy, plainly or current, and still judges the session itself.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,7 +29,7 @@ use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
  */
 final class ScriptedFreshness implements FreshnessPolicy
 {
-    /** @var list<string> What the policy was asked, in order: `requirement:<application>:<operation>`, `freshProof:<operation>[:<excluded factor>]` or `freshUntil:<operation>`. */
+    /** @var list<string> What the policy was asked, in order: `requirement:<application>:<operation>`, `freshProof:<operation>[:<excluded factor>]` or `freshUntil:<operation>`, each followed by ` (current)` when asked current. */
     public array $asked = [];
 
     /**
@@ -38,6 +38,7 @@ final class ScriptedFreshness implements FreshnessPolicy
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
      * @param  bool  $fresh
      * @param  ?\Closure(\SineMacula\Laravel\Authentication\Contracts\Session): void  $whenAsked
+     * @param  ?bool  $freshWhenCurrent
      */
     public function __construct(
 
@@ -49,6 +50,9 @@ final class ScriptedFreshness implements FreshnessPolicy
 
         /** Run with the session each time a fresh proof is asked for. */
         private readonly ?\Closure $whenAsked = null,
+
+        /** Whether every session it is asked about current has a fresh proof, `null` for as `$fresh`. */
+        private readonly ?bool $freshWhenCurrent = null,
     ) {}
 
     /**
@@ -68,24 +72,33 @@ final class ScriptedFreshness implements FreshnessPolicy
     }
 
     /**
-     * A proof made now, or none, whatever the session.
+     * A proof made now, or none, whatever the session, as scripted for the read
+     * asked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
      * @param  ?string  $excludingFactor
+     * @param  bool  $current
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      */
     #[\Override]
-    public function freshProof(Session $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?RecordedProof
-    {
-        $this->asked[] = $excludingFactor === null ? "freshProof:{$operation}" : "freshProof:{$operation}:{$excludingFactor}";
+    public function freshProof(
+        Session $session,
+        string $operation,
+        ?FreshnessRequirement $requirement = null,
+        ?string $excludingFactor = null,
+        bool $current = false,
+    ): ?RecordedProof {
+        $asked = $excludingFactor === null ? "freshProof:{$operation}" : "freshProof:{$operation}:{$excludingFactor}";
+
+        $this->asked[] = $current ? "{$asked} (current)" : $asked;
 
         if ($this->whenAsked !== null) {
             ($this->whenAsked)($session);
         }
 
-        if (!$this->fresh) {
+        if (!($current ? $this->freshWhenCurrent ?? $this->fresh : $this->fresh)) {
             return null;
         }
 
@@ -104,19 +117,26 @@ final class ScriptedFreshness implements FreshnessPolicy
     }
 
     /**
-     * A minute from now, or never, whatever the session.
+     * A minute from now, or never, whatever the session, as scripted for the
+     * read asked.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
      * @param  ?string  $excludingFactor
+     * @param  bool  $current
      * @return ?\Carbon\CarbonImmutable
      */
     #[\Override]
-    public function freshUntil(Session $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?CarbonImmutable
-    {
-        $this->asked[] = "freshUntil:{$operation}";
+    public function freshUntil(
+        Session $session,
+        string $operation,
+        ?FreshnessRequirement $requirement = null,
+        ?string $excludingFactor = null,
+        bool $current = false,
+    ): ?CarbonImmutable {
+        $this->asked[] = $current ? "freshUntil:{$operation} (current)" : "freshUntil:{$operation}";
 
-        return $this->fresh ? CarbonImmutable::now()->startOfSecond()->addMinute() : null;
+        return ($current ? $this->freshWhenCurrent ?? $this->fresh : $this->fresh) ? CarbonImmutable::now()->startOfSecond()->addMinute() : null;
     }
 }
