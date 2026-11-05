@@ -24,14 +24,15 @@ use Symfony\Component\HttpFoundation\Exception\RequestExceptionInterface;
  *
  * The origin and the scheme and host are kept only when each is 1 to 512
  * printable ASCII characters, and never cut, since a cut value could equal an
- * allowed origin; the scheme and host is `null` when Symfony refuses the
- * request's host or forwarded headers, so reading a context never throws for
- * it. The headers are kept by name only (lower case, `_` read as `-`, as
- * Symfony's header bag files them), never by value: a header can carry a
- * secret, and a context travels on every event. `RefreshTokenTransport` applies
- * the guard's configured header name when it judges them. A context built from
- * plain values is the application's trusted description of the request; one
- * built without these facts fails a cookie application's same-site check.
+ * allowed origin; the scheme and host is `null` when the request has no host or
+ * Symfony refuses its host or forwarded headers, so reading a context never
+ * throws for it and never takes that refusal from the application. The headers
+ * are kept by name only (lower case, `_` read as `-`, as Symfony's header bag
+ * files them), never by value: a header can carry a secret, and a context
+ * travels on every event. `RefreshTokenTransport` applies the guard's
+ * configured header name when it judges them. A context built from plain values
+ * is the application's trusted description of the request; one built without
+ * these facts fails a cookie application's same-site check.
  *
  * The package records last use with it; code that creates a session should
  * record `created_ip` and `created_user_agent` through it too, from
@@ -160,16 +161,23 @@ final readonly class ClientContext
     }
 
     /**
-     * The request's scheme and host, or `null` when Symfony refuses its host or
-     * its forwarded headers.
+     * The request's scheme and host, or `null` when it has no host or Symfony
+     * refuses its host or its forwarded headers.
+     *
+     * Read from a copy: Symfony throws a refused host or conflicting forwarded
+     * headers only on the first read of a request and answers an empty host
+     * after, so reading the request itself would take the refusal from the
+     * application and leave every later read with an empty host.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return ?string
      */
     private static function schemeAndHostOf(Request $request): ?string
     {
+        $copy = clone $request;
+
         try {
-            return $request->getSchemeAndHttpHost();
+            return $copy->getHost() === '' ? null : $copy->getSchemeAndHttpHost();
         } catch (RequestExceptionInterface) { // @phpstan-ignore catch.neverThrown (Symfony throws it without declaring it)
             return null;
         }

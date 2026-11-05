@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use Symfony\Component\HttpFoundation\Exception\SuspiciousOperationException;
 
 /**
  * Unit tests for the client context, read from a request or built from raw
@@ -22,6 +23,19 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 #[CoversClass(ClientContext::class)]
 final class ClientContextTest extends TestCase
 {
+    /**
+     * Forget the trusted hosts a test set.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        Request::setTrustedHosts([]);
+
+        parent::tearDown();
+    }
+
     /**
      * Rows of `[remote address, stored IP address]`.
      *
@@ -183,8 +197,9 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * A request whose host Symfony refuses has no scheme and host, and reading
-     * its context throws nothing.
+     * A request whose host Symfony refuses has no scheme and host however often
+     * its context is read, reading it throws nothing, and the request still
+     * refuses its host to the application afterwards.
      *
      * @return void
      */
@@ -194,10 +209,71 @@ final class ClientContextTest extends TestCase
 
         $request->headers->set('Host', 'bad!host');
 
-        $client = ClientContext::fromRequest($request);
+        $first  = ClientContext::fromRequest($request);
+        $second = ClientContext::fromRequest($request);
 
-        self::assertNull($client->schemeAndHost);
-        self::assertSame('http://bad!host', $client->origin);
+        self::assertSame([null, null], [$first->schemeAndHost, $second->schemeAndHost]);
+        self::assertSame('http://bad!host', $first->origin);
+
+        $this->expectException(SuspiciousOperationException::class);
+
+        $request->getHost();
+    }
+
+    /**
+     * A request for a host outside the application's trusted hosts has no
+     * scheme and host however often its context is read, and the request still
+     * refuses its host to the application afterwards.
+     *
+     * @return void
+     */
+    public function testAnUntrustedHostLeavesNoSchemeAndHost(): void
+    {
+        Request::setTrustedHosts(['^good\.example$']);
+
+        $request = Request::create('http://evil.example/auth/sign-in', 'POST');
+
+        $first  = ClientContext::fromRequest($request);
+        $second = ClientContext::fromRequest($request);
+
+        self::assertSame([null, null], [$first->schemeAndHost, $second->schemeAndHost]);
+
+        $this->expectException(SuspiciousOperationException::class);
+
+        $request->getHost();
+    }
+
+    /**
+     * A request whose host was already refused to the application, which
+     * Symfony then answers as an empty host, has no scheme and host.
+     *
+     * @return void
+     */
+    public function testAHostAlreadyRefusedLeavesNoSchemeAndHost(): void
+    {
+        Request::setTrustedHosts(['^good\.example$']);
+
+        $request = Request::create('http://evil.example:8080/auth/sign-in', 'POST');
+        $refused = false;
+
+        try {
+            $request->getHost();
+        } catch (SuspiciousOperationException) {
+            $refused = true;
+        }
+
+        self::assertTrue($refused);
+        self::assertNull(ClientContext::fromRequest($request)->schemeAndHost);
+    }
+
+    /**
+     * A request with no host at all has no scheme and host.
+     *
+     * @return void
+     */
+    public function testARequestWithoutAHostHasNoSchemeAndHost(): void
+    {
+        self::assertNull(ClientContext::fromRequest(new Request)->schemeAndHost);
     }
 
     /**
