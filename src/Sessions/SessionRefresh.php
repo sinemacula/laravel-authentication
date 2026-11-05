@@ -65,8 +65,9 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
 final readonly class SessionRefresh
 {
     /** @var string Why a cookie application's refresh token is not handed in by the caller. */
-    public const string COOKIE_ONLY = 'This application\'s refresh token travels in its cookie, whose cross-site checks only the *FromRequest()'
-        . ' methods, refreshPresented() and signOutPresented() make: call them instead of passing a token your code read.';
+    public const string COOKIE_ONLY = 'This application\'s refresh token travels in its cookie, whose cross-site checks a bare token cannot carry:'
+        . ' refresh, switch or sign out with the *FromRequest() methods, or refresh and sign out with refreshPresented()'
+        . ' and signOutPresented() from what extract() read and the request\'s client.';
 
     /** @var list<\SineMacula\Laravel\Authentication\Events\Enums\FailureReason> The reasons the transport refuses a request's refresh token with, the only ones a caller may hand in. */
     private const array READ_REFUSALS = [
@@ -137,10 +138,11 @@ final readonly class SessionRefresh
     }
 
     /**
-     * Refuse a refresh token the caller read and handed in when the
-     * application's token travels in its cookie, whose cross-site checks only
-     * the `*FromRequest()` methods, `refreshPresented()` and
-     * `signOutPresented()` make.
+     * Refuse a bare refresh token handed in to `refresh()`, `switchTo()` or
+     * `signOutWith()` when the application's token travels in its cookie, whose
+     * cross-site checks only the `*FromRequest()` methods make, or
+     * `refreshPresented()` and `signOutPresented()` on the token's source and
+     * the request's client.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @return void
