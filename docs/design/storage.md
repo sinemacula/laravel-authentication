@@ -102,7 +102,8 @@ and how the runtime models and the published migrations are kept choosing the sa
 - `tests/Feature/Database/SharedConnectionTest.php`,
   `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`
 - `tests/Feature/Console/CheckConfigurationCommandTest.php`
-- `tests/Integration/Migration/ProofTablesSchemaTest.php`, `tests/Integration/Models/SessionPruningIntegrationTest.php`
+- `tests/Integration/Migration/ProofTablesSchemaTest.php`,
+  `tests/Integration/Sessions/SessionPruningIntegrationTest.php`
 
 ## Change Triggers
 
