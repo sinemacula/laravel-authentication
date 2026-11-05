@@ -26,11 +26,10 @@ trait EndsSessionsOnDeletion
      * every guard, pending ones included (`identity_deleted`), and cancel its
      * pending identifier changes. It works on the model as it was deleted,
      * which keeps its key, as well as on one about to be. Calling it again is
-     * safe: it revokes only a session written since, keeps the first
-     * revocation's time and reason, and reports `SignedOutEverywhere` with a
-     * count of `0` when there is none. While the identity's row still exists
-     * (soft-deleted), each call moves its "tokens valid after" cutoff, when it
-     * records one, forward to now.
+     * safe: it revokes only a session written since. While the identity is a
+     * model loaded from its row (soft-deleted, or not yet deleted), each call
+     * moves its "tokens valid after" cutoff, when it records one, forward to
+     * now.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -49,7 +48,7 @@ trait EndsSessionsOnDeletion
      * The principal was deleted, or soft-deleted: end every session acting as
      * it, pending ones included (`principal_deleted`), as `identityDeleted()`
      * does for an identity: on the model as it was deleted, safely again, and
-     * moving its cutoff while its row still exists.
+     * moving its cutoff while it is loaded from its row.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return int

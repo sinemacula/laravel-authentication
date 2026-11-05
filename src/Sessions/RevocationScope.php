@@ -186,8 +186,7 @@ final readonly class RevocationScope
 
     /**
      * The identity's or principal's "tokens valid after" holder, or `null` when
-     * it records none or is an Eloquent model not loaded from its row (`exists`
-     * is `false`: hard-deleted, never saved, or built from its key alone).
+     * it records none or is an Eloquent model whose `exists` is `false`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Contracts\Principal  $holder
      * @return ?\SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter
