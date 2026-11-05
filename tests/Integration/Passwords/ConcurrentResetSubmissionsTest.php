@@ -175,10 +175,11 @@ final class ConcurrentResetSubmissionsTest extends TestCase
      * A reset inside a caller's transaction that deadlocks with another process
      * (which wrote the reset's code row, then asks for the identity's row the
      * reset holds) is thrown on as Laravel's `DeadlockException` with the
-     * caller's transaction level restored: the reset rolls nothing back to its
-     * savepoint, which on MySQL the deadlock has already dropped with the whole
-     * transaction. The caller rolls back, nothing the reset did is kept, and
-     * its retry of the whole transaction resets.
+     * caller's transaction level restored: the package rolls nothing back to
+     * the reset's savepoint itself (Laravel 13.40 and later tries to), which on
+     * MySQL the deadlock has already dropped with the whole transaction. The
+     * caller rolls back, nothing the reset did is kept, and its retry of the
+     * whole transaction resets.
      *
      * @return void
      *

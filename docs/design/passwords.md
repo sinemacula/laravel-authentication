@@ -237,18 +237,18 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
 - A reset inside a caller's transaction: the reset's transaction is a nested one (a savepoint) run by Laravel's
   `transaction()`, never a hand-rolled `beginTransaction()`/`commit()`/`rollBack()`. A refused proof completes it (the
   attempt counted, kept only by the caller's commit: a caller's rollback gives it back, and the `password_reset` counts
-  too while `rate_limits.connection` is the storage connection, so the guide tells a caller to commit after an
-  `invalid` result or to give the limits a connection of their own); a proof accepted for no eligible identity rolls
-  back to it, the caller's writes kept. A deadlock or serialisation failure, or on MySQL and MariaDB a lock wait
-  timeout, is thrown on as Laravel's `DeadlockException` with the caller's transaction level restored and nothing
-  rolled back by the package: on MySQL and MariaDB the deadlock has already rolled the caller's whole transaction back
-  and dropped its savepoints, so a rollback to the reset's savepoint would fail with `SAVEPOINT ... does not exist` and
-  leave the level wrong. A lock wait timeout (MySQL rolls back only the statement that timed out) or a serialisation
-  failure that leaves the caller's transaction open may leave what the reset wrote before it (the password, the spent
-  proof, the cutoff, some of the revocations) in the caller's transaction, so the caller never commits after the
-  exception: it rolls back and retries whole. PostgreSQL's `lock_timeout` (SQLSTATE `55P03`) is none of the errors
-  Laravel's concurrency detector names, so `transaction()` rolls the reset back to its savepoint and rethrows the
-  `QueryException` as raised.
+  too while `rate_limits.connection` is the storage connection, so the guide tells a caller to commit after an `invalid`
+  result or to give the limits a connection of their own); a proof accepted for no eligible identity rolls back to it,
+  the caller's writes kept. A deadlock or serialisation failure, or on MySQL and MariaDB a lock wait timeout, is thrown
+  on as Laravel's `DeadlockException` with the caller's transaction level restored. The package rolls nothing back
+  itself: on MySQL and MariaDB the deadlock has already rolled the caller's whole transaction back and dropped its
+  savepoints, so a rollback to the reset's savepoint would fail with `SAVEPOINT ... does not exist` and leave the level
+  wrong (Laravel 13.40 and later tries that rollback itself and ignores its failure). A lock wait timeout (MySQL rolls
+  back only the statement that timed out) or a serialisation failure that leaves the caller's transaction open may leave
+  what the reset wrote before it (the password, the spent proof, the cutoff, some of the revocations) in the caller's
+  transaction, so the caller never commits after the exception: it rolls back and retries whole. PostgreSQL's
+  `lock_timeout` (SQLSTATE `55P03`) is none of the errors Laravel's concurrency detector names, so `transaction()` rolls
+  the reset back to its savepoint and rethrows the `QueryException` as raised.
 - An establishment racing a request on a neighbouring session of the same identity: on MySQL and MariaDB at REPEATABLE
   READ the judgement's current read holds the gap at the edge of the session's proofs until the establishment's
   transaction ends, and the establishment then ends the identity's other sessions. A step-up or reauthentication of a
