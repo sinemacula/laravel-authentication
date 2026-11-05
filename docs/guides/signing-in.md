@@ -156,8 +156,10 @@ itself, so a client knows when to refresh without decoding the token. Every pair
 session's once it activates, a refresh's and a switch's. A step-up or reauthentication answers with its own
 `AccessTokenResult::$expiresAt`.
 
-`signIn()` runs, in order: Laravel's `Attempting` (with only the identifier the method names, never the input); the
-application policy must allow the method (`method_not_allowed`, nothing counted); the identifier and the client's IP
+`signIn()` runs, in order: Laravel's `Attempting` (with only the identifier the method names, never the input); on a
+cookie application, the request must come from a page of the application's own site (`cross_site_request`, nothing
+read or counted; see [Refresh token cookie](refreshing.md#refresh-token-cookie)); the application policy must allow the
+method (`method_not_allowed`, nothing counted); the identifier and the client's IP
 address must have attempts left (`rate_limited`, with the wait); then, inside the credential timebox, the method must
 verify the input and the identity must be admitted; a password is rehashed when its hash is outdated; and the sign-in
 follows the order [Pending sessions](#pending-sessions) sets out: the principals, the one selected or a choice, the
@@ -173,7 +175,10 @@ method must be allowed, and the sign-in then follows the same order, so a sign-i
 factor or the choice of principal. No attempt limit or timebox applies. The principal is given as the argument or on the
 context, not both. The session's first proof names no channel and no `amr` value, timed now. The method may be neither a
 machine credential kind (`api_key`, `client_credentials`) nor `external_provider`: each throws an
-`InvalidArgumentException`.
+`InvalidArgumentException`. On a cookie application, `start()` fails as `cross_site_request`, before the identity is
+reloaded, unless the request comes from a page of the application's own site, so a verification that arrives as a
+cross-site callback (a magic link, an identity provider's redirect) lands on a page of the application's site that
+posts to the route calling `start()` (see [Refresh token cookie](refreshing.md#refresh-token-cookie)).
 
 Every sign-in starts a new session that records the identity, the principal, the guard, the method, the client's name
 and platform (from the context, cleaned as the user agent is), the client's IP address and user agent at creation and as
@@ -239,8 +244,9 @@ sign-in follows `start()`'s order under the method `external_provider`: reloaded
 names or the only one, or a choice, the factor policy, the tenant and its authentication policy (one requiring another
 connection refuses it as `sso_required`). No `Attempting` is dispatched, and no attempt limit or timebox applies. Nor
 is it held to a cookie application's same-site check, as `signIn()`, `start()`, `satisfy()` and `choose()` are: the
-provider's callback is a cross-site navigation by design, so its defence against signing a browser into another account
-is the provider flow's browser-bound state, which the adapter keeps (see
+provider's callback is a cross-site navigation by design, so the defence against signing a browser into another
+account is the adapter's: it must bind its `state` and nonce to the browser that began the flow, refuse a callback that
+does not match them, and redeem the handoff once, for that browser (see
 [Refresh token cookie](refreshing.md#refresh-token-cookie)).
 
 The session's first proof is the provider's: the connection as an `external_provider` channel, the private `amr` value

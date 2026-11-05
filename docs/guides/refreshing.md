@@ -264,15 +264,23 @@ with `403`, as the sign-in route above does.
 `signIn()` and `start()` judge the client of the `SignInContext` they are given (the guard's request when none is), and
 `satisfy()` and `choose()` the guard's request. `SignInContext::fromRequest()` fills the client's `Origin`, the
 request's own scheme and host and the names of the headers it carried; a `ClientContext` you build from plain values is
-your trusted description of the request, and one built without those facts is refused on a cookie application. An
-application whose own verification arrives as a cross-site callback lands it on a page of its own site that posts to the
-route calling `start()`.
+your trusted description of the request, and one built without those facts is refused on a cookie application. Its
+constructor takes them after the IP address and user agent: the `Origin` the request presented, the request's own scheme
+and host, and the names (never the values) of the headers it carried with a value, which must include the
+`csrf_header`. Here a page on an allowed origin calls the API:
+
+```php
+$client = new ClientContext($ip, $userAgent, 'https://app.example.com', 'https://api.example.com', ['X-Requested-With']);
+```
+
+An application whose own verification arrives as a cross-site callback lands it on a page of its own site that posts to
+the route calling `start()`.
 
 `signInExternally()` is the one exception: an external provider's callback is a cross-site navigation by design, so
-the check would refuse every one. Its defence against signing a browser into another account is the provider flow's
-own browser-bound state: the adapter binds the `state` (and nonce) it sends the provider to the browser that began the
-flow and refuses a callback that does not match it, and the result is redeemed once, through a single-use handoff, by
-the browser that began it.
+the check would refuse every one, and the package makes none. The defence against signing a browser into another
+account is then the adapter's to keep, and an adapter that calls `signInExternally()` must keep it: bind the `state`
+(and nonce) it sends the provider to the browser that began the flow, refuse a callback that does not match it, and
+redeem the result once, through a single-use handoff, for the browser that began it.
 
 `Auth::refreshTransport('browser')->isSameSiteRequest($request)` (or `isSameSiteClient()` of a `ClientContext`) is the
 check on its own, for a route of your own, such as one that clears the cookie. A script refreshes with:

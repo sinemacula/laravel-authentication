@@ -20,6 +20,11 @@ link contract answers, and the package starts, reauthenticates and ends sessions
   so `SignInMethodManager::extend()` refuses it, `method()` never resolves it, `signIn()` cannot reach it, and `start()`
   and `reauthenticate()` refuse it as their method (`SessionPreconditions::assertSessionMethod()`). Only
   `signInExternally()` records a session under it.
+- A cookie application's `signInExternally()` makes no same-site check, which holds `signIn()`, `start()`, `satisfy()`
+  and `choose()` (`SessionPreconditions::crossSite()`): the provider's callback is a cross-site navigation by design.
+  The defence against signing a browser into another account is the adapter's, and the guides require it of an adapter:
+  it binds its `state` and nonce to the browser that began the flow, refuses a callback that does not match them, and
+  redeems the handoff once, for that browser.
 - The identity is the one `Contracts\ExternalIdentityLinks::find($connectionId, $issuer, $subject)` answers, through a
   link made through exactly that connection for exactly that issuer and subject, never by email or any other attribute
   the provider asserted. Its answer (`External\ExternalLink`) is the identity and the link's own opaque id. The link id
@@ -188,7 +193,7 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 - `tests/Feature/Sessions/ExternalSignInTest.php`: the method and link checks, the unlinked event, admission as
   `start()` admits, the principal, accepted evidence meeting the identity's and a tenant's requirement, a result never
   arriving as input, the redemption reported after the session's own events (active, pending, rolled back, refused), the
-  provider context recorded but in no event or serialised model.
+  provider context recorded but in no event or serialised model, a cookie application's cross-site sign-in not refused.
 - `tests/Feature/Sessions/ExternalReauthenticationTest.php`: the renewal and the later-time rule, every link mismatch,
   the refusals, changes under the lock, the standing and its provenance read current under the lock, the redemption
   reported after `Reauthenticated`, the provider context the session began with kept.
@@ -232,5 +237,7 @@ link contract answers, and the package starts, reauthenticates and ends sessions
 - Finding a connection's or link's sessions with a plain read, or letting a sign-in or either revocation read or
   write a session before it writes its connection guards.
 - Storing links, issuing or redeeming handoffs, or verifying provider responses in this package.
+- Holding `signInExternally()` to the same-site check, or changing what an adapter must bind to the browser that began
+  the flow.
 - Reading a key of the provider context, reserving one, rewriting it after sign-in, putting it in an event, the event
   context, a log or an exception message, storing it through an Eloquent cast, or raising its cap.

@@ -37,7 +37,9 @@ use Symfony\Component\HttpFoundation\Cookie;
  * cross-site form cannot send; the session service holds every other path that
  * sets a cookie application's cookie from credentials or a pending session to
  * the same rule (`isSameSiteClient()`), so a cross-site form cannot sign the
- * browser into another account.
+ * browser into another account. `signInExternally()` alone is exempt, since a
+ * provider's callback is cross-site by design: the adapter that calls it must
+ * bind the flow to the browser that began it instead.
  *
  * For a cookie application, `deliver()` puts the refresh token of every pair a
  * sign-in, refresh, switch or activation issues into a `RefreshCookie`, so the
@@ -182,8 +184,9 @@ final readonly class RefreshTokenTransport
      * refresh cookie's checks require: `isSameSiteClient()` of the request's
      * client context. `read()` holds a token from the cookie to it, and the
      * session service holds every sign-in, start and pending-session action of
-     * a cookie application to the same rule; an application's own route that
-     * clears the cookie holds its request to it.
+     * a cookie application to the same rule, except `signInExternally()`, whose
+     * adapter binds the flow to the browser that began it instead; an
+     * application's own route that clears the cookie holds its request to it.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return bool

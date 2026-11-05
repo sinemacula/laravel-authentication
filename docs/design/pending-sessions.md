@@ -182,7 +182,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   `tests/Unit/Sessions/PendingStateTest.php`, `tests/Unit/Sessions/Enums/PendingRequirementTest.php`,
   `tests/Unit/Traits/RecordsSessionStandingTest.php`, `tests/Unit/SessionRecords/SwitchFloorTest.php`
 - `tests/Feature/Sessions/SessionServiceTest.php` `testACookieApplicationRefusesACrossSiteSatisfaction`,
-  `testACookieApplicationRefusesACrossSiteChoice` (refused before the pending session is read, which stays pending)
+  `testACookieApplicationRefusesACrossSiteChoice` (refused before the pending session is read, which stays pending);
+  `tests/Performance/SessionServiceQueryBudgetTest.php` `testACrossSitePendingActionOnACookieApplicationCostsNoQuery`
 - `tests/Integration/Sessions/ConcurrentPendingSatisfactionTest.php` (two calls on one credential) and
   `tests/Integration/Sessions/ConcurrentPendingLocksTest.php` (satisfy, discard and the policy-change helper waiting on
   one another's row lock, and a satisfaction deadlocked on the proven session inside a caller's transaction, on

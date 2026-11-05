@@ -106,35 +106,36 @@ Codes follow the audit log's vocabulary: `authentication.` for signing in, `sess
 mapped event is recorded at once: the events that report a write are already dispatched after it commits.
 
 The context is an allowlist of plain values, never a model: the guard, the client of the request being served (IP
-address and user agent, cleaned as the session columns are), the identity, the principal and the tenant it acts within
-each by morph class and identifier (`identityType` and `identityId`, `principalType` and `principalId`, `tenantType` and
-`tenantId`; the morph class is an Eloquent model's `getMorphClass()`, else its class name, as it is for a model an
-enforced morph map leaves out), the session's identifier (`sessionId`, which keeps the session id a token named even
-when no session was found), the sign-in method (for a session's events, the method it records; for a step-up or a
-reauthentication, the method that proved it, such as `totp` or `passkey`, whether it succeeded or failed), the
-credential (an API key or a passkey) in `credentialId` with the scopes it grants in `scopes` (`null` for a human
-identity's session, which no credential limits), when it happened (`occurredAt`), and, for what an external provider's
-result was redeemed into, the connection (`connectionId`) and the authorisation request's public reference
-(`requestReference`). As much as the event's flow established is named, and what it did not establish is `null`: a
-failure names only as much as it got to, and the session before one exists has no identifier. An event about a session
-row itself (every `SessionRevoked`, and a refresh or switch refused on the row's own state before its owner was read,
-such as a revoked or ended session or a replay) names the owner and principal the row records in `identityType`,
-`identityId`, `principalType` and `principalId` when the flow did not load them, and the active tenant the row records
-(its `tenant_id`) in `tenantId`, with no `tenantType`, when the flow did not load the tenant. Other events name only what
-they hold, even when they carry a session: an identity's `SignedOutEverywhere`, a `SessionPending` waiting on a choice
-of principal and a switch refused for its target have no principal.
+address and user agent, cleaned as the session columns are, and the same-site facts a cookie application's checks judge:
+the `Origin` presented, the request's own scheme and host, and the names of the headers it carried with a value, never
+their values), the identity, the principal and the tenant it acts within each by morph class and identifier
+(`identityType` and `identityId`, `principalType` and `principalId`, `tenantType` and `tenantId`; the morph class is an
+Eloquent model's `getMorphClass()`, else its class name, as it is for a model an enforced morph map leaves out), the
+session's identifier (`sessionId`, which keeps the session id a token named even when no session was found), the sign-in
+method (for a session's events, the method it records; for a step-up or a reauthentication, the method that proved it,
+such as `totp` or `passkey`, whether it succeeded or failed), the credential (an API key or a passkey) in `credentialId`
+with the scopes it grants in `scopes` (`null` for a human identity's session, which no credential limits), when it
+happened (`occurredAt`), and, for what an external provider's result was redeemed into, the connection (`connectionId`)
+and the authorisation request's public reference (`requestReference`). As much as the event's flow established is named,
+and what it did not establish is `null`: a failure names only as much as it got to, and the session before one exists
+has no identifier. An event about a session row itself (every `SessionRevoked`, and a refresh or switch refused on the
+row's own state before its owner was read, such as a revoked or ended session or a replay) names the owner and principal
+the row records in `identityType`, `identityId`, `principalType` and `principalId` when the flow did not load them, and
+the active tenant the row records (its `tenant_id`) in `tenantId`, with no `tenantType`, when the flow did not load the
+tenant. Other events name only what they hold, even when they carry a session: an identity's `SignedOutEverywhere`, a
+`SessionPending` waiting on a choice of principal and a switch refused for its target have no principal.
 
-`toArray()` gives the context as scalars, with `occurred_at` as an ISO 8601 UTC string to the microsecond, ready to store
-or to queue on its own. Since every package event holds plain values only, it crosses a queue as it is: restoring it
-runs no query and never fails on a row that is gone (a pruned session, an erased account), and a queued listener gets
-exactly what was dispatched. A listener that needs a model loads it itself, on the write connection, from the type and
-identifier, and treats one that is gone as nothing to do, as the package's own listeners do. Laravel's own events
-(`Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) are unchanged and keep their models. No event
-carries a token, a digest, a password or any other secret. An event that reports a write is dispatched once the write is
-committed on the written row's own connection: at once when it has no open transaction, on its commit otherwise, and
-never when it is rolled back; a transaction on another connection neither delays nor withdraws it. It goes to the
-dispatcher bound when it is dispatched, not the one bound at the write, so an `Event::fake()` made between the write and
-its commit receives it, while what it reports is still taken at the write.
+`toArray()` gives the context as scalars, with `occurred_at` as an ISO 8601 UTC string to the microsecond and the client
+as `ip` and `user_agent` only, ready to store or to queue on its own. Since every package event holds plain values only,
+it crosses a queue as it is: restoring it runs no query and never fails on a row that is gone (a pruned session, an
+erased account), and a queued listener gets exactly what was dispatched. A listener that needs a model loads it itself,
+on the write connection, from the type and identifier, and treats one that is gone as nothing to do, as the package's
+own listeners do. Laravel's own events (`Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) are
+unchanged and keep their models. No event carries a token, a digest, a password or any other secret. An event that
+reports a write is dispatched once the write is committed on the written row's own connection: at once when it has no
+open transaction, on its commit otherwise, and never when it is rolled back; a transaction on another connection neither
+delays nor withdraws it. It goes to the dispatcher bound when it is dispatched, not the one bound at the write, so an
+`Event::fake()` made between the write and its commit receives it, while what it reports is still taken at the write.
 
 A request's bearer token authenticates; it is not a sign-in. It dispatches only Laravel's `Authenticated` and the
 package's `PrincipalAssigned` and `SessionAuthenticated`, and a rejected token only `AuthenticationFailed`, once per

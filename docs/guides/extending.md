@@ -738,15 +738,19 @@ binds a fake `AuthenticationContexts`.
   result, naming the link it redeemed it through (`linkId`), the authorisation request's public reference
   (`requestReference`) and, if it wants one, its provider context (`providerContext`, below), to
   `Auth::sessions($guard)->signInExternally(new ExternalResult(...), $context)` (see [External
-  sign-in](signing-in.md#external-sign-in)). The application must list `external_provider` in its `methods`. The
-  identity is reloaded through the guard's provider, and activity, the application policy, the additional-factor policy,
-  the choice of principal and the tenant's authentication policy all apply; no attempt limit or timebox does, since
-  nothing is guessed. The package takes no lock before the link contract is asked, so every row of its own it locks (the
-  link's connection guard, then any session the sign-in replaces) is locked after the adapter's own. A database error, a
-  PostgreSQL serialization failure included, propagates for the adapter to retry the whole transaction. The contract
-  must answer exactly the link the result names (`link_mismatch` otherwise). Once committed, `ExternalResultRedeemed`
-  reports the redemption with the connection and the request reference, which the redemption's failures carry too, so
-  they correlate with `laravel-sso`'s completion events.
+  sign-in](signing-in.md#external-sign-in)). On a cookie application `signInExternally()` makes no same-site check (the
+  provider's callback is a cross-site navigation by design), so the adapter must bind the `state` and nonce it sends the
+  provider to the browser that began the flow, refuse a callback that does not match them, and redeem the handoff once,
+  for that browser: otherwise a cross-site page could sign a victim's browser into the attacker's account (see [the
+  refresh token cookie](refreshing.md#refresh-token-cookie)). The application must list `external_provider` in its
+  `methods`. The identity is reloaded through the guard's provider, and activity, the application policy, the
+  additional-factor policy, the choice of principal and the tenant's authentication policy all apply; no attempt limit
+  or timebox does, since nothing is guessed. The package takes no lock before the link contract is asked, so every row
+  of its own it locks (the link's connection guard, then any session the sign-in replaces) is locked after the adapter's
+  own. A database error, a PostgreSQL serialization failure included, propagates for the adapter to retry the whole
+  transaction. The contract must answer exactly the link the result names (`link_mismatch` otherwise). Once committed,
+  `ExternalResultRedeemed` reports the redemption with the connection and the request reference, which the redemption's
+  failures carry too, so they correlate with `laravel-sso`'s completion events.
 - A result linked to no identity dispatches `ExternalResultUnlinked` and fails as `external_result_unlinked`. The event
   is informational: `laravel-iam` provisions on `laravel-sso`'s own unlinked-result event, before any handoff is issued,
   never on this one, since provisioning on both would provision twice.

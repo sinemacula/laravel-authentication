@@ -29,10 +29,12 @@ a cookie application's results hand back the cookie instead of the token.
   `csrf_header` header, which a cross-site form cannot send; otherwise `cross_site_request`. The checks come before the
   value is looked at. The rule is `isSameSiteClient(ClientContext)`, judged on the facts `ClientContext::fromRequest()`
   reads: the `Origin` as presented (kept only when 1 to 512 printable ASCII characters, never cut), the request's own
-  scheme and host (`null` when Symfony refuses the host or forwarded headers), and the names of the headers whose first
-  value is a non-empty string (lower case, `_` read as `-`, never their values); the guard's configured `csrf_header`
-  is applied when judging. A missing fact fails it. `isSameSiteRequest($request)` is the same rule on the request's
-  context.
+  scheme and host (`null` when the request has no host or Symfony refuses the host or forwarded headers), and the names
+  of the headers whose first value is a non-empty string (lower case, `_` read as `-`, never their values); the guard's
+  configured `csrf_header` is applied when judging. A missing fact fails it. `isSameSiteRequest($request)` is the same
+  rule on the request's context. The scheme and host are read from a copy of the request: Symfony throws a refused host
+  or conflicting forwarded headers only on a request's first read and answers an empty host after, so reading the
+  request itself would take that refusal from the application and give every later read an empty host.
 - A present value that is not one non-empty string (an empty field, `null`, an array, a header sent twice, a cookie
   that could not be decrypted) is `token_invalid`. A token read is a `PresentedRefreshToken` holding it as a `Secret`.
 - Reading has no side effects: it changes nothing on the request and runs no query.
@@ -77,8 +79,10 @@ a cookie application's results hand back the cookie instead of the token.
   victim's own scripts would then pass every refresh check. `signIn()` and `start()` judge the `SignInContext`'s
   client, `satisfy()` and `choose()` the guard's request. The check is pure (no query, no lock, no event of its own)
   and fails closed. A body application is never refused. `signInExternally()` is exempt: an external provider's
-  callback is a cross-site top-level navigation by design, and its defence is the provider flow's browser-bound state
-  (the adapter's `state` and nonce bound to the browser that began the flow, and the single-use handoff).
+  callback is a cross-site top-level navigation by design, so the defence is the adapter's to keep, and the guides
+  require it of an adapter that calls `signInExternally()`: it binds its `state` and nonce to the browser that began
+  the flow, refuses a callback that does not match them, and redeems the result once, through a single-use handoff,
+  for that browser.
   `isSameSiteRequest()` and `isSameSiteClient()` stay public for an application's own routes, such as one that clears
   the cookie.
 - The pending credential is never a cookie: a cookie application's pending results carry it in the body.
@@ -134,7 +138,7 @@ a cookie application's results hand back the cookie instead of the token.
   `tests/Unit/Sessions/SessionPreconditionsTest.php`
 - `tests/Feature/Sessions/SessionServiceTest.php`: each cookie-setting path refused cross-site with nothing written, a
   body application unaffected, `signInExternally()` exempt; `tests/Performance/SessionServiceQueryBudgetTest.php`: a
-  refused sign-in costs no query
+  refused sign-in, `start()`, `satisfy()` or `choose()` costs no query
 - `tests/Unit/Http/RefreshTokenSettingsTest.php`
 - `tests/Unit/Http/RefreshCookieTest.php`
 - `tests/Unit/Jwt/TokenPairTest.php`
