@@ -990,6 +990,7 @@ final class CurrentProofReadsTest extends TestCase
 
         self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], self::kindsOf($this->sessions()->proofs($key)));
         self::assertSame(ProofKind::FIRST_FACTOR, $this->sessions()->firstFactor($key)?->kind);
+
         $locking = array_filter($statements, static fn (string $sql): bool => preg_match('/for update|lock in share mode|for share/', $sql) === 1);
 
         self::assertCount(4, $statements);

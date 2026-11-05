@@ -45,6 +45,7 @@ use Tests\TestCase;
 #[CoversClass(ConfiguredFreshness::class)]
 #[CoversClass(SessionStepUp::class)]
 #[CoversClass(ActiveSessionProofs::class)]
+#[CoversClass(ContributionSubject::class)]
 final class ReplicaProofsTest extends TestCase
 {
     use InteractsWithLaggingReplica, InteractsWithProofs, InteractsWithSessions;
