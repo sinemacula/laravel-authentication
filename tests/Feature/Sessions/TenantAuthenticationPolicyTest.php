@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\InsufficientEvidence;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -584,6 +585,45 @@ final class TenantAuthenticationPolicyTest extends TestCase
         self::assertSame(FailureReason::SSO_REQUIRED, $refused->reason);
         self::assertSame(RevocationReason::TENANT_POLICY_CHANGED, $this->recordedEvent(SessionRevoked::class)->reason);
         self::assertSame(RevocationReason::TENANT_POLICY_CHANGED->value, Session::query()->sole()->getRevokedReason());
+    }
+
+    /**
+     * A refresh from plain values meets the tenant's policy as the request form
+     * does, and reports with the client given: one that falls short of a factor
+     * returns the session to pending (`SessionReturnedToPending`), and one that
+     * needs another connection revokes it (`SessionRevoked`), each carrying
+     * that client, not the guard's request's.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainRefreshMeetsThePolicyAndReportsWithTheClientGiven(): void
+    {
+        $this->seedMember();
+
+        $returning = $this->signedIn();
+        $revoking  = $this->signedIn();
+        $client    = self::crossSiteClient();
+
+        $this->policy->requirement = new TenantRequirement('v2', new Requirement(new RequirementPart));
+
+        $this->recordEvents([SessionReturnedToPending::class, SessionRevoked::class]);
+
+        $returned = $this->sessions('members')->refreshPresented(self::presentedToken((string) $returning->tokens->refreshToken?->reveal(), RefreshTokenSource::BODY), $client);
+
+        self::assertTrue($returned->isPending());
+        self::assertNotNull($returned->credential);
+        self::assertSame(RefreshTokenSource::BODY, $returned->source);
+        self::assertSame($client, $this->recordedEvent(SessionReturnedToPending::class)->context->client);
+
+        $this->policy->requirement = new TenantRequirement('v3', connections: ['conn-a']);
+
+        $refused = $this->sessions('members')->refreshPresented(self::presentedToken((string) $revoking->tokens->refreshToken?->reveal(), RefreshTokenSource::BODY), $client);
+
+        self::assertSame(FailureReason::SSO_REQUIRED, $refused->reason);
+        self::assertSame(RevocationReason::TENANT_POLICY_CHANGED, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame($client, $this->recordedEvent(SessionRevoked::class)->context->client);
     }
 
     /**

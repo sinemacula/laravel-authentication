@@ -14,6 +14,9 @@ use SineMacula\Laravel\Authentication\Callers\CallerCredentials;
 use SineMacula\Laravel\Authentication\Callers\DeclaredCredential;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
 use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
@@ -108,6 +111,44 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
         $conflict = $this->serving(['refresh_token' => 'one-token'], ['HTTP_X_REFRESH_TOKEN' => 'another-token']);
 
         self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $this->assertQueryBudget(0, 0, static fn (): ?FailureReason => $conflict->signOutFromRequest()->reason));
+    }
+
+    /**
+     * Signing out from plain values costs what signing out by the request's
+     * refresh token costs, on a body application and a cookie one; a token the
+     * judgement refuses, a reason handed in and nothing presented cost no
+     * query.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainSignOutCostsWhatASignOutCosts(): void
+    {
+        config()->set('auth.guards.admin.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
+
+        $this->seedIdentity();
+
+        $body   = self::presentedToken($this->signedIn(), RefreshTokenSource::BODY);
+        $cookie = $this->sessions('admin')->signIn('password', self::credentials())->session?->tokens->refreshCookie?->cookie()->getValue();
+
+        self::assertIsString($cookie);
+
+        $sessions = $this->serving([]);
+
+        self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => $sessions->signOutPresented($body, self::crossSiteClient())->isSignedOut()));
+
+        $browser   = self::sessionsOf($this->crossSiteGuard('admin'));
+        $presented = self::presentedToken($cookie, RefreshTokenSource::COOKIE);
+
+        $reasonOf = static fn (FailureReason|PresentedRefreshToken $given, ClientContext $client): ?FailureReason => $browser->signOutPresented($given, $client)->reason;
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn (): ?FailureReason => $reasonOf($presented, self::crossSiteClient())));
+        $handedIn = static fn (): ?FailureReason => $reasonOf(FailureReason::TOKEN_INVALID, self::sameSiteClient());
+
+        self::assertSame(FailureReason::TOKEN_INVALID, $this->assertQueryBudget(0, 0, $handedIn));
+        self::assertFalse($this->assertQueryBudget(0, 0, static fn (): bool => $browser->signOutPresented(null, self::sameSiteClient())->isSignedOut()));
+        self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => $browser->signOutPresented($presented, self::sameSiteClient())->isSignedOut()));
     }
 
     /**

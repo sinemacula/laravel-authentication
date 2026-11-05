@@ -889,6 +889,75 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
+     * An activation by a satisfaction given a client, as a service layer that
+     * keeps HTTP out gives it, records that client as the session's last use
+     * and reports with it: the superseded session's revocation and the new
+     * session's creation and sign-in, not the guard's request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASatisfactionGivenAClientActivatesWithIt(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->factorRequired = false;
+
+        $first = $this->sessions()->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($first);
+
+        $this->factorRequired = true;
+
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken?->reveal());
+        $result  = $this->sessions()->signIn('password', self::credentials(), $context);
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
+
+        $client = self::crossSiteClient();
+
+        $proof = self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN);
+
+        self::assertTrue($this->sessions()->satisfy($result->credential->reveal(), $proof, $client)->isSignedIn());
+        self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
+
+        foreach ([SessionRevoked::class, SessionCreated::class, SignedIn::class] as $class) {
+            self::assertSame($client, $this->recordedEvent($class)->context->client, $class);
+        }
+
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], self::lastUseOf($result->pending->id));
+    }
+
+    /**
+     * An activation by a choice given a client records that client as the
+     * session's last use and reports its sign-in with it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceGivenAClientActivatesWithIt(): void
+    {
+        $this->factorRequired = false;
+
+        [, $first] = $this->seedChooser();
+
+        [$credential, $pending] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        $this->recordEvents([SignedIn::class]);
+
+        $client = self::crossSiteClient();
+
+        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first, null, $client)->isSignedIn());
+        self::assertSame($client, $this->recordedEvent(SignedIn::class)->context->client);
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], self::lastUseOf($pending->id));
+    }
+
+    /**
      * A proven session that rotated while the new one waited is not superseded:
      * the new one still activates, and the proven one stays live.
      *
@@ -2356,5 +2425,20 @@ final class PendingSessionsTest extends TestCase
         CarbonImmutable::setTestNow($at);
 
         JWT::$timestamp = $at->getTimestamp();
+    }
+
+    /**
+     * The address and user agent the session's row records as its last use.
+     *
+     * @param  mixed  $id
+     * @return list<mixed>
+     */
+    private static function lastUseOf(mixed $id): array
+    {
+        $row = DB::table('authentication_sessions')->where('id', $id)->first(['last_used_ip', 'last_used_user_agent']);
+
+        self::assertNotNull($row);
+
+        return [$row->last_used_ip, $row->last_used_user_agent];
     }
 }

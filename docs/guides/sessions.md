@@ -659,7 +659,42 @@ though a browser keeps a cookie the response to such a navigation sets, and a re
 cookie in place with the session it still proves; a failed result is answered as a failure, as above.
 `signOutWith($refreshToken)` signs out with a body application's token your code read itself, and forgets only a binding
 to the session it revoked: a guard bound to another session stays bound to it, whether the token is refused or proves
-another session. On a cookie application it throws a `LogicException`. `logout()` and `signOut()` cannot reach the
+another session. On a cookie application it throws a `LogicException`: use `signOutPresented()`.
+
+A service layer that keeps HTTP out signs out by the refresh credential from plain values, on a cookie application as
+on a body one, with `signOutPresented()`: its controller extracts the token from the request
+(`Auth::refreshTransport('browser')->extract($request)`, which leaves the same-site judgement out) and builds the
+request's `ClientContext`, and the service hands both on:
+
+```php
+use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+
+Route::post('/auth/logout', function (Request $request) {
+    $presented = Auth::refreshTransport('browser')->extract($request);   // in the controller
+    $result    = Auth::sessions('browser')->signOutPresented($presented, ClientContext::fromRequest($request)); // in the service
+
+    return $result->attachTo($result->isFailed() ? response()->json(['reason' => $result->reason?->value], 401) : response()->noContent());
+});
+```
+
+It signs out by the refresh credential alone, as `signOutWith()` does: the guard's binding is not consulted, and only a
+binding to the session it revokes is forgotten, so a guard bound to another session stays bound to it. The package
+judges the token again with the client, never trusting how the value was built (see [Refreshing from plain
+values](refreshing.md#refreshing-from-plain-values)): carriers that are not its source alone are
+`refresh_token_conflict`, a source that is not the application's transport `refresh_transport_mismatch`, and a token
+from the cookie whose client fails the same-site check (one built without its `Origin`, scheme and host or header names
+among them) `cross_site_request`. A reason `extract()` answered, handed in, is reported as `signOutFromRequest()`
+reports it, and any other is the caller's error (`InvalidArgumentException`, nothing dispatched); `null` signs nothing
+out. Otherwise the token is proven and its session revoked as above, inside the grace window too, a replay revoking it
+as `rotation_reuse`; `AuthenticationFailed` and `SessionRevoked` carry the client given. A cookie application's result
+carries the expired cookie only when the client passes the same-site check and the token was not refused as
+`refresh_token_conflict`, on the same terms as `signOutFromRequest()`'s; a body application's never does. The actions
+on a pending session take the client the same way: `satisfy()` and `choose()` judge the `ClientContext` they are given
+(see [Acting from plain values](signing-in.md#acting-from-plain-values)).
+
+`logout()` and `signOut()` cannot reach the
 response either, so a route that calls them clears a cookie application's cookie with
 `Auth::refreshTransport('browser')->forgetCookie()` only when `signOut()` returned `true` (or `Auth::check()` held
 before `logout()`): a cross-site page cannot send the access token, but it can make a browser post to the route, and a

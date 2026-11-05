@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
@@ -185,17 +186,18 @@ final readonly class PendingSessions
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function satisfy(#[\SensitiveParameter] Secret|string $credential, ProofResult $proof, CarbonImmutable $now): Refused|SignInResult
+    public function satisfy(#[\SensitiveParameter] Secret|string $credential, ProofResult $proof, CarbonImmutable $now, ClientContext $client): Refused|SignInResult
     {
         // `#[\SensitiveParameter]` does not cover what a closure captures,
         // which a dump of the trace shows.
         $held = new \SensitiveParameterValue($credential);
 
-        return $this->atomically(function () use ($held, $proof, $now): Refused|SignInResult {
+        return $this->atomically(function () use ($held, $proof, $now, $client): Refused|SignInResult {
 
             $found = $this->find($held->getValue(), $now, true);
 
@@ -219,7 +221,7 @@ final readonly class PendingSessions
 
             ContextForgetting::onSettle($this->afterCommit, $session);
 
-            return $this->settle($session, $identity, $principal, $admitted, $now, $proven);
+            return $this->settle($session, $identity, $principal, $admitted, $now, $proven, $client);
         });
     }
 
@@ -240,15 +242,21 @@ final readonly class PendingSessions
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $chosen
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $selection
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function choose(#[\SensitiveParameter] Secret|string $credential, Principal $chosen, ?TenantSelection $selection, CarbonImmutable $now): Refused|SignInResult
-    {
+    public function choose(
+        #[\SensitiveParameter] Secret|string $credential,
+        Principal $chosen,
+        ?TenantSelection $selection,
+        CarbonImmutable $now,
+        ClientContext $client,
+    ): Refused|SignInResult {
         $held = new \SensitiveParameterValue($credential);
 
-        return $this->atomically(function () use ($held, $chosen, $selection, $now): Refused|SignInResult {
+        return $this->atomically(function () use ($held, $chosen, $selection, $now, $client): Refused|SignInResult {
 
             $found = $this->find($held->getValue(), $now, true);
 
@@ -267,7 +275,7 @@ final readonly class PendingSessions
 
             [$principal, $tenant] = $chosenAs;
 
-            return $this->settle($session, $identity, $principal, $tenant, $now, $this->proven($session, true));
+            return $this->settle($session, $identity, $principal, $tenant, $now, $this->proven($session, true), $client);
         });
     }
 
@@ -426,6 +434,7 @@ final readonly class PendingSessions
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  \Carbon\CarbonImmutable  $now
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $proven
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -443,6 +452,7 @@ final readonly class PendingSessions
         ?Tenant $tenant,
         CarbonImmutable $now,
         (EloquentSession&Model)|null $proven,
+        ClientContext $client,
     ): Refused|SignInResult {
         $policy = $this->evaluation->tenantPolicy($identity, $principal, $tenant, $session, $now, current: true);
 
@@ -456,10 +466,10 @@ final readonly class PendingSessions
 
         if ($principal !== null && $requires === []) {
             $destination = new Admitted($identity, $principal, $tenant);
-            $activated   = $this->activation->activate($session, $destination, $policy->version, $this->context->client(), $now, $proven);
+            $activated   = $this->activation->activate($session, $destination, $policy->version, $client, $now, $proven);
 
             return $activated === null
-                ? $this->settle($session, $identity, $principal, $tenant, $now, null)
+                ? $this->settle($session, $identity, $principal, $tenant, $now, null, $client)
                 : SignInResult::signedIn($activated);
         }
 

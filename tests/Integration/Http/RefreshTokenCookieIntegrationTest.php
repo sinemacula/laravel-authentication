@@ -16,15 +16,22 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshCookie;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
+use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
+use SineMacula\Laravel\Authentication\Sessions\SignOutResult;
 use Symfony\Component\HttpFoundation\Cookie;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
 
@@ -36,7 +43,9 @@ use Tests\TestCase;
  * refresh token: its results carry the cookie. Run with the cookie left out of
  * Laravel's cookie encryption and with the routes encrypting it, both of which
  * round-trip, and with two browser applications on one host, whose cookies,
- * named after each application, never overwrite each other.
+ * named after each application, never overwrite each other. A controller that
+ * keeps HTTP out of its service layer extracts the cookie and hands it on, with
+ * the request's client, as plain values, and is held to the same rules.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,6 +91,8 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
                 Route::post('/auth/sign-in', static fn (): JsonResponse => self::signInRoute($guard));
                 Route::post('/auth/refresh', static fn (): JsonResponse => self::refreshRoute($guard));
                 Route::post('/logout', static fn (Request $request): JsonResponse => self::logoutRoute($guard, $request));
+                Route::post('/auth/plain/refresh', static fn (Request $request): Response => self::plainRefreshRoute($guard, $request));
+                Route::post('/auth/plain/sign-out', static fn (Request $request): Response => self::plainSignOutRoute($guard, $request));
             });
         }
     }
@@ -235,6 +246,61 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
     }
 
     /**
+     * A controller that extracts the cookie and hands the token and the
+     * request's client to its service as plain values refreshes, the response
+     * setting the rotated cookie, and signs out, the response clearing it,
+     * whether or not the routes encrypt it; the same request from another
+     * site's form is refused as `cross_site_request`, setting no cookie and
+     * writing nothing, and one that carries the cookie twice is refused as
+     * `refresh_token_conflict`.
+     *
+     * @param  string  $guard
+     * @param  bool  $excluded
+     * @return void
+     */
+    #[DataProvider('provideSetups')]
+    public function testAControllerHandsTheCookieToItsServiceAsPlainValues(string $guard, bool $excluded): void
+    {
+        if ($excluded) {
+            EncryptCookies::except(self::COOKIES[$guard]);
+        }
+
+        $this->seedIdentity();
+
+        $prefix    = $guard === 'admin' ? '/admin' : '';
+        $cookie    = self::refreshCookie($this->browser('POST', $prefix . '/auth/sign-in')->assertOk(), $guard);
+        $refreshed = $this->browser('POST', $prefix . '/auth/plain/refresh', $cookie)->assertOk()->assertJson(['source' => 'cookie', 'refresh_token' => null]);
+        $rotated   = self::refreshCookie($refreshed, $guard);
+        $digest    = Session::query()->sole()->getRawOriginal('refresh_key');
+
+        self::assertNotSame($cookie->getValue(), $rotated->getValue());
+
+        $held      = [$rotated->getName() => $rotated->getValue()];
+        $crossSite = $this->call('POST', $prefix . '/auth/plain/refresh', [], $held, [], $this->transformHeadersToServerVars(['Origin' => 'https://evil.example']));
+
+        $crossSite->assertForbidden()->assertJson(['reason' => 'cross_site_request']);
+        self::assertSame([], $crossSite->headers->getCookies());
+        self::assertSame($digest, Session::query()->sole()->getRawOriginal('refresh_key'));
+
+        Auth::forgetGuards();
+
+        $twice = $this->call('POST', $prefix . '/auth/plain/refresh', [], $held, [], [
+            ...$this->transformHeadersToServerVars(self::SAME_ORIGIN),
+            'HTTP_COOKIE' => $rotated->getName() . '=planted; ' . $rotated->getName() . '=' . $rotated->getValue(),
+        ]);
+
+        $twice->assertUnauthorized()->assertJson(['reason' => 'refresh_token_conflict']);
+        self::assertSame($digest, Session::query()->sole()->getRawOriginal('refresh_key'));
+
+        $signedOut = $this->browser('POST', $prefix . '/auth/plain/sign-out', $rotated)->assertOk()->assertJson(['signed_out' => true, 'source' => 'cookie']);
+        $cleared   = self::refreshCookie($signedOut, $guard);
+
+        self::assertTrue($cleared->isCleared());
+        self::assertSame($prefix . '/auth', $cleared->getPath());
+        self::assertSame('signed_out', Session::query()->sole()->getRevokedReason());
+    }
+
+    /**
      * Configure both guards to travel by cookie: `api` under `/auth`, `admin`
      * under `/admin/auth`.
      *
@@ -332,6 +398,96 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
             'refresh_token' => $tokens->refreshToken,
             'source'        => $result->source->value,
         ]));
+    }
+
+    /**
+     * A controller that keeps HTTP out of its service layer: it extracts the
+     * refresh token from the request, without judging it, and hands it to the
+     * service with the request's client, answering a refresh with the rotated
+     * cookie or the refusal's reason (`403` for `cross_site_request`).
+     *
+     * @param  string  $guard
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Symfony\Component\HttpFoundation\Response
+     *
+     * @throws \Throwable
+     */
+    private static function plainRefreshRoute(string $guard, Request $request): Response
+    {
+        $result = self::refreshService($guard, Auth::refreshTransport($guard)->extract($request), ClientContext::fromRequest($request));
+
+        $tokens = $result?->session?->tokens;
+        $cookie = $tokens?->refreshCookie;
+
+        if ($cookie === null) {
+            return self::refusal($result?->reason);
+        }
+
+        return $cookie->attachTo(SecretResponse::json([
+            'access_token'  => $tokens->accessToken,
+            'refresh_token' => $tokens->refreshToken,
+            'source'        => $result->source?->value,
+        ]));
+    }
+
+    /**
+     * The controller's answer to a refresh that set no cookie: `403` for
+     * `cross_site_request`, otherwise `401`, with the reason.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return \Illuminate\Http\JsonResponse
+     */
+    private static function refusal(?FailureReason $reason): JsonResponse
+    {
+        return new JsonResponse(['reason' => $reason?->value], $reason === FailureReason::CROSS_SITE_REQUEST ? 403 : 401);
+    }
+
+    /**
+     * The controller's sign-out: it extracts the token and hands it to the
+     * service with the request's client, answering with the cookie the result
+     * clears, if any.
+     *
+     * @param  string  $guard
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Symfony\Component\HttpFoundation\Response
+     *
+     * @throws \Throwable
+     */
+    private static function plainSignOutRoute(string $guard, Request $request): Response
+    {
+        $result = self::signOutService($guard, Auth::refreshTransport($guard)->extract($request), ClientContext::fromRequest($request));
+
+        return $result->attachTo(new JsonResponse(['signed_out' => $result->isSignedOut(), 'source' => $result->source?->value, 'reason' => $result->reason?->value]));
+    }
+
+    /**
+     * The service layer's refresh, from plain values only.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return ?\SineMacula\Laravel\Authentication\Sessions\RefreshResult
+     *
+     * @throws \Throwable
+     */
+    private static function refreshService(string $guard, FailureReason|PresentedRefreshToken|null $presented, ClientContext $client): ?RefreshResult
+    {
+        return Auth::sessions($guard)->refreshPresented($presented, $client);
+    }
+
+    /**
+     * The service layer's sign-out, from plain values only.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignOutResult
+     *
+     * @throws \Throwable
+     */
+    private static function signOutService(string $guard, FailureReason|PresentedRefreshToken|null $presented, ClientContext $client): SignOutResult
+    {
+        return Auth::sessions($guard)->signOutPresented($presented, $client);
     }
 
     /**

@@ -1777,6 +1777,127 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
+     * A cookie application's satisfaction given a same-site client, as a
+     * service layer that keeps HTTP out gives it, is judged on that client
+     * alone: it activates the session with the cookie though the guard's own
+     * request comes from another site, the client recorded as its last use and
+     * carried by the events that report it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationSatisfiesForASameSiteClientGiven(): void
+    {
+        $identity             = $this->seedIdentity();
+        [$credential, $proof] = $this->pendingWithProof($identity, self::BROWSER);
+        $client               = self::sameSiteClient();
+
+        $this->recordEvents([SessionCreated::class, SignedIn::class]);
+
+        $activated = self::sessionOf($this->sessionsOn(self::BROWSER, ['Origin' => 'https://evil.example.test'])->satisfy($credential, $proof, $client));
+
+        self::assertNotNull($activated->tokens->refreshCookie);
+        self::assertNull($activated->tokens->refreshToken);
+        self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame($client, $this->recordedEvent(SignedIn::class)->context->client);
+        self::assertSame(self::PLAIN_IP, Session::query()->sole()->getRawOriginal('last_used_ip'));
+    }
+
+    /**
+     * A cookie application refuses a satisfaction given a client the same-site
+     * check refuses, as `cross_site_request`, though the guard's own request is
+     * same-site: before the pending session is read, reported with the client
+     * given, the session left pending and the proof unstored, so the same
+     * satisfaction without a client then activates it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideCrossSiteClients')]
+    public function testACookieApplicationRefusesASatisfactionForACrossSiteClientGiven(ClientContext $client): void
+    {
+        $identity             = $this->seedIdentity();
+        [$credential, $proof] = $this->pendingWithProof($identity, self::BROWSER);
+        $proofs               = DB::table('authentication_proofs')->count();
+
+        $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class]);
+
+        $refused = $this->sessionsOn(self::BROWSER, self::SAME_SITE)->satisfy($credential, $proof, $client);
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $refused->reason);
+        self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+        self::assertSame([SessionStatus::PENDING->value], Session::query()->pluck('status')->all());
+        self::assertSame($proofs, DB::table('authentication_proofs')->count());
+        self::assertTrue(app('auth')->guard(self::BROWSER)->guest());
+        self::assertTrue($this->sessionsOn(self::BROWSER, self::SAME_SITE)->satisfy($credential, $proof)->isSignedIn());
+    }
+
+    /**
+     * A cookie application's choice given a same-site client activates the
+     * session with the cookie though the guard's own request comes from another
+     * site; one given a client the same-site check refuses is refused as
+     * `cross_site_request` on a same-site request, reported with that client,
+     * recording no principal.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideCrossSiteClients')]
+    public function testACookieApplicationsChoiceIsJudgedOnTheClientGiven(ClientContext $client): void
+    {
+        [$credential, $chosen] = $this->pendingChoice(self::BROWSER_CHOOSERS);
+
+        $this->recordEvents([Failed::class, AuthenticationFailed::class]);
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER_CHOOSERS, self::SAME_SITE)->choose($credential, $chosen, null, $client)->reason);
+        self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+        self::assertSame([null], Session::query()->pluck('principal_id')->all());
+
+        $sessions  = $this->sessionsOn(self::BROWSER_CHOOSERS, ['Origin' => 'https://evil.example.test']);
+        $activated = self::sessionOf($sessions->choose($credential, $chosen, null, self::sameSiteClient()));
+
+        self::assertNotNull($activated->tokens->refreshCookie);
+        self::assertSame($chosen->getKey(), $activated->principal->getPrincipalIdentifier());
+        self::assertSame(self::PLAIN_IP, Session::query()->sole()->getRawOriginal('last_used_ip'));
+    }
+
+    /**
+     * A refusal of a pending action given a client, after the same-site check,
+     * is reported with that client: a credential that names no pending session,
+     * on a cookie application and a body one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefusedPendingActionIsReportedWithTheClientGiven(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [, $proof] = $this->pendingWithProof($identity, self::BROWSER);
+
+        foreach ([self::BROWSER => self::sameSiteClient(), 'api' => self::crossSiteClient()] as $guard => $client) {
+
+            $this->recordEvents([AuthenticationFailed::class]);
+
+            self::assertSame(FailureReason::PENDING_INVALID, $this->sessionsOn($guard, [])->satisfy('1.not-a-credential', $proof, $client)->reason);
+            self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+
+            $this->recordEvents([AuthenticationFailed::class]);
+
+            self::assertSame(FailureReason::PENDING_INVALID, $this->sessionsOn($guard, [])->choose('1.not-a-credential', $identity, null, $client)->reason);
+            self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+        }
+    }
+
+    /**
      * A body application is never held to the check, whatever the request
      * carried: its sign-in, start, satisfaction and choice from another site
      * each go ahead, since its tokens travel only in the response body.

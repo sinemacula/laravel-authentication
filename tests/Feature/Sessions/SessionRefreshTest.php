@@ -27,9 +27,11 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -41,6 +43,7 @@ use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\TestCase;
@@ -50,7 +53,9 @@ use Tests\TestCase;
  * rotated session it returns and the guard bound to it, the events in their
  * order, each refusal returned with its reason, `rate_limited` with its wait
  * rather than a thrown 429, and where a refresh read from the request found its
- * token.
+ * token; and a refresh from plain values, on a cookie application and a body
+ * one, which judges the token and the client it is handed and reads nothing
+ * from the guard's request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,6 +70,12 @@ use Tests\TestCase;
 final class SessionRefreshTest extends TestCase
 {
     use InteractsWithSessions;
+
+    /** @var string The cookie application, over the same identities. */
+    private const string BROWSER = 'admin';
+
+    /** @var string The cookie application's refresh cookie. */
+    private const string COOKIE = '__Secure-admin_refresh_token';
 
     /** @var list<class-string> Every event a refresh dispatches. */
     private const array EVENTS = [
@@ -559,6 +570,375 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
+     * A cookie application refreshes from plain values: the token presented
+     * from its cookie and a same-site client, on a guard whose own request is
+     * cross-site, from another address and carries no cookie. The result
+     * carries the cookie that sets the new refresh token, never the token, and
+     * refreshes again; the rotation is reported with the client given, while
+     * the guard's bind describes its own request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationRefreshesFromPlainValues(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn(self::BROWSER);
+        $guard   = $this->crossSiteGuard(self::BROWSER);
+
+        $this->recordEvents(self::EVENTS);
+
+        $result = self::sessionsOf($guard)->refreshPresented(self::presentedToken(self::cookieToken($session), RefreshTokenSource::COOKIE), self::sameSiteClient());
+
+        self::assertNotNull($result);
+        self::assertTrue($result->isRefreshed());
+        self::assertSame(RefreshTokenSource::COOKIE, $result->source);
+
+        $tokens = $result->session?->tokens;
+
+        self::assertNotNull($tokens);
+        self::assertNull($tokens->refreshToken);
+        self::assertNotNull($tokens->refreshCookie);
+        self::assertSame(['__Secure-admin_refresh_token', '/auth'], [$tokens->refreshCookie->name, $tokens->refreshCookie->path]);
+        self::assertEquals([$tokens->refreshCookie->cookie()], $tokens->refreshCookie->attachTo(new Response)->headers->getCookies());
+
+        self::assertSame(self::REFRESHED, $this->recordedClasses());
+        self::assertSame(self::sameSiteClient()->ip, $this->recordedEvent(Refreshed::class)->context->client->ip);
+        self::assertSame(self::PLAIN_AGENT, $this->recordedEvent(SignedIn::class)->context->client->userAgent);
+        self::assertSame(self::CROSS_SITE_IP, $this->recordedEvent(SessionAuthenticated::class)->context->client->ip);
+        self::assertSame($session->record->getKey(), $guard->session()?->getSessionIdentifier());
+        $again = self::presentedToken((string) $tokens->refreshCookie->cookie()->getValue(), RefreshTokenSource::COOKIE);
+
+        self::assertTrue($this->sessions(self::BROWSER)->refreshPresented($again, self::sameSiteClient())->isRefreshed());
+    }
+
+    /**
+     * A cookie application refuses a token presented from its cookie with a
+     * client the same-site check refuses, as `cross_site_request`, though the
+     * guard's own request is same-site and carries the same cookie: the refusal
+     * is reported with the client given, the result says where the token was
+     * presented, and the session is left as it was.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideCrossSiteClients')]
+    public function testACookieTokenFromACrossSiteClientIsRefused(ClientContext $client): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn(self::BROWSER);
+        $token   = self::cookieToken($session);
+        $before  = $this->refreshKeyOf($session);
+        $guard   = $this->guardServing(['HTTP_ORIGIN' => 'http://localhost', 'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest'], [], [self::COOKIE => $token], self::BROWSER);
+
+        $this->recordEvents(self::EVENTS);
+
+        $result = self::sessionsOf($guard)->refreshPresented(self::presentedToken($token, RefreshTokenSource::COOKIE), $client);
+
+        self::assertNotNull($result);
+        self::assertSame([FailureReason::CROSS_SITE_REQUEST, null, RefreshTokenSource::COOKIE], [$result->reason, $result->retryAfter, $result->source]);
+        self::assertSame(self::REFUSAL, $this->recordedClasses());
+
+        $failure = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([AuthenticationFlow::REFRESH, FailureReason::CROSS_SITE_REQUEST], [$failure->flow, $failure->reason]);
+        self::assertSame($client, $failure->context->client);
+        self::assertSame($before, $this->refreshKeyOf($session));
+        self::assertTrue($guard->guest());
+    }
+
+    /**
+     * Rows of `[the guard, the source, the carriers besides the source, the
+     * reason]` the transport's judgement of a presented token refuses.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: string, 1: \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource, 2: list<\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource>, 3: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideJudgedRefusals(): iterable
+    {
+        yield 'the body, to a cookie application' => [self::BROWSER, RefreshTokenSource::BODY, [], FailureReason::REFRESH_TRANSPORT_MISMATCH];
+        yield 'a header, to a cookie application' => [self::BROWSER, RefreshTokenSource::HEADER, [], FailureReason::REFRESH_TRANSPORT_MISMATCH];
+        yield 'the cookie, to a body application' => ['api', RefreshTokenSource::COOKIE, [], FailureReason::REFRESH_TRANSPORT_MISMATCH];
+        yield 'the cookie twice' => [self::BROWSER, RefreshTokenSource::COOKIE, [RefreshTokenSource::COOKIE], FailureReason::REFRESH_TOKEN_CONFLICT];
+        yield 'the body and a header' => ['api', RefreshTokenSource::BODY, [RefreshTokenSource::HEADER], FailureReason::REFRESH_TOKEN_CONFLICT];
+    }
+
+    /**
+     * A live token presented with facts the transport refuses is refused with
+     * its reason before the exchange, from a same-site client too, reported
+     * as the request form reports it, and its result says where it was
+     * presented; the session is left as it was.
+     *
+     * @param  string  $guardName
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
+     * @param  list<\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource>  $others
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideJudgedRefusals')]
+    public function testATokenTheJudgementRefusesIsARefusedRefresh(string $guardName, RefreshTokenSource $source, array $others, FailureReason $reason): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn($guardName);
+        $token   = $guardName === self::BROWSER ? self::cookieToken($session) : $session->tokens->refreshToken?->reveal();
+        $before  = $this->refreshKeyOf($session);
+        $guard   = $this->crossSiteGuard($guardName);
+
+        self::assertIsString($token);
+
+        $this->recordEvents(self::EVENTS);
+
+        $result = self::sessionsOf($guard)->refreshPresented(self::presentedToken($token, $source, [$source, ...$others]), self::sameSiteClient());
+
+        self::assertNotNull($result);
+        self::assertSame([$reason, $source], [$result->reason, $result->source]);
+        self::assertSame(self::REFUSAL, $this->recordedClasses());
+        self::assertSame($reason, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame($before, $this->refreshKeyOf($session));
+    }
+
+    /**
+     * A body application refreshes from a token presented from its body field
+     * or its header with a client that has no same-site facts at all: neither
+     * carrier is sent by a browser by itself. The result says which, and
+     * carries the new refresh token, no cookie.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABodyApplicationRefreshesFromPlainValuesWithoutSameSiteFacts(): void
+    {
+        $this->seedIdentity();
+
+        foreach ([RefreshTokenSource::BODY, RefreshTokenSource::HEADER] as $source) {
+
+            $token  = $this->signedIn()->tokens->refreshToken?->reveal();
+            $result = self::sessionsOf($this->crossSiteGuard())->refreshPresented(self::presentedToken((string) $token, $source), self::crossSiteClient());
+            $tokens = $result->session?->tokens;
+
+            self::assertTrue($result->isRefreshed(), $source->value);
+            self::assertSame($source, $result->source);
+            self::assertNotNull($tokens?->refreshToken);
+            self::assertNull($tokens->refreshCookie);
+        }
+    }
+
+    /**
+     * Rows of `[the reason]` the transport refuses a request's refresh token
+     * with.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     */
+    public static function provideTransportReasons(): iterable
+    {
+        foreach ([FailureReason::REFRESH_TOKEN_CONFLICT, FailureReason::REFRESH_TRANSPORT_MISMATCH, FailureReason::CROSS_SITE_REQUEST, FailureReason::TOKEN_INVALID] as $reason) {
+            yield $reason->value => [$reason];
+        }
+    }
+
+    /**
+     * A reason the extract-only read answered, handed in, is a refused refresh
+     * reported as the request form reports it, with the client given, and with
+     * no source: nothing was presented.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideTransportReasons')]
+    public function testAReasonTheTransportAnsweredIsAReportedRefusal(FailureReason $reason): void
+    {
+        $guard  = $this->crossSiteGuard(self::BROWSER);
+        $client = self::sameSiteClient();
+
+        $this->recordEvents(self::EVENTS);
+
+        $result = self::sessionsOf($guard)->refreshPresented($reason, $client);
+
+        self::assertNotNull($result);
+        self::assertSame([$reason, null, null], [$result->reason, $result->retryAfter, $result->source]);
+        self::assertSame(self::REFUSAL, $this->recordedClasses());
+
+        $failure = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([AuthenticationFlow::REFRESH, $reason, null], [$failure->flow, $failure->reason, $failure->context->identityId]);
+        self::assertSame($client, $failure->context->client);
+        self::assertTrue($guard->guest());
+    }
+
+    /**
+     * A reason the transport never answers, handed in, is the caller's error:
+     * it throws before anything is dispatched, on either application.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReasonTheTransportNeverAnswersIsRefusedAsTheCallersError(): void
+    {
+        $this->recordEvents(self::EVENTS);
+
+        foreach ([self::BROWSER, 'api'] as $guard) {
+            foreach ([FailureReason::RATE_LIMITED, FailureReason::SESSION_REVOKED, FailureReason::ROTATION_REUSE] as $reason) {
+                try {
+                    self::sessionsOf($this->crossSiteGuard($guard))->refreshPresented($reason, self::sameSiteClient());
+
+                    self::fail("A refresh took {$reason->value} as what the transport read.");
+                } catch (\InvalidArgumentException $exception) {
+                    $message = "The transport never refuses a refresh token as `{$reason->value}`: hand in only what `extract()` or `read()` answered.";
+
+                    self::assertSame($message, $exception->getMessage());
+                }
+            }
+        }
+
+        self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * Nothing presented is not a refresh, on either application: `null`, and
+     * nothing is dispatched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testNothingPresentedIsNotARefresh(): void
+    {
+        $this->recordEvents(self::EVENTS);
+
+        self::assertNull(self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented(null, self::sameSiteClient()));
+        self::assertNull(self::sessionsOf($this->crossSiteGuard())->refreshPresented(null, self::crossSiteClient()));
+        self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * A token presented again inside the grace window gets the session's
+     * current credential through the plain form too, and once the window has
+     * closed it is a replay: the session is revoked as `rotation_reuse`,
+     * reported with the client given.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testGraceAndReplayHoldForAPlainRefresh(): void
+    {
+        $this->seedIdentity();
+
+        $session  = $this->signedIn(self::BROWSER);
+        $replayed = self::presentedToken(self::cookieToken($session), RefreshTokenSource::COOKIE);
+        $current  = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($replayed, self::sameSiteClient())->session?->tokens->refreshCookie;
+        $retried  = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($replayed, self::sameSiteClient())->session?->tokens->refreshCookie;
+
+        self::assertNotNull($current);
+        self::assertNotNull($retried);
+        self::assertSame($this->rotationOf($current->cookie()->getValue()), $this->rotationOf($retried->cookie()->getValue()));
+
+        $this->moveTo(CarbonImmutable::now()->addMinute());
+        $this->recordEvents([SessionRevoked::class]);
+
+        $client = self::sameSiteClient();
+        $result = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($replayed, $client);
+
+        self::assertSame(FailureReason::ROTATION_REUSE, $result->reason);
+        self::assertSame('rotation_reuse', Session::query()->whereKey($session->record->getKey())->value('revoked_reason'));
+        self::assertSame($client, $this->recordedEvent(SessionRevoked::class)->context->client);
+    }
+
+    /**
+     * The attempt limit of a plain refresh counts the client given: a refusal
+     * from its address limits the next from it, as `rate_limited` with the
+     * wait, but not one from another address, nor one from a client with no
+     * address, which is limited by the token's session alone.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainRefreshIsLimitedByTheClientGiven(): void
+    {
+        config()->set('authentication.rate_limits.refresh.per_ip.max', 1);
+
+        $invalid = self::presentedToken('not-a-token', RefreshTokenSource::BODY);
+        $refresh = fn (ClientContext $client): RefreshResult => self::sessionsOf($this->freshGuard())->refreshPresented($invalid, $client);
+
+        self::assertSame(FailureReason::TOKEN_INVALID, $refresh(self::crossSiteClient())->reason);
+
+        $limited = $refresh(self::crossSiteClient());
+
+        self::assertSame([FailureReason::RATE_LIMITED, 60], [$limited->reason, $limited->retryAfter]);
+        self::assertSame(FailureReason::TOKEN_INVALID, $refresh(new ClientContext('192.0.2.45', self::PLAIN_AGENT))->reason);
+        self::assertSame(FailureReason::TOKEN_INVALID, $refresh(new ClientContext(null, self::PLAIN_AGENT))->reason);
+        self::assertSame(FailureReason::TOKEN_INVALID, $refresh(new ClientContext(null, self::PLAIN_AGENT))->reason);
+    }
+
+    /**
+     * Inside the caller's transaction a plain refresh's report and bind wait
+     * for the commit, the report carrying the client given, and a rollback
+     * drops both.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainRefreshWaitsForTheCallersCommit(): void
+    {
+        $this->seedIdentity();
+
+        $committed  = $this->signedIn(self::BROWSER);
+        $rolledBack = $this->signedIn(self::BROWSER);
+        $before     = $this->refreshKeyOf($rolledBack);
+        $guard      = $this->crossSiteGuard(self::BROWSER);
+
+        $this->recordEvents(self::EVENTS);
+
+        DB::transaction(function () use ($guard, $committed): void {
+            $presented = self::presentedToken(self::cookieToken($committed), RefreshTokenSource::COOKIE);
+
+            self::assertTrue(self::sessionsOf($guard)->refreshPresented($presented, self::sameSiteClient())->isRefreshed());
+            self::assertSame([Attempting::class], $this->recordedClasses());
+        });
+
+        self::assertSame(self::REFRESHED, $this->recordedClasses());
+        self::assertSame(self::PLAIN_IP, $this->recordedEvent(Refreshed::class)->context->client->ip);
+        self::assertSame($committed->record->getKey(), $guard->session()?->getSessionIdentifier());
+
+        $guard = $this->crossSiteGuard(self::BROWSER);
+
+        $this->recordEvents(self::EVENTS);
+
+        DB::beginTransaction();
+
+        $presented = self::presentedToken(self::cookieToken($rolledBack), RefreshTokenSource::COOKIE);
+
+        self::assertTrue(self::sessionsOf($guard)->refreshPresented($presented, self::sameSiteClient())->isRefreshed());
+
+        DB::rollBack();
+
+        self::assertSame([Attempting::class], $this->recordedClasses());
+        self::assertFalse($guard->hasUser());
+        self::assertSame($before, $this->refreshKeyOf($rolledBack));
+    }
+
+    /**
      * Configure the guards and providers.
      *
      * @param  mixed  $app
@@ -573,7 +953,11 @@ final class SessionRefreshTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('auth.guards.' . self::BROWSER . '.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
     }
 
     /**
@@ -595,20 +979,52 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * Start a request from the test client with the server values and body, and
-     * resolve the `api` guard afresh for it.
+     * The refresh token a cookie application's session carries in its cookie.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return string
+     */
+    private static function cookieToken(SignedInSession $session): string
+    {
+        $value = $session->tokens->refreshCookie?->cookie()->getValue();
+
+        self::assertIsString($value);
+
+        return $value;
+    }
+
+    /**
+     * The rotation id a cookie application's refresh token carries.
+     *
+     * @param  ?string  $token
+     * @return mixed
+     *
+     * @throws \Throwable
+     */
+    private function rotationOf(#[\SensitiveParameter] ?string $token): mixed
+    {
+        return Auth::jwt(self::BROWSER)->parse((string) $token, TokenType::REFRESH)[Claims::JWT_ID->value] ?? null;
+    }
+
+    /**
+     * Start a request from the test client with the server values, body and
+     * cookies, and resolve the guard, `api` unless named, afresh for it.
      *
      * @param  array<string, string>  $server
      * @param  array<string, string>  $body
+     * @param  array<string, string>  $cookies
+     * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      */
-    private function guardServing(array $server, array $body = []): JwtGuard
+    private function guardServing(array $server, array $body = [], array $cookies = [], string $guard = 'api'): JwtGuard
     {
-        app()->instance('request', Request::create('/refresh', 'POST', $body, server: ['REMOTE_ADDR' => self::CLIENT_IP, 'HTTP_USER_AGENT' => self::CLIENT_AGENT, ...$server]));
+        $server = ['REMOTE_ADDR' => self::CLIENT_IP, 'HTTP_USER_AGENT' => self::CLIENT_AGENT, ...$server];
+
+        app()->instance('request', Request::create('/refresh', 'POST', $body, $cookies, server: $server));
 
         Auth::forgetGuards();
 
-        $resolved = app('auth')->guard('api');
+        $resolved = app('auth')->guard($guard);
 
         self::assertInstanceOf(JwtGuard::class, $resolved);
 

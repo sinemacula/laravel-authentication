@@ -401,7 +401,7 @@ final readonly class RefreshTokenExchange
                 : $this->afterLostRotation($record, $session, $rotationId, $now, $client, true);
         }
 
-        $transitions = new PendingTransitions($this->context, $this->afterCommit, Container::getInstance()->make(Repository::class));
+        $transitions = new PendingTransitions($this->context, $this->afterCommit, Container::getInstance()->make(Repository::class), $client);
         $firstFactor = PendingTransitions::firstFactorOf($record, $policy, current: true);
         $outstanding = $transitions->outstanding($record, $session->identity, $policy->factor, $firstFactor, $now, current: true);
 

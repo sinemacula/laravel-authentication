@@ -5,6 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
@@ -58,9 +60,9 @@ trait RefreshesSessions
      * after the window it is treated as a replay and revokes the session.
      *
      * Only for a token a body application's own code read: a cookie
-     * application's token is read only from its cookie, whose cross-site checks
-     * only `refreshFromRequest()` makes, so on a cookie application this throws
-     * a `LogicException`.
+     * application's token comes only from its cookie, whose cross-site checks
+     * only `refreshFromRequest()` and `refreshPresented()` make, so on a cookie
+     * application this throws a `LogicException`.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
@@ -93,6 +95,55 @@ trait RefreshesSessions
     public function refreshFromRequest(): ?RefreshResult
     {
         return $this->refreshes->refreshFromRequest();
+    }
+
+    /**
+     * Refresh with the refresh token a controller extracted from its request
+     * and handed on as plain values, for a service layer that keeps HTTP out:
+     * what `RefreshTokenTransport::extract()` answered (the token, its source
+     * and the carriers the request carried one in; a reason; or `null`), or a
+     * `PresentedRefreshToken` the application built as its trusted description
+     * of the request, and the request's `ClientContext`. Valid on a cookie and
+     * a body application alike; nothing is read from the guard's request to
+     * judge the token or to report what this call dispatches.
+     *
+     * The package judges every fact again, never trusting how the value was
+     * obtained (`RefreshTokenTransport::judge()`): a token whose carriers are
+     * not its source alone fails as `refresh_token_conflict`, one whose source
+     * is not the application's transport as `refresh_transport_mismatch`, and
+     * one from the cookie whose client fails the same-site check, as a context
+     * without its `Origin`, scheme and host or custom header does, as
+     * `cross_site_request`. A reason the transport answers
+     * (`refresh_token_conflict`, `refresh_transport_mismatch`,
+     * `cross_site_request`, `token_invalid`) is reported as
+     * `refreshFromRequest()` reports it; any other is a caller's error
+     * (`InvalidArgumentException`), and nothing is dispatched. A refusal here
+     * dispatches `Attempting`, `Failed` and `AuthenticationFailed` and touches
+     * no session; `null` returns `null`, dispatching nothing.
+     *
+     * Otherwise the token is refreshed as `refresh()` refreshes it, with the
+     * client in place of the request's: the attempt limit counts the client's
+     * IP address (a client without one is limited by the token's session
+     * alone), and `Refreshed`, `SignedIn`, `AuthenticationFailed`, a
+     * revocation's `SessionRevoked` and a return's `SessionReturnedToPending`
+     * carry it; a retry inside the grace window gets the current credential,
+     * and a replay after it revokes the session. The guard's bind (`Validated`,
+     * `Login` and the bind events, and the session's last use, which
+     * `SessionAuthenticated` records) describes the guard's own request, as
+     * every later event of the guard does. The result says where the token was
+     * presented; a cookie application's refreshed pair carries the cookie that
+     * sets the new refresh token (`RefreshCookie::attachTo()`), never the token
+     * itself.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return ($presented is null ? null : \SineMacula\Laravel\Authentication\Sessions\RefreshResult)
+     *
+     * @throws \Throwable
+     */
+    public function refreshPresented(#[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented, ClientContext $client): ?RefreshResult
+    {
+        return $this->refreshes->refreshPresented($presented, $client);
     }
 
     /**

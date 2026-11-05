@@ -214,6 +214,35 @@ final class RefreshProofTest extends TestCase
     }
 
     /**
+     * A replay proven for a client given, as a sign-out from plain values
+     * proves it, reports the revocation and the refusal with that client, not
+     * the guard's request's.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReplayIsReportedWithTheClientGiven(): void
+    {
+        $this->seedIdentity();
+
+        $session  = $this->signedIn();
+        $replaced = (string) $session->tokens->refreshToken?->reveal();
+
+        self::assertTrue($this->sessions()->refresh($replaced)->isRefreshed());
+
+        $this->moveTo(CarbonImmutable::now()->addMinutes(2));
+        $this->recordEvents(self::EVENTS);
+
+        $client = self::sameSiteClient();
+        $failed = $this->proof()->prove($replaced, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now(), $client);
+
+        self::assertInstanceOf(AuthenticationFailed::class, $failed);
+        self::assertSame([FailureReason::ROTATION_REUSE, $client], [$failed->reason, $failed->context->client]);
+        self::assertSame($client, $this->recordedEvent(SessionRevoked::class)->context->client);
+    }
+
+    /**
      * Every token that proves no session is refused with the reason a refresh
      * gives it, in an `AuthenticationFailed` of the flow asked for (`sign_out`,
      * or `refresh`), for this guard, naming the session when the token names
@@ -268,6 +297,12 @@ final class RefreshProofTest extends TestCase
             self::assertSame('api', $failed->context->guard, $case);
             self::assertSame(self::CLIENT_IP, $failed->context->client->ip, $case);
             self::assertSame($named instanceof SignedInSession ? IdentifierCoercion::stringify($named->record->getKey()) : $named, $failed->context->sessionId, $case);
+
+            $client = self::sameSiteClient();
+            $given  = $this->proof()->prove((string) $token, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now(), $client);
+
+            self::assertInstanceOf(AuthenticationFailed::class, $given, $case);
+            self::assertSame([$reason, $client], [$given->reason, $given->context->client], $case);
         }
 
         $refresh = $this->proof()->prove('not-a-token', AuthenticationFlow::REFRESH, CarbonImmutable::now());

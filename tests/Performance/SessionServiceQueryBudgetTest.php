@@ -214,7 +214,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     /**
      * A cookie application's `satisfy()` and `choose()` from another site, for
      * a live pending session, are refused before the pending session is read,
-     * so each costs no query.
+     * so each costs no query, as are those given a client the same-site check
+     * refuses; one given a same-site client costs what a satisfaction costs.
      *
      * @return void
      *
@@ -243,6 +244,17 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->reason);
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->choose($credential, $identity))->reason);
         self::assertNotNull($this->sessions('admin')->pending($credential));
+
+        $sessions = $this->sessions('admin');
+        $client   = self::crossSiteClient();
+
+        $satisfy = static fn (ClientContext $client): SignInResult => $sessions->satisfy($credential, $proof, $client);
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $satisfy($client))->reason);
+        $choose = static fn (): SignInResult => $sessions->choose($credential, $identity, null, $client);
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, $choose)->reason);
+        self::assertTrue($this->assertQueryBudget(5, 6, static fn (): SignInResult => $satisfy(self::sameSiteClient()))->isSignedIn());
     }
 
     /**

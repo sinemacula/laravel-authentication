@@ -937,9 +937,29 @@ When it changed, the session is judged again without it, the additional-factor p
 supersedes nothing, or stays pending on a further factor the policy now asks for without the proven session's trust. A
 pending session is never listed, and no access or refresh token of it is accepted (`session_pending`) until it
 activates. Activating sets a cookie application's refresh cookie, so its `satisfy()` and `choose()` are held to the
-cookie's same-site check on the guard's request: one from another site fails as `cross_site_request` before the
-pending session is read, leaving it pending, its credential unconsumed and the proof unstored (see
+cookie's same-site check: one from another site fails as `cross_site_request` before the pending session is read,
+leaving it pending, its credential unconsumed and the proof unstored (see
 [Refresh token cookie](refreshing.md#refresh-token-cookie)).
+
+### Acting from plain values
+
+`satisfy()` and `choose()` judge the guard's request unless they are given a client: a service layer that keeps HTTP
+out passes the `ClientContext` its controller built from the request, as the last argument.
+
+```php
+$client = ClientContext::fromRequest($request); // in the controller
+
+$result = Auth::sessions('browser')->satisfy($credential, $proof, $client);
+$result = Auth::sessions('browser')->choose($credential, $principal, TenantSelection::principalDefault(), $client);
+```
+
+A cookie application judges the same-site check on that client alone, failing closed: one built without its `Origin`,
+scheme and host or header names is refused as `cross_site_request` before the pending session is read, whatever the
+guard's request. The client is your trusted description of the request (see
+[Refresh token cookie](refreshing.md#refresh-token-cookie)). An activation records it as the session's last use, and it
+is carried by the events that report the action (`AuthenticationFailed`, `SessionCreated` or `SessionActivated`,
+`SignedIn`, a superseded session's `SessionRevoked`); the guard's bind describes the guard's own request, as every later
+event of the guard does. A body application is never held to the check, with a client or without.
 
 ## Additional factors
 

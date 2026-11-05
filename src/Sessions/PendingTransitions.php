@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
@@ -64,6 +65,7 @@ final readonly class PendingTransitions
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      * @param  \Illuminate\Contracts\Config\Repository  $config
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      */
     public function __construct(
 
@@ -75,6 +77,9 @@ final readonly class PendingTransitions
 
         /** Configuration the pending credential's lifetime is read from. */
         private Repository $config,
+
+        /** The client a return is reported with, or `null` for the guard's request's. */
+        private ?ClientContext $client = null,
     ) {}
 
     /**
@@ -142,6 +147,8 @@ final readonly class PendingTransitions
      * principal, active tenant, policy version and both deadlines it was loaded
      * with. Returns `null` when the row changed since it was loaded, so the
      * caller judges it again, as after a lost rotation.
+     * `SessionReturnedToPending`, scheduled for the commit, carries the client
+     * this was built with, or, without one, the guard's request's.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
@@ -266,9 +273,10 @@ final readonly class PendingTransitions
 
         $changed = $loaded[$type]   !== $values[$type] || $loaded[$id] !== $values[$id];
         $moved   = $loaded[$tenant] !== $values[$tenant];
+        $client  = $this->client ?? $this->context->client();
 
         $event = new SessionReturnedToPending(
-            new EventContext($this->context->name(), $this->context->client(), $pending->identity, $pending->principal, $pending->tenant, $session, $pending->method),
+            new EventContext($this->context->name(), $client, $pending->identity, $pending->principal, $pending->tenant, $session, $pending->method),
             [PendingRequirement::MFA->value],
             $pending->expiresAt,
             $flow,

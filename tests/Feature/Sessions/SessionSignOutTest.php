@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
@@ -34,6 +35,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignOutResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -48,7 +50,10 @@ use Tests\Unit\Stubs\StubBareSession;
  * and the session its refresh token proves is revoked, so a client whose access
  * token expired, or that holds none, still signs out; a refused refresh token
  * signs the request out all the same and is reported with the flow `sign_out`
- * and its reason, and never as a failed authentication.
+ * and its reason, and never as a failed authentication; and signing out from
+ * plain values, on a cookie application and a body one, which judges the token
+ * and the client it is handed, reads nothing from the guard's request, and
+ * clears a cookie application's cookie only for a same-site client.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,6 +70,12 @@ final class SessionSignOutTest extends TestCase
 
     /** @var list<class-string> Every event a sign-out could dispatch. */
     private const array EVENTS = [Attempting::class, Failed::class, SessionRevoked::class, Logout::class, AuthenticationFailed::class];
+
+    /** @var string The cookie application, over the same identities. */
+    private const string BROWSER = 'browser';
+
+    /** @var list<string> The cookie application's refresh cookie's name and path. */
+    private const array COOKIE = ['__Secure-browser_refresh_token', '/auth'];
 
     /** @var list<class-string> The events of a sign-out, without what a bearer token reports. */
     private const array SIGN_OUT_EVENTS = [Attempting::class, Failed::class, SessionRevoked::class, Logout::class];
@@ -584,6 +595,271 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
+     * A cookie application signs out from plain values: the token presented
+     * from its cookie and a same-site client, on a guard whose own request is
+     * cross-site, carries no cookie and is bound to another session by its
+     * access token. The session the token proves is revoked, reported with the
+     * client given, `Logout` fires for its owner, the guard stays bound to the
+     * other session until its own token signs it out, and each result carries
+     * the expired cookie.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationSignsOutFromPlainValues(): void
+    {
+        $identity = $this->seedIdentity();
+        $other    = $this->signedIn(self::BROWSER);
+        $current  = $this->signedIn(self::BROWSER);
+        $sessions = $this->serving(['REMOTE_ADDR' => self::CROSS_SITE_IP], bearer: $current->tokens->accessToken->reveal(), guard: self::BROWSER);
+        $client   = self::sameSiteClient();
+
+        self::assertTrue(Auth::guard(self::BROWSER)->check());
+
+        $this->recordEvents(self::EVENTS);
+
+        $elsewhere = $sessions->signOutPresented(self::presentedToken(self::cookieOf($other), RefreshTokenSource::COOKIE), $client);
+
+        self::assertTrue($elsewhere->isSignedOut());
+        self::assertSame(RefreshTokenSource::COOKIE, $elsewhere->source);
+        self::assertClears($elsewhere);
+        self::assertSame([SessionRevoked::class, Logout::class], $this->recordedClasses());
+        self::assertSame($client, $this->recordedEvent(SessionRevoked::class)->context->client);
+        self::assertSame(RevocationReason::SIGNED_OUT, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertTrue($identity->is($this->recordedEvent(Logout::class)->user));
+        self::assertTrue(Auth::guard(self::BROWSER)->check());
+
+        $this->recordEvents(self::EVENTS);
+
+        $signed = $sessions->signOutPresented(self::presentedToken(self::cookieOf($current), RefreshTokenSource::COOKIE), $client);
+
+        self::assertTrue($signed->isSignedOut());
+        self::assertClears($signed);
+        self::assertSame([SessionRevoked::class, Logout::class], $this->recordedClasses());
+        self::assertTrue(Auth::guard(self::BROWSER)->guest());
+        self::assertSame('signed_out', $this->revokedReasonOf($other));
+        self::assertSame('signed_out', $this->revokedReasonOf($current));
+    }
+
+    /**
+     * Rows of `[what is presented (the carriers of the cookie token, its source
+     * first, or a reason handed in, or nothing), the client, whether the
+     * session is signed out, the reason, the source, whether the cookie is
+     * cleared]` for a cookie application.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: non-empty-list<\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource>|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|null, 1: \SineMacula\Laravel\Authentication\Http\ClientContext, 2: bool, 3: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason, 4: ?\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource, 5: bool}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideCookieSignOuts(): iterable
+    {
+        $same   = self::sameSiteClient();
+        $cross  = self::crossSiteClient();
+        $cookie = RefreshTokenSource::COOKIE;
+
+        yield 'the cookie, same-site' => [[$cookie], $same, true, null, $cookie, true];
+        yield 'the cookie, cross-site' => [[$cookie], $cross, false, FailureReason::CROSS_SITE_REQUEST, $cookie, false];
+        yield 'the cookie twice' => [[$cookie, $cookie], $same, false, FailureReason::REFRESH_TOKEN_CONFLICT, $cookie, false];
+        yield 'the body' => [[RefreshTokenSource::BODY], $same, false, FailureReason::REFRESH_TRANSPORT_MISMATCH, RefreshTokenSource::BODY, true];
+        yield 'a conflict handed in' => [FailureReason::REFRESH_TOKEN_CONFLICT, $same, false, FailureReason::REFRESH_TOKEN_CONFLICT, null, false];
+        yield 'a mismatch handed in' => [FailureReason::REFRESH_TRANSPORT_MISMATCH, $same, false, FailureReason::REFRESH_TRANSPORT_MISMATCH, null, true];
+        yield 'a cross-site refusal handed in' => [FailureReason::CROSS_SITE_REQUEST, $cross, false, FailureReason::CROSS_SITE_REQUEST, null, false];
+        yield 'an invalid token handed in' => [FailureReason::TOKEN_INVALID, $same, false, FailureReason::TOKEN_INVALID, null, true];
+        yield 'nothing, same-site' => [null, $same, false, null, null, true];
+        yield 'nothing, cross-site' => [null, $cross, false, null, null, false];
+    }
+
+    /**
+     * A cookie application's sign-out from plain values signs out only a token
+     * presented from its cookie by a same-site client; a refusal is reported
+     * with the flow `sign_out` and the client given, and no `Failed`, and
+     * leaves the session live; the result carries the expired cookie only for a
+     * same-site client whose token was not refused as a conflict, so neither a
+     * cross-site page nor a request whose session stays live clears it.
+     *
+     * @param  non-empty-list<\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource>|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|null  $presented
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  bool  $signedOut
+     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  ?\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
+     * @param  bool  $clears
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideCookieSignOuts')]
+    public function testACookieApplicationsPlainSignOutClearsTheCookieOnlyForASameSiteClient(
+        array|FailureReason|null $presented,
+        ClientContext $client,
+        bool $signedOut,
+        ?FailureReason $reason,
+        ?RefreshTokenSource $source,
+        bool $clears,
+    ): void {
+        $this->seedIdentity();
+
+        $session  = $this->signedIn(self::BROWSER);
+        $token    = self::cookieOf($session);
+        $sessions = $this->serving(['REMOTE_ADDR' => self::CROSS_SITE_IP], cookies: [self::COOKIE[0] => $token], guard: self::BROWSER);
+
+        $this->recordEvents(self::EVENTS);
+
+        $result = $sessions->signOutPresented(is_array($presented) ? self::presentedToken($token, $presented[0], $presented) : $presented, $client);
+
+        self::assertSame([$signedOut, $reason, $source], [$result->isSignedOut(), $result->reason, $result->source]);
+        self::assertSame($signedOut ? 'signed_out' : null, $this->revokedReasonOf($session));
+
+        if ($clears) {
+            self::assertClears($result);
+        } else {
+            self::assertNull($result->forgetCookie);
+            self::assertSame([], $result->attachTo(new Response)->headers->getCookies());
+        }
+
+        $expected = match (true) {
+            $signedOut       => [SessionRevoked::class, Logout::class],
+            $reason !== null => [AuthenticationFailed::class],
+            default          => [],
+        };
+
+        self::assertSame($expected, $this->recordedClasses());
+
+        if ($reason === null) {
+            return;
+        }
+
+        $failure = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([AuthenticationFlow::SIGN_OUT, $reason, $client], [$failure->flow, $failure->reason, $failure->context->client]);
+    }
+
+    /**
+     * A body application signs out from plain values by a token presented from
+     * its body field or its header with a client that has no same-site facts at
+     * all, and has no cookie to clear.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABodyApplicationSignsOutFromPlainValuesWithoutSameSiteFacts(): void
+    {
+        $this->seedIdentity();
+
+        foreach ([RefreshTokenSource::BODY, RefreshTokenSource::HEADER] as $source) {
+
+            $session = $this->signedIn();
+            $result  = $this->serving(['REMOTE_ADDR' => self::CROSS_SITE_IP])->signOutPresented(self::presentedToken(self::refreshOf($session), $source), self::crossSiteClient());
+
+            self::assertSame([true, $source, null], [$result->isSignedOut(), $result->source, $result->forgetCookie], $source->value);
+            self::assertSame('signed_out', $this->revokedReasonOf($session));
+        }
+
+        $refused = $this->serving()->signOutPresented(self::presentedToken('not-a-token', RefreshTokenSource::COOKIE), self::sameSiteClient());
+
+        self::assertSame([FailureReason::REFRESH_TRANSPORT_MISMATCH, RefreshTokenSource::COOKIE, null], [$refused->reason, $refused->source, $refused->forgetCookie]);
+        self::assertNull($this->serving()->signOutPresented(null, self::sameSiteClient())->forgetCookie);
+    }
+
+    /**
+     * A token presented from plain values inside the grace window still signs
+     * its session out, and one replayed after it revokes the session as
+     * `rotation_reuse` and is refused, both reported with the client given.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testGraceAndReplayHoldForAPlainSignOut(): void
+    {
+        $this->seedIdentity();
+
+        $graced   = $this->signedIn(self::BROWSER);
+        $replayed = $this->signedIn(self::BROWSER);
+        $client   = self::sameSiteClient();
+
+        foreach ([$graced, $replayed] as $session) {
+            $presented = self::presentedToken(self::cookieOf($session), RefreshTokenSource::COOKIE);
+
+            self::assertTrue($this->serving(guard: self::BROWSER)->refreshPresented($presented, $client)->isRefreshed());
+        }
+
+        self::assertTrue($this->serving(guard: self::BROWSER)->signOutPresented(self::presentedToken(self::cookieOf($graced), RefreshTokenSource::COOKIE), $client)->isSignedOut());
+        self::assertSame('signed_out', $this->revokedReasonOf($graced));
+
+        $this->moveTo(CarbonImmutable::now()->addMinutes(2));
+        $this->recordEvents(self::EVENTS);
+
+        $result = $this->serving(guard: self::BROWSER)->signOutPresented(self::presentedToken(self::cookieOf($replayed), RefreshTokenSource::COOKIE), $client);
+
+        self::assertSame([false, FailureReason::ROTATION_REUSE], [$result->isSignedOut(), $result->reason]);
+        self::assertClears($result);
+        self::assertSame('rotation_reuse', $this->revokedReasonOf($replayed));
+        self::assertSame([SessionRevoked::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame($client, $this->recordedEvent(SessionRevoked::class)->context->client);
+        self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+    }
+
+    /**
+     * A reason the transport never answers, handed in, is the caller's error:
+     * it throws before anything is dispatched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReasonTheTransportNeverAnswersIsRefusedAsTheCallersError(): void
+    {
+        $this->recordEvents(self::EVENTS);
+
+        foreach ([self::BROWSER, 'api'] as $guard) {
+            try {
+                $this->serving(guard: $guard)->signOutPresented(FailureReason::SESSION_REVOKED, self::sameSiteClient());
+
+                self::fail('A sign-out took a reason the transport never answers.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertStringContainsString('`session_revoked`', $exception->getMessage());
+            }
+        }
+
+        self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * A plain sign-out inside the caller's transaction that rolls back revokes
+     * nothing and reports nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainSignOutThatRollsBackRevokesNothing(): void
+    {
+        $this->seedIdentity();
+
+        $session  = $this->signedIn(self::BROWSER);
+        $sessions = $this->serving(guard: self::BROWSER);
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        DB::beginTransaction();
+
+        self::assertTrue($sessions->signOutPresented(self::presentedToken(self::cookieOf($session), RefreshTokenSource::COOKIE), self::sameSiteClient())->isSignedOut());
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertNull($this->revokedReasonOf($session));
+    }
+
+    /**
      * Configure the session guards.
      *
      * @param  mixed  $app
@@ -598,7 +874,49 @@ final class SessionSignOutTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('auth.guards.' . self::BROWSER, [
+            'driver'        => 'jwt',
+            'provider'      => 'identities',
+            'application'   => ['methods' => ['password']],
+            'refresh_token' => ['transport' => 'cookie', 'cookie' => ['path' => '/auth']],
+        ]);
+    }
+
+    /**
+     * The refresh token a cookie application's session carries in its cookie.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return string
+     */
+    private static function cookieOf(SignedInSession $session): string
+    {
+        $value = $session->tokens->refreshCookie?->cookie()->getValue();
+
+        self::assertIsString($value);
+
+        return $value;
+    }
+
+    /**
+     * Assert the result carries the cookie application's expired cookie, and
+     * attaches it alone.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignOutResult  $result
+     * @param  string  $case
+     * @return void
+     */
+    private static function assertClears(SignOutResult $result, string $case = ''): void
+    {
+        $cookie = $result->forgetCookie;
+
+        self::assertNotNull($cookie, $case);
+        self::assertTrue($cookie->isCleared(), $case);
+        self::assertSame(self::COOKIE, [$cookie->getName(), $cookie->getPath()], $case);
+        self::assertSame([$cookie], $result->attachTo(new Response)->headers->getCookies(), $case);
     }
 
     /**

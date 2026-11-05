@@ -58,7 +58,12 @@ revoked, and when a session that ended is deleted. Starting a session is in
   cookie, but able to have the response's cookie kept) clears nothing, and a refused request leaves the cookie with the
   session it still proves. `signOutWith($token)` proves and revokes the same way for a token a body application's code
   read, but forgets no other binding: a guard bound to another session stays bound to it, whether the token is refused
-  or proves another session. A cookie application throws a `LogicException`.
+  or proves another session. A cookie application throws a `LogicException`. `signOutPresented($presented, $client)`
+  (`SessionSignOut::presented()`) signs out by the refresh credential alone too, on either transport, from what the
+  transport's `extract()` answered and a `ClientContext`: the transport judges the token again (`judge()`), a reason
+  handed in must be one `read()` answers, the proof and revocation are `signOutWith()`'s with the client in place of the
+  request's (`RefreshProof::prove()` takes it), and the expired cookie is carried for a same-site client whose token was
+  not refused as `refresh_token_conflict`.
 - A sign-out by refresh credential takes no lock, so it races a rotation's compare-and-swap: a token rotated in between
   is the previous one inside the grace window and still proves the session, and the conditional revocation means two
   sign-outs, or a sign-out and a replay, revoke and report once.

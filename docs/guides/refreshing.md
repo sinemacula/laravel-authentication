@@ -60,7 +60,8 @@ to a cookie application) is refused as `refresh_transport_mismatch`. A value tha
 `refresh`) like any failed refresh, without touching a session or counting against a limit; a token the exchange
 refuses fails with the exchange's reason, `rate_limited` included. The result's `source` (`RefreshTokenSource::COOKIE`,
 `BODY` or `HEADER`) says where the token came from. `Auth::refreshTransport('api')->read($request)` reads a request the
-same way without refreshing.
+same way without refreshing, and `extract($request)` reads it without the cookie's same-site judgement, for a service
+layer that refreshes from plain values (see [Refreshing from plain values](#refreshing-from-plain-values)).
 
 The package defaults are `authentication.refresh_token`; a guard overrides any of them in a `refresh_token` block on its
 `config/auth.php` entry, where a key it sets wins, inside `cookie` too:
@@ -79,7 +80,8 @@ when a sign-in, refresh or switch reads the transport, and `authentication:check
 `Auth::sessions('api')->refresh($refreshToken)` refreshes a body application with a token your code reads itself and
 answers the same `RefreshResult`, without a `source`. A cookie application's token is read only from its cookie, with
 the cookie's cross-site checks, so on a cookie application `refresh($refreshToken)` (and `switchTo()` and
-`signOutWith()`) throws a `LogicException`: use `refreshFromRequest()`. `Auth::caller()` reads a route's refresh
+`signOutWith()`) throws a `LogicException`: use `refreshFromRequest()`, or `refreshPresented()` with the token and the
+client as plain values. `Auth::caller()` reads a route's refresh
 credential through the same transport (see [The caller of a request](sessions.md#the-caller-of-a-request)).
 
 A refresh is held to the guard as well as the token. A session the row records for another guard (or for none) fails
@@ -261,14 +263,15 @@ and its own scripts would then pass the refresh checks inside the attacker's acc
 refused: its tokens travel only in a response body, which a cross-site page cannot read. Answer `cross_site_request`
 with `403`, as the sign-in route above does.
 
-`signIn()` and `start()` judge the client of the `SignInContext` they are given (the guard's request when none is), and
-`satisfy()` and `choose()` the guard's request. `SignInContext::fromRequest()` fills the client's `Origin`, the
-request's own scheme and host and the names of the headers it carried; a `ClientContext` you build from plain values is
-your trusted description of the request, and one built without those facts is refused on a cookie application. Its
-constructor takes them after the IP address and user agent: the `Origin` the request presented, the request's own scheme
-and host, and the names (never the values) of the headers it actually carried with a value (the check looks for the
-`csrf_header` among them). Copy them from the request each time; constant values pass the check for every request,
-a cross-site form post among them, and so turn it off. Here an application supplies its own IP address and user agent:
+`signIn()` and `start()` judge the client of the `SignInContext` they are given, and `satisfy()` and `choose()` the
+`ClientContext` they are given (each the guard's request when none is). `SignInContext::fromRequest()` fills the
+client's `Origin`, the request's own scheme and host and the names of the headers it carried; a `ClientContext` you
+build from plain values is your trusted description of the request, and one built without those facts is refused on a
+cookie application. Its constructor takes them after the IP address and user agent: the `Origin` the request presented,
+the request's own scheme and host, and the names (never the values) of the headers it actually carried with a value (the
+check looks for the `csrf_header` among them). Copy them from the request each time; constant values pass the check for
+every request, a cross-site form post among them, and so turn it off. Here an application supplies its own IP address
+and user agent:
 
 ```php
 $facts  = ClientContext::fromRequest($request);
@@ -322,6 +325,95 @@ If you keep it encrypted, set and read the cookie on routes that both run `Encry
 returns is the one the middleware made; a value it cannot decrypt reaches the guard as an invalid token
 (`token_invalid`), and the client signs in again. Routes in `routes/api.php` do not run `EncryptCookies` unless you
 add it.
+
+## Refreshing from plain values
+
+A service layer that keeps HTTP out of its code refreshes from plain values, on a cookie application as on a body one:
+the controller extracts the token from the request and builds the request's `ClientContext`, and the service hands both
+to `refreshPresented()`, which reads nothing from the guard's request. Signing out by the refresh credential works the
+same way (`signOutPresented()`, see [Signing out and revoking sessions](sessions.md#signing-out-and-revoking-sessions)),
+and so do the actions on a pending session (`satisfy()` and `choose()` take the client too, see
+[Refresh token cookie](#refresh-token-cookie)).
+
+```php
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
+use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
+use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
+
+// Controller: HTTP stays here.
+Route::post('/auth/refresh', function (Request $request, RefreshService $service) {
+    $result = $service->refresh(Auth::refreshTransport('browser')->extract($request), ClientContext::fromRequest($request));
+
+    abort_if($result === null, 401); // no refresh token in the request, and nothing was dispatched
+
+    if ($result->reason === FailureReason::RATE_LIMITED) {
+        throw new ThrottleRequestsException(__('Too Many Attempts.'), null, ['Retry-After' => $result->retryAfter]);
+    }
+
+    abort_if($result->reason === FailureReason::CROSS_SITE_REQUEST, 403);
+
+    if ($result->isPending()) {
+        return SecretResponse::json(['pending_credential' => $result->credential, 'requires' => ['mfa']]);
+    }
+
+    abort_if($result->session === null, 401);
+
+    $tokens = $result->session->tokens;
+
+    return $tokens->refreshCookie->attachTo(SecretResponse::json(['access_token' => $tokens->accessToken, 'expires_in' => $tokens->expiresIn]));
+});
+
+// Service: plain values only.
+final class RefreshService
+{
+    public function refresh(FailureReason|PresentedRefreshToken|null $presented, ClientContext $client): ?RefreshResult
+    {
+        return Auth::sessions('browser')->refreshPresented($presented, $client);
+    }
+}
+```
+
+A body application's controller is the same, its pair carrying `refreshToken` for the body and no cookie.
+
+`extract($request)` reads the request as `read()` does but leaves the cookie's same-site judgement out: it answers
+`null`, `refresh_token_conflict`, `refresh_transport_mismatch` or `token_invalid` as `read()` would, and otherwise a
+`PresentedRefreshToken` holding the token (a `Secret`), its `source` and its `carriers`, every carrier the request
+carried a refresh token in (the source alone, since anything more is a conflict). It never answers
+`cross_site_request`: a cross-site empty cookie is `token_invalid` from `extract()`, where `read()` says
+`cross_site_request`. It reads no IP address and has no side effects.
+
+`refreshPresented($presented, $client)` trusts nothing about how the value was obtained: the transport judges it again
+with the client, in `read()`'s order (`Auth::refreshTransport('browser')->judge($presented, $client)` is that judgement
+on its own). Carriers that are not the source alone (more than one, the cookie twice, none, or not its own) are
+`refresh_token_conflict`; a source that is not one of the application's carriers (the cookie to a body application, the
+body or a header to a cookie application, a header to a body application whose `header` is `null`) is
+`refresh_transport_mismatch`; and a token from the cookie whose client fails `isSameSiteClient()` is
+`cross_site_request`, as is one whose client was built without its `Origin`, scheme and host or header names. A body
+field or a header is never judged same-site. A reason `extract()` (or `read()`) answered, handed in, is reported as
+`refreshFromRequest()` reports it; any other reason is the caller's error, an `InvalidArgumentException` before anything
+is dispatched; `null` answers `null`, dispatching nothing. A refusal dispatches `Attempting`, `Failed` and
+`AuthenticationFailed` (flow `refresh`, with the client given), touches no session, counts against no limit and costs no
+query; the result's `source` says where a refused token was presented, and is `null` for a reason handed in.
+
+A token the judgement accepts is refreshed as `refreshFromRequest()` refreshes it, at the same cost, with the client
+given in place of the request's: the attempt limit counts its IP address (a client without one is limited by the
+token's session alone); `Refreshed`, `SignedIn`, `AuthenticationFailed`, a revocation's `SessionRevoked` and a return to
+pending's `SessionReturnedToPending` carry it; and grace and replay hold (see [Refresh token
+replay](#refresh-token-replay)). The guard is bound to the refreshed session as any refresh binds it, and the bind's
+events (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`) describe the guard's own
+request, as every later event of the guard in that request does, so the session's last use, which
+`SessionAuthenticated` records, is that request's too; a controller that hands on its own request's client gives the
+same one.
+
+A `PresentedRefreshToken` you build yourself, rather than take from `extract()`, is your trusted description of the
+request, as a `ClientContext` built from plain values is: its constructor requires the carriers, so it cannot be built
+without them, and you copy the source and carriers from each request, never constants, since facts that always show one
+carrier turn the conflict check off.
 
 ## Refresh token replay
 

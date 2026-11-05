@@ -23,6 +23,9 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -278,6 +281,57 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
 
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshFromRequest())?->reason);
+    }
+
+    /**
+     * A cookie application's refresh from plain values, judged on the token's
+     * carriers and the client given and reading nothing from the guard's
+     * request, costs what a refresh costs; a token the judgement refuses, from
+     * a client the same-site check refuses or with conflicting carriers, is
+     * refused before the exchange: no query, and no limit counted.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testAPlainCookieRefreshCostsWhatARefreshCosts(): void
+    {
+        $identity   = $this->seedIdentity();
+        $rotationId = 'plain-cookie-refresh-rotation-id';
+
+        $session = new Session;
+        $session->forceFill([
+            ...self::liveSession(self::COOKIE_GUARD, $identity),
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+            'last_used_at'         => $this->now,
+        ])->save();
+
+        $jwt = PackageAuth::jwt(self::COOKIE_GUARD);
+        self::assertNotNull($jwt);
+
+        $token     = $jwt->issueRefreshToken($session, $rotationId, $identity);
+        $presented = new PresentedRefreshToken($token, RefreshTokenSource::COOKIE, [RefreshTokenSource::COOKIE]);
+        $sameSite  = new ClientContext('192.0.2.44', 'Plain/1.0', 'http://localhost', 'http://localhost', ['x-requested-with']);
+
+        app()->instance('request', Request::create('/elsewhere', 'POST'));
+
+        $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
+
+        $crossSite = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshPresented($presented, new ClientContext('192.0.2.44', 'Plain/1.0')));
+        $conflict  = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshPresented(
+            new PresentedRefreshToken($token, RefreshTokenSource::COOKIE, [RefreshTokenSource::COOKIE, RefreshTokenSource::COOKIE]),
+            $sameSite,
+        ));
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $crossSite->reason);
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $conflict->reason);
+
+        $result = $this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refreshPresented($presented, $sameSite));
+
+        self::assertTrue($result->isRefreshed());
+        self::assertSame(self::COOKIE_NAME, $result->session?->tokens->refreshCookie?->name);
     }
 
     /**
