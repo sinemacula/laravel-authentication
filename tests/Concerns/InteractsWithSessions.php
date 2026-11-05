@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -310,6 +311,21 @@ trait InteractsWithSessions
     protected static function presentedToken(#[\SensitiveParameter] string $token, RefreshTokenSource $source, ?array $carriers = null): PresentedRefreshToken
     {
         return new PresentedRefreshToken(new Secret($token), $source, $carriers ?? [$source]);
+    }
+
+    /**
+     * The refresh token a cookie application's session carries in its cookie.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return string
+     */
+    protected static function cookieTokenOf(SignedInSession $session): string
+    {
+        $value = $session->tokens->refreshCookie?->cookie()->getValue();
+
+        self::assertIsString($value);
+
+        return $value;
     }
 
     /**

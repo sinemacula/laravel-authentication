@@ -590,7 +590,7 @@ final class SessionRefreshTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = self::sessionsOf($guard)->refreshPresented(self::presentedToken(self::cookieToken($session), RefreshTokenSource::COOKIE), self::sameSiteClient());
+        $result = self::sessionsOf($guard)->refreshPresented(self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE), self::sameSiteClient());
 
         self::assertNotNull($result);
         self::assertTrue($result->isRefreshed());
@@ -632,7 +632,7 @@ final class SessionRefreshTest extends TestCase
         $this->seedIdentity();
 
         $session = $this->signedIn(self::BROWSER);
-        $token   = self::cookieToken($session);
+        $token   = self::cookieTokenOf($session);
         $before  = $this->refreshKeyOf($session);
         $guard   = $this->guardServing(['HTTP_ORIGIN' => 'http://localhost', 'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest'], [], [self::COOKIE => $token], self::BROWSER);
 
@@ -695,7 +695,7 @@ final class SessionRefreshTest extends TestCase
         $this->seedIdentity();
 
         $session = $this->signedIn($guardName);
-        $token   = $guardName === self::BROWSER ? self::cookieToken($session) : $session->tokens->refreshToken?->reveal();
+        $token   = $guardName === self::BROWSER ? self::cookieTokenOf($session) : $session->tokens->refreshToken?->reveal();
         $before  = $this->refreshKeyOf($session);
         $guard   = $this->crossSiteGuard($guardName);
 
@@ -844,7 +844,7 @@ final class SessionRefreshTest extends TestCase
         $this->seedIdentity();
 
         $session  = $this->signedIn(self::BROWSER);
-        $replayed = self::presentedToken(self::cookieToken($session), RefreshTokenSource::COOKIE);
+        $replayed = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
         $current  = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($replayed, self::sameSiteClient())->session?->tokens->refreshCookie;
         $retried  = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($replayed, self::sameSiteClient())->session?->tokens->refreshCookie;
 
@@ -911,7 +911,7 @@ final class SessionRefreshTest extends TestCase
         $this->recordEvents(self::EVENTS);
 
         DB::transaction(function () use ($guard, $committed): void {
-            $presented = self::presentedToken(self::cookieToken($committed), RefreshTokenSource::COOKIE);
+            $presented = self::presentedToken(self::cookieTokenOf($committed), RefreshTokenSource::COOKIE);
 
             self::assertTrue(self::sessionsOf($guard)->refreshPresented($presented, self::sameSiteClient())->isRefreshed());
             self::assertSame([Attempting::class], $this->recordedClasses());
@@ -927,7 +927,7 @@ final class SessionRefreshTest extends TestCase
 
         DB::beginTransaction();
 
-        $presented = self::presentedToken(self::cookieToken($rolledBack), RefreshTokenSource::COOKIE);
+        $presented = self::presentedToken(self::cookieTokenOf($rolledBack), RefreshTokenSource::COOKIE);
 
         self::assertTrue(self::sessionsOf($guard)->refreshPresented($presented, self::sameSiteClient())->isRefreshed());
 
@@ -976,21 +976,6 @@ final class SessionRefreshTest extends TestCase
         self::assertNotNull($session);
 
         return $session;
-    }
-
-    /**
-     * The refresh token a cookie application's session carries in its cookie.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
-     * @return string
-     */
-    private static function cookieToken(SignedInSession $session): string
-    {
-        $value = $session->tokens->refreshCookie?->cookie()->getValue();
-
-        self::assertIsString($value);
-
-        return $value;
     }
 
     /**

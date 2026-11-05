@@ -619,7 +619,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $elsewhere = $sessions->signOutPresented(self::presentedToken(self::cookieOf($other), RefreshTokenSource::COOKIE), $client);
+        $elsewhere = $sessions->signOutPresented(self::presentedToken(self::cookieTokenOf($other), RefreshTokenSource::COOKIE), $client);
 
         self::assertTrue($elsewhere->isSignedOut());
         self::assertSame(RefreshTokenSource::COOKIE, $elsewhere->source);
@@ -632,7 +632,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $signed = $sessions->signOutPresented(self::presentedToken(self::cookieOf($current), RefreshTokenSource::COOKIE), $client);
+        $signed = $sessions->signOutPresented(self::presentedToken(self::cookieTokenOf($current), RefreshTokenSource::COOKIE), $client);
 
         self::assertTrue($signed->isSignedOut());
         self::assertClears($signed);
@@ -706,7 +706,7 @@ final class SessionSignOutTest extends TestCase
         $this->seedIdentity();
 
         $session  = $this->signedIn(self::BROWSER);
-        $token    = self::cookieOf($session);
+        $token    = self::cookieTokenOf($session);
         $sessions = $this->serving(['REMOTE_ADDR' => self::CROSS_SITE_IP], cookies: [self::COOKIE[0] => $token], guard: self::BROWSER);
 
         $this->recordEvents(self::EVENTS);
@@ -786,18 +786,20 @@ final class SessionSignOutTest extends TestCase
         $client   = self::sameSiteClient();
 
         foreach ([$graced, $replayed] as $session) {
-            $presented = self::presentedToken(self::cookieOf($session), RefreshTokenSource::COOKIE);
+            $presented = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
 
             self::assertTrue($this->serving(guard: self::BROWSER)->refreshPresented($presented, $client)->isRefreshed());
         }
 
-        self::assertTrue($this->serving(guard: self::BROWSER)->signOutPresented(self::presentedToken(self::cookieOf($graced), RefreshTokenSource::COOKIE), $client)->isSignedOut());
+        $presented = self::presentedToken(self::cookieTokenOf($graced), RefreshTokenSource::COOKIE);
+
+        self::assertTrue($this->serving(guard: self::BROWSER)->signOutPresented($presented, $client)->isSignedOut());
         self::assertSame('signed_out', $this->revokedReasonOf($graced));
 
         $this->moveTo(CarbonImmutable::now()->addMinutes(2));
         $this->recordEvents(self::EVENTS);
 
-        $result = $this->serving(guard: self::BROWSER)->signOutPresented(self::presentedToken(self::cookieOf($replayed), RefreshTokenSource::COOKIE), $client);
+        $result = $this->serving(guard: self::BROWSER)->signOutPresented(self::presentedToken(self::cookieTokenOf($replayed), RefreshTokenSource::COOKIE), $client);
 
         self::assertSame([false, FailureReason::ROTATION_REUSE], [$result->isSignedOut(), $result->reason]);
         self::assertClears($result);
@@ -851,7 +853,7 @@ final class SessionSignOutTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($sessions->signOutPresented(self::presentedToken(self::cookieOf($session), RefreshTokenSource::COOKIE), self::sameSiteClient())->isSignedOut());
+        self::assertTrue($sessions->signOutPresented(self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE), self::sameSiteClient())->isSignedOut());
 
         DB::rollBack();
 
@@ -884,21 +886,6 @@ final class SessionSignOutTest extends TestCase
             'application'   => ['methods' => ['password']],
             'refresh_token' => ['transport' => 'cookie', 'cookie' => ['path' => '/auth']],
         ]);
-    }
-
-    /**
-     * The refresh token a cookie application's session carries in its cookie.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
-     * @return string
-     */
-    private static function cookieOf(SignedInSession $session): string
-    {
-        $value = $session->tokens->refreshCookie?->cookie()->getValue();
-
-        self::assertIsString($value);
-
-        return $value;
     }
 
     /**
