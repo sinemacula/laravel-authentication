@@ -11,15 +11,21 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
+use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\LooksUpSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
@@ -28,6 +34,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -43,8 +50,8 @@ use Tests\TestCase;
  * identity may use the application as, and nothing for another identity's or
  * one no longer admitted; and `Auth::sessions('api')->proofs()` and
  * `firstFactor()` answer the counting proofs and first factor of any of the
- * guard's active sessions, and nothing for one of another guard, revoked or
- * pending.
+ * guard's active sessions, named by key or given as the instance while its key
+ * still holds it, and nothing for one of another guard, revoked or pending.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -55,7 +62,7 @@ use Tests\TestCase;
 #[CoversTrait(LooksUpSessions::class)]
 final class LooksUpSessionsTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithSessions, MarksSharedLocks;
 
     /**
      * Create the tables and register the route.
@@ -96,6 +103,13 @@ final class LooksUpSessionsTest extends TestCase
             $sessions = Auth::sessions('api');
 
             return ['proofs' => $sessions->proofs($session, $since, $kinds), 'first_factor' => $sessions->firstFactor($session)];
+        });
+
+        Route::middleware('auth:api')->get('/session/proofs', static function (): array {
+
+            $sessions = Auth::sessions('api');
+
+            return ['proofs' => $sessions->proofs(Auth::session()), 'first_factor' => $sessions->firstFactor(Auth::session())];
         });
     }
 
@@ -227,6 +241,56 @@ final class LooksUpSessionsTest extends TestCase
     }
 
     /**
+     * Time zones other than the application's, and the application's own.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideTimeZones(): iterable
+    {
+        yield from [
+            'the application\'s'       => ['UTC'],
+            'behind the application'   => ['America/New_York'],
+            'ahead of the application' => ['Asia/Tokyo'],
+        ];
+    }
+
+    /**
+     * The time a session's proofs are read from is the same instant in
+     * whichever time zone it is given: a step-up made at it is read and one
+     * made before it is not, as when it is given in the application's zone.
+     *
+     * @param  string  $zone
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideTimeZones')]
+    public function testTheTimeGivenIsTheSameInstantInAnyTimeZone(string $zone): void
+    {
+        $signedInAt = CarbonImmutable::now()->startOfSecond();
+
+        CarbonImmutable::setTestNow($signedInAt);
+
+        $identity = $this->seedIdentity();
+        $key      = $this->signIn('api', 'Phone')->record->getKey();
+        $at       = $signedInAt->addMinute();
+
+        CarbonImmutable::setTestNow($at);
+
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $key))->isIssued());
+
+        $since = fn (CarbonImmutable $time): array => array_map(
+            static fn (RecordedProof $proof): ProofKind => $proof->kind,
+            $this->sessions('api')->proofs($key, $time->setTimezone($zone)),
+        );
+
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], $since($signedInAt));
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($at->subSecond()));
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($at));
+        self::assertSame([], $since($at->addSecond()));
+    }
+
+    /**
      * A session of another guard, a revoked one and a pending one answer no
      * proofs and no first factor through the guard, alike, while the pending
      * session's own `proofs()` still reads its first factor.
@@ -257,6 +321,102 @@ final class LooksUpSessionsTest extends TestCase
         foreach ([self::idOf($admin), self::idOf($revoked), (string) IdentifierCoercion::stringify($pending->id)] as $id) {
             $this->proofsOf($token, $id)->assertOk()->assertExactJson(['proofs' => [], 'first_factor' => null]);
         }
+    }
+
+    /**
+     * A session given as an instance answers only while its key still holds it:
+     * the request's own session, as the guard bound it, answers its proofs and
+     * first factor over HTTP, and so does its instance; once another sign-in of
+     * the same owner reuses its key, the earlier instance answers nothing, with
+     * one read of the row, while the key, and the new session's instance,
+     * answer the new session's first factor.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnswersASessionGivenAsAnInstanceOnlyWhileItsKeyHoldsIt(): void
+    {
+        $identity = $this->seedIdentity();
+        $current  = $this->signIn('api', 'Phone');
+        $key      = $current->record->getKey();
+
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $key))->isIssued());
+
+        $bound = $this->withHeaders(['Authorization' => 'Bearer ' . $current->tokens->accessToken->reveal()])->getJson('/session/proofs')->assertOk();
+
+        self::assertSame(['additional_factor', 'first_factor'], array_column((array) $bound->json('proofs'), 'kind'));
+
+        $bound->assertJsonPath('first_factor.method', 'password');
+
+        self::assertCount(2, $this->sessions('api')->proofs($current->record));
+
+        Session::query()->whereKey($key)->update(['generation' => (string) Str::uuid7(), 'sign_in_method' => 'passkey']);
+
+        $reused = SessionLookup::find($key);
+
+        self::assertNotNull($reused);
+
+        ProofWriter::clear($reused);
+        ProofWriter::record($reused, 'api', SignInProof::unattested('passkey', CarbonImmutable::now())->firstFactor());
+
+        $queries = 0;
+
+        DB::listen(static function (QueryExecuted $query) use (&$queries): void {
+            $queries++;
+        });
+
+        self::assertSame([], $this->sessions('api')->proofs($current->record));
+        self::assertNull($this->sessions('api')->firstFactor($current->record));
+        self::assertSame(2, $queries);
+        self::assertSame('passkey', $this->sessions('api')->firstFactor($key)?->method);
+        self::assertSame('passkey', $this->sessions('api')->firstFactor($reused)?->method);
+        self::assertSame([ProofKind::FIRST_FACTOR], array_map(static fn (RecordedProof $proof): ProofKind => $proof->kind, $this->sessions('api')->proofs($reused)));
+    }
+
+    /**
+     * Read inside a transaction, then stepped up and judged again after a
+     * factor change in the same transaction, a session is locked only on its
+     * own row, each time: the step-up is issued, the session stays active, and
+     * the read after them returns the step-up, which commits with the
+     * transaction.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReadThenAStepUpAndAFactorChangeOfTheSessionInOneTransaction(): void
+    {
+        $identity = $this->seedIdentity();
+        $record   = $this->signIn('api', 'Phone')->record;
+        $key      = $record->getKey();
+
+        self::markSharedLocks();
+
+        $sessions = $this->sessions('api');
+        $answers  = [];
+
+        $queries = self::queriesDuring(static function () use ($sessions, $identity, $record, $key, &$answers): void {
+            $answers = DB::transaction(static fn (): array => [
+                self::kindsOf($sessions->proofs($key)),
+                $sessions->stepUp(self::adapterProof($identity, 'api', $key))->isIssued(),
+                $sessions->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $record)->isActive(),
+                self::kindsOf($sessions->proofs($key)),
+                $sessions->firstFactor($key)?->kind,
+            ]);
+        });
+
+        $locked = array_values(array_filter($queries, static fn (array $query): bool => self::locksForUpdate($query[0])));
+
+        self::assertSame([[ProofKind::FIRST_FACTOR], true, true, [ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], ProofKind::FIRST_FACTOR], $answers);
+        self::assertCount(5, $locked);
+
+        foreach ($locked as [$sql, $bindings]) {
+            self::assertMatchesRegularExpression('/^select \* from ["`]authentication_sessions["`] /', $sql);
+            self::assertSame([$key], array_values($bindings));
+        }
+
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], self::kindsOf($sessions->proofs($key)));
     }
 
     /**
@@ -356,6 +516,17 @@ final class LooksUpSessionsTest extends TestCase
         self::assertNotNull($session);
 
         return $session;
+    }
+
+    /**
+     * The kinds of the proofs, in order.
+     *
+     * @param  list<\SineMacula\Laravel\Authentication\Proofs\RecordedProof>  $proofs
+     * @return list<\SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind>
+     */
+    private static function kindsOf(array $proofs): array
+    {
+        return array_map(static fn (RecordedProof $proof): ProofKind => $proof->kind, $proofs);
     }
 
     /**

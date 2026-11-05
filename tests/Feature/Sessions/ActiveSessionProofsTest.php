@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
@@ -28,6 +29,7 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainSessionFixture;
 use Tests\Unit\Stubs\StubBareSession;
+use Tests\Unit\Stubs\StubNonModelSession;
 
 /**
  * Feature tests of the read of an active session's proofs and first factor that
@@ -193,8 +195,9 @@ final class ActiveSessionProofsTest extends TestCase
      * An identifier that cannot be a session's key answers nothing with no
      * query; an unknown key, and a session of another guard, a revoked, a
      * pending, an idle or absolutely ended one at the second its deadline
-     * names, and a machine's, answer nothing alike, by key and by instance,
-     * each with one read of the session and none of its proofs.
+     * names, and a machine's, answer nothing alike, by key and by the instance
+     * as stored now (still that session, so only its state refuses it), each
+     * with one read of the session and none of its proofs.
      *
      * @return void
      *
@@ -222,8 +225,11 @@ final class ActiveSessionProofsTest extends TestCase
         foreach ($states as $state) {
             DB::table('authentication_sessions')->where('id', $key)->update($state);
 
+            $stored = SessionLookup::find($key);
+
+            self::assertNotNull($stored);
             self::assertSame([[], null, 1], self::answersFor('api', $key));
-            self::assertSame([[], null, 1], self::answersFor('api', $record));
+            self::assertSame([[], null, 1], self::answersFor('api', $stored));
         }
 
         DB::table('authentication_sessions')->where('id', $key)->update(['authenticatable_type' => $record->getAttribute('authenticatable_type')]);
@@ -232,8 +238,9 @@ final class ActiveSessionProofsTest extends TestCase
     }
 
     /**
-     * A session that is not an Eloquent session, a plain one or a model that is
-     * not one, names none, and is never looked up.
+     * A session that is not an Eloquent session, a plain one, a model that is
+     * not one, or one that declares the contract without being a model, names
+     * none, and is never looked up, though its key names a live session.
      *
      * @return void
      *
@@ -245,6 +252,7 @@ final class ActiveSessionProofsTest extends TestCase
 
         self::assertSame([[], null, 0], self::answersFor('api', new PlainSessionFixture($id, $this->now->addHour())));
         self::assertSame([[], null, 0], self::answersFor('api', new StubBareSession(['id' => $id])));
+        self::assertSame([[], null, 0], self::answersFor('api', self::nonModelSession($id)));
     }
 
     /**
@@ -430,6 +438,23 @@ final class ActiveSessionProofsTest extends TestCase
         $session = $this->sessions($guard)->signIn('password', self::credentials())->session;
 
         self::assertNotNull($session);
+
+        return $session;
+    }
+
+    /**
+     * A session of the `api` guard under the key given that declares the
+     * Eloquent session contract without being an Eloquent model.
+     *
+     * @param  string  $id
+     * @return \SineMacula\Laravel\Authentication\Contracts\EloquentSession
+     */
+    private static function nonModelSession(string $id): EloquentSession
+    {
+        $session = \Mockery::mock(StubNonModelSession::class);
+
+        $session->shouldReceive('getGuard')->andReturn('api');
+        $session->shouldReceive('getSessionIdentifier')->andReturn($id);
 
         return $session;
     }

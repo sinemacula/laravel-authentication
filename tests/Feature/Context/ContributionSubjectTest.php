@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
 use SineMacula\Laravel\Authentication\Context\ContextContributors;
 use SineMacula\Laravel\Authentication\Context\ContributionSubject;
@@ -41,6 +42,7 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainSessionFixture;
 use Tests\Unit\Stubs\StubBareSession;
+use Tests\Unit\Stubs\StubNonModelSession;
 
 /**
  * Feature tests of what a contributor to the authentication context is given:
@@ -208,8 +210,9 @@ final class ContributionSubjectTest extends TestCase
     }
 
     /**
-     * Without a session, or with one that is not an Eloquent session, there are
-     * no proofs and no first factor, and nothing is read, the session model not
+     * Without a session, or with one that is not an Eloquent session (one that
+     * declares the contract without being a model among them), there are no
+     * proofs and no first factor, and nothing is read, the session model not
      * even resolved; the limit is checked first, whatever the session.
      *
      * @return void
@@ -221,7 +224,7 @@ final class ContributionSubjectTest extends TestCase
         $identity = $this->seedIdentity();
         $id       = (string) IdentifierCoercion::stringify($this->signedIn()->record->getKey());
 
-        foreach ([null, new PlainSessionFixture($id, $this->now->addHour()), new StubBareSession(['id' => $id])] as $session) {
+        foreach ([null, new PlainSessionFixture($id, $this->now->addHour()), new StubBareSession(['id' => $id]), self::nonModelSession($id)] as $session) {
             $subject = self::subject($identity, $session);
 
             self::assertSame([], self::statementsDuring(static function () use ($subject): void {
@@ -251,9 +254,11 @@ final class ContributionSubjectTest extends TestCase
 
     /**
      * A subject whose session is revoked, pending, past its idle deadline,
-     * another application's or a machine's, or whose key another sign-in of the
-     * same owner reused, answers no proofs and no first factor, while the
-     * session's key holds its proofs still.
+     * another application's or a machine's, each given as stored now (still
+     * that session, so only its state refuses it), or whose key another sign-in
+     * of the same owner reused, answers no proofs and no first factor, each ask
+     * reading the session's row and none of its proofs, while the session's key
+     * holds its proofs still.
      *
      * @return void
      *
@@ -264,9 +269,17 @@ final class ContributionSubjectTest extends TestCase
         $identity = $this->seedIdentity();
         $record   = $this->signedIn()->record;
         $key      = $record->getKey();
-        $answers  = static fn (ContributionSubject $subject): array => [$subject->proofs(), $subject->firstFactor()];
+        $answers  = static function (ContributionSubject $subject): array {
+            $read = [];
 
-        self::assertSame([[], null], $answers(self::subject($identity, $record, 'admin')));
+            $statements = self::statementsDuring(static function () use ($subject, &$read): void {
+                $read = [$subject->proofs(), $subject->firstFactor()];
+            });
+
+            return [...$read, count($statements)];
+        };
+
+        self::assertSame([[], null, 2], $answers(self::subject($identity, $record, 'admin')));
 
         $states = [
             ['revoked_at' => $this->now, 'revoked_reason' => 'revoked'],
@@ -278,7 +291,10 @@ final class ContributionSubjectTest extends TestCase
         foreach ($states as $state) {
             DB::table('authentication_sessions')->where('id', $key)->update($state);
 
-            self::assertSame([[], null], $answers(self::subject($identity, $record)));
+            $stored = SessionLookup::find($key);
+
+            self::assertNotNull($stored);
+            self::assertSame([[], null, 2], $answers(self::subject($identity, $stored)));
         }
 
         DB::table('authentication_sessions')->where('id', $key)->update([
@@ -293,7 +309,7 @@ final class ContributionSubjectTest extends TestCase
         ProofWriter::clear($reused);
         ProofWriter::record($reused, 'api', SignInProof::unattested('passkey', $this->now)->firstFactor());
 
-        self::assertSame([[], null], $answers(self::subject($identity, $record)));
+        self::assertSame([[], null, 2], $answers(self::subject($identity, $record)));
         self::assertSame('passkey', self::subject($identity, $reused)->firstFactor()?->method);
         self::assertSame(1, DB::table('authentication_proofs')->where('session_id', $key)->count());
     }
@@ -333,6 +349,51 @@ final class ContributionSubjectTest extends TestCase
 
         self::assertNull($subject->firstFactor());
         self::assertCount(2, self::statementsDuring(static fn (): ?RecordedProof => $subject->firstFactor()));
+    }
+
+    /**
+     * Time zones other than the application's, and the application's own.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideTimeZones(): iterable
+    {
+        yield from [
+            'the application\'s'       => ['UTC'],
+            'behind the application'   => ['America/New_York'],
+            'ahead of the application' => ['Asia/Tokyo'],
+        ];
+    }
+
+    /**
+     * The time a subject's proofs are read from is the same instant in
+     * whichever time zone it is given: a step-up made at it is read and one
+     * made before it is not, as when it is given in the application's zone.
+     *
+     * @param  string  $zone
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideTimeZones')]
+    public function testTheTimeGivenIsTheSameInstantInAnyTimeZone(string $zone): void
+    {
+        $identity = $this->seedIdentity();
+        $record   = $this->signedIn()->record;
+        $subject  = self::subject($identity, $record);
+        $at       = $this->now->addMinute();
+
+        self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $at, ['otp'], new Evaluation(true, true));
+
+        $since = static fn (CarbonImmutable $time): array => array_map(
+            static fn (RecordedProof $proof): ProofKind => $proof->kind,
+            $subject->proofs($time->setTimezone($zone)),
+        );
+
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], $since($this->now));
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($this->now->addSecond()));
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($at));
+        self::assertSame([], $since($at->addSecond()));
     }
 
     /**
@@ -454,6 +515,23 @@ final class ContributionSubjectTest extends TestCase
         );
 
         return new ContributionSubject($context, $identity, $identity, null, $session);
+    }
+
+    /**
+     * A session of the `api` guard under the key given that declares the
+     * Eloquent session contract without being an Eloquent model.
+     *
+     * @param  string  $id
+     * @return \SineMacula\Laravel\Authentication\Contracts\EloquentSession
+     */
+    private static function nonModelSession(string $id): EloquentSession
+    {
+        $session = \Mockery::mock(StubNonModelSession::class);
+
+        $session->shouldReceive('getGuard')->andReturn('api');
+        $session->shouldReceive('getSessionIdentifier')->andReturn($id);
+
+        return $session;
     }
 
     /**

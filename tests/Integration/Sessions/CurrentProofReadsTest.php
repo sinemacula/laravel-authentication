@@ -111,8 +111,10 @@ use Tests\TestCase;
  * the caller's transaction, they return a step-up committed meanwhile, never a
  * proof voided meanwhile, nothing for a session revoked meanwhile, and a reused
  * key's own first factor, or nothing for the earlier session's instance; a read
- * of the snapshot would return the opposite of each. Asked outside a
- * transaction they answer what is committed and lock nothing.
+ * of the snapshot would return the opposite of each. A step-up and a factor
+ * change of the session after such a read, in the same transaction, commit with
+ * it. Asked outside a transaction they answer what is committed and lock
+ * nothing.
  *
  * Skipped on SQLite, whose in-memory database each connection would have to
  * itself.
@@ -928,6 +930,42 @@ final class CurrentProofReadsTest extends TestCase
     }
 
     /**
+     * A read of a session's proofs inside the caller's transaction, then a
+     * step-up and a factor change of the same session in it, lock only the row
+     * the read holds: they commit together with no lock wait and no failure to
+     * serialise, nothing else having changed since the caller's first read, and
+     * a second read in the transaction returns the step-up.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testAProofReadThenAStepUpAndAFactorChangeOfTheSessionCommitInOneTransaction(string $level): void
+    {
+        $identity = $this->seedIdentity();
+        $record   = $this->signedIn('api', $identity)->record;
+        $key      = $record->getKey();
+
+        self::beginTransactionAt($level);
+
+        self::assertGreaterThan(0, DB::table('authentication_proofs')->count());
+
+        $answers = [
+            self::kindsOf($this->sessions()->proofs($key)),
+            $this->sessions()->stepUp($this->proof($identity, 'api', $key, 'factor-1', Purpose::STEP_UP))->isIssued(),
+            $this->sessions()->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $record)->isActive(),
+            self::kindsOf($this->sessions()->proofs($key)),
+        ];
+
+        DB::commit();
+
+        self::assertSame([[ProofKind::FIRST_FACTOR], true, true, [ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR]], $answers);
+        self::assertSame(1, DB::connection(self::OTHER)->table('authentication_proofs')->where('kind', ProofKind::ADDITIONAL_FACTOR->value)->count());
+    }
+
+    /**
      * Outside a transaction a read of a session's proofs and first factor
      * answers what another connection has committed, and sends no locking
      * statement.
@@ -952,9 +990,9 @@ final class CurrentProofReadsTest extends TestCase
 
         self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], self::kindsOf($this->sessions()->proofs($key)));
         self::assertSame(ProofKind::FIRST_FACTOR, $this->sessions()->firstFactor($key)?->kind);
-        self::assertCount(4, $statements);
         $locking = array_filter($statements, static fn (string $sql): bool => preg_match('/for update|lock in share mode|for share/', $sql) === 1);
 
+        self::assertCount(4, $statements);
         self::assertSame([], $locking);
     }
 
