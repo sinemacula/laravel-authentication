@@ -210,6 +210,7 @@ final class RevocationScopeTest extends TestCase
         self::assertSame(self::NOW, $this->reported[0]->tokensValidAfter?->format('Y-m-d H:i:s'));
         self::assertNull($this->reported[1]->tokensValidAfter);
         self::assertSame(RevocationReason::PRINCIPAL_DELETED, $this->reported[1]->reason);
+        self::assertSame((string) $member->id, $this->reported[0]->context->identityId);
         self::assertSame((string) $member->id, $this->reported[1]->context->identityId);
     }
 

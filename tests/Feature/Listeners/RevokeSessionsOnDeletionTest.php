@@ -36,7 +36,7 @@ use Tests\Unit\Stubs\StubModel;
  * by the test as an application registers it: deleting an identity ends every
  * session it holds, and deleting a principal every session acting as it, once
  * the delete commits; a soft delete counts, a restore brings nothing back, and
- * a later force delete revokes nothing more.
+ * a later force delete revokes only a session written since.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -389,8 +389,8 @@ final class RevokeSessionsOnDeletionTest extends TestCase
     }
 
     /**
-     * A force delete of a live model revokes its sessions once, moves no cutoff
-     * on the row that is gone, and never puts the row back.
+     * A force delete of a live model revokes its sessions once, and its row
+     * stays gone.
      *
      * @return void
      *

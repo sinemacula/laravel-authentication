@@ -247,10 +247,11 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
-     * Only a stored model's cutoff is moved: once a hard delete removes the
-     * row, an identity's scope and a principal's still hold its sessions but no
-     * cutoff, as does an identity never saved, so a `HasTokensValidAfter` that
-     * persists through `save()` never inserts the row again.
+     * Only the cutoff of a model loaded from its row is moved: once a hard
+     * delete removes the row, an identity's scope and a principal's still hold
+     * its sessions but no cutoff, as does an identity never saved, so a
+     * `HasTokensValidAfter` that persists through `save()` never inserts the
+     * row again.
      *
      * @return void
      *
