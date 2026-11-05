@@ -892,8 +892,9 @@ through. The one exception is giving back a completed further factor's slots aft
 > inside a transaction of yours: until your commit, a counter's row stays locked, and so does the gap of the index a
 > counter not created yet would go in, so two such transactions that each create a counter in one gap deadlock.
 
-Ended windows stay in the table until they are pruned. Schedule Laravel's pruning command with the attempt model and
-the session model (which prunes expired pending sessions too), as shown in [Pruning sessions](operations.md#pruning).
+Ended windows stay in the table until they are pruned. Schedule Laravel's pruning command with the attempt model, and
+the package's `authentication:prune-sessions` (which prunes expired pending sessions too), as shown in
+[Pruning sessions](operations.md#pruning).
 
 ## API key settings
 

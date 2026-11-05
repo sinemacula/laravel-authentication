@@ -39,6 +39,7 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Codes\RefuseFactorCodes;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
+use SineMacula\Laravel\Authentication\Console\PruneSessionsCommand;
 use SineMacula\Laravel\Authentication\Context\ContextContributors;
 use SineMacula\Laravel\Authentication\Context\GuardAuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -365,6 +366,18 @@ final class AuthenticationServiceProviderTest extends TestCase
     {
         self::assertArrayHasKey('authentication:check', Artisan::all());
         self::assertInstanceOf(CheckConfigurationCommand::class, Artisan::all()['authentication:check']);
+    }
+
+    /**
+     * The session pruning command is registered as an Artisan command when the
+     * application runs in the console.
+     *
+     * @return void
+     */
+    public function testTheSessionPruningCommandIsRegisteredInTheConsole(): void
+    {
+        self::assertArrayHasKey('authentication:prune-sessions', Artisan::all());
+        self::assertInstanceOf(PruneSessionsCommand::class, Artisan::all()['authentication:prune-sessions']);
     }
 
     /**

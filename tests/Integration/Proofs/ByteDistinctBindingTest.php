@@ -11,9 +11,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -24,6 +22,7 @@ use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
+use SineMacula\Laravel\Authentication\Sessions\SessionPruning;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
@@ -48,7 +47,7 @@ use Tests\TestCase;
 #[CoversClass(SessionProofs::class)]
 #[CoversClass(ProofWriter::class)]
 #[CoversClass(AuthenticationClaims::class)]
-#[CoversTrait(PrunesSessions::class)]
+#[CoversClass(SessionPruning::class)]
 final class ByteDistinctBindingTest extends TestCase
 {
     use InteractsWithExternalSignIns, InteractsWithProofs, InteractsWithSessions;
@@ -158,7 +157,7 @@ final class ByteDistinctBindingTest extends TestCase
 
         Session::query()->whereKey($record->getKey())->update(['revoked_at' => $this->now->subYear()]);
 
-        self::assertSame(1, (new Session)->pruneAll());
+        self::assertSame(1, app(SessionPruning::class)->prune());
         self::assertSame([[], null], [self::proofsOf($record), self::provenanceOf($record)]);
         self::assertSame(['additional_factor'], array_map(static fn (SessionProof $proof): string => $proof->kind, self::proofsOf($twin)));
         self::assertSame('connection-8', self::provenanceOf($twin)?->connection_id);

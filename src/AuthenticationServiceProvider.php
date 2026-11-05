@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Applications\AdmitAnyPrincipal;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Codes\RefuseFactorCodes;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
+use SineMacula\Laravel\Authentication\Console\PruneSessionsCommand;
 use SineMacula\Laravel\Authentication\Context\ContextContributors;
 use SineMacula\Laravel\Authentication\Context\GuardAuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -457,7 +458,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
             return;
         }
 
-        $this->commands([CheckConfigurationCommand::class]);
+        $this->commands([CheckConfigurationCommand::class, PruneSessionsCommand::class]);
     }
 
     /**

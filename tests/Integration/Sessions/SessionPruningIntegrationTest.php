@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Integration\Models;
+namespace Tests\Integration\Sessions;
 
 use Carbon\Carbon;
 use Illuminate\Database\Events\ModelsPruned;
@@ -12,27 +12,29 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
-use PHPUnit\Framework\Attributes\CoversTrait;
-use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
+use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Console\PruneSessionsCommand;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Sessions\SessionPruning;
 use Tests\Integration\Fixtures\IntegerKeyPruningSession;
 use Tests\Integration\Fixtures\ScopedRenamedPruningSession;
 use Tests\Integration\Fixtures\SoftDeletingPruningSession;
 use Tests\TestCase;
 
 /**
- * Integration tests for pruning sessions with Laravel's `model:prune`, against
- * the shipped table on each supported database: which ended sessions are
- * deleted at each boundary of the retention, with their proofs and provenance,
- * and how a custom model opts in, an integer-keyed and a soft-deleting one
- * included.
+ * Integration tests for pruning sessions with `authentication:prune-sessions`,
+ * against the shipped table on each supported database: which ended sessions
+ * are deleted at each boundary of the retention, with their proofs and
+ * provenance, and how a configured custom model is pruned, an integer-keyed and
+ * a soft-deleting one included.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversTrait(PrunesSessions::class)]
+#[CoversClass(SessionPruning::class)]
+#[CoversClass(PruneSessionsCommand::class)]
 final class SessionPruningIntegrationTest extends TestCase
 {
     /** @var string The frozen time every test prunes at. */
@@ -93,7 +95,7 @@ final class SessionPruningIntegrationTest extends TestCase
         $this->insertSession('absolute-after', idle: $future, absolute: $cutoff->copy()->addSecond());
         $this->insertSession('live', createdAt: Carbon::parse('2020-01-01 00:00:00'));
 
-        Artisan::call('model:prune', ['--model' => [Session::class]]);
+        Artisan::call('authentication:prune-sessions');
 
         self::assertEqualsCanonicalizing(
             ['client-revoked-after', 'client-idle-after', 'client-absolute-after', 'client-live'],
@@ -119,7 +121,7 @@ final class SessionPruningIntegrationTest extends TestCase
 
         config()->set('authentication.session.prune_after_days', '7');
 
-        Artisan::call('model:prune', ['--model' => [Session::class]]);
+        Artisan::call('authentication:prune-sessions');
 
         self::assertEqualsCanonicalizing(
             ['client-ended-now', 'client-ends-next-second', 'client-revoked-six-days-ago'],
@@ -128,7 +130,7 @@ final class SessionPruningIntegrationTest extends TestCase
 
         config()->set('authentication.session.prune_after_days', 0);
 
-        Artisan::call('model:prune', ['--model' => [Session::class]]);
+        Artisan::call('authentication:prune-sessions');
 
         self::assertEqualsCanonicalizing(['client-ends-next-second'], DB::table('authentication_sessions')->pluck('client_name')->all());
     }
@@ -143,7 +145,7 @@ final class SessionPruningIntegrationTest extends TestCase
         $this->insertSession('revoked', revokedAt: Carbon::parse(self::CUTOFF));
         $this->insertSession('live');
 
-        Artisan::call('model:prune', ['--model' => [Session::class], '--pretend' => true]);
+        Artisan::call('authentication:prune-sessions', ['--pretend' => true]);
 
         self::assertStringContainsString('1 [' . Session::class . '] records will be pruned.', Artisan::output());
         self::assertSame(2, DB::table('authentication_sessions')->count());
@@ -167,15 +169,15 @@ final class SessionPruningIntegrationTest extends TestCase
 
         $this->insertSession('live');
 
-        Artisan::call('model:prune', ['--model' => [Session::class], '--chunk' => 10]);
+        Artisan::call('authentication:prune-sessions', ['--chunk' => '10']);
 
         self::assertSame(['client-live'], DB::table('authentication_sessions')->pluck('client_name')->all());
     }
 
     /**
-     * A custom model opts in with the trait alone: pruning reads its renamed
-     * columns, and its own global scope still limits what is pruned, so an
-     * ended session the scope excludes is kept.
+     * A configured custom model is pruned with nothing of its own: pruning
+     * reads its renamed columns, and its own global scope still limits what is
+     * pruned, so an ended session the scope excludes is kept.
      *
      * @return void
      */
@@ -200,7 +202,9 @@ final class SessionPruningIntegrationTest extends TestCase
             ['id' => $other = (string) Str::uuid7(), 'guard' => 'web', 'ended_at' => null, 'idle_until' => $cutoff, 'valid_until' => $future],
         ]);
 
-        Artisan::call('model:prune', ['--model' => [ScopedRenamedPruningSession::class]]);
+        config()->set('authentication.session.model', ScopedRenamedPruningSession::class);
+
+        Artisan::call('authentication:prune-sessions');
 
         self::assertEqualsCanonicalizing([$live, $other], DB::table('scoped_renamed_pruning_sessions')->pluck('id')->all());
     }
@@ -223,7 +227,7 @@ final class SessionPruningIntegrationTest extends TestCase
 
         Event::fake([ModelsPruned::class]);
 
-        Artisan::call('model:prune', ['--model' => [Session::class]]);
+        Artisan::call('authentication:prune-sessions');
 
         self::assertSame([$kept], DB::table('authentication_sessions')->pluck('id')->all());
         self::assertSame([$kept, $kept], DB::table('authentication_proofs')->pluck('session_id')->all());
@@ -253,7 +257,7 @@ final class SessionPruningIntegrationTest extends TestCase
             $this->insertProofsOf($id);
         }
 
-        Artisan::call('model:prune', ['--model' => [Session::class]]);
+        Artisan::call('authentication:prune-sessions');
 
         self::assertSame([$waiting], DB::table('authentication_sessions')->pluck('id')->all());
         self::assertSame([$waiting, $waiting], DB::table('authentication_proofs')->pluck('session_id')->all());
@@ -278,7 +282,7 @@ final class SessionPruningIntegrationTest extends TestCase
 
         Event::fake([ModelsPruned::class]);
 
-        Artisan::call('model:prune', ['--model' => [Session::class], '--chunk' => 2]);
+        Artisan::call('authentication:prune-sessions', ['--chunk' => '2']);
 
         self::assertSame([$live], DB::table('authentication_sessions')->pluck('id')->all());
         self::assertSame([$live], array_values(array_unique(DB::table('authentication_proofs')->pluck('session_id')->all())));
@@ -318,7 +322,9 @@ final class SessionPruningIntegrationTest extends TestCase
         $this->insertProofsOf('2');
         $this->insertProofsOf('12');
 
-        Artisan::call('model:prune', ['--model' => [IntegerKeyPruningSession::class]]);
+        config()->set('authentication.session.model', IntegerKeyPruningSession::class);
+
+        Artisan::call('authentication:prune-sessions');
 
         Schema::dropIfExists('integer_key_pruning_sessions');
 
@@ -328,9 +334,9 @@ final class SessionPruningIntegrationTest extends TestCase
 
     /**
      * A session model that soft-deletes has its ended sessions deleted outright
-     * with their proofs and provenance, as Laravel's mass pruning
-     * force-deletes, rather than marked deleted, which would leave them out of
-     * every later prune and keep them for good.
+     * with their proofs and provenance, rather than marked deleted, which would
+     * leave them out of every later prune and keep them for good; a session it
+     * already soft-deleted is outside its scope, so it is left with its own.
      *
      * @return void
      */
@@ -346,26 +352,33 @@ final class SessionPruningIntegrationTest extends TestCase
         });
 
         $future = Carbon::parse(self::NOW)->addDays(30);
+        $cutoff = Carbon::parse(self::CUTOFF);
 
         DB::table('soft_deleting_pruning_sessions')->insert([
-            ['guard' => 'api', 'revoked_at' => Carbon::parse(self::CUTOFF), 'idle_expires_at' => $future, 'absolute_expires_at' => $future],
-            ['guard' => 'api', 'revoked_at' => null, 'idle_expires_at' => $future, 'absolute_expires_at' => $future],
+            ['guard' => 'api', 'revoked_at' => $cutoff, 'idle_expires_at' => $future, 'absolute_expires_at' => $future, 'deleted_at' => null],
+            ['guard' => 'api', 'revoked_at' => null, 'idle_expires_at' => $future, 'absolute_expires_at' => $future, 'deleted_at' => null],
+            ['guard' => 'api', 'revoked_at' => $cutoff, 'idle_expires_at' => $future, 'absolute_expires_at' => $future, 'deleted_at' => $cutoff],
         ]);
 
         $this->insertProofsOf('1');
         $this->insertProofsOf('2');
+        $this->insertProofsOf('3');
 
-        Artisan::call('model:prune', ['--model' => [SoftDeletingPruningSession::class]]);
+        config()->set('authentication.session.model', SoftDeletingPruningSession::class);
+
+        Artisan::call('authentication:prune-sessions');
 
         $remaining = DB::table('soft_deleting_pruning_sessions')->get(['id', 'deleted_at'])->all();
 
         Schema::dropIfExists('soft_deleting_pruning_sessions');
 
-        self::assertCount(1, $remaining);
-        self::assertSame('2', (string) $remaining[0]->id);
+        usort($remaining, static fn (object $a, object $b): int => (int) $a->id <=> (int) $b->id);
+
+        self::assertSame(['2', '3'], array_map(static fn (object $row): string => (string) $row->id, $remaining));
         self::assertNull($remaining[0]->deleted_at);
-        self::assertSame(['2', '2'], DB::table('authentication_proofs')->pluck('session_id')->all());
-        self::assertSame(['2'], DB::table('authentication_provenance')->pluck('session_id')->all());
+        self::assertNotNull($remaining[1]->deleted_at);
+        self::assertEqualsCanonicalizing(['2', '2', '3', '3'], DB::table('authentication_proofs')->pluck('session_id')->all());
+        self::assertEqualsCanonicalizing(['2', '3'], DB::table('authentication_provenance')->pluck('session_id')->all());
     }
 
     /**

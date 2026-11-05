@@ -49,14 +49,14 @@ return [
     | names, so a custom model that renames a column ships its own migration.
     | Every authentication that binds a persisted EloquentSession records when,
     | from which IP address, and with which user agent it was last used, at most
-    | once per `last_used_throttle_seconds` (0 records every use). Laravel's
-    | `model:prune` deletes sessions that ended (revoked, or past their idle or
-    | absolute deadline) more than `prune_after_days` ago (0 to 3650, counted
-    | from that end, not from creation; 0 prunes them as soon as they end; an
-    | integer, or a digit string as `env()` returns one; anything else fails
-    | closed when pruning runs, and `authentication:check` reports it).
-    | The shipped model opts in with the `PrunesSessions` trait, as a custom
-    | model does.
+    | once per `last_used_throttle_seconds` (0 records every use).
+    | `authentication:prune-sessions` deletes sessions of the configured model
+    | that ended (revoked, or past their idle or absolute deadline) more than
+    | `prune_after_days` ago (0 to 3650, counted from that end, not from
+    | creation; 0 prunes them as soon as they end; an integer, or a digit
+    | string as `env()` returns one; anything else fails closed when pruning
+    | runs, and `authentication:check` reports it). A custom model needs
+    | nothing of its own to be pruned.
     |
     | A session is pending while it waits on requirements (a further factor,
     | a choice of principal): it holds a pending credential, handed out once in
@@ -109,7 +109,7 @@ return [
     | time and session deadline, the policy version checked, the id of the link
     | it came through, and the accepted evidence) in `provenance_table`. Both
     | live on the storage connection, are read from the write connection, and
-    | are pruned with their sessions by the session model's `model:prune`. A
+    | are pruned with their sessions by `authentication:prune-sessions`. A
     | code proof's destination is personal data, kept no longer than its
     | session. A sign-in through a connection and each revocation of its
     | sessions write the connection's guards in `guards_table` (at most 64

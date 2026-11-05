@@ -9,7 +9,7 @@ inheritance:
 | Extension point                   | How                                                                                                                                                      |
 |-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                                                                   |
-| Custom session model              | Implement `EloquentSession`, use `ActsAsSession` (and `PrunesSessions` to be pruned), on the storage connection                                          |
+| Custom session model              | Implement `EloquentSession`, use `ActsAsSession`, on the storage connection (`authentication:prune-sessions` prunes it)                                  |
 | Ending session-less access tokens | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`                                                          |
 | Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                                                                |
 | Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                                                                     |

@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionDeadlines;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
+use SineMacula\Laravel\Authentication\Sessions\SessionPruning;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SessionSummary;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
@@ -159,14 +160,15 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         $this->moveClocksTo($idle->subSecond());
 
-        self::assertSame(0, (new Session)->prunable()->count());
+        self::assertSame(0, app(SessionPruning::class)->count());
         self::assertSame(1, Session::query()->active()->count());
 
         $this->moveClocksTo($idle);
 
         self::assertSame(0, Session::query()->active()->count());
         self::assertSame([], $this->sessions(self::UNLIMITED)->sessions($identity)->items());
-        self::assertSame([$session->record->getKey()], (new Session)->prunable()->pluck('id')->all());
+        self::assertSame(1, app(SessionPruning::class)->prune());
+        self::assertNull(Session::query()->find($session->record->getKey()));
     }
 
     /**

@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsSession;
-use SineMacula\Laravel\Authentication\Concerns\PrunesSessions;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
@@ -35,9 +34,10 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * writes the columns it owns with query-builder updates, and code that creates
  * a session sets the rest with `forceFill()`.
  *
- * `model:prune --model` with this class deletes sessions that ended (revoked,
- * or past either deadline) more than `authentication.session.prune_after_days`
- * ago.
+ * `authentication:prune-sessions` (`Sessions\SessionPruning`) deletes the
+ * configured model's sessions that ended (revoked, or past either deadline)
+ * more than `authentication.session.prune_after_days` ago; the model itself
+ * carries no pruning.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -81,7 +81,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  */
 class Session extends Model implements EloquentSession
 {
-    use ActsAsSession, HasUuids, PrunesSessions;
+    use ActsAsSession, HasUuids;
 
     /** @var list<string> The attributes that are mass assignable. */
     protected $fillable = [
