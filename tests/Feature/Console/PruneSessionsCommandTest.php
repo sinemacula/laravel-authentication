@@ -18,6 +18,7 @@ use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Console\PruneSessionsCommand;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException;
 use SineMacula\Laravel\Authentication\Models\Session;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -89,8 +90,37 @@ final class PruneSessionsCommandTest extends TestCase
         self::assertStringStartsWith(self::info('Pruning [' . Session::class . '] records.'), $output);
         self::assertSame(1, substr_count($output, 'Pruning [' . Session::class . '] records.'));
         self::assertMatchesRegularExpression('/' . preg_quote(Session::class, '/') . '\W.*\b3 records/', $output);
+        self::assertSame(1, preg_match_all('/\b\d+ records\b/', $output));
         self::assertStringNotContainsString('No prunable', $output);
         self::assertSame([$live], DB::table('authentication_sessions')->pluck('id')->all());
+    }
+
+    /**
+     * By default a chunk is 1,000 sessions: 1,001 ended sessions are pruned in
+     * two chunks.
+     *
+     * @return void
+     */
+    public function testChunksAreAThousandSessionsByDefault(): void
+    {
+        $rows = [];
+
+        for ($index = 0; $index < 1001; $index++) {
+            $rows[] = $this->sessionRow(Carbon::parse(self::CUTOFF));
+        }
+
+        foreach (array_chunk($rows, 250) as $chunk) {
+            DB::table('authentication_sessions')->insert($chunk);
+        }
+
+        self::assertSame(Command::SUCCESS, Artisan::call('authentication:prune-sessions'));
+
+        $output = Artisan::output();
+
+        self::assertSame(2, preg_match_all('/\b\d+ records\b/', $output));
+        self::assertSame(1, preg_match_all('/\b1000 records/', $output));
+        self::assertSame(1, preg_match_all('/\b1001 records/', $output));
+        self::assertSame(0, DB::table('authentication_sessions')->count());
     }
 
     /**
@@ -364,6 +394,78 @@ final class PruneSessionsCommandTest extends TestCase
     }
 
     /**
+     * `--pretend` with an invalid retention fails as the run does, and deletes
+     * nothing.
+     *
+     * @return void
+     */
+    public function testPretendWithAnInvalidRetentionFails(): void
+    {
+        $this->insertSessions(1);
+
+        config()->set('authentication.session.prune_after_days', 'thirty');
+
+        try {
+            Artisan::call('authentication:prune-sessions', ['--pretend' => true]);
+
+            self::fail('The retention was accepted.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('authentication.session.prune_after_days must be an integer from 0 to 3650.', $exception->getMessage());
+        }
+
+        self::assertSame(1, DB::table('authentication_sessions')->count());
+    }
+
+    /**
+     * Whether `--pretend` is given.
+     *
+     * @return iterable<string, array{0: bool}>
+     */
+    public static function pretending(): iterable
+    {
+        yield 'pruning' => [false];
+        yield 'pretending' => [true];
+    }
+
+    /**
+     * An invalid session model fails the command before the run is announced or
+     * anything is read, whether pruning or pretending, and deletes nothing.
+     *
+     * @param  bool  $pretend
+     * @return void
+     */
+    #[DataProvider('pretending')]
+    public function testAnInvalidSessionModelFailsBeforeTheRunStarts(bool $pretend): void
+    {
+        $this->insertSessions(1);
+
+        config()->set('authentication.session.model', \stdClass::class);
+
+        Event::fake([ModelPruningStarting::class, ModelPruningFinished::class, ModelsPruned::class]);
+
+        $queries = 0;
+
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        try {
+            Artisan::call('authentication:prune-sessions', ['--pretend' => $pretend]);
+
+            self::fail('The session model was accepted.');
+        } catch (\Exception $exception) {
+            self::assertInstanceOf(InvalidSessionModelConfigurationException::class, $exception);
+            self::assertStringContainsString('got [stdClass]', $exception->getMessage());
+        }
+
+        self::assertSame(0, $queries);
+
+        Event::assertNothingDispatched();
+
+        self::assertSame(1, DB::table('authentication_sessions')->count());
+    }
+
+    /**
      * The line Laravel's console components print for an informational message,
      * so the command's output is compared with what Laravel prints rather than
      * with a copy of its formatting.
@@ -402,11 +504,26 @@ final class PruneSessionsCommandTest extends TestCase
      */
     private function insertSession(?Carbon $revokedAt): string
     {
-        $id     = (string) Str::uuid7();
+        $row = $this->sessionRow($revokedAt);
+
+        DB::table('authentication_sessions')->insert($row);
+
+        return $row['id'];
+    }
+
+    /**
+     * One row of the shipped table: a session of the `api` guard, revoked then
+     * or live, whose deadlines are a month ahead.
+     *
+     * @param  ?\Carbon\Carbon  $revokedAt
+     * @return array<string, mixed>&array{id: string}
+     */
+    private function sessionRow(?Carbon $revokedAt): array
+    {
         $future = Carbon::parse(self::NOW)->addDays(30);
 
-        DB::table('authentication_sessions')->insert([
-            'id'                   => $id,
+        return [
+            'id'                   => (string) Str::uuid7(),
             'generation'           => (string) Str::uuid7(),
             'authenticatable_type' => 'users',
             'authenticatable_id'   => '1',
@@ -418,8 +535,6 @@ final class PruneSessionsCommandTest extends TestCase
             'signed_in_at'         => Carbon::parse(self::NOW),
             'created_at'           => Carbon::parse(self::NOW),
             'updated_at'           => Carbon::parse(self::NOW),
-        ]);
-
-        return $id;
+        ];
     }
 }
