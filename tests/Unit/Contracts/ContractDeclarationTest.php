@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSessionOrigin;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSessionStanding;
 use SineMacula\Laravel\Authentication\Contracts\ExternalIdentityLinks;
+use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
@@ -596,6 +597,26 @@ final class ContractDeclarationTest extends TestCase
         self::assertSame(['getTokensValidAfter', 'invalidateTokensIssuedBefore'], self::declaredMethods(HasTokensValidAfter::class));
         self::assertNotContains(HasTokensValidAfter::class, (new \ReflectionClass(Identity::class))->getInterfaceNames());
         self::assertNotContains(HasTokensValidAfter::class, (new \ReflectionClass(Principal::class))->getInterfaceNames());
+    }
+
+    /**
+     * The freshness contract carries its read mode: `freshProof()` and
+     * `freshUntil()` each take, last, whether the session is judged as
+     * committed (`$current`), plain unless asked.
+     *
+     * @return void
+     */
+    public function testTheFreshnessContractCarriesItsReadMode(): void
+    {
+        foreach (['freshProof', 'freshUntil'] as $method) {
+            $parameters = (new \ReflectionMethod(FreshnessPolicy::class, $method))->getParameters();
+            $names      = array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters);
+            $current    = $parameters[4];
+
+            self::assertSame(['session', 'operation', 'requirement', 'excludingFactor', 'current'], $names, $method);
+            self::assertSame('bool', (string) $current->getType(), $method);
+            self::assertFalse($current->getDefaultValue(), $method);
+        }
     }
 
     /**

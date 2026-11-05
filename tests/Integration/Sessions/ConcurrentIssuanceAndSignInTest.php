@@ -15,7 +15,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
+use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
@@ -24,6 +26,7 @@ use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Sessions\FactorChangeGate;
 use SineMacula\Laravel\Authentication\Sessions\FactorChangeResult;
 use SineMacula\Laravel\Authentication\Sessions\FactorRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -40,28 +43,31 @@ use Tests\TestCase;
  * Races an issuance for a session, or a judgement of it made under its lock,
  * against a proof another identity's session records, on PostgreSQL and MySQL,
  * each side in a process with a database connection of its own: the first side
- * issues an access token for the session, or judges it again after a change of
- * its identity's factors, inside a caller's transaction that it holds open, at
- * READ COMMITTED or REPEATABLE READ; the second, started meanwhile, records a
- * proof of another identity, so the sides share no attempt-limit row. Either
- * the first side holds the newest session (a refresh, a step-up, the activation
- * that completes a pending sign-in, or a factor change) and the second side
- * signs a new session in through an external provider, or the first side
- * refreshes the session or judges it after a factor change and the second side
- * steps up the session next to it, on either side, in the proofs' session
- * index.
+ * issues an access token for the session, judges it again after a change of its
+ * identity's factors, or asks the factor-change gate about it, inside a
+ * caller's transaction that it holds open, at READ COMMITTED or REPEATABLE
+ * READ; the second, started meanwhile, records a proof of another identity, so
+ * the sides share no attempt-limit row. Either the first side holds the newest
+ * session (a refresh, a step-up, the activation that completes a pending
+ * sign-in, a factor change or a gate verdict) and the second side signs a new
+ * session in through an external provider, or the first side refreshes the
+ * session, judges it after a factor change or holds a gate verdict on it and
+ * the second side steps up the session next to it, on either side, in the
+ * proofs' session index.
  *
- * On MySQL the issuance, and every requirement judgement made under the
- * session's lock, reads the session's proofs with a shared lock, which at
- * REPEATABLE READ also locks the gaps on either side of that session's proofs
- * in the index (`session_id`, `kind`, `authenticated_at`), keys being
- * time-ordered: after the newest session's proofs, where a new session's proof
- * is inserted; before the next session's `first_factor` entry, where its
- * further factor falls; and after the previous session's last entry, where its
- * recovery code falls. So the second side waits until the caller's transaction
- * commits, and then commits itself: it waits, and never deadlocks. At READ
- * COMMITTED MySQL locks no gap, and PostgreSQL reads the proofs without a lock
- * at either level, so the second side never waits there.
+ * On MySQL the issuance, every requirement judgement and every freshness
+ * judgement made under the session's lock (the gate's, for a factor change's
+ * operation, whose kinds the index holds on either side of the session's first
+ * factor) reads the session's proofs with a shared lock, which at REPEATABLE
+ * READ also locks the gaps on either side of that session's proofs in the index
+ * (`session_id`, `kind`, `authenticated_at`), keys being time-ordered: after
+ * the newest session's proofs, where a new session's proof is inserted; before
+ * the next session's `first_factor` entry, where its further factor falls; and
+ * after the previous session's last entry, where its recovery code falls. So
+ * the second side waits until the caller's transaction commits, and then
+ * commits itself: it waits, and never deadlocks. At READ COMMITTED MySQL locks
+ * no gap, and PostgreSQL reads the proofs without a lock at either level, so
+ * the second side never waits there.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -73,6 +79,7 @@ use Tests\TestCase;
  */
 #[CoversClass(SessionProofs::class)]
 #[CoversClass(FactorRevocations::class)]
+#[CoversClass(FactorChangeGate::class)]
 final class ConcurrentIssuanceAndSignInTest extends TestCase
 {
     use InteractsWithExternalSignIns, InteractsWithIsolationLevels, InteractsWithProofs, InteractsWithSessions;
@@ -140,15 +147,16 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Rows of `[holder, isolation level]`: the issuances, and the judgement
-     * after a factor change, that read the newest session's proofs with a
-     * shared lock on MySQL, at READ COMMITTED and at REPEATABLE READ.
+     * Rows of `[holder, isolation level]`: the issuances, the judgement after a
+     * factor change and the gate's verdict, that read the newest session's
+     * proofs with a shared lock on MySQL, at READ COMMITTED and at REPEATABLE
+     * READ.
      *
      * @return iterable<string, array{0: string, 1: string}>
      */
     public static function provideHoldersAndIsolationLevels(): iterable
     {
-        foreach (['refresh', 'step-up', 'activation', 'factor change'] as $holder) {
+        foreach (['refresh', 'step-up', 'activation', 'factor change', 'gate'] as $holder) {
             foreach (self::provideIsolationLevels() as $name => [$level]) {
                 yield "{$holder} at {$name}" => [$holder, $level];
             }
@@ -157,10 +165,11 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
     /**
      * A sign-in of another identity, started while a caller's transaction holds
-     * an issuance for the newest session, or a judgement of it after a factor
-     * change, waits for that transaction on MySQL at REPEATABLE READ and
-     * nowhere else, and then commits with its own session, proof and
-     * provenance; the first side commits too, so neither side deadlocks.
+     * an issuance for the newest session, a judgement of it after a factor
+     * change or a gate verdict on it, waits for that transaction on MySQL at
+     * REPEATABLE READ and nowhere else, and then commits with its own session,
+     * proof and provenance; the first side commits too, so neither side
+     * deadlocks.
      *
      * @param  string  $holder
      * @param  string  $level
@@ -189,18 +198,19 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     }
 
     /**
-     * Rows of `[holder, neighbour, isolation level]`: a refresh of a session,
-     * or a judgement of it after a factor change, and the session signed in
-     * just after it, stepped up with a further factor, whose proof sorts before
-     * its own `first_factor` entry, or the one signed in just before it,
-     * stepped up with a recovery code, whose proof sorts after its own
-     * `first_factor` entry, each at READ COMMITTED and at REPEATABLE READ.
+     * Rows of `[holder, neighbour, isolation level]`: a refresh of a session, a
+     * judgement of it after a factor change or a gate verdict on it, and the
+     * session signed in just after it, stepped up with a further factor, whose
+     * proof sorts before its own `first_factor` entry, or the one signed in
+     * just before it, stepped up with a recovery code, whose proof sorts after
+     * its own `first_factor` entry, each at READ COMMITTED and at REPEATABLE
+     * READ.
      *
      * @return iterable<string, array{0: string, 1: string, 2: string}>
      */
     public static function provideNeighboursAndIsolationLevels(): iterable
     {
-        foreach (['refresh', 'factor change'] as $holder) {
+        foreach (['refresh', 'factor change', 'gate'] as $holder) {
             foreach (['next', 'previous'] as $neighbour) {
                 foreach (self::provideIsolationLevels() as $name => [$level]) {
                     yield "the {$neighbour} session of a {$holder} at {$name}" => [$holder, $neighbour, $level];
@@ -211,10 +221,11 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
     /**
      * A step-up of another identity's session whose proofs border those of the
-     * session a caller's transaction holds a refresh of, or a judgement of
-     * after a factor change, on either side, waits for that transaction on
-     * MySQL at REPEATABLE READ and nowhere else, and then commits with its
-     * proof recorded; the first side commits too, so neither side deadlocks.
+     * session a caller's transaction holds a refresh of, a judgement of after a
+     * factor change or a gate verdict on, on either side, waits for that
+     * transaction on MySQL at REPEATABLE READ and nowhere else, and then
+     * commits with its proof recorded; the first side commits too, so neither
+     * side deadlocks.
      *
      * @param  string  $holder
      * @param  string  $neighbour
@@ -242,11 +253,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
         self::assertSame($next === null ? 1 : -1, strcmp($key, $their) <=> 0);
 
-        $refresh = $session->tokens->refreshToken?->reveal() ?? '';
-        $proof   = self::adapterProof($grace, 'api', $other->record->getKey(), kind: $kind);
-        $first   = $holder === 'refresh'
-            ? fn (): ?Secret => $this->sessions()->refresh($refresh)->session?->tokens->accessToken
-            : $this->factorChangeOf($ada, $session);
+        $proof = self::adapterProof($grace, 'api', $other->record->getKey(), kind: $kind);
+        $first = $this->neighbourHolderFor($holder, $ada, $session);
 
         $reported = $this->race($first, $level, function () use ($proof, $their): string {
             self::assertNotNull($this->sessions()->stepUp($proof)->accessToken);
@@ -281,8 +289,8 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
      * return what the first side does to that session, which hands back the
      * access token it issued, or the judgement's result: a refresh of it, a
      * step-up of it with a hardware key, the activation that satisfies the
-     * further factor its sign-in was asked for, or a judgement after a factor
-     * change.
+     * further factor its sign-in was asked for, a judgement after a factor
+     * change, or the gate's verdict on adding a factor.
      *
      * @param  string  $holder
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
@@ -322,6 +330,10 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
             return $this->factorChangeOf($identity, $session);
         }
 
+        if ($holder === 'gate') {
+            return $this->gateOf($identity, $session);
+        }
+
         $proof = self::adapterProof($identity, 'api', $session->record->getKey(), methods: ['hwk'], evaluation: new Evaluation(true, true));
 
         return static fn (): ?Secret => $sessions->stepUp($proof)->accessToken;
@@ -353,6 +365,56 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
             self::assertTrue($result->isActive());
 
             return $result;
+        };
+    }
+
+    /**
+     * What the first side does to the identity's session whose neighbour steps
+     * up: a refresh of it, a judgement of it after a factor change, or the
+     * gate's verdict on adding a factor from it.
+     *
+     * @param  string  $holder
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return \Closure(): mixed
+     *
+     * @throws \Throwable
+     */
+    private function neighbourHolderFor(string $holder, IntegrationIdentity $identity, SignedInSession $session): \Closure
+    {
+        $sessions = $this->sessions();
+        $refresh  = $session->tokens->refreshToken?->reveal() ?? '';
+
+        return match ($holder) {
+            'refresh' => static fn (): ?Secret => $sessions->refresh($refresh)->session?->tokens->accessToken,
+            'gate'    => $this->gateOf($identity, $session),
+            default   => $this->factorChangeOf($identity, $session),
+        };
+    }
+
+    /**
+     * Step the identity's session up with a further factor, and return the
+     * factor-change gate's verdict on adding a factor from it, which reads its
+     * proofs current under its lock and allows the change.
+     *
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return \Closure(): \SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict
+     *
+     * @throws \Throwable
+     */
+    private function gateOf(IntegrationIdentity $identity, SignedInSession $session): \Closure
+    {
+        $sessions = $this->sessions();
+
+        self::assertTrue($sessions->stepUp(self::adapterProof($identity, 'api', $session->record->getKey()))->isIssued());
+
+        return static function () use ($sessions, $session): FactorChangeVerdict {
+            $verdict = $sessions->factorChange($session->record, FactorChange::ADD);
+
+            self::assertTrue($verdict->isAllowed());
+
+            return $verdict;
         };
     }
 

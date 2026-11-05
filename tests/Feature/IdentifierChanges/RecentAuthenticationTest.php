@@ -14,6 +14,7 @@ use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session as Contract;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -33,6 +34,7 @@ use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\InspectsTraces;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
+use Tests\Concerns\MarksSharedLocks;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
@@ -54,7 +56,7 @@ use Tests\TestCase;
 #[CoversClass(ConfiguredFreshness::class)]
 final class RecentAuthenticationTest extends TestCase
 {
-    use ChangesIdentifiers, InspectsTraces, InteractsWithProofs, InteractsWithRateLimits;
+    use ChangesIdentifiers, InspectsTraces, InteractsWithProofs, InteractsWithRateLimits, MarksSharedLocks;
 
     /**
      * Start every test from a known moment, with the fakes bound.
@@ -190,22 +192,58 @@ final class RecentAuthenticationTest extends TestCase
         $before   = ChangeableIdentity::query()->sole();
         $password = Reauthentication::password(self::PASSWORD);
 
-        self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::session($record)));
-        self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), $password));
+        self::assertTrue(self::standsInTransaction($check, $before, ChangeableIdentity::query()->sole(), Reauthentication::session($record)));
+        self::assertTrue(self::standsInTransaction($check, $before, ChangeableIdentity::query()->sole(), $password));
 
         DB::table('authentication_sessions')->update(['revoked_at' => '2026-04-06 11:59:00']);
         DB::table('changeable_identities')->update(['password' => app(Hasher::class)->make(self::PASSWORD)]);
 
-        self::assertFalse($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::session($record)));
-        self::assertFalse($check->stands($before, ChangeableIdentity::query()->sole(), $password));
+        self::assertFalse(self::standsInTransaction($check, $before, ChangeableIdentity::query()->sole(), Reauthentication::session($record)));
+        self::assertFalse(self::standsInTransaction($check, $before, ChangeableIdentity::query()->sole(), $password));
 
         DB::table('changeable_identities')->update(['password' => null]);
 
         $none = ChangeableIdentity::query()->sole();
 
-        self::assertTrue($check->stands($none, ChangeableIdentity::query()->sole(), $password));
-        self::assertFalse($check->stands($none, $before, $password));
+        self::assertTrue(self::standsInTransaction($check, $none, ChangeableIdentity::query()->sole(), $password));
+        self::assertFalse(self::standsInTransaction($check, $none, $before, $password));
         self::assertSame(0, DB::table('rate_limits')->count());
+    }
+
+    /**
+     * Only the check under the identity's lock reads the session's proofs
+     * current: `stands()` reads the session's row with a lock held until the
+     * transaction ends and its proofs with a shared lock (on MySQL and MariaDB,
+     * the marked SQLite included), while `refusal()`, before the transaction,
+     * reads both plainly and locks nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnlyTheCheckUnderTheLockReadsTheSessionsProofsCurrent(): void
+    {
+        $identity = self::seedChangeable();
+        $proof    = Reauthentication::session(self::seedSession($identity));
+        $check    = $this->check();
+
+        self::markSharedLocks();
+
+        $refusal = null;
+        $stands  = null;
+        $before  = self::statementsDuring(static function () use ($check, $identity, $proof, &$refusal): void {
+            $refusal = $check->refusal($identity, $proof, null);
+        });
+        $under = self::statementsDuring(static function () use ($check, $identity, $proof, &$stands): void {
+            $stands = self::standsInTransaction($check, $identity, $identity, $proof);
+        });
+        $sessionReads = array_values(array_filter($under, static fn (string $sql): bool => str_contains($sql, 'authentication_sessions')));
+
+        self::assertSame([null, true], [$refusal, $stands]);
+        self::assertSame([], array_filter($before, static fn (string $sql): bool => self::locksForUpdate($sql) || self::sharesLock($sql)));
+        self::assertSame([false], array_map(self::sharesLock(...), array_values(array_filter($before, self::readsProofs(...)))));
+        self::assertSame([true, true], array_map(self::locksForUpdate(...), $sessionReads));
+        self::assertSame([self::takesSharedLocks()], array_map(self::sharesLock(...), array_values(array_filter($under, self::readsProofs(...)))));
     }
 
     /**
@@ -283,16 +321,16 @@ final class RecentAuthenticationTest extends TestCase
         $locked = ChangeableIdentity::query()->sole();
 
         self::assertNull($check->refusal($identity, Reauthentication::session($replacement), null));
-        self::assertTrue($check->stands($locked, $locked, Reauthentication::session($replacement)));
+        self::assertTrue(self::standsInTransaction($check, $locked, $locked, Reauthentication::session($replacement)));
         self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($retained), null));
-        self::assertFalse($check->stands($locked, $locked, Reauthentication::session($retained)));
+        self::assertFalse(self::standsInTransaction($check, $locked, $locked, Reauthentication::session($retained)));
 
         foreach ([Contract::class, EloquentSession::class] as $contract) {
             $session = \Mockery::mock($contract);
             $session->shouldReceive('getSessionIdentifier')->andReturn($replacement->getKey());
 
             self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($session), null), $contract);
-            self::assertFalse($check->stands($locked, $locked, Reauthentication::session($session)), $contract);
+            self::assertFalse(self::standsInTransaction($check, $locked, $locked, Reauthentication::session($session)), $contract);
         }
     }
 
@@ -559,6 +597,23 @@ final class RecentAuthenticationTest extends TestCase
     private function check(): RecentAuthentication
     {
         return new RecentAuthentication($this->guardContext(), $this->app);
+    }
+
+    /**
+     * Whether the proof stands, asked as a change asks it: inside the
+     * transaction that acts on it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\RecentAuthentication  $check
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $before
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $locked
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Reauthentication  $proof
+     * @return bool
+     *
+     * @throws \Throwable
+     */
+    private static function standsInTransaction(RecentAuthentication $check, Identity $before, Identity $locked, Reauthentication $proof): bool
+    {
+        return DB::transaction(static fn (): bool => $check->stands($before, $locked, $proof));
     }
 
     /**

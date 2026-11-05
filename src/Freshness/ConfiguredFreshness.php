@@ -6,6 +6,9 @@ namespace SineMacula\Laravel\Authentication\Freshness;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
+use Illuminate\Database\Connection;
+use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -28,11 +31,14 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
  * generation and the owner the caller's does (a session model that reissues
  * keys may have put another session under it, another identity's or a later one
  * of the same identity), and be live for that application (of that guard, not
- * revoked, not ended) before its proofs are read, two queries in all. That read
- * takes no lock, so a caller that acts on the answer atomically locks the
- * session in its transaction first, judges the locked row itself, and asks
- * inside it. A session stays fresh until its newest qualifying proof is as old
- * as the requirement's maximum age (`freshUntil()`).
+ * revoked, not ended) before its proofs are read, two queries in all; a session
+ * that is not an Eloquent session records neither, and is answered without a
+ * query. Asked plainly, that read takes no lock, so a caller that acts on the
+ * answer atomically asks current inside its transaction (`$current`), which
+ * reads the session's row with a lock held until the transaction ends, judges
+ * it as above, and reads its proofs current (see `SessionProofs`), still two
+ * queries. A session stays fresh until its newest qualifying proof is as old as
+ * the requirement's maximum age (`freshUntil()`, read either way).
  *
  * Stateless: the configuration is read on every call.
  *
@@ -89,10 +95,14 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * or is no longer live for that application, or no proof meets it. A proof
      * made with the excluded factor, if one is named, never meets it.
      *
+     * Asked current outside a transaction on the session model's connection, a
+     * `LogicException` is thrown before anything is read.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
      * @param  ?string  $excludingFactor
+     * @param  bool  $current
      * @return ?\SineMacula\Laravel\Authentication\Proofs\RecordedProof
      *
      * @throws \InvalidArgumentException
@@ -100,20 +110,31 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     #[\Override]
-    public function freshProof(Session $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?RecordedProof
-    {
-        return $this->fresh($session, $operation, $requirement, $excludingFactor)[0] ?? null;
+    public function freshProof(
+        Session $session,
+        string $operation,
+        ?FreshnessRequirement $requirement = null,
+        ?string $excludingFactor = null,
+        bool $current = false,
+    ): ?RecordedProof {
+        if ($current) {
+            self::refuseOutsideTransaction(SessionLookup::model()->getConnection());
+        }
+
+        return $this->fresh($session, $operation, $requirement, $excludingFactor, $current)[0] ?? null;
     }
 
     /**
      * Until when the session stays fresh for the operation: the time of the
-     * proof `freshProof()` answers plus the effective requirement's maximum
-     * age, or `null` when there is no such proof.
+     * proof `freshProof()` answers, read as asked (`$current` included, and
+     * refused outside a transaction alike), plus the effective requirement's
+     * maximum age, or `null` when there is no such proof.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
      * @param  ?string  $excludingFactor
+     * @param  bool  $current
      * @return ?\Carbon\CarbonImmutable
      *
      * @throws \InvalidArgumentException
@@ -121,9 +142,18 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
     #[\Override]
-    public function freshUntil(Session $session, string $operation, ?FreshnessRequirement $requirement = null, ?string $excludingFactor = null): ?CarbonImmutable
-    {
-        $fresh = $this->fresh($session, $operation, $requirement, $excludingFactor);
+    public function freshUntil(
+        Session $session,
+        string $operation,
+        ?FreshnessRequirement $requirement = null,
+        ?string $excludingFactor = null,
+        bool $current = false,
+    ): ?CarbonImmutable {
+        if ($current) {
+            self::refuseOutsideTransaction(SessionLookup::model()->getConnection());
+        }
+
+        $fresh = $this->fresh($session, $operation, $requirement, $excludingFactor, $current);
 
         return $fresh === null ? null : $fresh[0]->authenticatedAt->addSeconds($fresh[1]->maxAgeSeconds);
     }
@@ -136,28 +166,47 @@ final readonly class ConfiguredFreshness implements FreshnessPolicy
      * @param  string  $operation
      * @param  ?\SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement  $requirement
      * @param  ?string  $excludingFactor
+     * @param  bool  $current
      * @return ?array{0: \SineMacula\Laravel\Authentication\Proofs\RecordedProof, 1: \SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement}
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function fresh(Session $session, string $operation, ?FreshnessRequirement $requirement, ?string $excludingFactor): ?array
+    private function fresh(Session $session, string $operation, ?FreshnessRequirement $requirement, ?string $excludingFactor, bool $current): ?array
     {
         $guard     = WriteConnection::during($session, static fn (): ?string => $session->getGuard());
         $effective = $guard === null ? null : $this->requirement($guard, $operation, $requirement);
 
-        if ($guard === null || $effective === null) {
+        if ($guard === null || $effective === null || !$session instanceof EloquentSession || !$session instanceof Model) {
             return null;
         }
 
-        $stored = SessionLookup::find($session->getSessionIdentifier());
+        $key    = $session->getSessionIdentifier();
+        $stored = $current ? SessionLookup::lock($key) : SessionLookup::find($key);
         $now    = CarbonImmutable::now()->startOfSecond();
 
         $proof = !SessionOwnership::isSameSession($session, $stored) || OwnedSession::refusal($stored, $guard, $now) !== null
             ? null
-            : SessionProofs::newestMeeting($stored, $effective, $now, $excludingFactor);
+            : SessionProofs::newestMeeting($stored, $effective, $now, $excludingFactor, $current);
 
         return $proof === null ? null : [$proof, $effective];
+    }
+
+    /**
+     * Refuse a current judgement outside a transaction on the session model's
+     * connection, before anything is read: outside one its two statements would
+     * make no atomic judgement.
+     *
+     * @param  \Illuminate\Database\Connection  $connection
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    private static function refuseOutsideTransaction(Connection $connection): void
+    {
+        if ($connection->transactionLevel() === 0) {
+            throw new \LogicException('A current freshness judgement is asked inside a transaction on the session model\'s connection.');
+        }
     }
 }

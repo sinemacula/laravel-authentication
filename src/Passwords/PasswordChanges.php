@@ -57,8 +57,9 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
  * locked, then the session's, the order an identifier change takes; the session
  * must still be as above, a change's hash must still be the one the current
  * password was checked against, an establishment's row must still have no
- * password and its proof must still be fresh; and `PasswordWriter` writes the
- * password (an establishment only while the row has none, in the same
+ * password and its proof must still be fresh, judged on the session's proofs as
+ * committed (the freshness policy asked current); and `PasswordWriter` writes
+ * the password (an establishment only while the row has none, in the same
  * statement), invalidates the proofs it outdates and ends every other session,
  * `PasswordSet` following once it commits. Every refusal but a rejected
  * password is reported by `AuthenticationFailed` (flow `password_change`).
@@ -154,9 +155,9 @@ final readonly class PasswordChanges
         $freshness = $this->container->make(FreshnessPolicy::class);
 
         $stands = static fn (Identity $locked, EloquentSession&Model $stored): ?FailureReason => match (true) {
-            self::hashOf($locked) !== ''                                                 => FailureReason::PASSWORD_ALREADY_SET,
-            $freshness->freshProof($stored, Operations::PASSWORD_ESTABLISHMENT) === null => FailureReason::REAUTHENTICATION_REQUIRED,
-            default                                                                      => null,
+            self::hashOf($locked) !== ''                                                                => FailureReason::PASSWORD_ALREADY_SET,
+            $freshness->freshProof($stored, Operations::PASSWORD_ESTABLISHMENT, current: true) === null => FailureReason::REAUTHENTICATION_REQUIRED,
+            default                                                                                     => null,
         };
 
         return $this->write($owner, $session, $password, PasswordFlow::ESTABLISHMENT, $context, $stands);

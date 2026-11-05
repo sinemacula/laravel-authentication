@@ -56,7 +56,11 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * an accepted proof for no identity, or one that may not reset, rolls back, so
  * the proof stays unspent, and is `invalid`; an accepted proof for an eligible
  * identity sets the password (see `PasswordWriter`, flow `reset`) and commits.
- * Any exception rolls everything back together.
+ * Any exception rolls everything back together, at once outside a caller's
+ * transaction and inside one once the caller rolls back. Inside a caller's
+ * transaction the reset is a nested transaction of it: after a concurrency
+ * error the caller rolls back, never commits, and retries whole (see
+ * `spend()`).
  *
  * Every refusal but a rejected password is reported by `AuthenticationFailed`
  * (`password_reset`) with its reason; the result says only `invalid`. A reset
@@ -241,6 +245,23 @@ final readonly class ResetSubmissions
      * which `validate()` cannot check) never says, to someone without a valid
      * proof, that the identifier is held.
      *
+     * Inside a caller's transaction a refused proof completes the nested
+     * transaction with its attempt counted, which only the caller's commit
+     * keeps: its rollback gives the attempt back, and the `password_reset`
+     * counts too while `rate_limits.connection` is the storage connection. An
+     * accepted proof no identity may use rolls back only the reset's writes; a
+     * deadlock or serialisation failure, or on MySQL and MariaDB a lock wait
+     * timeout, is thrown on as Laravel's `DeadlockException` with the caller's
+     * transaction level restored. On MySQL and MariaDB a deadlock has already
+     * rolled the caller's whole transaction back, its savepoints with it; after
+     * a lock wait timeout (MySQL rolls back only the statement that timed out)
+     * or a serialisation failure that leaves the caller's transaction open,
+     * what the reset wrote before it (the password, the spent proof, the
+     * cutoff, some of the revocations) may still be in it. So the caller never
+     * commits after the exception: it rolls back and retries whole.
+     * PostgreSQL's lock timeout is no concurrency error to Laravel: it is
+     * thrown as raised, the reset rolled back to its savepoint.
+     *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  array{0: string, 1: string}  $proof
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $recipient
@@ -257,46 +278,37 @@ final readonly class ResetSubmissions
         #[\SensitiveParameter] string $password,
         ClientContext $client,
     ): array {
-        $connection = (new OneTimeCode)->getConnection();
-
-        $connection->beginTransaction();
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $heldProof    = new \SensitiveParameterValue($proof);
+        $heldPassword = new \SensitiveParameterValue($password);
 
         try {
-            if ($recipient instanceof Model) {
-                $recipient = ResetRecipient::eligible($this->context->name(), IdentityLock::acquire($recipient), $binding, $this->container);
-            }
+            $outcome = (new OneTimeCode)->getConnection()->transaction(function () use ($binding, $heldProof, $recipient, $heldPassword, $client): FailureReason|int {
 
-            $check = $this->checkProof($binding, $proof);
+                $eligible = $recipient instanceof Model
+                    ? ResetRecipient::eligible($this->context->name(), IdentityLock::acquire($recipient), $binding, $this->container)
+                    : $recipient;
 
-            if ($check !== CodeCheck::ACCEPTED) {
+                $check = $this->checkProof($binding, $heldProof->getValue());
 
-                $connection->commit();
+                if ($check !== CodeCheck::ACCEPTED) {
+                    return self::refusal($binding, $check);
+                }
 
-                return [ResetResult::invalid(), self::refusal($binding, $check)];
-            }
+                if ($eligible instanceof FailureReason) {
+                    throw new ResetRefused($eligible);
+                }
 
-            if ($recipient instanceof Model) {
-                SharedConnection::assert($recipient, self::FLOW, $this->container->make(Repository::class));
-            }
+                SharedConnection::assert($eligible, self::FLOW, $this->container->make(Repository::class));
 
-            if ($recipient instanceof FailureReason) {
-
-                $connection->rollBack();
-
-                return [ResetResult::invalid(), $recipient];
-            }
-
-            $writer  = new PasswordWriter($this->context, $this->revocations, $this->container);
-            $revoked = $writer->write($recipient, $password, PasswordFlow::RESET, null, $client);
-
-            $connection->commit();
-        } catch (\Throwable $exception) {
-            $connection->rollBack();
-
-            throw $exception;
+                return (new PasswordWriter($this->context, $this->revocations, $this->container))->write($eligible, $heldPassword->getValue(), PasswordFlow::RESET, null, $client);
+            });
+        } catch (ResetRefused $refused) {
+            return [ResetResult::invalid(), $refused->reason];
         }
 
-        return [ResetResult::reset($revoked), null];
+        return is_int($outcome) ? [ResetResult::reset($outcome), null] : [ResetResult::invalid(), $outcome];
     }
 
     /**

@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
 use SineMacula\Laravel\Authentication\Context\ContributionSubject;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\FreshnessPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
@@ -29,8 +30,12 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
+use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
+use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
+use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
+use SineMacula\Laravel\Authentication\Freshness\Operations;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -58,6 +63,7 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\ExternalReauthentication;
+use SineMacula\Laravel\Authentication\Sessions\FactorChangeGate;
 use SineMacula\Laravel\Authentication\Sessions\FactorRevocations;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
@@ -75,6 +81,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
+use Tests\Fixtures\Freshness\DecoratingFreshness;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -135,6 +142,8 @@ use Tests\TestCase;
 #[CoversClass(TenantPolicyChanges::class)]
 #[CoversClass(ActiveSessionProofs::class)]
 #[CoversClass(ContributionSubject::class)]
+#[CoversClass(FactorChangeGate::class)]
+#[CoversClass(ConfiguredFreshness::class)]
 final class CurrentProofReadsTest extends TestCase
 {
     use InteractsWithExternalSignIns, InteractsWithIsolationLevels, InteractsWithProofs, InteractsWithSessions;
@@ -301,6 +310,118 @@ final class CurrentProofReadsTest extends TestCase
 
         self::assertTrue($removed);
         self::assertSame(['pending', 'v2'], [DB::table('authentication_sessions')->value('status'), DB::table('authentication_sessions')->value('tenant_policy_version')]);
+    }
+
+    /**
+     * Rows of `[isolation level, freshness policy bound]`: the package's, and a
+     * decorator of it that passes the read mode on.
+     *
+     * @return iterable<string, array{0: string, 1: string}>
+     */
+    public static function provideLevelsAndFreshnessPolicies(): iterable
+    {
+        foreach (self::provideIsolationLevels() as $name => [$level]) {
+            foreach (['package', 'decorating'] as $policy) {
+                yield "{$name}, {$policy}" => [$level, $policy];
+            }
+        }
+    }
+
+    /**
+     * The factor-change gate never counts a step-up voided after the caller's
+     * first read (another connection's factor removal voided it), the bound
+     * policy asked current: the change is refused (`step_up_required`). A gate
+     * that judged the snapshot would allow it on a proof that no longer counts.
+     *
+     * @param  string  $level
+     * @param  string  $policy
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideLevelsAndFreshnessPolicies')]
+    public function testAFactorChangeGateNeverCountsAStepUpVoidedMeanwhile(string $level, string $policy): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signedIn('api', $identity);
+
+        self::assertTrue($this->sessions()->stepUp($this->proof($identity, 'api', $session->record->getKey(), 'factor-1', Purpose::STEP_UP))->isIssued());
+        self::assertTrue($this->sessions()->factorChange($session->record, FactorChange::ADD)->isAllowed());
+
+        self::bindFreshness($policy);
+
+        $verdict = $this->judgeAfter(
+            $level,
+            fn () => $this->voidElsewhere('api', $session->record->getKey(), 'factor-1'),
+            fn (): FactorChangeVerdict => $this->sessions()->factorChange($session->record, FactorChange::ADD),
+        );
+
+        self::assertSame([false, FailureReason::STEP_UP_REQUIRED, null], [$verdict->isAllowed(), $verdict->reason, $verdict->proof]);
+    }
+
+    /**
+     * The factor-change gate counts a step-up committed after the caller's
+     * first read, the bound policy asked current: the change is allowed on it.
+     * A gate that judged the snapshot would miss it at MySQL's REPEATABLE READ
+     * and refuse.
+     *
+     * @param  string  $level
+     * @param  string  $policy
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideLevelsAndFreshnessPolicies')]
+    public function testAFactorChangeGateCountsAStepUpCommittedMeanwhile(string $level, string $policy): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signedIn('api', $identity);
+
+        self::assertFalse($this->sessions()->factorChange($session->record, FactorChange::ADD)->isAllowed());
+
+        self::bindFreshness($policy);
+
+        $verdict = $this->judgeAfter(
+            $level,
+            fn () => $this->stepUpElsewhere($identity, $session, 'factor-1'),
+            fn (): FactorChangeVerdict => $this->sessions()->factorChange($session->record, FactorChange::ADD),
+        );
+
+        self::assertTrue($verdict->isAllowed());
+        self::assertSame('factor-1', $verdict->proof?->factor);
+    }
+
+    /**
+     * A caller's own freshness read asked current, for a proof and until when,
+     * never counts a step-up voided after the caller's first read (another
+     * connection's factor removal voided it): both answer that the session is
+     * not fresh for a factor change.
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testACallersCurrentFreshnessReadNeverCountsAStepUpVoidedMeanwhile(string $level): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signedIn('api', $identity);
+        $policy   = app(FreshnessPolicy::class);
+
+        self::assertTrue($this->sessions()->stepUp($this->proof($identity, 'api', $session->record->getKey(), 'factor-1', Purpose::STEP_UP))->isIssued());
+        self::assertNotNull($policy->freshUntil($session->record, Operations::FACTOR_CHANGE));
+
+        $answers = $this->judgeAfter(
+            $level,
+            fn () => $this->voidElsewhere('api', $session->record->getKey(), 'factor-1'),
+            static fn (): array => [
+                $policy->freshProof($session->record, Operations::FACTOR_CHANGE, current: true),
+                $policy->freshUntil($session->record, Operations::FACTOR_CHANGE, current: true),
+            ],
+        );
+
+        self::assertSame([null, null], $answers);
     }
 
     /**
@@ -1016,6 +1137,19 @@ final class CurrentProofReadsTest extends TestCase
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.guards.' . self::CHOOSERS, ['driver' => 'jwt', 'provider' => 'choosers', 'application' => ['methods' => ['password']]]);
+    }
+
+    /**
+     * Bind the freshness policy named: the package's, or a decorator of it.
+     *
+     * @param  string  $policy
+     * @return void
+     */
+    private static function bindFreshness(string $policy): void
+    {
+        $package = app(ConfiguredFreshness::class);
+
+        app()->instance(FreshnessPolicy::class, $policy === 'decorating' ? new DecoratingFreshness($package) : $package);
     }
 
     /**

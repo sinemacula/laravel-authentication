@@ -6,8 +6,10 @@ namespace Tests\Feature\Passwords;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionBeginning;
+use Illuminate\Database\QueryException;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -30,6 +32,7 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
+use SineMacula\Laravel\Authentication\Passwords\ResetResult;
 use SineMacula\Laravel\Authentication\Passwords\ResetSubmissions;
 use SineMacula\Laravel\Authentication\Passwords\SendPasswordReset;
 use SineMacula\Laravel\Authentication\Testing\FakeBreachedPasswordChecker;
@@ -746,6 +749,331 @@ final class ResetSubmissionsTest extends TestCase
         }
 
         self::assertSame(0, DB::table('rate_limits')->count());
+    }
+
+    /**
+     * A failure raised inside the reset's transaction, below the closure that
+     * spends the proof and writes the password, by link and by code, leaves the
+     * new password and the token or code out of every frame of its trace, that
+     * closure and what it captured included, even with arguments recorded in
+     * traces; nothing is reset.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailureInsideTheResetsTransactionLeavesTheSecretsOutOfTheTrace(): void
+    {
+        self::seedResettable();
+
+        $token = $this->requestLink();
+
+        self::assertTrue($this->passwords()->sendResetCode('phone', ['phone' => self::PHONE])->isSent());
+
+        app()->terminate();
+
+        $code   = (string) $this->codes->lastCodeFor(self::PHONE, CodePurpose::PASSWORD_RESET);
+        $byCode = ['phone' => self::PHONE, 'challenge' => self::challenge(CodeBinding::passwordReset('web', 'phone', self::PHONE)), 'code' => $code];
+
+        DB::connection()->beforeExecuting(static function (string $query): void {
+            if (str_starts_with($query, 'update') && str_contains($query, 'password_identities')) {
+                throw new \RuntimeException('The password write failed.');
+            }
+        });
+
+        $resets = [
+            [$token, fn (): mixed => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])],
+            [$code, fn (): mixed => $this->passwords()->resetWithCode('phone', [...$byCode, 'password' => self::NEW_PASSWORD])],
+        ];
+
+        foreach ($resets as [$proof, $reset]) {
+
+            $exception = self::withArgumentsInTraces(\RuntimeException::class, $reset);
+
+            self::assertSame('The password write failed.', $exception->getMessage());
+            self::assertTrue(self::passedThroughTheResetsTransaction($exception));
+            self::assertFalse(self::dumpsInTrace($exception, self::NEW_PASSWORD));
+            self::assertFalse(self::dumpsInTrace($exception, $proof));
+        }
+
+        self::assertSame(0, DB::transactionLevel());
+        self::assertSame(0, DB::table('one_time_codes')->whereNotNull('consumed_at')->count());
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
+    }
+
+    /**
+     * A deadlock raised inside a reset's transaction within a caller's is
+     * thrown on as Laravel's `DeadlockException`, with the caller's transaction
+     * level restored. The caller rolls its whole transaction back: nothing the
+     * reset did is kept, nothing is reported, and its retry of the whole
+     * transaction resets.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeadlockInsideACallersTransactionIsThrownOnForTheCallerToRetryWhole(): void
+    {
+        self::seedResettable();
+
+        $this->signInWithPassword('web', self::EMAIL);
+
+        $token    = $this->requestLink();
+        $deadlock = self::deadlock();
+        $level    = DB::transactionLevel();
+
+        self::failOnce('update', 'one_time_codes', $deadlock);
+
+        $this->recordEvents([AuthenticationFailed::class, PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
+
+        DB::beginTransaction();
+
+        try {
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+
+            self::fail('The deadlock was not thrown on.');
+        } catch (DeadlockException $thrown) {
+            self::assertSame($deadlock, $thrown->getPrevious());
+        }
+
+        self::assertSame($level + 1, DB::transactionLevel());
+
+        DB::rollBack();
+
+        self::assertSame($level, DB::transactionLevel());
+        self::assertSame([], $this->recordedClasses());
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
+        self::assertNull(PasswordIdentity::query()->sole()->tokens_valid_after);
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+        self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
+
+        $result = DB::transaction(fn (): mixed => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]));
+
+        self::assertInstanceOf(ResetResult::class, $result);
+        self::assertSame([ResetStatus::RESET, 1], [$result->status, $result->revoked]);
+        self::assertSame('password_reset', DB::table('authentication_sessions')->value('revoked_reason'));
+    }
+
+    /**
+     * Outside any transaction, a deadlock raised inside a reset's is rolled
+     * back and thrown on as raised, once: nothing the reset did is kept, and
+     * the token still resets.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeadlockOutsideAnyTransactionIsRolledBackAndThrownOnAsRaised(): void
+    {
+        self::seedResettable();
+
+        $this->signInWithPassword('web', self::EMAIL);
+
+        $token    = $this->requestLink();
+        $deadlock = self::deadlock();
+        $raised   = self::failOnce('update', 'one_time_codes', $deadlock);
+
+        try {
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+
+            self::fail('The deadlock was not thrown on.');
+        } catch (QueryException $thrown) {
+            self::assertSame($deadlock, $thrown);
+        }
+
+        self::assertSame(1, $raised());
+        self::assertSame(0, DB::transactionLevel());
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+        self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
+        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+    }
+
+    /**
+     * A wrong code inside a caller's transaction completes the reset's nested
+     * transaction with its attempt counted: the caller's transaction stays at
+     * its level with its own writes, the reset is `invalid`, reported as
+     * `invalid_credentials`, and the caller's commit keeps the attempt.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefusedProofInsideACallersTransactionKeepsItsAttempt(): void
+    {
+        self::seedResettable();
+
+        $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE]);
+        app()->terminate();
+
+        $code  = (string) $this->codes->lastCodeFor(self::PHONE);
+        $wrong = $code === '000000' ? '111111' : '000000';
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        DB::beginTransaction();
+
+        DB::table('password_identities')->update(['nickname' => 'set by the caller']);
+
+        $result = $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $wrong, 'password' => self::NEW_PASSWORD]);
+
+        self::assertSame(1, DB::transactionLevel());
+
+        DB::commit();
+
+        self::assertSame(ResetStatus::INVALID, $result->status);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertEquals(1, DB::table('one_time_codes')->value('attempts'));
+        self::assertSame('set by the caller', PasswordIdentity::query()->sole()->nickname);
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
+    }
+
+    /**
+     * A proof accepted inside a caller's transaction for an identity that may
+     * not reset rolls back only what the reset wrote: the link stays unspent,
+     * the caller's transaction stays at its level with its own writes and
+     * commits them, and the reset is `invalid`, reported as
+     * `identity_inactive`. The link resets once the identity is active again.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnUnusableProofInsideACallersTransactionRollsBackOnlyTheResetsWrites(): void
+    {
+        self::seedResettable();
+
+        $token = $this->requestLink();
+
+        DB::table('password_identities')->update(['is_active' => false]);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        DB::beginTransaction();
+
+        DB::table('password_identities')->update(['nickname' => 'set by the caller']);
+
+        $result = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+
+        self::assertSame(1, DB::transactionLevel());
+
+        DB::commit();
+
+        self::assertSame(ResetStatus::INVALID, $result->status);
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
+        self::assertSame('set by the caller', PasswordIdentity::query()->sole()->nickname);
+
+        DB::table('password_identities')->update(['is_active' => true]);
+
+        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+    }
+
+    /**
+     * A failure that is no concurrency error, raised inside a reset's
+     * transaction within a caller's, is thrown on as raised and rolls back only
+     * what the reset wrote: the caller's transaction stays at its level with
+     * its own writes, and commits them, the token unspent.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailureInsideACallersTransactionRollsBackOnlyTheResetsWrites(): void
+    {
+        self::seedResettable();
+
+        $this->signInWithPassword('web', self::EMAIL);
+
+        $token   = $this->requestLink();
+        $failure = new \RuntimeException('The revocation failed.');
+
+        self::failOnce('update', 'authentication_sessions', $failure);
+
+        DB::beginTransaction();
+
+        DB::table('password_identities')->update(['nickname' => 'set by the caller']);
+
+        try {
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+
+            self::fail('The failing revocation was swallowed.');
+        } catch (\RuntimeException $thrown) {
+            self::assertSame($failure, $thrown);
+        }
+
+        self::assertSame(1, DB::transactionLevel());
+
+        DB::commit();
+
+        $identity = PasswordIdentity::query()->sole();
+
+        self::assertSame('set by the caller', $identity->nickname);
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->password));
+        self::assertNull($identity->tokens_valid_after);
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+        self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
+    }
+
+    /**
+     * A deadlock as MySQL reports one, raised by the statement that spends the
+     * proof.
+     *
+     * @return \Illuminate\Database\QueryException
+     */
+    private static function deadlock(): QueryException
+    {
+        $cause = new \PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction');
+
+        return new QueryException('testing', 'update one_time_codes', [], $cause);
+    }
+
+    /**
+     * Throw the failure from the next statement that starts with the verb and
+     * names the table, once, and return how many times it has been thrown.
+     *
+     * @param  string  $verb
+     * @param  string  $table
+     * @param  \Throwable  $failure
+     * @return \Closure(): int
+     */
+    private static function failOnce(string $verb, string $table, \Throwable $failure): \Closure
+    {
+        $thrown = 0;
+
+        DB::connection()->beforeExecuting(static function (string $query) use ($verb, $table, $failure, &$thrown): void {
+            if ($thrown === 0 && str_starts_with($query, $verb) && str_contains($query, $table)) {
+                $thrown++;
+
+                throw $failure;
+            }
+        });
+
+        return static function () use (&$thrown): int {
+            return $thrown;
+        };
+    }
+
+    /**
+     * Whether the trace runs through a transaction whose closure the reset
+     * submissions made, so its captures were inspected with the frames.
+     *
+     * @param  \Throwable  $exception
+     * @return bool
+     */
+    private static function passedThroughTheResetsTransaction(\Throwable $exception): bool
+    {
+        foreach ($exception->getTrace() as $frame) {
+
+            $work  = $frame['args'][0] ?? null;
+            $scope = $work instanceof \Closure ? (new \ReflectionFunction($work))->getClosureScopeClass()?->getName() : null;
+
+            if ($frame['function'] === 'transaction' && $scope === ResetSubmissions::class) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

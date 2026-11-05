@@ -425,10 +425,11 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
-     * A current read of a session's page of proofs, first factor, accepted
-     * evidence, connection or provenance takes a shared lock on MySQL and
-     * MariaDB and on no other engine; the plain read, asked for or by default,
-     * never takes one, and is otherwise the same statement.
+     * A current read of a session's page of proofs, newest proof meeting a
+     * freshness requirement, first factor, accepted evidence, connection or
+     * provenance takes a shared lock on MySQL and MariaDB and on no other
+     * engine; the plain read, asked for or by default, never takes one, and is
+     * otherwise the same statement.
      *
      * @param  string  $driver
      * @return void
@@ -436,11 +437,14 @@ final class SessionProofsTest extends TestCase
     #[DataProvider('provideStorageEngines')]
     public function testOnlyACurrentReadUnderTheLockOnMysqlOrMariadbTakesASharedLock(string $driver): void
     {
-        $session = new PlainSessionFixture('0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70');
-        $kinds   = [ProofKind::ADDITIONAL_FACTOR];
+        $session     = new PlainSessionFixture('0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70');
+        $kinds       = [ProofKind::ADDITIONAL_FACTOR];
+        $requirement = new FreshnessRequirement(900, $kinds);
+        $now         = $this->now;
 
         $reads = [
             'page'              => static fn (bool ...$current): array => SessionProofs::query($session, null, $kinds, 5, ...$current),
+            'newest meeting'    => static fn (bool ...$current): ?RecordedProof => SessionProofs::newestMeeting($session, $requirement, $now, null, ...$current),
             'first factor'      => static fn (bool ...$current): ?RecordedProof => SessionProofs::firstFactor($session, ...$current),
             'accepted evidence' => static fn (bool ...$current): array => SessionProofs::acceptedEvidence($session, ...$current),
             'connection'        => static fn (bool ...$current): ?string => SessionProofs::connectionId($session, ...$current),
@@ -485,8 +489,11 @@ final class SessionProofsTest extends TestCase
 
         self::assertNotNull($external);
 
-        $since = $this->now->addMinute();
-        $read  = static fn (bool $current): array => [
+        $since  = $this->now->addMinute();
+        $later  = $this->now->addMinutes(3);
+        $stepUp = new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR]);
+        $held   = SessionProofs::query($record, null, [ProofKind::ADDITIONAL_FACTOR], 1)[0];
+        $read   = static fn (bool $current): array => [
             SessionProofs::query($record, null, null, 5, $current),
             SessionProofs::query($record, $since, [ProofKind::ADDITIONAL_FACTOR], 5, $current),
             SessionProofs::firstFactor($record, $current),
@@ -495,15 +502,16 @@ final class SessionProofsTest extends TestCase
             SessionProofs::connectionId($external, $current),
             SessionProofs::provenance($record, $current),
             SessionProofs::provenance($external, $current),
+            SessionProofs::newestMeeting($record, $stepUp, $later, null, $current),
         ];
 
         $plain   = [];
         $current = [];
 
-        self::assertSame(array_fill(0, 8, false), self::proofReadLocks(static function () use ($read, &$plain): void {
+        self::assertSame(array_fill(0, 9, false), self::proofReadLocks(static function () use ($read, &$plain): void {
             $plain = $read(false);
         }));
-        self::assertSame(array_fill(0, 8, self::takesSharedLocks()), self::proofReadLocks(static function () use ($read, &$current): void {
+        self::assertSame(array_fill(0, 9, self::takesSharedLocks()), self::proofReadLocks(static function () use ($read, &$current): void {
             $current = $read(true);
         }));
         self::assertEquals($plain, $current);
@@ -512,6 +520,7 @@ final class SessionProofsTest extends TestCase
         self::assertNull($plain[6]);
         self::assertInstanceOf(Provenance::class, $plain[7]);
         self::assertSame('conn-a', $plain[7]->connectionId);
+        self::assertEquals($held, $plain[8]);
     }
 
     /**

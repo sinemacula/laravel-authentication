@@ -57,8 +57,9 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * in the same gap of the index. `stands()` then checks the accepted proof again
  * inside that transaction, once the identity's row is locked, without counting:
  * the session is read again with its row locked until the transaction ends and
- * judged as locked, and the freshness policy asked within it, so a revocation
- * cannot fall between the check and what the proof allows, and a password
+ * judged as locked, and the freshness policy asked within it on the session's
+ * proofs as committed (asked current), so neither a revocation nor a voided
+ * proof can fall between the check and what the proof allows, and a password
  * stands while the locked row holds the hash it was checked against.
  *
  * Made for one check and dropped with it; it keeps nothing between calls.
@@ -105,7 +106,7 @@ final readonly class RecentAuthentication
     public function refusal(Identity $identity, Reauthentication $proof, ?string $ip): FailureReason|int|null
     {
         $proven = $proof->apply(
-            fn (Session $session): bool => $this->isFreshSession($identity, $session, SessionLookup::find($session->getSessionIdentifier())),
+            fn (Session $session): bool => $this->isFreshSession($identity, $session, SessionLookup::find($session->getSessionIdentifier()), false),
             fn (#[\SensitiveParameter] string $password): bool|int => $this->isCurrentPassword($identity, $password, $ip),
         );
 
@@ -120,10 +121,10 @@ final readonly class RecentAuthentication
      * Whether a proof `refusal()` accepted still stands, inside the transaction
      * that acts on it and once the identity's row is locked: a session proof is
      * checked again, its row locked and the freshness policy asked inside the
-     * transaction; a password proof stands while the locked row's password hash
-     * is the one the row held when it was read before the password was checked
-     * (a hash is salted afresh on every write, so any password written in
-     * between changes it).
+     * transaction on its proofs as committed; a password proof stands while the
+     * locked row's password hash is the one the row held when it was read
+     * before the password was checked (a hash is salted afresh on every write,
+     * so any password written in between changes it).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $before
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $locked
@@ -137,7 +138,7 @@ final readonly class RecentAuthentication
     public function stands(Identity $before, Identity $locked, Reauthentication $proof): bool
     {
         return $proof->apply(
-            fn (Session $session): bool => $this->isFreshSession($locked, $session, SessionLookup::lock($session->getSessionIdentifier())),
+            fn (Session $session): bool => $this->isFreshSession($locked, $session, SessionLookup::lock($session->getSessionIdentifier()), true),
             static fn (): bool => hash_equals(self::hashOf($before), self::hashOf($locked)),
         );
     }
@@ -149,26 +150,29 @@ final readonly class RecentAuthentication
      * identity's live sessions of this guard, and has a proof fresh enough for
      * an identifier change.
      *
-     * The row given is judged here, not only by the freshness policy, which
-     * reads the session again with no lock of its own: in `stands()` it is the
-     * locked row, which a revocation committed in the meantime has reached even
-     * where the transaction reads an earlier snapshot without a lock (MySQL's
-     * REPEATABLE READ), and a rebound policy is never trusted to check it.
+     * The row given is judged here, not only by the freshness policy, which is
+     * never trusted to check it: in `stands()` it is the locked row, which a
+     * revocation committed in the meantime has reached even where the
+     * transaction reads an earlier snapshot without a lock (MySQL's REPEATABLE
+     * READ), and the policy is asked under that lock (`$locked`) on the
+     * session's proofs as committed (asked current); `refusal()`'s check,
+     * before the transaction, asks it plainly and locks nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null  $stored
+     * @param  bool  $locked
      * @return bool
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \LogicException
      */
-    private function isFreshSession(Identity $identity, Session $session, (EloquentSession&Model)|null $stored): bool
+    private function isFreshSession(Identity $identity, Session $session, (EloquentSession&Model)|null $stored, bool $locked): bool
     {
         return SessionGeneration::isHeld($session, $stored)
             && SessionOwnership::isOwner($stored, $identity)
             && OwnedSession::refusal($stored, $this->context->name(), CarbonImmutable::now()->startOfSecond()) === null
-            && $this->container->make(FreshnessPolicy::class)->freshProof($stored, Operations::IDENTIFIER_CHANGE) !== null;
+            && $this->container->make(FreshnessPolicy::class)->freshProof($stored, Operations::IDENTIFIER_CHANGE, current: $locked) !== null;
     }
 
     /**

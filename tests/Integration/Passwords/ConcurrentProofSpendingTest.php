@@ -6,12 +6,14 @@ namespace Tests\Integration\Passwords;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
@@ -25,12 +27,22 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\PasswordChanges;
 use SineMacula\Laravel\Authentication\Passwords\PasswordResult;
 use SineMacula\Laravel\Authentication\Passwords\ResetSubmissions;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\Evaluation;
+use SineMacula\Laravel\Authentication\Proofs\NewProof;
+use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
+use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\DefinesPasswordChangeRoute;
+use Tests\Concerns\InteractsWithIsolationLevels;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
@@ -66,7 +78,7 @@ use Tests\TestCase;
 #[CoversClass(PasswordChanges::class)]
 final class ConcurrentProofSpendingTest extends TestCase
 {
-    use ChangesIdentifiers, DefinesPasswordChangeRoute;
+    use ChangesIdentifiers, DefinesPasswordChangeRoute, InteractsWithIsolationLevels;
 
     /** @var int How long the first operation is held after its statement once the second has started, in microseconds. */
     private const int HOLD_MICROSECONDS = 1000000;
@@ -76,6 +88,9 @@ final class ConcurrentProofSpendingTest extends TestCase
 
     /** @var int How long the second operation waits to be started before giving up, in seconds. */
     private const int START_TIMEOUT_SECONDS = 10;
+
+    /** @var int How long the forked side waits, once the establishment waits on the neighbour's row, before it records the neighbour's proof, in microseconds. */
+    private const int CROSS_MICROSECONDS = 300000;
 
     /** @var string The new password the racing writes set. */
     private const string NEW_PASSWORD = 'a brand new long passphrase';
@@ -673,6 +688,99 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
+     * An establishment from one session, inside a caller's transaction, whose
+     * judgement read the session's proofs current, while another transaction
+     * holds a neighbouring session of the same identity (its proofs border the
+     * judged session's in the proofs' session index) and then records a proof
+     * for it: on MySQL at REPEATABLE READ the judgement's shared lock holds the
+     * gap that proof falls in, and the establishment's revocation waits on the
+     * neighbour's row, a deadlock the database breaks by failing the
+     * establishment. It is thrown on as `DeadlockException` with the caller's
+     * transaction level restored; once the caller rolls back nothing it wrote
+     * is kept, and its retry of the whole transaction establishes the password
+     * and ends the neighbour. At READ COMMITTED, and on PostgreSQL, the
+     * judgement holds no gap: the establishment waits for the neighbour's row
+     * and completes (PostgreSQL's REPEATABLE READ fails it to serialise first,
+     * and the caller retries).
+     *
+     * @param  string  $level
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIsolationLevels')]
+    public function testAnEstablishmentCrossingANeighboursProofFailsAsADeadlockOrWaits(string $level): void
+    {
+        $identity = self::seedPasswordless();
+        $sessions = [self::startedSession($identity), self::startedSession($identity)];
+
+        $key = static fn (Session $session): string => (string) IdentifierCoercion::stringify($session->getKey());
+
+        usort($sessions, static fn (Session $one, Session $other): int => strcmp($key($one), $key($other)));
+
+        [$judged, $neighbour] = $sessions;
+
+        $proofs = DB::table('authentication_proofs')->where('session_id', $judged->getKey())->orderBy('id')->get()->all();
+
+        DB::disconnect();
+
+        $pid = pcntl_fork();
+
+        if ($pid < 0) {
+            self::fail('The second side could not be forked.');
+        }
+
+        if ($pid === 0) {
+            $this->crossInChild($neighbour);
+        }
+
+        $this->awaitHeld($pid);
+
+        self::beginTransactionAt($level);
+
+        try {
+            $thrown = Auth::passwords('web')->establish($judged, self::NEW_PASSWORD);
+        } catch (\Throwable $exception) {
+            $thrown = $exception;
+        }
+
+        $nested = DB::transactionLevel();
+
+        $thrown instanceof \Throwable ? DB::rollBack() : DB::commit();
+
+        pcntl_waitpid($pid, $status);
+
+        self::assertSame(['crossed' => true], json_decode((string) file_get_contents("{$this->outcomes}/outcome"), true, flags: JSON_THROW_ON_ERROR));
+        self::assertSame(1, $nested);
+        self::assertSame(0, DB::transactionLevel());
+        self::assertSame(1, DB::table('authentication_proofs')->where('session_id', $neighbour->getKey())->where('kind', 'additional_factor')->count());
+
+        $deadlocks = DB::connection()->getDriverName() === 'mysql' && $level === 'repeatable read';
+
+        self::assertSame($deadlocks || self::readsASnapshot($level), $thrown instanceof \Throwable);
+
+        if ($thrown instanceof \Throwable) {
+            self::assertInstanceOf(DeadlockException::class, $thrown);
+
+            $cause = $thrown;
+
+            while ($cause instanceof DeadlockException && $cause->getPrevious() instanceof \Throwable) {
+                $cause = $cause->getPrevious();
+            }
+
+            self::assertSame('40001', (string) $cause->getCode());
+            self::assertNull(self::reloaded($identity)->password);
+            self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
+            self::assertEquals($proofs, DB::table('authentication_proofs')->where('session_id', $judged->getKey())->orderBy('id')->get()->all());
+
+            $thrown = DB::transaction(static fn (): PasswordResult => Auth::passwords('web')->establish($judged, self::NEW_PASSWORD));
+        }
+
+        self::assertSame([true, 1], [$thrown->isSet(), $thrown->revoked]);
+        self::assertSame('password_established', DB::table('authentication_sessions')->where('id', $neighbour->getKey())->value('revoked_reason'));
+    }
+
+    /**
      * A password change from a session whose revocation is held after it wrote
      * it waits for the revocation on the session's row, then finds the session
      * revoked and changes nothing.
@@ -814,6 +922,132 @@ final class ConcurrentProofSpendingTest extends TestCase
         self::assertInstanceOf(Session::class, $record);
 
         return $record;
+    }
+
+    /**
+     * Wait until the forked side holds the neighbour's row, killing it and
+     * failing when it never does.
+     *
+     * @param  int  $pid
+     * @return void
+     */
+    private function awaitHeld(int $pid): void
+    {
+        $deadline = microtime(true) + self::START_TIMEOUT_SECONDS;
+
+        while (!is_file("{$this->outcomes}/held") && microtime(true) < $deadline) {
+            usleep(5000);
+        }
+
+        if (is_file("{$this->outcomes}/held")) {
+            return;
+        }
+
+        posix_kill($pid, SIGKILL);
+        pcntl_waitpid($pid, $status);
+
+        self::fail('The forked side never held the neighbouring session.');
+    }
+
+    /**
+     * In the forked process: on a connection of its own, write the neighbour's
+     * row in a transaction, many times so its transaction is the heavier and
+     * MySQL picks the other as the deadlock's victim, signal that it holds it,
+     * wait until the parent's establishment waits on that row, then record a
+     * step-up for the neighbour as `ProofWriter` records one (its kind sorts
+     * before the neighbour's first factor, so in the proofs' session index it
+     * falls in the gap after the judged session's proofs), and commit; report,
+     * and end without running the parent's shutdown. An establishment that
+     * never waits is reported as an error.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Session  $neighbour
+     * @return never
+     */
+    private function crossInChild(Session $neighbour): never
+    {
+        try {
+            DB::beginTransaction();
+
+            foreach (range(1, 50) as $ignored) {
+                DB::table('authentication_sessions')->where('id', $neighbour->getKey())->increment('issuance_sequence');
+            }
+
+            touch("{$this->outcomes}/held");
+
+            self::awaitAWaiter();
+
+            usleep(self::CROSS_MICROSECONDS);
+
+            $row = SessionLookup::find($neighbour->getKey());
+
+            self::assertNotNull($row);
+
+            ProofWriter::record($row, 'web', new NewProof(
+                ProofKind::ADDITIONAL_FACTOR,
+                Purpose::STEP_UP,
+                'totp',
+                new Channel(ChannelKind::AUTHENTICATOR_APP),
+                'factor-1',
+                new ObservedProperties,
+                new Evaluation(true, true),
+                ['otp'],
+                CarbonImmutable::now(),
+            ));
+
+            DB::commit();
+
+            $outcome = ['crossed' => true];
+        } catch (\Throwable $e) {
+            $outcome = ['error' => $e->getMessage()];
+        }
+
+        file_put_contents("{$this->outcomes}/outcome", json_encode($outcome));
+
+        posix_kill(posix_getpid(), SIGKILL);
+
+        exit(1);
+    }
+
+    /**
+     * Wait until another connection waits on a lock this connection's
+     * transaction holds, for as long as an operation waits to be started.
+     *
+     * @return void
+     *
+     * @throws \RuntimeException
+     */
+    private static function awaitAWaiter(): void
+    {
+        $deadline = microtime(true) + self::START_TIMEOUT_SECONDS;
+
+        while (!self::isWaitedOn()) {
+            if (microtime(true) >= $deadline) {
+                throw new \RuntimeException('Nothing waited on the locks this side holds.');
+            }
+
+            usleep(5000);
+        }
+    }
+
+    /**
+     * Whether another connection waits on a lock this connection's transaction
+     * holds, as the engine's lock-wait view reports it. PostgreSQL's is read
+     * from `pg_locks`, because `pg_stat_activity` keeps the backends of its
+     * first read in a transaction, before the waiter has connected.
+     *
+     * @return bool
+     */
+    private static function isWaitedOn(): bool
+    {
+        return DB::connection()->getDriverName() === 'pgsql'
+            ? DB::table('pg_locks')
+                ->where('granted', false)
+                ->whereRaw('pg_backend_pid() = any(pg_blocking_pids(pid))')
+                ->exists()
+            : DB::table('performance_schema.data_lock_waits as waits')
+                ->join('performance_schema.threads as threads', 'threads.THREAD_ID', '=', 'waits.BLOCKING_THREAD_ID')
+                ->whereRaw('threads.PROCESSLIST_ID = connection_id()')
+                ->exists();
     }
 
     /**
