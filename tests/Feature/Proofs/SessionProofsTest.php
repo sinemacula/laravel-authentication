@@ -766,6 +766,49 @@ final class SessionProofsTest extends TestCase
     }
 
     /**
+     * Time zones other than the application's, and the application's own.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideTimeZones(): iterable
+    {
+        yield from [
+            'the application\'s'       => ['UTC'],
+            'behind the application'   => ['America/New_York'],
+            'ahead of the application' => ['Asia/Tokyo'],
+        ];
+    }
+
+    /**
+     * The time given is the same instant in whichever time zone it is given: a
+     * proof made at it is read and one made before it is not, as when it is
+     * given in the application's own zone.
+     *
+     * @param  string  $zone
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideTimeZones')]
+    public function testTheTimeGivenIsTheSameInstantInAnyTimeZone(string $zone): void
+    {
+        $session = $this->signedIn()->record;
+        $at      = $this->now->addMinute();
+
+        self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $at, ['otp'], new Evaluation(true, true));
+
+        $since = static fn (CarbonImmutable $time): array => array_map(
+            static fn (RecordedProof $proof): ProofKind => $proof->kind,
+            SessionProofs::query($session, $time->setTimezone($zone), null, 10),
+        );
+
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::FIRST_FACTOR], $since($this->now));
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($this->now->addSecond()));
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], $since($at));
+        self::assertSame([], $since($at->addSecond()));
+    }
+
+    /**
      * The connection is the one the session's provenance records, and none for
      * a session no external provider established.
      *

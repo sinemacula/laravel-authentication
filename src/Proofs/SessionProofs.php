@@ -156,7 +156,9 @@ final class SessionProofs
      * those made at or after `$since` when it is given and of the given kinds
      * when they are, at most `$limit` of them: one `LIMIT` query on the proofs'
      * session, kind and time index, read current when asked, as the class
-     * describes.
+     * describes. `$since` is the same instant in whichever time zone it is
+     * given: it is compared in the application's, the one proofs are written
+     * in.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\Carbon\CarbonImmutable  $since
@@ -171,9 +173,10 @@ final class SessionProofs
     {
         $model  = new SessionProof;
         $shared = self::sharesLock($model, $current);
+        $from   = $since?->setTimezone(date_default_timezone_get());
 
         $proofs = WriteConnection::during($model, static fn (): array => self::counting($session)
-            ->when($since !== null, static fn (Builder $query): Builder => $query->where('authenticated_at', '>=', $model->fromDateTime($since)))
+            ->when($from !== null, static fn (Builder $query): Builder => $query->where('authenticated_at', '>=', $model->fromDateTime($from)))
             ->when($kinds !== null, static fn (Builder $query): Builder => $query->whereIn('kind', array_column($kinds ?? [], 'value')))
             ->orderByDesc('authenticated_at')
             ->orderByDesc('id')
