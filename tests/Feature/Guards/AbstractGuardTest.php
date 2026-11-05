@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -1394,6 +1395,49 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertSame(SubjectType::PERSON, $after->subjectType);
         self::assertNull($after->credential);
         self::assertNull($after->scopes);
+    }
+
+    /**
+     * `login()` given a client binds as any `login()` does, with `Validated`,
+     * `Login` and `Authenticated` unchanged, but its `PrincipalAssigned` and
+     * `SessionAuthenticated` describe that client rather than the guard's
+     * request; the guard keeps no client, so the next `login()` without one in
+     * the same request describes the request again.
+     *
+     * @return void
+     */
+    public function testLoginWithAClientDescribesThatClientForThatBindOnly(): void
+    {
+        $this->request->shouldReceive('userAgent')->andReturn('Request/1.0');
+
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockPrincipal();
+        $session   = $this->mockSession();
+        $client    = new ClientContext('198.51.100.4', 'Worker/3.1');
+
+        $session->shouldReceive('getSignInMethod')->andReturn('password');
+
+        $events = $this->recordEvents();
+        $guard  = $this->makeGuard();
+
+        $guard->login($identity, $principal, $session, $client);
+
+        self::assertSame(
+            [Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class],
+            array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()),
+        );
+        self::assertSame($identity, $events[0]->user ?? null);
+        self::assertSame($identity, $events[1]->user ?? null);
+        self::assertSame($client, $events[3]->context->client ?? null);
+        self::assertSame($client, $events[4]->context->client ?? null);
+        self::assertSame([$identity, $principal, $session], [$guard->user(), $guard->principal(), $guard->session()]);
+
+        $events->exchangeArray([]);
+
+        $guard->login($identity, $principal, $session);
+
+        self::assertSame([self::IP, 'Request/1.0'], [$events[3]->context->client->ip ?? null, $events[3]->context->client->userAgent ?? null]);
+        self::assertSame([self::IP, 'Request/1.0'], [$events[4]->context->client->ip ?? null, $events[4]->context->client->userAgent ?? null]);
     }
 
     /**

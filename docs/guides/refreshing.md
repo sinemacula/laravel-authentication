@@ -417,10 +417,12 @@ given in place of the request's: the attempt limit counts its IP address (a clie
 token's session alone); `Refreshed`, `SignedIn`, `AuthenticationFailed`, a revocation's `SessionRevoked` and a return to
 pending's `SessionReturnedToPending` carry it; and grace and replay hold (see [Refresh token
 replay](#refresh-token-replay)). The guard is bound to the refreshed session as any refresh binds it, and the bind's
-events (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`) describe the guard's own
-request, as every later event of the guard in that request does, so the session's last use, which
-`SessionAuthenticated` records, is that request's too; a controller that hands on its own request's client gives the
-same one.
+`PrincipalAssigned` and `SessionAuthenticated` carry the client given too, so the session's last use, which
+`SessionAuthenticated` records (throttled by `session.last_used_throttle_seconds`), is that client's IP address and user
+agent: a console command or a queued job refreshing for a client records that client, not its own empty request.
+Laravel's `Validated`, `Login` and `Authenticated` carry no client. The client describes that bind only: the guard keeps
+no client, so a later bind or event of the guard in the same request (a `setSession()`, the next request on a
+long-lived worker) describes its own request.
 
 A `PresentedRefreshToken` you build yourself, rather than take from `extract()`, is your trusted description of the
 request, as a `ClientContext` built from plain values is: its constructor requires the carriers, so it cannot be built

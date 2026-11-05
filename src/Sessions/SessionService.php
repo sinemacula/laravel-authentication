@@ -328,7 +328,7 @@ final readonly class SessionService
 
         $outcome = SessionPreconditions::crossSite($transport, $context->client) ?? $this->startFor($identity, $pinned, $method, $context, $proof);
 
-        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $this->bound($outcome, $transport);
+        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $this->bound($outcome, $transport, $context->client);
     }
 
     /**
@@ -387,11 +387,10 @@ final readonly class SessionService
      * host or custom header fails it on a cookie application), written by the
      * activation as the session's last use, and carried by the events that
      * report the action (`AuthenticationFailed`, `SessionCreated` or
-     * `SessionActivated`, `SignedIn`, a superseded session's `SessionRevoked`);
-     * the guard's bind describes the guard's own request, as every later event
-     * of the guard does, so its `SessionAuthenticated` records that request as
-     * the last use whenever `session.last_used_throttle_seconds` allows a use
-     * so soon after the activation (with `0`, always).
+     * `SessionActivated`, `SignedIn`, a superseded session's `SessionRevoked`)
+     * and the guard's bind (`PrincipalAssigned` and `SessionAuthenticated`, so
+     * a last use the bind records is that client's too); the guard keeps no
+     * client, so its later events describe its own request.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
@@ -545,7 +544,7 @@ final readonly class SessionService
 
         $outcome = $verified instanceof Refused ? $verified : $this->continueVerified($driver, $input, $context, $subject->identifierType, $attempt, $verified);
 
-        return $outcome instanceof Refused ? $outcome : $this->bound($outcome, $transport, $attempt);
+        return $outcome instanceof Refused ? $outcome : $this->bound($outcome, $transport, $context->client, $attempt);
     }
 
     /**
@@ -716,7 +715,7 @@ final readonly class SessionService
     private function acted(Refused|SignInResult $outcome, RefreshTokenTransport $transport, ClientContext $client): SignInResult
     {
         if ($outcome instanceof SignInResult) {
-            return $this->bound($outcome, $transport);
+            return $this->bound($outcome, $transport, $client);
         }
 
         return $this->fail($outcome, $outcome->session?->getSignInMethod(), new SignInContext($client), null, []);
@@ -734,16 +733,19 @@ final readonly class SessionService
      * throws leaves them counted and a rolled-back sign-in gives nothing back.
      * A result without a session binds nothing and is answered as it is. The
      * transport is built before the sign-in or the action begins, so one that
-     * is misconfigured fails it before anything is written or reported.
+     * is misconfigured fails it before anything is written or reported. The
+     * bind's events, and so the session's last use, describe the client the
+     * sign-in or the action was for.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\CredentialAttempt  $attempt
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \InvalidArgumentException
      */
-    private function bound(SignInResult $result, RefreshTokenTransport $transport, ?CredentialAttempt $attempt = null): SignInResult
+    private function bound(SignInResult $result, RefreshTokenTransport $transport, ClientContext $client, ?CredentialAttempt $attempt = null): SignInResult
     {
         $session = $result->session;
 
@@ -756,7 +758,7 @@ final readonly class SessionService
         $this->binds->run(
             $session->record,
             $session->principal,
-            fn () => $this->binding->login($session->identity, $session->principal, $session->record),
+            fn () => $this->binding->login($session->identity, $session->principal, $session->record, $client),
             fn () => $this->giveBack($session->heldSlots, $attempt),
         );
 

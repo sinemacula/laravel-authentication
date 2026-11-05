@@ -189,8 +189,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `start()` or `signInExternally()` holds no slots (nothing was guessed), so its external verifier bounds it.
 - An activation runs in the acting request's client, or the one `satisfy()` or `choose()` is given: its events and the
   session's last use carry that client, while the session keeps the client the sign-in came from as its creation. The
-  bind's `SessionAuthenticated` describes the guard's own request, and records it as the last use whenever the
-  last-use throttle allows a use so soon after the activation (with `0`, always).
+  bind's `PrincipalAssigned` and `SessionAuthenticated` carry it too (`bound()` hands the client to
+  `GuardBinding::login()`), as they carry a sign-in's `SignInContext` client, so a last use the bind records is the same
+  client's.
 - Inside a caller's transaction the service's transaction is a savepoint: the lifecycle events, the bind and the
   give-back of the slots wait for the caller's commit, and a rollback withdraws all three with the session, leaving the
   guard unbound (and, unless the counters are on a connection of their own, the sign-in's attempts uncounted). A

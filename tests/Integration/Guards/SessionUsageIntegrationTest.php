@@ -17,13 +17,17 @@ use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Listeners\RecordSessionUsage;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\TestCase;
@@ -203,6 +207,76 @@ final class SessionUsageIntegrationTest extends TestCase
             ->assertExactJson(['refreshed' => true]);
 
         self::assertSame([$this->now->format(self::DATETIME_FORMAT), '192.0.2.10', 'Refresher/3.1'], $this->storedUsage($session));
+    }
+
+    /**
+     * A refresh a controller makes from plain values, for a client it describes
+     * (as a console command or a queued job does for the client it acts for),
+     * records that client as the session's last use, not the request that ran
+     * it.
+     *
+     * @return void
+     */
+    public function testARefreshFromPlainValuesRecordsTheClientGiven(): void
+    {
+        [$identity, $session] = $this->seedIdentityWithSession();
+
+        Route::post('/refresh-for', static function (): array {
+            $presented = new PresentedRefreshToken(new Secret(request()->string('refresh_token')->toString()), RefreshTokenSource::BODY, [RefreshTokenSource::BODY]);
+            $client    = new ClientContext(request()->string('ip')->toString(), request()->string('agent')->toString());
+
+            return ['refreshed' => Auth::sessions('api')->refreshPresented($presented, $client)->isRefreshed()];
+        });
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
+            ->withHeaders(['User-Agent' => 'Runner/1.0'])
+            ->postJson('/refresh-for', [
+                'refresh_token' => $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal(),
+                'ip'            => '198.51.100.23',
+                'agent'         => 'Device/4.2',
+            ])
+            ->assertExactJson(['refreshed' => true]);
+
+        self::assertSame([$this->now->format(self::DATETIME_FORMAT), '198.51.100.23', 'Device/4.2'], $this->storedUsage($session));
+    }
+
+    /**
+     * A trusted `login()` through the guard the facade resolves, given a
+     * client, records that client as the bound session's last use; one without
+     * a client records the request's.
+     *
+     * @return void
+     */
+    public function testATrustedLoginGivenAClientRecordsThatClient(): void
+    {
+        [$identity, $session] = $this->seedIdentityWithSession();
+
+        Route::post('/login-for', static function () use ($identity, $session): array {
+            $client = request()->has('ip') ? new ClientContext(request()->string('ip')->toString(), 'Device/4.2') : null;
+
+            $guard = Auth::guard('api');
+
+            self::assertInstanceOf(ContextualGuard::class, $guard);
+
+            $guard->login($identity, $identity, $session, $client);
+
+            return ['session' => Auth::session()?->getSessionIdentifier()];
+        });
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
+            ->postJson('/login-for', ['ip' => '198.51.100.23'])
+            ->assertExactJson(['session' => $session->getKey()]);
+
+        self::assertSame([$this->now->format(self::DATETIME_FORMAT), '198.51.100.23', 'Device/4.2'], $this->storedUsage($session));
+
+        $this->moveClockTo($this->now->copy()->addMinutes(2));
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
+            ->withHeaders(['User-Agent' => 'Runner/1.0'])
+            ->postJson('/login-for')
+            ->assertExactJson(['session' => $session->getKey()]);
+
+        self::assertSame(['192.0.2.10', 'Runner/1.0'], array_slice($this->storedUsage($session), 1));
     }
 
     /**

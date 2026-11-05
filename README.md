@@ -43,7 +43,7 @@ are caught on the server.
   detection, and a refresh transport per application: the body, or for a browser application a host-only `HttpOnly`
   cookie named after it, with CSRF checks, whose results never hand its code the plain refresh token; a service layer
   that keeps HTTP out refreshes, signs out and acts on a pending session from plain values, judged as the request would
-  be.
+  be and recorded, last use included, as that client's.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that custom
   methods plug into; a further-factor package can use passkeys as a factor too, with a ceremony bound to the session and
   the credentials it names, and a gate it takes part in when a passkey is registered or removed.

@@ -8,8 +8,11 @@ use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
+use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -21,6 +24,8 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -640,6 +645,36 @@ final class SessionSignOutTest extends TestCase
         self::assertTrue(Auth::guard(self::BROWSER)->guest());
         self::assertSame('signed_out', $this->revokedReasonOf($other));
         self::assertSame('signed_out', $this->revokedReasonOf($current));
+    }
+
+    /**
+     * A sign-out from plain values binds nothing, so no event it dispatches
+     * describes the guard's own request: on a guard serving a request from
+     * another address, the package events of a refused and of a successful
+     * plain sign-out carry the client given, and no bind event is dispatched
+     * (Laravel's `Logout` carries no client).
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainSignOutDispatchesNoEventDescribingTheGuardsRequest(): void
+    {
+        $this->seedIdentity();
+
+        $session  = $this->signedIn();
+        $sessions = $this->serving(['REMOTE_ADDR' => self::CROSS_SITE_IP]);
+        $client   = self::sameSiteClient();
+        $events   = [...self::EVENTS, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class];
+
+        $this->recordEvents($events);
+
+        self::assertTrue($sessions->signOutPresented(self::presentedToken('not-a-token', RefreshTokenSource::BODY), $client)->isFailed());
+        self::assertTrue($sessions->signOutPresented(self::presentedToken((string) $session->tokens->refreshToken?->reveal(), RefreshTokenSource::BODY), $client)->isSignedOut());
+        self::assertSame([AuthenticationFailed::class, SessionRevoked::class, Logout::class], $this->recordedClasses());
+
+        self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+        self::assertSame($client, $this->recordedEvent(SessionRevoked::class)->context->client);
     }
 
     /**

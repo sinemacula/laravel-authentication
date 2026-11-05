@@ -958,10 +958,12 @@ scheme and host or header names is refused as `cross_site_request` before the pe
 guard's request. The client is your trusted description of the request (see
 [Refresh token cookie](refreshing.md#refresh-token-cookie)). An activation writes it as the session's last use, and it
 is carried by the events that report the action (`AuthenticationFailed`, `SessionCreated` or `SessionActivated`,
-`SignedIn`, a superseded session's `SessionRevoked`); the guard's bind describes the guard's own request, as every later
-event of the guard does, so its `SessionAuthenticated` records that request as the last use whenever
-`session.last_used_throttle_seconds` allows a use so soon after the activation (with `0`, always). A body application
-is never held to the check, with a client or without.
+`SignedIn`, a superseded session's `SessionRevoked`) and by the guard's bind (`PrincipalAssigned` and
+`SessionAuthenticated`), so a last use the bind records is that client's too, whatever
+`session.last_used_throttle_seconds` is. The same holds for `signIn()`, `start()` and `signInExternally()` given a
+`SignInContext`: every event of the sign-in, the bind's included, and the session's last use carry its client. The
+client describes that bind only: the guard keeps no client, so its later events describe its own request. A body
+application is never held to the check, with a client or without.
 
 ## Additional factors
 

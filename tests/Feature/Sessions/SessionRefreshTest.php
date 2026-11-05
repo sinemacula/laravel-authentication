@@ -574,8 +574,8 @@ final class SessionRefreshTest extends TestCase
      * from its cookie and a same-site client, on a guard whose own request is
      * cross-site, from another address and carries no cookie. The result
      * carries the cookie that sets the new refresh token, never the token, and
-     * refreshes again; the rotation is reported with the client given, while
-     * the guard's bind describes its own request.
+     * refreshes again; the rotation and the guard's bind are reported with the
+     * client given.
      *
      * @return void
      *
@@ -607,7 +607,7 @@ final class SessionRefreshTest extends TestCase
         self::assertSame(self::REFRESHED, $this->recordedClasses());
         self::assertSame(self::sameSiteClient()->ip, $this->recordedEvent(Refreshed::class)->context->client->ip);
         self::assertSame(self::PLAIN_AGENT, $this->recordedEvent(SignedIn::class)->context->client->userAgent);
-        self::assertSame(self::CROSS_SITE_IP, $this->recordedEvent(SessionAuthenticated::class)->context->client->ip);
+        self::assertSame(self::PLAIN_IP, $this->recordedEvent(SessionAuthenticated::class)->context->client->ip);
         self::assertSame($session->record->getKey(), $guard->session()?->getSessionIdentifier());
         $again = self::presentedToken((string) $tokens->refreshCookie->cookie()->getValue(), RefreshTokenSource::COOKIE);
 
@@ -615,16 +615,74 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * The guard's bind after a plain refresh describes the guard's own request,
-     * so with a last-use throttle that records every use its
-     * `SessionAuthenticated` records that request as the session's last use,
-     * while `Refreshed` keeps the client given.
+     * The guard's bind after a plain refresh describes the client given, not
+     * the guard's own request: its `PrincipalAssigned` and
+     * `SessionAuthenticated` carry it, so the last use the bind records is that
+     * client's once the last-use throttle allows it (inside the window nothing
+     * is written over the sign-in's). The guard keeps no client: a later bind
+     * in the same request describes the request.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheBindAfterAPlainRefreshRecordsTheGuardsOwnRequestAsTheLastUse(): void
+    public function testTheBindAfterAPlainRefreshRecordsTheClientGivenAsTheLastUse(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn(self::BROWSER);
+        $client  = self::sameSiteClient();
+        $key     = $session->record->getKey();
+
+        $this->moveTo(CarbonImmutable::now()->addSeconds(30));
+
+        $presented = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
+        $within    = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($presented, $client);
+
+        self::assertTrue($within->isRefreshed());
+        self::assertNotNull($within->session);
+
+        $record = Session::query()->whereKey($key)->sole();
+
+        self::assertSame([self::CLIENT_IP, self::CLIENT_AGENT], [$record->getRawOriginal('last_used_ip'), $record->getRawOriginal('last_used_user_agent')]);
+
+        $this->moveTo(CarbonImmutable::now()->addSeconds(61));
+
+        $guard = $this->crossSiteGuard(self::BROWSER);
+
+        $this->recordEvents(self::EVENTS);
+
+        $presented = self::presentedToken(self::cookieTokenOf($within->session), RefreshTokenSource::COOKIE);
+
+        self::assertTrue(self::sessionsOf($guard)->refreshPresented($presented, $client)->isRefreshed());
+
+        $record = Session::query()->whereKey($key)->sole();
+
+        self::assertSame($client, $this->recordedEvent(PrincipalAssigned::class)->context->client);
+        self::assertSame($client, $this->recordedEvent(SessionAuthenticated::class)->context->client);
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], [$record->getRawOriginal('last_used_ip'), $record->getRawOriginal('last_used_user_agent')]);
+        self::assertSame(CarbonImmutable::now()->toDateTimeString(), $record->getRawOriginal('last_used_at'));
+
+        $this->recordEvents(self::EVENTS);
+
+        $guard->setSession($record);
+
+        self::assertSame([self::CROSS_SITE_IP, 'CrossSite/1.0'], [
+            $this->recordedEvent(SessionAuthenticated::class)->context->client->ip,
+            $this->recordedEvent(SessionAuthenticated::class)->context->client->userAgent,
+        ]);
+    }
+
+    /**
+     * A plain refresh inside the caller's transaction binds once it commits,
+     * and that deferred bind still describes the client given, so with a
+     * last-use throttle that records every use the last use is that client's.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeferredBindAfterAPlainRefreshDescribesTheClientGiven(): void
     {
         config()->set('authentication.session.last_used_throttle_seconds', 0);
 
@@ -633,17 +691,20 @@ final class SessionRefreshTest extends TestCase
         $session   = $this->signedIn(self::BROWSER);
         $presented = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
         $client    = self::sameSiteClient();
+        $guard     = $this->crossSiteGuard(self::BROWSER);
 
         $this->recordEvents(self::EVENTS);
 
-        self::assertTrue(self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($presented, $client)->isRefreshed());
+        DB::transaction(function () use ($guard, $presented, $client): void {
+            self::assertTrue(self::sessionsOf($guard)->refreshPresented($presented, $client)->isRefreshed());
+            self::assertSame([Attempting::class], $this->recordedClasses());
+        });
 
         $record = Session::query()->whereKey($session->record->getKey())->sole();
 
-        self::assertSame($client, $this->recordedEvent(Refreshed::class)->context->client);
-        self::assertSame(self::CROSS_SITE_IP, $this->recordedEvent(SessionAuthenticated::class)->context->client->ip);
-        self::assertSame(self::CROSS_SITE_IP, $record->getRawOriginal('last_used_ip'));
-        self::assertSame('CrossSite/1.0', $record->getRawOriginal('last_used_user_agent'));
+        self::assertSame(self::REFRESHED, $this->recordedClasses());
+        self::assertSame($client, $this->recordedEvent(SessionAuthenticated::class)->context->client);
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], [$record->getRawOriginal('last_used_ip'), $record->getRawOriginal('last_used_user_agent')]);
     }
 
     /**

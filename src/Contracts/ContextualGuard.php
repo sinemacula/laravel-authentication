@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 
 use Illuminate\Contracts\Auth\Guard;
 use SineMacula\Laravel\Authentication\Context\AuthenticationContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
  * Contextual guard contract.
@@ -45,12 +46,20 @@ interface ContextualGuard extends Guard
      * must already have proven that the principal and session belong to the
      * identity.
      *
+     * The client is the one the bind's own events describe (`PrincipalAssigned`
+     * and `SessionAuthenticated`, and so the session's last use), for a flow
+     * acting for a client it was given as plain values (a console command or a
+     * queued job); without one, the guard's request's. It describes this bind
+     * only: the guard keeps no client, and its later events describe its
+     * request.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
      */
-    public function login(Identity $identity, Principal $principal, ?Session $session = null): void;
+    public function login(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void;
 
     /**
      * Return the authenticated identity, if any, resolving the request on first

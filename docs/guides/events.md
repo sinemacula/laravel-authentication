@@ -105,23 +105,24 @@ Codes follow the audit log's vocabulary: `authentication.` for signing in, `sess
 (`session.pending`, `session.returned_to_pending`, `session.activated`, `session.switched` for `PrincipalSwitched`). A
 mapped event is recorded at once: the events that report a write are already dispatched after it commits.
 
-The context is an allowlist of plain values, never a model: the guard, the client of the request being served (IP
-address and user agent, cleaned as the session columns are, and the same-site facts a cookie application's checks judge:
-the `Origin` presented, the request's own scheme and host, and the names of the headers it carried with a value, never
-their values), the identity, the principal and the tenant it acts within each by morph class and identifier
-(`identityType` and `identityId`, `principalType` and `principalId`, `tenantType` and `tenantId`; the morph class is an
-Eloquent model's `getMorphClass()`, else its class name, as it is for a model an enforced morph map leaves out), the
-session's identifier (`sessionId`, which keeps the session id a token named even when no session was found), the sign-in
-method (for a session's events, the method it records; for a step-up or a reauthentication, the method that proved it,
-such as `totp` or `passkey`, whether it succeeded or failed), the credential (an API key or a passkey) in `credentialId`
-with the scopes it grants in `scopes` (`null` for a human identity's session, which no credential limits), when it
-happened (`occurredAt`), and, for what an external provider's result was redeemed into, the connection (`connectionId`)
-and the authorisation request's public reference (`requestReference`). As much as the event's flow established is named,
-and what it did not establish is `null`: a failure names only as much as it got to, and the session before one exists
-has no identifier. An event about a session row itself (every `SessionRevoked`, and a refresh or switch refused on the
-row's own state before its owner was read, such as a revoked or ended session or a replay) names the owner and principal
-the row records in `identityType`, `identityId`, `principalType` and `principalId` when the flow did not load them, and
-the active tenant the row records (its `tenant_id`) in `tenantId`, with no `tenantType`, when the flow did not load the
+The context is an allowlist of plain values, never a model: the guard, the client of the request being served, or the
+one a flow made from plain values was given, for its own events and its bind's (IP address and user agent, cleaned as
+the session columns are, and the same-site facts a cookie application's checks judge: the `Origin` presented, the
+request's own scheme and host, and the names of the headers it carried with a value, never their values), the identity,
+the principal and the tenant it acts within each by morph class and identifier (`identityType` and `identityId`,
+`principalType` and `principalId`, `tenantType` and `tenantId`; the morph class is an Eloquent model's
+`getMorphClass()`, else its class name, as it is for a model an enforced morph map leaves out), the session's identifier
+(`sessionId`, which keeps the session id a token named even when no session was found), the sign-in method (for a
+session's events, the method it records; for a step-up or a reauthentication, the method that proved it, such as `totp`
+or `passkey`, whether it succeeded or failed), the credential (an API key or a passkey) in `credentialId` with the
+scopes it grants in `scopes` (`null` for a human identity's session, which no credential limits), when it happened
+(`occurredAt`), and, for what an external provider's result was redeemed into, the connection (`connectionId`) and the
+authorisation request's public reference (`requestReference`). As much as the event's flow established is named, and
+what it did not establish is `null`: a failure names only as much as it got to, and the session before one exists has no
+identifier. An event about a session row itself (every `SessionRevoked`, and a refresh or switch refused on the row's
+own state before its owner was read, such as a revoked or ended session or a replay) names the owner and principal the
+row records in `identityType`, `identityId`, `principalType` and `principalId` when the flow did not load them, and the
+active tenant the row records (its `tenant_id`) in `tenantId`, with no `tenantType`, when the flow did not load the
 tenant. Other events name only what they hold, even when they carry a session: an identity's `SignedOutEverywhere`, a
 `SessionPending` waiting on a choice of principal and a switch refused for its target have no principal.
 

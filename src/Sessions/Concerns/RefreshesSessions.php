@@ -124,14 +124,14 @@ trait RefreshesSessions
      * IP address (a client without one is limited by the token's session
      * alone), and `Refreshed`, `SignedIn`, `AuthenticationFailed`, a
      * revocation's `SessionRevoked` and a return's `SessionReturnedToPending`
-     * carry it; a retry inside the grace window gets the current credential,
-     * and a replay after it revokes the session. The guard's bind (`Validated`,
-     * `Login` and the bind events, and the session's last use, which
-     * `SessionAuthenticated` records) describes the guard's own request, as
-     * every later event of the guard does. The result says where the token was
-     * presented; a cookie application's refreshed pair carries the cookie that
-     * sets the new refresh token (`RefreshCookie::attachTo()`), never the token
-     * itself.
+     * carry it, as do the guard's bind events (`PrincipalAssigned` and
+     * `SessionAuthenticated`) and so the session's last use, which
+     * `SessionAuthenticated` records; a retry inside the grace window gets the
+     * current credential, and a replay after it revokes the session. The guard
+     * keeps no client, so its later events describe its own request. The result
+     * says where the token was presented; a cookie application's refreshed pair
+     * carries the cookie that sets the new refresh token
+     * (`RefreshCookie::attachTo()`), never the token itself.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client

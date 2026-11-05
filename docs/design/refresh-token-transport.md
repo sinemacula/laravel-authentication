@@ -114,10 +114,13 @@ a cookie application's results hand back the cookie instead of the token.
 - `refreshPresented($presented, $client)` and `signOutPresented($presented, $client)` judge the token with `judge()` and
   then go through the same exchange, or proof and revocation, as the request forms, with the client in place of the
   request's: the attempt limit, `Refreshed`, `SignedIn`, `AuthenticationFailed`, `SessionRevoked` and
-  `SessionReturnedToPending` carry it (`PendingTransitions` built with it). The guard's bind still describes the guard's
-  request, as `signIn()` and `start()` given a `SignInContext` do, so the last use `SessionAuthenticated` records is
-  that request's. A cookie application's refreshed pair carries the `RefreshCookie`; a sign-out's result the expired
-  cookie only for a same-site client whose token was not refused as a conflict.
+  `SessionReturnedToPending` carry it (`PendingTransitions` built with it), and so does the guard's bind:
+  `SessionRefresh` hands it to `GuardBinding::loginVerified()`, so `PrincipalAssigned` and `SessionAuthenticated`, and
+  the last use `SessionAuthenticated` records, are that client's, as they are for `signIn()`, `start()` and
+  `signInExternally()` given a `SignInContext`. The client is a parameter of that one bind, never guard state, so the
+  guard's later events (and the next request on a long-lived worker) describe its own request. A cookie application's
+  refreshed pair carries the `RefreshCookie`; a sign-out's result the expired cookie only for a same-site client whose
+  token was not refused as a conflict. A sign-out binds nothing.
 
 ## Failure / Edge Cases
 

@@ -29,8 +29,9 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * is not an Eloquent session records nothing either.
  *
  * The client is the one the event carries: the request being served when the
- * session was bound, so a long-running worker records that request, not one the
- * listener saw before.
+ * session was bound, or the client a refresh, sign-in or pending action made
+ * from plain values was given, so a long-running worker records that client,
+ * not one the listener saw before.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -1780,9 +1780,8 @@ final class SessionServiceTest extends TestCase
      * A cookie application's satisfaction given a same-site client, as a
      * service layer that keeps HTTP out gives it, is judged on that client
      * alone: it activates the session with the cookie though the guard's own
-     * request comes from another site, the client written as its last use
-     * (which the guard's bind leaves inside the last-use throttle) and carried
-     * by the events that report it.
+     * request comes from another site, the client written as its last use and
+     * carried by the events that report it.
      *
      * @return void
      *
@@ -1806,17 +1805,17 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The guard's bind after an activation given a client describes the guard's
-     * own request, so with a last-use throttle that records every use its
-     * `SessionAuthenticated` records that request as the session's last use
-     * over the client the activation wrote, while the events that report the
-     * action keep the client given.
+     * The guard's bind after an activation given a client describes that
+     * client, not the guard's own request: with a last-use throttle that
+     * records every use, its `PrincipalAssigned` and `SessionAuthenticated`
+     * carry the client given and the session's last use stays the one the
+     * activation wrote.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheGuardsBindRecordsItsOwnRequestAsTheLastUseWhenTheThrottleAllows(): void
+    public function testTheGuardsBindAfterASatisfactionDescribesTheClientGiven(): void
     {
         config()->set('authentication.session.last_used_throttle_seconds', 0);
 
@@ -1824,16 +1823,86 @@ final class SessionServiceTest extends TestCase
         [$credential, $proof] = $this->pendingWithProof($identity, self::BROWSER);
         $client               = self::sameSiteClient();
 
-        $this->recordEvents([SignedIn::class, SessionAuthenticated::class]);
+        $this->recordEvents([SignedIn::class, PrincipalAssigned::class, SessionAuthenticated::class]);
 
         self::assertTrue($this->sessionsOn(self::BROWSER, ['Origin' => 'https://evil.example.test'])->satisfy($credential, $proof, $client)->isSignedIn());
 
         $session = Session::query()->sole();
 
         self::assertSame($client, $this->recordedEvent(SignedIn::class)->context->client);
+        self::assertSame($client, $this->recordedEvent(PrincipalAssigned::class)->context->client);
+        self::assertSame($client, $this->recordedEvent(SessionAuthenticated::class)->context->client);
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], [$session->getRawOriginal('last_used_ip'), $session->getRawOriginal('last_used_user_agent')]);
+    }
+
+    /**
+     * The guard's bind after a choice given a client describes that client, as
+     * a satisfaction's does: its bind events carry it, and with a last-use
+     * throttle that records every use the session's last use stays that
+     * client's.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheGuardsBindAfterAChoiceDescribesTheClientGiven(): void
+    {
+        config()->set('authentication.session.last_used_throttle_seconds', 0);
+
+        $client            = self::sameSiteClient();
+        [$choice, $chosen] = $this->pendingChoice(self::BROWSER_CHOOSERS);
+
+        $this->recordEvents([PrincipalAssigned::class, SessionAuthenticated::class]);
+
+        self::assertTrue($this->sessionsOn(self::BROWSER_CHOOSERS, ['Origin' => 'https://evil.example.test'])->choose($choice, $chosen, null, $client)->isSignedIn());
+
+        $chosenSession = Session::query()->sole();
+
+        self::assertSame($client, $this->recordedEvent(PrincipalAssigned::class)->context->client);
+        self::assertSame($client, $this->recordedEvent(SessionAuthenticated::class)->context->client);
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], [$chosenSession->getRawOriginal('last_used_ip'), $chosenSession->getRawOriginal('last_used_user_agent')]);
+    }
+
+    /**
+     * A sign-in given a `SignInContext` built from plain values binds the guard
+     * with that context's client: `signIn()` and `start()` alike, their bind's
+     * `PrincipalAssigned` and `SessionAuthenticated` carry it, and with a
+     * last-use throttle that records every use the session's last use is that
+     * client's, not the guard's own request's. Without a context the bind
+     * describes the guard's request, as before.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInGivenAContextBindsWithItsClient(): void
+    {
+        config()->set('authentication.session.last_used_throttle_seconds', 0);
+
+        $identity = $this->seedIdentity();
+        $context  = new SignInContext(new ClientContext(self::PLAIN_IP, self::PLAIN_AGENT));
+
+        $this->recordEvents([PrincipalAssigned::class, SessionAuthenticated::class]);
+
+        $signedIn = self::sessionOf($this->sessions()->signIn('password', self::credentials(), $context));
+
+        self::assertSame($context->client, $this->recordedEvent(PrincipalAssigned::class)->context->client);
+        self::assertSame($context->client, $this->recordedEvent(SessionAuthenticated::class)->context->client);
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], self::lastUseOf($signedIn));
+
+        $this->recordEvents([PrincipalAssigned::class, SessionAuthenticated::class]);
+
+        $started = self::sessionOf($this->sessions()->start($identity, null, 'password', $context));
+
+        self::assertSame($context->client, $this->recordedEvent(SessionAuthenticated::class)->context->client);
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], self::lastUseOf($started));
+
+        $this->recordEvents([SessionAuthenticated::class]);
+
+        $fromRequest = self::sessionOf($this->sessions()->signIn('password', self::credentials()));
+
         self::assertSame(self::CLIENT_IP, $this->recordedEvent(SessionAuthenticated::class)->context->client->ip);
-        self::assertSame(self::CLIENT_IP, $session->getRawOriginal('last_used_ip'));
-        self::assertSame(self::CLIENT_AGENT, $session->getRawOriginal('last_used_user_agent'));
+        self::assertSame([self::CLIENT_IP, self::CLIENT_AGENT], self::lastUseOf($fromRequest));
     }
 
     /**
@@ -2147,6 +2216,19 @@ final class SessionServiceTest extends TestCase
     {
         self::assertInstanceOf(Model::class, $actual);
         self::assertTrue($expected->is($actual), sprintf('Expected %s %s.', $expected::class, (string) json_encode($expected->getKey())));
+    }
+
+    /**
+     * The IP address and user agent the session's row records as its last use.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @return array{0: mixed, 1: mixed}
+     */
+    private static function lastUseOf(SignedInSession $session): array
+    {
+        $row = Session::query()->whereKey($session->record->getSessionIdentifier())->sole();
+
+        return [$row->getRawOriginal('last_used_ip'), $row->getRawOriginal('last_used_user_agent')];
     }
 
     /**

@@ -102,7 +102,7 @@ trait SignsInExternally
             return $resolved instanceof Refused ? $resolved : $this->startFor($resolved[0], $context->principal, $method, $context, $resolved[1]);
         });
 
-        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, [], null, $result) : $this->bound($outcome, $transport);
+        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, [], null, $result) : $this->bound($outcome, $transport, $context->client);
     }
 
     /**

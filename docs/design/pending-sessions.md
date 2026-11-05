@@ -59,9 +59,9 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   the caller gives (a service layer that keeps HTTP out), else the guard's request's, read once at the start; one
   without the same-site facts fails closed. `PendingSessions::satisfy()` and `choose()` take it and pass it to
   `SessionActivation::activate()`, so the activation's last use, `SessionCreated` or `SessionActivated`, `SignedIn` and
-  a superseded session's `SessionRevoked` carry it, and the service reports a refusal with it. The guard's bind then
-  describes the guard's own request, so its `SessionAuthenticated` overwrites that last use with the request's whenever
-  the last-use throttle allows a use so soon (with `0`, always).
+  a superseded session's `SessionRevoked` carry it, and the service reports a refusal with it. The guard's bind carries
+  it too (`GuardBinding::login()` given the client), so its `SessionAuthenticated` records the same client as the last
+  use whenever the last-use throttle allows a use so soon.
 - `satisfy()` and `choose()` run in one transaction on the session's connection that locks the row, finds the credential
   again under the lock, and rolls back on any refusal, so a refused proof is never stored, a refused choice records
   nothing, and no refusal revokes the session: it waits until its credential expires, and only `discard()` ends it

@@ -54,8 +54,9 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
  * only through the binding it is given. A refresh from plain values
  * (`refreshPresented()`) reads the guard's request for nothing it judges or
  * reports itself: the token, its source and the client are the caller's, judged
- * again by the transport. The guard's bind still describes the guard's own
- * request, as every later event of the guard does.
+ * again by the transport, and the guard's bind events describe that client too,
+ * for that bind only: the guard keeps no client, so its later events describe
+ * its own request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -402,7 +403,7 @@ final readonly class SessionRefresh
         $this->binds->run(
             $outcome->record,
             $outcome->principal,
-            fn () => $this->binding->loginVerified($outcome->identity, $outcome->principal, $outcome->record, $outcome->tenant, $outcome->method),
+            fn () => $this->binding->loginVerified($outcome->identity, $outcome->principal, $outcome->record, $outcome->tenant, $outcome->method, $client),
         );
 
         return RefreshResult::refreshed(new SignedInSession($outcome->identity, $outcome->principal, $outcome->record, $tokens, (string) $outcome->method));

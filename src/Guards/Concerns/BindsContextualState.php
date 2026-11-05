@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
@@ -25,9 +26,10 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * active tenant, the credential that authenticated it, its kind and the scopes
  * it grants, and exposes accessors plus setters that fire the contextual
  * events. Each event carries the whole bound context, set before it is
- * dispatched, with the request's client. The authentication context of the
- * bound state is built on first ask and held beside it, and forgotten whenever
- * the bound state changes.
+ * dispatched, with the request's client, or the one a flow acting for a client
+ * it was given as plain values hands its bind. The authentication context of
+ * the bound state is built on first ask and held beside it, and forgotten
+ * whenever the bound state changes.
  *
  * Every accessor goes through the host guard's `user()`, so the first access on
  * a request resolves it, as Laravel's own guards do, even on a route without
@@ -249,20 +251,23 @@ trait BindsContextualState
      * `Login` and the bind events, with the tenant the flow's activity check
      * loaded and the sign-in method it reports, as a refresh binds the session
      * it rotated. The context is bound as given, without the ownership checks
-     * `attempt()` applies to its pins, so the caller must have proven it.
+     * `attempt()` applies to its pins, so the caller must have proven it. The
+     * bind events (and so the session's last use) describe the client given, or
+     * the guard's request without one, for this bind only.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?string  $method
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
      */
-    public function loginVerified(Identity $identity, Principal $principal, ?Session $session, ?Tenant $tenant, ?string $method): void
+    public function loginVerified(Identity $identity, Principal $principal, ?Session $session, ?Tenant $tenant, ?string $method, ?ClientContext $client = null): void
     {
         $this->context->dispatch(new Validated($this->context->name(), $identity));
 
-        $this->bindVerifiedContext($identity, $principal, $session, $tenant, $method, true);
+        $this->bindVerifiedContext($identity, $principal, $session, $tenant, $method, true, client: $client);
     }
 
     /**
@@ -437,21 +442,23 @@ trait BindsContextualState
 
     /**
      * Bind the whole triple, with the credential that authenticated it and the
-     * scopes it grants, then dispatch Laravel's `Authenticated`,
-     * `PrincipalAssigned` and, with a session, `SessionAuthenticated`, all
-     * describing it, so a listener on any of them sees the complete context.
-     * Bound without a credential's scopes, a human identity is not limited
-     * (`null`) and a non-human one is limited to none (`[]`). The tenant is
-     * bound as the active tenant; one a trusted bind cannot load is carried as
-     * none in the events, and thrown by `tenant()`.
+     * scopes it grants (which the caller set once it cleared the bound state,
+     * so a bind without a credential has none), then dispatch Laravel's
+     * `Authenticated`, `PrincipalAssigned` and, with a session,
+     * `SessionAuthenticated`, all describing it, so a listener on any of them
+     * sees the complete context. Bound without a credential's scopes, a human
+     * identity is not limited (`null`) and a non-human one is limited to none
+     * (`[]`). The tenant is bound as the active tenant; one a trusted bind
+     * cannot load is carried as none in the events, and thrown by `tenant()`.
+     * The package's events describe the client given, or the request's without
+     * one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant|\SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException|null  $tenant
      * @param  ?string  $method
-     * @param  ?string  $credentialId
-     * @param  ?list<string>  $scopes
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
      */
     private function bindContext(
@@ -460,19 +467,16 @@ trait BindsContextualState
         ?Session $session,
         Tenant|TenantUnavailableException|null $tenant,
         ?string $method,
-        #[\SensitiveParameter]
-        ?string $credentialId = null,
-        ?array $scopes = null,
+        ?ClientContext $client = null,
     ): void {
-        $this->identity     = $identity;
-        $this->principal    = $principal;
-        $this->session      = $session;
-        $this->credentialId = $credentialId;
-        $this->scopes       = $scopes ?? ($identity instanceof MachineIdentity ? [] : null);
+        $this->identity  = $identity;
+        $this->principal = $principal;
+        $this->session   = $session;
+        $this->scopes ??= $identity instanceof MachineIdentity ? [] : null;
 
         $this->bindTenant($tenant);
 
-        $context = $this->boundContext($this->activeTenant, $method);
+        $context = $this->boundContext($this->activeTenant, $method, $client);
 
         $this->context->dispatch(new Authenticated($this->context->name(), $identity));
         $this->context->dispatch(new PrincipalAssigned($context));
@@ -485,17 +489,19 @@ trait BindsContextualState
     }
 
     /**
-     * The context of what the guard has bound, for the request it serves.
+     * The context of what the guard has bound, for the client given or, without
+     * one, the request the guard serves.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?string  $method
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
-    private function boundContext(?Tenant $tenant, ?string $method): EventContext
+    private function boundContext(?Tenant $tenant, ?string $method, ?ClientContext $client = null): EventContext
     {
         return new EventContext(
             $this->context->name(),
-            $this->context->client(),
+            $client ?? $this->context->client(),
             $this->identity,
             $this->principal,
             $tenant,

@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\StubCredentialGuard;
@@ -639,6 +640,56 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         self::assertNull($guard->session());
         self::assertSame([], $this->contextsOf($events, SessionAuthenticated::class));
         EventContextAssertions::assertTenant(null, $this->contextsOf($events, PrincipalAssigned::class)[0]);
+    }
+
+    /**
+     * `loginVerified()` given a client: the bind events (`PrincipalAssigned`
+     * and `SessionAuthenticated`) describe that client rather than the guard's
+     * request, Laravel's events are the same as without one, and the guard
+     * keeps no client: a later `setSession()` and `setPrincipal()` in the same
+     * request describe the request again, as a bind without one does.
+     *
+     * @return void
+     */
+    public function testLoginVerifiedDescribesTheClientGivenForThatBindOnly(): void
+    {
+        $this->session->shouldReceive('getSignInMethod')->andReturn('password');
+        $this->request->shouldReceive('ip')->andReturn('10.0.0.1');
+        $this->request->shouldReceive('userAgent')->andReturn('Request/1.0');
+
+        $client = new ClientContext('203.0.113.9', 'Console/2.0');
+        $events = $this->recordEvents();
+        $guard  = $this->makeGuard();
+
+        $guard->loginVerified($this->identity, $this->principal, $this->session, $this->tenant, 'password', $client);
+
+        self::assertSame(
+            [Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class],
+            array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()),
+        );
+
+        foreach ([...$this->contextsOf($events, PrincipalAssigned::class), ...$this->contextsOf($events, SessionAuthenticated::class)] as $context) {
+            self::assertSame($client, $context->client);
+        }
+
+        $events->exchangeArray([]);
+
+        $guard->setSession($this->session);
+        $guard->setPrincipal($this->principal);
+
+        foreach ([...$this->contextsOf($events, SessionAuthenticated::class), ...$this->contextsOf($events, PrincipalAssigned::class)] as $context) {
+            self::assertSame(['10.0.0.1', 'Request/1.0'], [$context->client->ip, $context->client->userAgent]);
+        }
+
+        $events->exchangeArray([]);
+
+        $guard->loginVerified($this->identity, $this->principal, $this->session, $this->tenant, 'password');
+
+        self::assertCount(2, [...$this->contextsOf($events, PrincipalAssigned::class), ...$this->contextsOf($events, SessionAuthenticated::class)]);
+
+        foreach ([...$this->contextsOf($events, PrincipalAssigned::class), ...$this->contextsOf($events, SessionAuthenticated::class)] as $context) {
+            self::assertSame(['10.0.0.1', 'Request/1.0'], [$context->client->ip, $context->client->userAgent]);
+        }
     }
 
     /**
