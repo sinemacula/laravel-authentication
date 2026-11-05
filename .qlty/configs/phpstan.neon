@@ -36,3 +36,11 @@ parameters:
             paths:
                 - '*/src/Models/*'
                 - '*/tests/*'
+
+    # Sessions are pruned through Laravel's model:prune, which calls the model's
+    # pruneAll(). The package's own pruneAll() (PrunesSessions) also deletes
+    # each session's proofs and provenance with it, which a query on the model
+    # alone cannot do, so every session model may declare it.
+    sineMaculaLaravel:
+        modelHooks:
+            - pruneAll
