@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessionsOnDeletion;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -51,6 +52,7 @@ use Tests\Unit\Stubs\StubTenant;
 #[CoversClass(RevocationWriter::class)]
 #[CoversClass(SessionRevocations::class)]
 #[CoversTrait(EndsSessions::class)]
+#[CoversTrait(EndsSessionsOnDeletion::class)]
 final class RevokesOnSecurityChangesTest extends TestCase
 {
     use InteractsWithSessions;
@@ -151,6 +153,12 @@ final class RevokesOnSecurityChangesTest extends TestCase
             RevocationReason::IDENTITY_DEACTIVATED,
             false,
         ];
+
+        yield 'identity deleted' => [
+            static fn (SessionService $sessions, Identity $identity): int => $sessions->identityDeleted($identity),
+            RevocationReason::IDENTITY_DELETED,
+            false,
+        ];
     }
 
     /**
@@ -213,6 +221,30 @@ final class RevokesOnSecurityChangesTest extends TestCase
 
         self::assertSame(1, $this->sessions('members')->principalDeactivated($membership));
         self::assertSame(['principal_deactivated'], DB::table('authentication_sessions')->whereNotNull('revoked_at')->pluck('revoked_reason')->all());
+    }
+
+    /**
+     * A principal's deletion ends only the sessions acting as it, also once its
+     * row is gone, and a second call revokes nothing more.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalsDeletionEndsItsSessions(): void
+    {
+        [, $membership, $tenant] = $this->seedMember();
+
+        $this->seedMember('other@example.test', $tenant);
+
+        $this->memberSignIn('member@example.test');
+        $this->memberSignIn('other@example.test');
+
+        $membership->delete();
+
+        self::assertSame(1, $this->sessions('members')->principalDeleted($membership));
+        self::assertSame(0, $this->sessions('members')->principalDeleted($membership));
+        self::assertSame(['principal_deleted'], DB::table('authentication_sessions')->whereNotNull('revoked_at')->pluck('revoked_reason')->all());
     }
 
     /**

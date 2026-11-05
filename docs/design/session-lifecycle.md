@@ -90,21 +90,22 @@ revoked, and when a session that ended is deleted. Starting a session is in
   token) is kept by leaving the identity's cutoff unmoved, so the identity's other session-less tokens survive too,
   until they expire.
 - The security-change methods (`passwordChanged()`, `passwordReset()`, `credentialRemoved()`, `factorReset()`,
-  `identityDeactivated()`, `principalDeactivated()`, `tenantDeactivated()`) are bulk revocations with their own reason;
-  `factorRemoved()` is one too, before it judges the current session again (`Sessions\FactorRevocations`).
-  `tenantDeactivated()` checks every listed principal acts within the tenant (`getTenant()` on the writer, through
-  `WriteConnection::stored()`, so a `tenant` relation whoever loaded the principal set does not decide and Eloquent's
-  strict mode does not stop the read; same class and identifier; for a `CanBeActive` tenant that can no longer be
-  loaded, the class and key the `TenantUnavailableException` carries, so a deleted or soft-deleted one still ends its
-  principals' sessions; a tenant without `CanBeActive` reads as no tenant once it cannot be loaded, so the application
-  calls it before deleting one) before anything is written, de-duplicates by recorded type and id, and ends all of them
-  in one transaction on the session connection, with one `SignedOutEverywhere` each. `factorRemoved()` and
-  `factorReset()` are mandatory: no setting turns them off, and the factor package calls them synchronously inside the
-  transaction that makes its change (a savepoint here, reported after the outermost commit), never through a listener;
-  each forgets the request's binding once it commits, before anything is reported, when the binding is to a session it
-  ended or took back to pending (`factorRemoved()` with a current session) or to the identity (`factorReset()`, and
-  `factorRemoved()` with none, since both end every session of it, through `GuardBinding::forgetIdentity()`).
-  `credentialRemoved()` stays per event, the optional listener's or the application's.
+  `identityDeactivated()`, `principalDeactivated()`, `tenantDeactivated()`, `identityDeleted()`, `principalDeleted()`)
+  are bulk revocations with their own reason; `factorRemoved()` is one too, before it judges the current session again
+  (`Sessions\FactorRevocations`). `tenantDeactivated()` checks every listed principal acts within the tenant
+  (`getTenant()` on the writer, through `WriteConnection::stored()`, so a `tenant` relation whoever loaded the principal
+  set does not decide and Eloquent's strict mode does not stop the read; same class and identifier; for a `CanBeActive`
+  tenant that can no longer be loaded, the class and key the `TenantUnavailableException` carries, so a deleted or
+  soft-deleted one still ends its principals' sessions; a tenant without `CanBeActive` reads as no tenant once it cannot
+  be loaded, so the application calls it before deleting one) before anything is written, de-duplicates by recorded type
+  and id, and ends all of them in one transaction on the session connection, with one `SignedOutEverywhere` each.
+  `factorRemoved()` and `factorReset()` are mandatory: no setting turns them off, and the factor package calls them
+  synchronously inside the transaction that makes its change (a savepoint here, reported after the outermost commit),
+  never through a listener; each forgets the request's binding once it commits, before anything is reported, when the
+  binding is to a session it ended or took back to pending (`factorRemoved()` with a current session) or to the identity
+  (`factorReset()`, and `factorRemoved()` with none, since both end every session of it, through
+  `GuardBinding::forgetIdentity()`). `credentialRemoved()` stays per event, the optional listener's or the
+  application's.
 - After an addition to an identity's factors made from the current session (a further factor's enrolment confirmed, a
   passkey associated as a factor, or any other change that removes no factor), the factor package calls
   `factorChanged($identity, FactorChangeMade $change, $current)` the same way: synchronously, inside its transaction,
@@ -142,10 +143,40 @@ revoked, and when a session that ended is deleted. Starting a session is in
   `linkScopeWidened()` (`link_scope_widened`) is mandatory, synchronous in the caller's transaction, and idempotent,
   since a second call finds nothing live to revoke.
 - The optional listeners (`RevokeSessionsOnPasswordReset`, `RevokeSessionsOnPasswordChange`,
-  `RevokeSessionsOnDeactivation`) run their revocation through `AfterCommit` on the changed model's connection, so a
-  rolled-back change revokes nothing. They act through a jwt guard's session service: the guard bound to the
-  listener's `$guard`, else the current default guard when it is a jwt guard, else the first jwt guard configured, so a
-  route guarded by another driver (`shouldUse()`) still revokes; no jwt guard at all is an `InvalidArgumentException`.
+  `RevokeSessionsOnDeactivation`, `RevokeSessionsOnDeletion`) run their revocation through `AfterCommit` on the changed
+  model's connection, so a rolled-back change revokes nothing. They act through a jwt guard's session service: the guard
+  bound to the listener's `$guard`, else the current default guard when it is a jwt guard, else the first jwt guard
+  configured, so a route guarded by another driver (`shouldUse()`) still revokes; no jwt guard at all is an
+  `InvalidArgumentException`.
+- `RevokeSessionsOnDeletion` answers an identity's or principal's `deleted` event with `identityDeleted()` or
+  `principalDeleted()` (`identity_deleted`, `principal_deleted`; a 2D model is the identity, checked first), the same
+  bulk revocations as the deactivation calls; it is a sibling of the deactivation observer rather than a second event on
+  it, so each stays one opt-in. A soft delete fires `deleted` (`SoftDeletes::runSoftDelete()` is a query update, firing
+  no `updated`) and counts as deletion; the row still exists, so the cutoff's conditional update moves it, and
+  session-less tokens issued before stay cut off after a restore. A restore saves (firing `updated`, which the
+  deactivation observer ignores unless active turns inactive) and has no handler: revoked rows keep their first
+  revocation. A force delete after a soft delete fires `deleted` again, and the revocation runs again rather than being
+  skipped: it changes no revoked row, the cutoff update finds no row, and one `SignedOutEverywhere` reports the count,
+  `0` unless a session was written since, which it then ends (one a provider that resolves trashed models admitted, one
+  signed in after a restore, one racing the soft delete); skipping would need `SoftDeletes` coupling and would leave
+  such a session. On a hard delete the model in memory keeps its attributes and key, so the identity's `sessions()` and
+  the principal's session query find the rows; the cutoff update is a conditional query-builder write that matches
+  nothing and never `save()`s, so the row is never put back, and the events hold plain values, so a queued listener
+  never needs the gone row. A deleted principal's owner is read afresh and is `null` when it cannot be read (gone or
+  soft-deleted with it), and its sessions are then looked for anyway. Deletes that fire no model event (query deletes
+  and `MassPrunable` prunes, `deleteQuietly()`, `forceDeleteQuietly()`, `withoutEvents()`, database cascades) end
+  nothing here: a principal a cascade removes with its identity is covered by the identity's own revocation, since an
+  identity's sessions are all those it holds whatever principal they act as, so the observer belongs on the identity
+  model; one a cascade removes with its tenant needs `tenantDeactivated()` with its principals before the tenant is
+  deleted. The revocation runs after the delete commits, so a failure there (no jwt guard, a database error) leaves the
+  delete committed and the exception reaches the code that deleted or committed; the call is idempotent, so the recovery
+  is calling it again with the model still held. Deletion already stops every token while the provider and principal
+  resolver do not resolve the model; revoking records why, ends the sessions in listings and makes the end outlast a
+  restore. A sign-in that admitted the identity before the delete committed can write its session after the revocation
+  ran: it is refused while the model stays deleted, and a restore would make it usable. Every revocation trigger has
+  this window (deactivation and reactivation, a password change), since a sign-in does not lock the identity row;
+  closing it would lock that row on every sign-in, so it is documented instead: before a restore, call
+  `identityDeleted()` or `principalDeleted()` again, or force delete.
 - The password-change observer ignores a save of the user the container's scoped `Sessions\Methods\Rehashing` marks, and
   a save is a rehash only when it re-encodes the password signed in with: both the previous hash (the model's original,
   which Eloquent has not yet synced in `updated`) and the saved hash verify it (the hasher's `check()`; a hash it
@@ -179,8 +210,10 @@ revoked, and when a session that ended is deleted. Starting a session is in
   what a command keeps grows with the accounts it rehashes. Users are keyed as `AccountAttempts::account()` keys
   accounts (connection, database, prefixed table and key for a model), so the same key in another tenant's database is
   another user. The deactivation observer throws a `LogicException` for a deactivated model that is neither identity nor
-  principal: a tenant's deactivation is `tenantDeactivated()`. With both password listeners registered, a broker reset
-  is recorded as `password_changed` (the observer sees the save before the application fires `PasswordReset`).
+  principal: a tenant's deactivation is `tenantDeactivated()`. The deletion observer throws one for a deleted model that
+  is neither: a tenant's sessions end through `tenantDeactivated()` with its principals. With both password listeners
+  registered, a broker reset is recorded as `password_changed` (the observer sees the save before the application fires
+  `PasswordReset`).
 - The provider registers `Listeners\TrackCredentialAttempts` for every application, observer or not, because the
   observer cannot switch it on: `observe()` and `#[ObservedBy]` pass through no package code, and the attribute
   registers the observer only when the model first boots, inside the guard's `retrieveByCredentials()`, after
@@ -245,7 +278,8 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - `src/Sessions/FactorRevocations.php` (behind `factorRemoved()`, `factorReset()` and `factorChanged()`),
   `src/Sessions/FactorRemoval.php`, `src/Sessions/FactorChangeResult.php`, `src/Sessions/Enums/FactorChangeStatus.php`,
   `src/Factors/Enums/FactorChangeMade.php`
-- `src/Sessions/SessionRevocations.php` (the security changes), `src/Listeners/RevokeSessionsOn*.php`,
+- `src/Sessions/SessionRevocations.php` (the security changes), `src/Sessions/Concerns/EndsSessionsOnDeletion.php`
+  (`identityDeleted()` and `principalDeleted()` on the service), `src/Listeners/RevokeSessionsOn*.php`,
   `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`,
   `src/Listeners/TrackCredentialAttempts.php`
 - `src/Sessions/SessionSignOut.php`, `src/Sessions/RefreshProof.php`, `src/Sessions/SignOutResult.php`,
@@ -276,6 +310,9 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - `tests/Integration/Sessions/SecurityChangeEndToEndTest.php`: each security-change listener's revocation refused at
   the `auth` middleware and at refresh, and a session guard's rehash, under an observer `#[ObservedBy]` registers
   inside the attempt, leaving the session working
+- `tests/Integration/Listeners/RevokeSessionsOnDeletionTest.php`: a soft-deleted identity's or principal's session
+  refused at the `auth` middleware and at refresh beyond a restore, a force delete after a restore, a foreign-key
+  cascade from the identity, and the cutoff a soft delete moves, on SQLite, PostgreSQL and MySQL
 - `tests/Feature/Sessions/RevocationWriterTest.php`, `tests/Integration/Sessions/RevocationWriterTest.php`,
   `tests/Integration/Sessions/SeparateConnectionRevocationWriterTest.php`,
   `tests/Integration/Sessions/RevocationScopeTest.php`, `tests/Feature/Sessions/RevocationScopeTest.php`,

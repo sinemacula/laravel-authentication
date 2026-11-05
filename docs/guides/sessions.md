@@ -149,13 +149,14 @@ transaction needs before such a call, as the package takes every session row bef
 order across calls, though. A call that ends or judges several sessions locks them in key order, oldest first:
 `tenantPolicyChanged()` and every bulk revocation (`revokeSessions()`, `revokePrincipalSessions()`,
 `signOutEverywhere()`, `passwordChanged()`, `passwordReset()`, a first password's establishment, `credentialRemoved()`,
-`factorRemoved()`, `factorReset()`, a deactivation, `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()` and
-`linkScopeWidened()`). `satisfy()` and `choose()` on a pending session whose sign-in proved it holds another session
-lock the pending session and then that older one, whatever the action goes on to decide. So such a call over both can
-deadlock with the pending action, the database failing one for its caller to roll back and retry whole. At PostgreSQL's
-REPEATABLE READ the lock on that older session also fails to serialise when it was written after your transaction's
-snapshot (a refresh of it from the client's other tab, say), whatever the action then decides; roll back and retry the
-whole transaction. At READ COMMITTED MySQL locks no gap, and PostgreSQL takes no shared lock, so nothing waits there.
+`factorRemoved()`, `factorReset()`, a deactivation, a deletion, `connectionDisabled()`, `connectionDeleted()`,
+`linkRemoved()` and `linkScopeWidened()`). `satisfy()` and `choose()` on a pending session whose sign-in proved it holds
+another session lock the pending session and then that older one, whatever the action goes on to decide. So such a call
+over both can deadlock with the pending action, the database failing one for its caller to roll back and retry whole. At
+PostgreSQL's REPEATABLE READ the lock on that older session also fails to serialise when it was written after your
+transaction's snapshot (a refresh of it from the client's other tab, say), whatever the action then decides; roll back
+and retry the whole transaction. At READ COMMITTED MySQL locks no gap, and PostgreSQL takes no shared lock, so nothing
+waits there.
 
 ### Reading a session's proofs
 
@@ -832,7 +833,7 @@ Session::query()->active()->where('guard', 'api')->count();
 
 Call the session service from your own flows when something about an identity's security changes; each ends the
 affected sessions (pending ones included) as a bulk revocation, with its own reason, moves the scope's cutoff, and, for
-the four that end an identity's sessions, cancels its pending identifier changes:
+the five that end an identity's sessions, cancels its pending identifier changes:
 
 | Method                                             | Ends                                                        | Reason                  |
 |----------------------------------------------------|-------------------------------------------------------------|-------------------------|
@@ -842,6 +843,8 @@ the four that end an identity's sessions, cancels its pending identifier changes
 | `identityDeactivated($identity)`                   | Every session of the identity                               | `identity_deactivated`  |
 | `principalDeactivated($principal)`                 | Every session acting as the principal                       | `principal_deactivated` |
 | `tenantDeactivated($tenant, iterable $principals)` | Every session acting as a listed principal or in the tenant | `tenant_deactivated`    |
+| `identityDeleted($identity)`                       | Every session of the identity                               | `identity_deleted`      |
+| `principalDeleted($principal)`                     | Every session acting as the principal                       | `principal_deleted`     |
 
 Never call `passwordChanged()` for the automatic rehash of a password on sign-in: the password did not change. These
 methods end sessions and pending identifier changes only. A change or a reset set through `Auth::passwords()->set()`
@@ -861,15 +864,19 @@ session; a tenant that does not implement `CanBeActive` reads as no tenant once 
 one transaction on the storage connection, with one `SignedOutEverywhere` per principal. Deactivation already stops
 every token at once through the live activity checks (see [Active-state
 enforcement](identity-models.md#active-state-enforcement)); revoking makes the end outlast a reactivation and records
-why.
+why. `identityDeleted()` and `principalDeleted()` take the model as it was deleted, or soft-deleted (it keeps its key),
+or one about to be; calling one again is safe: it revokes only a session written since, keeps the first revocation's
+time and reason, and reports `SignedOutEverywhere` with a count of `0` when there is none. While the row still exists
+(soft-deleted), each call moves its cutoff to now.
 
-Three optional listeners call them for you. Registering one is the opt-in, and each revokes only once the change that
+Four optional listeners call them for you. Registering one is the opt-in, and each revokes only once the change that
 triggered it is committed on the changed model's connection, so a change that is rolled back revokes nothing:
 
 ```php
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Support\Facades\Event;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnDeactivation;
+use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnDeletion;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordReset;
 
@@ -877,6 +884,8 @@ Event::listen(PasswordReset::class, RevokeSessionsOnPasswordReset::class);
 User::observe(RevokeSessionsOnPasswordChange::class);
 User::observe(RevokeSessionsOnDeactivation::class);
 Membership::observe(RevokeSessionsOnDeactivation::class);
+User::observe(RevokeSessionsOnDeletion::class);
+Membership::observe(RevokeSessionsOnDeletion::class);
 ```
 
 - `RevokeSessionsOnPasswordReset` answers Laravel's `PasswordReset` (the password broker's) with `passwordReset()`.
@@ -908,6 +917,31 @@ Membership::observe(RevokeSessionsOnDeactivation::class);
   anything else, call the method yourself. A tenant has no listener: its principals are yours to list, so call
   `tenantDeactivated()` with them (it also ends every session acting in the tenant). Registering the observer on a model
   that is neither an identity nor a principal throws a `LogicException` when that model is deactivated.
+- `RevokeSessionsOnDeletion` observes an identity or principal model and answers its deletion with `identityDeleted()`
+  or `principalDeleted()` (a 2D model is treated as the identity). A soft delete counts as deletion: the sessions end
+  and, when the model records a "tokens valid after" cutoff (`HasTokensValidAfter`), the cutoff moves to now, since the
+  row still exists. A restore brings no session back, as a reactivation does not, and the session-less access tokens
+  issued before the soft delete stay refused through that cutoff; without one, such a token works again after the
+  restore until it expires. A later force delete runs the revocation again and revokes only a session written since,
+  normally none (its `SignedOutEverywhere` reports a count of `0`). Only a delete through a model instance fires the
+  event: a query delete (`User::query()->delete()`, a `MassPrunable` prune), `deleteQuietly()`, `forceDeleteQuietly()`,
+  `withoutEvents()` and a database cascade end nothing through the observer, so call `identityDeleted()` or
+  `principalDeleted()` yourself there. A principal deleted by a database cascade from its identity fires no model event,
+  but the identity's own revocation already ends every session acting as its principals, since an identity's sessions
+  are all those it holds: register the observer on the identity model and do not rely on the principal's observer for
+  cascades. A principal a cascade removes with its tenant is covered by no identity's revocation, so call
+  `tenantDeactivated()` with the tenant's principals before deleting it. Registering the observer on a model that is
+  neither an identity nor a principal throws a `LogicException` when that model is deleted.
+
+  Deletion already stops every token while the provider and principal resolver do not resolve the deleted model
+  (Eloquent's `SoftDeletes` scope hides a soft-deleted one); a provider or resolver that includes trashed models keeps
+  it resolvable, and then revocation is what ends its sessions. Revoking also records why and shows the sessions as
+  ended in listings. The revocation runs after the delete commits, so when it fails (no `jwt` guard, a database error)
+  the delete stays committed and the exception reaches the code that deleted or committed: call `identityDeleted()` or
+  `principalDeleted()` again with the model you still hold, rather than deleting again. A sign-in that admitted the
+  identity before the delete committed can write its session after the revocation ran; it is refused on every use while
+  the model stays deleted, and a restore would make it usable, as with a deactivation and a reactivation. Before
+  restoring, call `identityDeleted()` or `principalDeleted()` again to end such a session, or force delete instead.
 
 A password reset through Laravel's broker saves the new password through Eloquent before your code fires
 `PasswordReset`, so with both password listeners registered the observer revokes every session first, as
@@ -1235,6 +1269,8 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 | `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                                |
 | `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeSessionsOnDeactivation`                                                               |
 | `tenant_deactivated`    | `tenantDeactivated()`                                                                                                                      |
+| `identity_deleted`      | `identityDeleted()`, directly or through `RevokeSessionsOnDeletion`; a soft delete included                                                |
+| `principal_deleted`     | `principalDeleted()`, directly or through `RevokeSessionsOnDeletion`; a soft delete included                                               |
 | `tenant_policy_changed` | `tenantPolicyChanged()`, or a refresh that finds the tenant now requires a connection the session was not established through              |
 | `factor_reset`          | The factor package's `factorReset()`: every session of the identity                                                                        |
 | `factor_changed`        | The factor package's `factorChanged()`: the current session, no longer admitted after an addition (`factor_removed` for `FACTOR_REMOVED`)  |

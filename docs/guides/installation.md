@@ -145,9 +145,10 @@ Session tracking and refresh are opt-in. For simple backends or short-lived toke
    `start()`), which throws a `LogicException` for an identity without `HasSessions`. Clients re-authenticate when the
    access token expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens
    valid after" time (below): the session service's revocation methods (`revokeSessions()`, `signOutEverywhere()`,
-   `passwordChanged()` and the other security changes, `principalDeactivated()`, `revokePrincipalSessions()`) move it,
-   and need none of the package's tables for such an identity, except `identifier_changes` for one that implements
-   `HasChangeableIdentifiers`, whose pending changes they cancel, or call `invalidateTokensIssuedBefore()` yourself.
+   `passwordChanged()` and the other security changes, `principalDeactivated()`, `principalDeleted()`,
+   `revokePrincipalSessions()`) move it, and need none of the package's tables for such an identity, except
+   `identifier_changes` for one that implements `HasChangeableIdentifiers`, whose pending changes they cancel, or call
+   `invalidateTokensIssuedBefore()` yourself.
 
 `Auth::session()` returns `null` in this mode; the rest of the contextual surface works normally. Such a token has no
 session to revoke, so an identity or principal model that implements `HasTokensValidAfter` ends them instead: a token

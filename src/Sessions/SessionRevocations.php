@@ -356,6 +356,38 @@ final readonly class SessionRevocations
     }
 
     /**
+     * The identity was deleted, or soft-deleted: end every session it has
+     * (`identity_deleted`).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Throwable
+     */
+    public function identityDeleted(Identity $identity): int
+    {
+        return $this->revokeSessions($identity, RevocationReason::IDENTITY_DELETED);
+    }
+
+    /**
+     * The principal was deleted, or soft-deleted: end every session acting as
+     * it (`principal_deleted`).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return int
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     * @throws \Throwable
+     */
+    public function principalDeleted(Principal $principal): int
+    {
+        return $this->revokePrincipalSessions($principal, RevocationReason::PRINCIPAL_DELETED);
+    }
+
+    /**
      * The tenant was deactivated: end every session acting as one of the
      * principals listed for it, and every session acting in it whatever its
      * principal (its active tenant), as `tenant_deactivated`. Every principal

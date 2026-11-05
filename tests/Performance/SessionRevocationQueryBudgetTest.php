@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessionsOnDeletion;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -46,6 +47,7 @@ use Tests\Integration\Fixtures\CutoffIdentity;
 #[CoversClass(RevocationWriter::class)]
 #[CoversClass(SessionRevocations::class)]
 #[CoversTrait(EndsSessions::class)]
+#[CoversTrait(EndsSessionsOnDeletion::class)]
 final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithSessions;
@@ -179,6 +181,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
         yield 'a removed factor' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->factorRemoved($identity, 'factor-1')->revoked];
         yield 'reset factors' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->factorReset($identity)];
         yield 'a deactivated identity' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->identityDeactivated($identity)];
+        yield 'a deleted identity' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->identityDeleted($identity)];
     }
 
     /**
@@ -243,6 +246,55 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions('members');
 
         self::assertSame(2, $this->assertQueryBudget(2, 2, static fn (): int => $sessions->principalDeactivated($membership)));
+    }
+
+    /**
+     * A deleted principal costs what revoking its sessions costs, as a
+     * deactivated one does: its owner read afresh, one chunk and an update per
+     * session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeletedPrincipalCostsItsRevocation(): void
+    {
+        [, $membership] = $this->seedMember();
+
+        $this->memberSignIn();
+        $this->memberSignIn();
+
+        $membership->delete();
+
+        $sessions = $this->sessions('members');
+
+        self::assertSame(2, $this->assertQueryBudget(2, 2, static fn (): int => $sessions->principalDeleted($membership)));
+    }
+
+    /**
+     * Ending a deleted identity's sessions again, as a force delete after a
+     * soft delete does, reads one chunk and revokes no session: its one write
+     * is the cutoff's conditional update, which finds no row.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEndingADeletedIdentitysSessionsAgainWritesNoSession(): void
+    {
+        $identity = $this->seedCutoffIdentity();
+
+        $this->cutoffSignIn();
+        $this->cutoffSignIn();
+
+        $identity->delete();
+
+        $sessions = $this->sessions('cutoff');
+
+        $first = $sessions->identityDeleted($identity);
+
+        self::assertSame(2, $first);
+        self::assertSame(0, $this->assertQueryBudget(1, 1, static fn (): int => $sessions->identityDeleted($identity)));
     }
 
     /**

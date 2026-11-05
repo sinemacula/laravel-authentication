@@ -180,6 +180,8 @@ final class FailureReasonTest extends TestCase
             'identity_deactivated',
             'principal_deactivated',
             'tenant_deactivated',
+            'identity_deleted',
+            'principal_deleted',
             'tenant_policy_changed',
             'password_established',
             'factor_reset',

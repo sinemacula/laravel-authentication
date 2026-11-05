@@ -53,11 +53,10 @@ principal auth without session tracking or refresh rotation.
   session it starts is a persisted one, and the access token it would issue names one this identity can never resolve.
 - Its revocation methods work, and are how session-less tokens end early: for an identity without `HasSessions`, or a
   principal whose owner is one, a bulk revocation (`revokeSessions()`, `signOutEverywhere()`, the security-change
-  methods, `principalDeactivated()`, `revokePrincipalSessions()`) only moves the scope's "tokens valid after" cutoff and
-  reports it; it reads no `authentication_sessions` row, since such an identity can hold no session, pending or active,
-  so the table need not exist.
-  `tenantDeactivated()` also ends every session acting in the tenant, whatever its principal, so it reads the
-  `authentication_sessions` table, which must exist for it.
+  methods, `principalDeactivated()`, `principalDeleted()`, `revokePrincipalSessions()`) only moves the scope's "tokens
+  valid after" cutoff and reports it; it reads no `authentication_sessions` row, since such an identity can hold no
+  session, pending or active, so the table need not exist. `tenantDeactivated()` also ends every session acting in the
+  tenant, whatever its principal, so it reads the `authentication_sessions` table, which must exist for it.
 - Guard construction still validates the configured session model: its class, and that it lives on the storage
   connection. The package tolerates a missing table on this path because bearer auth with no `sid` never tries to query
   it.

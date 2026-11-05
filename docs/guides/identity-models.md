@@ -514,3 +514,20 @@ The tenants loaded allow lazy loading as a tenant read on its own does, so a ten
 of its own keeps working under strict mode, and a relation you read on a listed tenant without putting it in `$with` is
 read once per tenant rather than refused. A `Principal` that implements `getTenant()` itself has no relation the package
 can know: eager-load its tenant in `principals()`.
+
+## Deleting identities and principals
+
+Deleting an identity or a principal stops its tokens while it no longer resolves (Eloquent's `SoftDeletes` scope hides a
+soft-deleted one from the provider and the principal resolver). Its sessions stay rows, listed by owner with no reason
+recorded, until they are pruned or you end them: register the optional `RevokeSessionsOnDeletion` observer, or call
+`identityDeleted()` or `principalDeleted()` yourself (see [Revoking on security
+changes](sessions.md#revoking-on-security-changes)). A soft delete counts as deletion, and a restore brings no session
+back. For a model that records a "tokens valid after" cutoff (`HasTokensValidAfter`), the soft delete also moves the
+cutoff, so its session-less access tokens issued before stay refused after a restore; without one, they work again until
+they expire.
+
+A principal deleted by a database cascade from its identity fires no model event, but the identity's own revocation
+already ends every session acting as its principals, since an identity's sessions are all those it holds: register the
+observer on the identity model and do not rely on the principal's observer for cascades. A principal a cascade removes
+with its tenant is covered by no identity's revocation, so call `tenantDeactivated()` with the tenant's principals
+before deleting it.
