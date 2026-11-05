@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
@@ -252,6 +253,46 @@ final class RequirementJudgeTest extends TestCase
 
         self::assertSame([$newest], $this->check->judged[1]->proofs(null, null, 1));
         self::assertSame([$newest, $first], $this->check->judged[1]->proofs(null, null, 2));
+    }
+
+    /**
+     * The check reads a stored session's proofs and a sign-in's evidence from a
+     * mutable time in another zone as the same instant, and leaves it as it was
+     * given: a proof made at it is read and one made a second before it is not.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheCheckReadsProofsFromAMutableTimeInAnotherZoneAsTheSameInstant(): void
+    {
+        [$member] = $this->seedMember();
+
+        $session  = $this->signedIn();
+        $at       = CarbonImmutable::now()->startOfSecond()->addMinute();
+        $earlier  = SignInProof::unattested('password', $at->subSecond())->recorded();
+        $later    = SignInProof::unattested('password', $at)->recorded();
+        $evidence = new ProofSource(new SessionEvidence($earlier, [$later, $earlier], null));
+
+        self::recordProof($session, ProofKind::RECOVERY_CODE, $at->subSecond(), [], new Evaluation(true, false));
+        self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $at, ['otp'], new Evaluation(true, true));
+
+        RequirementJudge::isMet('members', $member, $session, null, $at, new ProofSource, new Requirement(new RequirementPart(600)));
+        RequirementJudge::isMet('members', $member, null, null, $at, $evidence, new Requirement(new RequirementPart));
+
+        [$stored, $signIn] = $this->check->judged;
+
+        $zoned = static fn (CarbonImmutable $time): Carbon => Carbon::instance($time)->setTimezone('America/New_York');
+        $since = $zoned($at);
+
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR], array_column($stored->proofs($since), 'kind'));
+        self::assertSame([ProofKind::ADDITIONAL_FACTOR, ProofKind::RECOVERY_CODE], array_column($stored->proofs($zoned($at->subSecond())), 'kind'));
+        self::assertSame([], $stored->proofs($zoned($at->addSecond())));
+        self::assertSame([$later], $signIn->proofs($since));
+        self::assertSame([$later, $earlier], $signIn->proofs($zoned($at->subSecond())));
+        self::assertSame([], $signIn->proofs($zoned($at->addSecond())));
+        self::assertSame('America/New_York', $since->getTimezone()->getName());
+        self::assertSame($at->getTimestamp(), $since->getTimestamp());
     }
 
     /**
