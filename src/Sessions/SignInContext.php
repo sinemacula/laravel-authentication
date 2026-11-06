@@ -27,9 +27,9 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * agent alone fails there.
  *
  * The client name and platform come from the client, so they are made safe to
- * store as `ClientContext` makes the user agent safe: NUL bytes removed,
- * invalid UTF-8 replaced, and cut to the column's 255 characters; a value that
- * is empty after cleaning is `null`.
+ * store as `ClientContext` makes the user agent safe: invalid UTF-8 replaced,
+ * control and bidirectional formatting characters removed, and cut to the
+ * column's 255 characters; a value that is empty after cleaning is `null`.
  *
  * The principal is verified, not trusted: it must resolve through the
  * resolver's hinted path to the same principal of the same class, owned by the

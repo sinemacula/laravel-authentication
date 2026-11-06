@@ -15,12 +15,14 @@ use Symfony\Component\HttpFoundation\Exception\RequestExceptionInterface;
  *
  * The IP address and user agent come from the client and are made safe to store
  * rather than trusted: an IP address is kept only when it is a valid IPv4 or
- * IPv6 address, and a user agent has NUL bytes removed, invalid UTF-8 replaced,
- * and is cut to the column's 512 characters. PostgreSQL, and MySQL in strict
- * mode, reject invalid UTF-8 and an over-long value, and a crafted header must
- * not turn a request into a server error; PostgreSQL cannot store a NUL byte in
- * text, and through PDO a value is cut short at the first one. A value that is
- * missing, invalid, or empty after cleaning is `null`.
+ * IPv6 address, and a user agent has invalid UTF-8 replaced, control and
+ * bidirectional formatting characters removed, and is cut to the column's 512
+ * characters. PostgreSQL, and MySQL in strict mode, reject invalid UTF-8 and an
+ * over-long value, and a crafted header must not turn a request into a server
+ * error; PostgreSQL cannot store a NUL byte in text, and the other controls and
+ * the bidirectional characters would carry escape sequences into a log or make
+ * a session list read falsely. A value that is missing, invalid, or empty after
+ * cleaning is `null`.
  *
  * The origin and the scheme and host are kept only when each is 1 to 512
  * printable ASCII characters, and never cut, since a cut value could equal an
