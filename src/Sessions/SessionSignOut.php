@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Symfony\Component\HttpFoundation\Cookie;
 
 /**
@@ -89,10 +90,12 @@ final readonly class SessionSignOut
      * signs nothing out; a reason handed in (`SessionRefresh::handedIn()`), a
      * refusal of the judgement, or a session the token does not prove is
      * reported and answered; otherwise the session the token proves is signed
-     * out.
+     * out, unless it is not the session expected, which refuses the sign-out as
+     * `session_mismatch`.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  int|string|null  $expectedSession
      * @return \SineMacula\Laravel\Authentication\Sessions\SignOutResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -100,8 +103,11 @@ final readonly class SessionSignOut
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    public function signOutWith(#[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented, ClientContext $client): SignOutResult
-    {
+    public function signOutWith(
+        #[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented,
+        ClientContext $client,
+        int|string|null $expectedSession = null,
+    ): SignOutResult {
         $transport = $this->transport();
         $refusal   = match (true) {
             $presented instanceof FailureReason         => SessionRefresh::handedIn($presented),
@@ -118,7 +124,7 @@ final readonly class SessionSignOut
         }
 
         return $presented instanceof PresentedRefreshToken
-            ? $this->signOutProven($presented->token, $presented->source, $forget, $client)
+            ? $this->signOutProven($presented->token, $presented->source, $forget, $client, $expectedSession)
             : SignOutResult::nothing($forget);
     }
 
@@ -152,12 +158,18 @@ final readonly class SessionSignOut
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
      * @param  ?\Symfony\Component\HttpFoundation\Cookie  $forget
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  int|string|null  $expectedSession
      * @return \SineMacula\Laravel\Authentication\Sessions\SignOutResult
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function signOutProven(#[\SensitiveParameter] Secret $refreshToken, RefreshTokenSource $source, ?Cookie $forget, ClientContext $client): SignOutResult
-    {
+    private function signOutProven(
+        #[\SensitiveParameter] Secret $refreshToken,
+        RefreshTokenSource $source,
+        ?Cookie $forget,
+        ClientContext $client,
+        int|string|null $expectedSession,
+    ): SignOutResult {
         $now    = CarbonImmutable::now()->startOfSecond();
         $proven = $this->proof->prove($refreshToken, AuthenticationFlow::SIGN_OUT, $now, $client);
 
@@ -169,8 +181,13 @@ final readonly class SessionSignOut
         }
 
         $session = $proven->session;
-        $owner   = $this->owner($session);
-        $event   = new SessionRevoked(
+
+        if ($expectedSession !== null && !IdentifierCoercion::matches($session->getSessionIdentifier(), $expectedSession)) {
+            return $this->refuseMismatch($session, $source, $client);
+        }
+
+        $owner = $this->owner($session);
+        $event = new SessionRevoked(
             new EventContext($session->getGuard(), $client, $owner, session: $session, method: $session->getSignInMethod(), fromSession: true),
             RevocationReason::SIGNED_OUT,
         );
@@ -184,6 +201,27 @@ final readonly class SessionSignOut
         }
 
         return $revoked ? SignOutResult::signedOut($source, $forget) : SignOutResult::nothing($forget);
+    }
+
+    /**
+     * Report a refresh token that proves a session other than the one expected,
+     * and answer it with no expired cookie, so refusing a request about another
+     * session never signs the browser out of its own.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignOutResult
+     */
+    private function refuseMismatch(EloquentSession&Model $session, RefreshTokenSource $source, ClientContext $client): SignOutResult
+    {
+        $this->context->dispatch(new AuthenticationFailed(
+            new EventContext($this->context->name(), $client, session: $session, method: $session->getSignInMethod(), fromSession: true),
+            AuthenticationFlow::SIGN_OUT,
+            FailureReason::SESSION_MISMATCH,
+        ));
+
+        return SignOutResult::failed(FailureReason::SESSION_MISMATCH, $source, null);
     }
 
     /**

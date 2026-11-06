@@ -99,15 +99,34 @@ trait SwitchesSessions
      * grace window gets the current credential. The result says where the token
      * was presented.
      *
+     * A route scoped to one session (`/sessions/{session}`) passes that
+     * session's id as `$expectedSession`, so a token proving another session is
+     * refused as `session_mismatch` (reported with the flow `switch`, counted
+     * by the attempt limit as any refused switch is) inside the switch's own
+     * flow. The check follows the judgement of the token, so a replay still
+     * revokes the session as `rotation_reuse`, a retry inside the grace window
+     * still matches its own session, and a token that fails any of the token's
+     * own checks reports that reason instead; it precedes the destination's
+     * admission, so a mismatch rotates nothing, switches nothing, revokes
+     * nothing and binds nothing (the issuance guard's sequence bump still
+     * commits, as it does for any refusal). The id compares as a string, so
+     * `42` matches `'42'` and `'042'` does not; only `null` accepts any
+     * session.
+     *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  int|string|null  $expectedSession
      * @return ($presented is null ? null : \SineMacula\Laravel\Authentication\Sessions\SwitchResult)
      *
      * @throws \Throwable
      */
-    public function switchTo(#[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented, SwitchTarget $target, ClientContext $client): ?SwitchResult
-    {
+    public function switchTo(
+        #[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented,
+        SwitchTarget $target,
+        ClientContext $client,
+        int|string|null $expectedSession = null,
+    ): ?SwitchResult {
         $transport = $this->transport();
 
         if ($presented instanceof FailureReason) {
@@ -119,7 +138,7 @@ trait SwitchesSessions
         }
 
         $refusal = $transport->judge($presented, $client);
-        $result  = $refusal === null ? $this->switchWith($presented->token, $target, $transport, $client) : $this->refuseSwitch($refusal, $client);
+        $result  = $refusal === null ? $this->switchWith($presented->token, $target, $transport, $client, $expectedSession) : $this->refuseSwitch($refusal, $client);
 
         return $result->withSource($presented->source);
     }
@@ -147,12 +166,18 @@ trait SwitchesSessions
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  int|string|null  $expectedSession
      * @return \SineMacula\Laravel\Authentication\Sessions\SwitchResult
      *
      * @throws \Throwable
      */
-    private function switchWith(#[\SensitiveParameter] Secret $refreshToken, SwitchTarget $target, RefreshTokenTransport $transport, ClientContext $client): SwitchResult
-    {
+    private function switchWith(
+        #[\SensitiveParameter] Secret $refreshToken,
+        SwitchTarget $target,
+        RefreshTokenTransport $transport,
+        ClientContext $client,
+        int|string|null $expectedSession,
+    ): SwitchResult {
         $began   = CarbonImmutable::now()->startOfSecond();
         $recheck = $this->recheck($client, $began);
         $revoke  = function (EloquentSession&Model $record, CarbonImmutable $now) use ($client): bool {
@@ -165,7 +190,17 @@ trait SwitchesSessions
             return $this->switchRevocations->revoke($record, RevocationReason::ROTATION_REUSE, $now, fn () => $this->context->dispatch($event));
         };
 
-        $outcome = (new SessionSwitch($this->tokens, $this->rotations, $this->context, $client, $target, $revoke, $this->transitions->forClient($client), $recheck))
+        $outcome = (new SessionSwitch(
+            $this->tokens,
+            $this->rotations,
+            $this->context,
+            $client,
+            $target,
+            $revoke,
+            $this->transitions->forClient($client),
+            $recheck,
+            $expectedSession,
+        ))
             ->switch($refreshToken);
         $refusal = $recheck->refusal();
 

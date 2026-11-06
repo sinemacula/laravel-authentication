@@ -367,6 +367,42 @@ facts given and cannot show facts left out (a cookie or header the request carri
 refuses as a conflict), so prefer `extract()`, and otherwise copy the source and carriers from each request, never
 constants, since facts that always show one carrier turn the conflict check off.
 
+## Refusing a token for another session
+
+A route scoped to one session (a `PATCH` or `DELETE` on `/sessions/{session}`, say) must not act on whichever session
+the token proves. `refresh()`, `switchTo()` and `signOutWith()` each take the session the route names as a last,
+optional `$expectedSession` (an integer or a string), and refuse a token that proves another session as
+`session_mismatch`, inside the action's own flow:
+
+```php
+Route::patch('/sessions/{session}', function (Request $request, string $session, SessionService $sessions) {
+    $result = $sessions->switchTo(
+        Auth::refreshTransport('api')->extract($request),
+        $target,
+        ClientContext::fromRequest($request),
+        expectedSession: $session,
+    );
+
+    abort_if($result?->reason === FailureReason::SESSION_MISMATCH, 404);
+
+    // ...
+});
+```
+
+Only `null` (the default) turns the check off. The id is compared as a string, so `42` matches `'42'`, and `'042'` does
+not. The token is classified first, so everything the token's own checks refuse reports its own reason (an expired,
+revoked, pending or unknown session, a session of another guard, a token that fails the transport's judgement), a
+replay still revokes the session as `rotation_reuse`, and a retry with the old token inside the grace window still
+matches its own session. Only then is the session compared, before the owner is admitted and before anything is
+rotated, switched, revoked or bound: a mismatch rotates nothing, switches nothing and revokes nothing. The refusal is
+reported as any other (`AuthenticationFailed` with the flow `refresh`, `switch` or `sign_out`, describing the token's
+own session, preceded by `Attempting` and `Failed` for a refresh), and a refresh or a switch counts it against the
+refresh limits like any refused token. The issuance guard the action wrote before judging the session still commits, as
+it does for every refusal.
+
+A sign-out refused as `session_mismatch` carries no expired refresh cookie, so refusing a `DELETE` for another session
+never logs the browser out of its own.
+
 ## Refresh token replay
 
 Refresh tokens stay signed JWTs, and each one carries the session's rotation id, which the session stores only as a

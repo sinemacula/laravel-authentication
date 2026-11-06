@@ -169,6 +169,14 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 - A lost switch response: the client retries with the old token inside the grace window and receives the current
   credential for the destination, with no second `PrincipalSwitched`. Presented to the session service's `refresh()`,
   the same token fails as `session_principal_mismatch` without revoking.
+- `switchTo()` takes an optional `$expectedSession` for a route scoped to one session (null accepts any). In
+  `SessionSwitch::switchOn()`, right after the judgement of the rotation id and before the destination's admission, a
+  session whose identifier does not match (`IdentifierCoercion::matches()`: `42` matches `'42'`, `'042'` does not) is
+  refused as `session_mismatch` (`AuthenticationFailed`, flow `switch`, naming the token's own session, counted by the
+  refresh limits). Judging first keeps a replay revoking as `rotation_reuse` and a grace retry matching its own
+  session, and lets the row's own states (revoked, expired, pending) report themselves. The mismatch rotates, switches
+  and revokes nothing and binds nothing; the issuance guard written before the session was read still commits its
+  sequence bump, as for any refusal.
 - A switch racing a refresh of the same token loses the swap and fails as `rotation_conflict`; two identical switches
   both answer with the destination's credential; two switches to different principals leave the first; a switch racing a
   revocation fails as `session_revoked`; a switch whose session changed tenant or policy version under it fails as

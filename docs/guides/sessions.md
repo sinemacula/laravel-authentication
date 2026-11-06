@@ -608,6 +608,24 @@ does. Every event the switch dispatches, its return to pending's `SessionReturne
 `SessionRevoked` included, and the guard's bind, and so the session's last use, describe the client given, never the
 guard's request; the attempt limit counts its IP address.
 
+A route scoped to one session passes its id as the last, optional argument, and the switch refuses a token proving
+another session as `session_mismatch` (an `AuthenticationFailed` of flow `switch`, counted by the refresh limits like
+any refused switch):
+
+```php
+$result = Auth::sessions('api')->switchTo(
+    $presented,
+    $target,
+    ClientContext::fromRequest($request),
+    expectedSession: $id,
+);
+```
+
+The check follows the judgement of the token and precedes the destination's admission: a replay still revokes the
+session, a retry inside the grace window still matches its own session, and a token the judgement refuses reports its
+own reason; a mismatch switches nothing and rotates nothing (see [Refusing a token for another
+session](refreshing.md#refusing-a-token-for-another-session)).
+
 A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`, with the wait in the
 result's `retryAfter`: a switch returns its refusal, as a refresh does, so answer it with `Retry-After` as above), the
 token parsed for this guard, the session found, of this guard, live, and the rotation id current, or the previous one
@@ -726,6 +744,12 @@ no longer recording the principal the token names fails with that reason; a repl
 refusal is reported by `AuthenticationFailed` with the flow `sign_out` and its reason, and by no `Failed`: a sign-out is
 not an attempt to authenticate. No attempt limit applies, since nothing is issued and a refresh token cannot be guessed.
 `AuthenticationFailed` and `SessionRevoked` carry the client given (Laravel's `Logout` carries no client).
+
+A route that signs out one session by its id (`DELETE /sessions/{session}`) passes the id as the last, optional
+argument, `signOutWith($presented, $client, expectedSession: $id)`, and a token proving another session is refused as
+`session_mismatch` once the token is proven, before the owner is read: nothing is revoked, no binding is forgotten, and
+the result carries no expired cookie, so refusing the request never signs the browser out of its own session. A replay
+still revokes as `rotation_reuse`, and only `null` turns the check off.
 
 The `Sessions\SignOutResult` says whether this call revoked a session (`isSignedOut()`, `signedOut`), why the refresh
 credential was refused when it was (`isFailed()`, `reason`), where it was presented from (`source`), and, for a cookie

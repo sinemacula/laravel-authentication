@@ -117,6 +117,7 @@ final readonly class SessionSwitch
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonImmutable): bool  $revoke
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingTransitions  $transitions
      * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
+     * @param  int|string|null  $expectedSession
      */
     public function __construct(
 
@@ -143,6 +144,9 @@ final readonly class SessionSwitch
 
         /** Checks the principal and tenant the switch moved the session to once it commits. */
         private AdmissionRecheck $recheck,
+
+        /** The id of the session the token must prove, or `null` to accept any. */
+        private int|string|null $expectedSession = null,
     ) {}
 
     /**
@@ -225,7 +229,8 @@ final readonly class SessionSwitch
 
     /**
      * Run the switch on the session of this guard the token names: the rotation
-     * id against it, the destination's admission, then the switch or the retry.
+     * id against it, the session against the one expected, if any, the
+     * destination's admission, then the switch or the retry.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  array{0: string, 1: mixed}  $presented
@@ -240,6 +245,10 @@ final readonly class SessionSwitch
 
         if ($verdict instanceof FailureReason) {
             return $this->fail($session, $verdict, $now);
+        }
+
+        if ($this->expectedSession !== null && !IdentifierCoercion::matches($session->getSessionIdentifier(), $this->expectedSession)) {
+            return self::refused(FailureReason::SESSION_MISMATCH, $this->eventContext($session));
         }
 
         $admitted = $this->admit($session);
