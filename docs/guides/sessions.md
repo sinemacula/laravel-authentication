@@ -1026,23 +1026,24 @@ With no `jwt` guard configured at all, a listener throws an `InvalidArgumentExce
 
 ### Sign-ins racing a deactivation or deletion
 
-A sign-in, a pending session's choice of principal and a switch each admit what the session is to act as (the
-identity, the principal, the active tenant) before they write it. A deactivation or deletion that commits in between is
-followed by a revocation that finds no session to end, and the session written afterwards would be refused only while
-the change lasts. So each of these calls checks its session once it is committed: what the session newly acts as is
-read again, afresh, once the session's write has committed and any transaction open on the connection the identity,
-principal or tenant model lives on has ended (committed or rolled back: only the session's own connection decides
-whether the session stands, and the others are waited for only so they are not read through a snapshot taken before). A
-sign-in's identity is reloaded through the guard's provider, and must still be that identity (`identity_unknown`,
-revoked as `identity_deleted`) and active (`identity_inactive`, `identity_deactivated`); its principal, and the principal
-a choice or a switch moves the session to, is resolved again through the guard's resolver and must still be that
-principal (`principal_unresolved`, `principal_deleted`), active (`principal_inactive`, `principal_deactivated`) and in an
-active tenant of its own (`tenant_inactive`, `tenant_deactivated`); the active tenant the session records must still
-resolve and be active (`tenant_inactive`, `tenant_deactivated`). A switch is checked for what it changed only (a switch
-to no tenant for nothing), and `satisfy()` for nothing (its session already records what it acts as, so every
-revocation of those finds it). Nothing an access contract (`ApplicationAccess`, `TenantAccess`), the application policy
-or a tenant's authentication policy says is asked again: those are not what a deactivation or deletion changes, and
-their own triggers end sessions.
+A sign-in, a pending session's choice of principal and a switch each admit what the session is to act as (the identity,
+the principal, the active tenant) before they write it. A deactivation or deletion that commits in between is followed
+by a revocation that finds no session to end, and the session written afterwards would be refused only while the change
+lasts. So each of these calls checks its session once it is committed: what the session newly acts as is read again,
+afresh, once the session's write has committed and any transaction open on the connection the identity, principal or
+tenant model lives on has ended (committed or rolled back: only the session's own connection decides whether the session
+stands, and the others are waited for only so they are not read through a snapshot taken before). A sign-in's identity
+is reloaded through the guard's provider, and must still be that identity (`identity_unknown`, revoked as
+`identity_deleted`) and active (`identity_inactive`, `identity_deactivated`); its principal, and the principal a choice
+or a switch moves the session to, is resolved again through the guard's resolver and must still be that principal
+(`principal_unresolved`, `principal_deleted`), active (`principal_inactive`, `principal_deactivated`) and in an active
+tenant of its own (`tenant_inactive`, `tenant_deactivated`); the active tenant the session records must still resolve
+and be active (`tenant_inactive`, `tenant_deactivated`). A switch is checked for what it changed only (a switch to no
+tenant for nothing; a switch of tenant alone also needs its principal to resolve, since the tenant is resolved through
+it, and ends as `principal_unresolved`, `principal_deleted`, when it no longer does), and `satisfy()` for nothing (its
+session already records what it acts as, so every revocation of those finds it). Nothing an access contract
+(`ApplicationAccess`, `TenantAccess`), the application policy or a tenant's authentication policy says is asked again:
+those are not what a deactivation or deletion changes, and their own triggers end sessions.
 
 A session that fails the check is revoked with the reason, by the conditional revocation every other one uses. Outside a
 transaction of yours the check runs before the call returns, and the call answers the refusal instead of the session: a
@@ -1052,14 +1053,14 @@ attempt counted), with no `SessionCreated`, `SignedIn`, `SessionPending` or `Ext
 `AuthenticationFailed` (flow `switch`), each naming the session, and since the client holds that session their
 `SessionRevoked` is reported (a switch that returned the session to pending reports no `SessionReturnedToPending`).
 Inside your transaction the call has already answered with the session when the check runs at your commit, ahead of what
-reports the session and of the bind: a failed check reports `SessionRevoked` and nothing else, and the bind binds
-nothing. When your transaction is on the identity's, principal's or tenant's connection and not the session's, the
-session is committed and bound at once, and the check, with the events that report the session, waits for your
-transaction to end, whether it commits or rolls back; a failed check then also forgets the guard's binding to it. The
-check reads each subject once more: a sign-in its identity (a 2D identity, its own principal, once) and, in 3D, its
-principal and that principal's tenant; a choice and a switch to another principal its principal and tenant; a switch of
-tenant alone its principal (through which the tenant is resolved, though its own standing is not judged then), that
-principal's tenant and the tenant switched to.
+reports the session and of the bind: a failed check reports `SessionRevoked` and nothing else, the bind binds nothing,
+and a sign-in's attempt stays counted, as it does outside. When your transaction is on the identity's, principal's or
+tenant's connection and not the session's, the session is committed and bound at once, and the check, with the events
+that report the session, waits for your transaction to end, whether it commits or rolls back; a failed check then also
+forgets the guard's binding to it. The check reads each subject once more: a sign-in its identity (a 2D identity, its
+own principal, once) and, in 3D, its principal and that principal's tenant; a choice and a switch to another principal
+its principal and tenant; a switch of tenant alone its principal (through which the tenant is resolved, though its own
+standing is not judged then), that principal's tenant and the tenant switched to.
 
 The deactivation and deletion revocations (`identityDeactivated()`, `identityDeleted()`, `principalDeactivated()`,
 `principalDeleted()`, `tenantDeactivated()`, the observers among their callers) end their scopes again once the
@@ -1083,13 +1084,19 @@ choice or switch made inside a transaction of yours on such a connection, at REP
 transaction's snapshot and can miss a change committed after it: do not make one inside a transaction on a connection
 the check reads but does not wait for. The one exception is a change undone (reactivated, restored) before a call in
 flight checks its session: the check sees the subject standing again, and only the "tokens valid after" cutoff the
-revocation moved after the call began records the change, so a call in flight is ended when its identity's or
-principal's cutoff moved strictly after the second it began (as `issued_before_cutoff`, revoked as
-`signed_out_everywhere`). A subject that records no cutoff (a tenant always; an identity or principal without
-`HasTokensValidAfter`), or an undo within the second the call began, leaves that call's session standing: give
-identities and principals `ProvidesTokensValidAfter`. The cutoff ends a call in flight whatever moved it, so a sign-in,
-choice or switch under way while its identity signs out everywhere, changes or resets its password or removes a factor
-is ended too: it proved itself before that revocation.
+revocation moved records the change, so a call in flight is ended when its identity's or principal's cutoff moved to a
+later second than the one it began in (as `issued_before_cutoff`, revoked as `signed_out_everywhere`). So a call's
+session stands after the undo when the subject records no cutoff (a tenant always; an identity or principal without
+`HasTokensValidAfter`; one hard-deleted, which has no row to move a cutoff on, when a row is inserted again under its
+key before the check), or when the deactivation's or deletion's revocation ran within the second the call began,
+however long after that the change was undone: give identities and principals `ProvidesTokensValidAfter`. The cutoff
+ends a call in flight whatever moved it, so a sign-in, choice or switch under way while its identity signs out
+everywhere, changes or resets its password or removes a factor is ended too: it proved itself before that revocation.
+A revocation that keeps the call's session (`passwordChanged($user, Auth::session())`, `passwordEstablished()`,
+`credentialRemoved()` or the factor package's `factorRemoved()` given it, `signOutEverywhere(keepCurrentSession: true)`)
+saw it, so the cutoff it moves does not end it: that revocation, made in the same request or job before the check runs
+(inside your transaction, which the check waits for), is recorded with the session, and only a cutoff moved to a later
+second than both the call's start and that revocation's ends it.
 
 The check and the second pass run after durable commits. Outside your transaction a database error in either is
 thrown from the call with the session (or the change) committed, and the call is not answered with the session: call
@@ -1330,10 +1337,11 @@ is therefore never called on a model whose `exists` is `false`, and persisting t
 inserts a deleted row again.
 
 The cutoff has a second use: a sign-in, a pending session's choice of principal or a switch still in flight when it
-moves is ended once its session commits, when its identity's or principal's cutoff moved strictly after the second the
-call began, since that call proved itself before the revocation; this is what ends a session admitted before a
+moves is ended once its session commits, when its identity's or principal's cutoff moved to a later second than the one
+the call began in, since that call proved itself before the revocation; this is what ends a session admitted before a
 deactivation or deletion that was undone before the call could see it (see [Sign-ins racing a deactivation or
-deletion](#sign-ins-racing-a-deactivation-or-deletion)).
+deletion](#sign-ins-racing-a-deactivation-or-deletion)). A revocation that keeps that session (a password change
+given `Auth::session()`, `signOutEverywhere(keepCurrentSession: true)`) does not end it this way: it saw the session.
 
 ### Tenant authentication policies
 

@@ -36,8 +36,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * session after this revocation read the sessions, ends that session itself
  * once it checks it (`AdmissionRecheck`), so no session survives the
  * reactivation, unless the reactivation came before that check: then only a
- * "tokens valid after" cutoff (`HasTokensValidAfter`) this revocation moved
- * after the call began ends it (see `SessionRevocations`).
+ * "tokens valid after" cutoff (`HasTokensValidAfter`) this revocation moved to
+ * a later second than the call began in ends it (see `SessionRevocations`).
  *
  * @api
  *

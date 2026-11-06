@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
@@ -58,9 +59,12 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * strictly after the second the call began is the trace of a bulk revocation
  * that ran while the call was in flight (one that a reactivation or restore
  * since undid, among them), which the session would otherwise outlive
- * (`signed_out_everywhere`). Nothing an access contract, the application policy
- * or a tenant's authentication policy says is asked again: those are not what a
- * deactivation or deletion changes.
+ * (`signed_out_everywhere`), unless a revocation that kept the session (as a
+ * password change keeps the current one) moved it there: that one saw the
+ * session (`KeptSessions`). A switch of the active tenant alone still needs its
+ * principal to resolve, since the tenant is resolved through it. Nothing an
+ * access contract, the application policy or a tenant's authentication policy
+ * says is asked again: those are not what a deactivation or deletion changes.
  *
  * A session that fails the check is revoked with the reason, by the conditional
  * revocation every other one uses, so one already revoked keeps its first
@@ -197,10 +201,11 @@ final class AdmissionRecheck
     }
 
     /**
-     * Run a report of the call's write once the check passed, after it: at once
-     * when it already did, at its end while it waits, never once it failed.
-     * With nothing watched, once the writes on the session's connection commit,
-     * as `AfterCommit` runs it.
+     * Run a report of the call's write, or anything else only a session that
+     * stands is owed (the attempt-limit slots a sign-in gives back), once the
+     * check passed, after it: at once when it already did, at its end while it
+     * waits, never once it failed. With nothing watched, once the writes on the
+     * session's connection commit, as `AfterCommit` runs it.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  \Closure(): void  $report
@@ -306,7 +311,7 @@ final class AdmissionRecheck
      */
     private function settle(EloquentSession&Model $session, Identity $identity, ?Principal $principal, ?Tenant $tenant): void
     {
-        $reason  = $this->judge($identity, $principal, $tenant);
+        $reason  = $this->judge($session, $identity, $principal, $tenant);
         $waiting = $this->waiting;
 
         $this->passed  = $reason === null;
@@ -330,6 +335,7 @@ final class AdmissionRecheck
      * Why what the session acts as no longer stands, read afresh, or `null`
      * when it does.
      *
+     * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -337,7 +343,7 @@ final class AdmissionRecheck
      *
      * @throws \Throwable
      */
-    private function judge(Identity $identity, ?Principal $principal, ?Tenant $tenant): ?FailureReason
+    private function judge(Model $session, Identity $identity, ?Principal $principal, ?Tenant $tenant): ?FailureReason
     {
         $current = $this->checks['identity'] ? $this->reload($identity) : $identity;
 
@@ -345,9 +351,9 @@ final class AdmissionRecheck
             return FailureReason::IDENTITY_UNKNOWN;
         }
 
-        $refusal = $this->checks['identity'] ? $this->standing($current, FailureReason::IDENTITY_INACTIVE) : null;
+        $refusal = $this->checks['identity'] ? $this->standing($session, $current, FailureReason::IDENTITY_INACTIVE) : null;
 
-        return $refusal ?? ($principal === null ? null : $this->judgePrincipal($current, $principal, $tenant));
+        return $refusal ?? ($principal === null ? null : $this->judgePrincipal($session, $current, $principal, $tenant));
     }
 
     /**
@@ -357,8 +363,10 @@ final class AdmissionRecheck
      * though its own standing is not judged then: the active tenant is resolved
      * through it (its own tenant, when that is the one named), and the instance
      * the call admitted may hold that tenant as it was loaded before the
-     * change.
+     * change. So a principal that is gone ends the session whatever is checked:
+     * there is nothing current to resolve the tenant through.
      *
+     * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -366,14 +374,15 @@ final class AdmissionRecheck
      *
      * @throws \Throwable
      */
-    private function judgePrincipal(Identity $identity, Principal $principal, ?Tenant $tenant): ?FailureReason
+    private function judgePrincipal(Model $session, Identity $identity, Principal $principal, ?Tenant $tenant): ?FailureReason
     {
         $current = $this->current($identity, $principal);
-        $refusal = match (true) {
-            !$this->checks['principal'] => null,
-            $current === null           => FailureReason::PRINCIPAL_UNRESOLVED,
-            default                     => $this->standing($current, FailureReason::PRINCIPAL_INACTIVE),
-        };
+
+        if ($current === null) {
+            return FailureReason::PRINCIPAL_UNRESOLVED;
+        }
+
+        $refusal = $this->checks['principal'] ? $this->standing($session, $current, FailureReason::PRINCIPAL_INACTIVE) : null;
 
         if ($refusal !== null || !$this->checks['tenant']) {
             return $refusal;
@@ -381,7 +390,7 @@ final class AdmissionRecheck
 
         $tenantId = IdentifierCoercion::stringify($tenant?->getTenantIdentifier());
 
-        return TenantAdmission::recorded($current ?? $principal, $tenantId, false) instanceof FailureReason ? FailureReason::TENANT_INACTIVE : null;
+        return TenantAdmission::recorded($current, $tenantId, false) instanceof FailureReason ? FailureReason::TENANT_INACTIVE : null;
     }
 
     /**
@@ -390,18 +399,19 @@ final class AdmissionRecheck
      * loadable (`tenant_inactive`), or a "tokens valid after" cutoff moved
      * since the call began (`issued_before_cutoff`); `null` when it stands.
      *
+     * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Contracts\Principal  $subject
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $inactive
      * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \LogicException
      */
-    private function standing(Identity|Principal $subject, FailureReason $inactive): ?FailureReason
+    private function standing(Model $session, Identity|Principal $subject, FailureReason $inactive): ?FailureReason
     {
         return match (true) {
             !ActivationPolicy::isActive($subject)                                               => $inactive,
             $subject instanceof Principal && ActivationPolicy::activeTenant($subject) === false => FailureReason::TENANT_INACTIVE,
-            $this->isCutOff($subject)                                                           => FailureReason::ISSUED_BEFORE_CUTOFF,
+            $this->isCutOff($session, $subject)                                                 => FailureReason::ISSUED_BEFORE_CUTOFF,
             default                                                                             => null,
         };
     }
@@ -452,22 +462,27 @@ final class AdmissionRecheck
 
     /**
      * Whether the identity or principal records a "tokens valid after" cutoff
-     * moved strictly after the second the call began.
+     * moved strictly after the second the call began, and after any cutoff a
+     * revocation that kept the session moved for it (`KeptSessions`): such a
+     * revocation saw the session, so its cutoff is no trace of one that could
+     * not.
      *
+     * @param  \Illuminate\Database\Eloquent\Model  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Contracts\Principal  $holder
      * @return bool
      *
      * @throws \LogicException
      */
-    private function isCutOff(Identity|Principal $holder): bool
+    private function isCutOff(Model $session, Identity|Principal $holder): bool
     {
         if (!$holder instanceof HasTokensValidAfter) {
             return false;
         }
 
         $cutoff = WriteConnection::during($holder, static fn () => $holder->getTokensValidAfter());
+        $floor  = Container::getInstance()->make(KeptSessions::class)->floor($session, $holder, $this->began);
 
-        return $cutoff !== null && $cutoff->getTimestamp() > $this->began->getTimestamp();
+        return $cutoff !== null && $cutoff->getTimestamp() > $floor->getTimestamp();
     }
 
     /**

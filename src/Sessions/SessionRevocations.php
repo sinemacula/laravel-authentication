@@ -65,10 +65,13 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * activity derived from other rows) it reads as that connection gives it, a
  * caller's open transaction there included. The one exception is a change
  * undone (reactivated, restored) before a call in flight checks its session:
- * only a "tokens valid after" cutoff the revocation moved after the call began
- * records that, so a subject without one (a tenant, or an identity or principal
- * without `HasTokensValidAfter`), or an undo within the second the call began,
- * leaves that call's session standing.
+ * only a "tokens valid after" cutoff the revocation moved to a later second
+ * than the call began in records that, so a subject without one (a tenant, an
+ * identity or principal without `HasTokensValidAfter`, or one hard-deleted,
+ * which has no row to move it on, when a row is inserted again under its key
+ * before the check), or a revocation that ran within the second the call began,
+ * however long after that the change was undone, leaves that call's session
+ * standing.
  *
  * It runs on the guard's context: its events carry the client of the request
  * each call starts in, and go to the context's dispatcher as it is when they

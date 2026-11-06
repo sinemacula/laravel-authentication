@@ -26,11 +26,13 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\KeptSessions;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
@@ -857,6 +859,47 @@ final class RevocationWriterTest extends TestCase
         self::assertInstanceOf(SignedOutEverywhere::class, $second);
         self::assertSame(self::NOW, $first->tokensValidAfter?->format('Y-m-d H:i:s'));
         self::assertNull($second->tokensValidAfter);
+    }
+
+    /**
+     * A bulk revocation that excepts a session records it as kept by each
+     * holder whose cutoff it moved, at the cutoff it moved it to, and by no
+     * holder whose cutoff it left where it was (one already moved within the
+     * second); an excepted session that is no model is kept by none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExceptedSessionIsKeptByTheCutoffsTheRevocationMoved(): void
+    {
+        $identity = new CutoffIdentity;
+        $identity->forceFill(['email' => 'ada@example.test'])->save();
+        $identity = CutoffIdentity::query()->findOrFail($identity->id);
+        $other    = new CutoffIdentity;
+        $other->forceFill(['email' => 'grace@example.test'])->save();
+        $other = CutoffIdentity::query()->findOrFail($other->id);
+
+        $session = (new Session)->forceFill(['id' => '00000000-0000-4000-8000-000000000001']);
+        $kept    = app(KeptSessions::class);
+        $began   = CarbonImmutable::now()->subSecond();
+
+        $this->sessions()->revokeSessions($identity, RevocationReason::REVOKED);
+        $this->sessions()->revokeSessions($identity, RevocationReason::REVOKED, $session);
+
+        self::assertSame($began, $kept->floor($session, $identity, $began));
+
+        $this->sessions()->revokeSessions($other, RevocationReason::REVOKED, new PlainSessionFixture('plain-session'));
+
+        self::assertSame(self::NOW, DB::table('cutoff_identities')->where('id', $other->id)->value('tokens_valid_after'));
+        self::assertSame($began, $kept->floor($session, $other, $began));
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse(self::NOW)->addSecond());
+
+        $this->sessions()->revokeSessions($identity, RevocationReason::REVOKED, $session);
+
+        self::assertSame(CarbonImmutable::parse(self::NOW)->addSecond()->getTimestamp(), $kept->floor($session, $identity, $began)->getTimestamp());
+        self::assertSame($began, $kept->floor($session, $other, $began));
     }
 
     /**

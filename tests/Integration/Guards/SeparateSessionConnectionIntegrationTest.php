@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Integration\Guards;
 
 use Carbon\Carbon;
+use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
@@ -35,6 +36,7 @@ use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
+use Tests\Integration\Fixtures\SeparateConnectionCutoffIdentity;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\Integration\Fixtures\SeparateConnectionSessionIdentity;
 use Tests\TestCase;
@@ -61,6 +63,9 @@ use Tests\TestCase;
 final class SeparateSessionConnectionIntegrationTest extends TestCase
 {
     use InteractsWithSessionRecords;
+
+    /** @var string The guard over identities that record a "tokens valid after" cutoff. */
+    private const string CUTOFFS = 'cutoffs';
 
     /** @var string Plaintext rotation id of the session's first refresh token. */
     private const string ROTATION_ID = 'first-rotation-id';
@@ -116,9 +121,11 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
+        Schema::dropIfExists('cutoff_identities');
         Schema::dropIfExists('stub_principals');
 
         Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
         JWT::$timestamp = null;
 
         parent::tearDown();
@@ -412,6 +419,56 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * A password change that keeps the session a sign-in wrote inside a
+     * transaction on the identity's connection, made a second after the sign-in
+     * began and before that transaction commits, leaves the session standing:
+     * its check, which waits for that transaction, does not take the cutoff the
+     * change moved for a revocation that could not see the session, so the
+     * session stays live and the guard stays bound to it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasswordChangeThatKeepsASessionCheckedAfterTheIdentitysTransactionLeavesItStanding(): void
+    {
+        Schema::create('cutoff_identities', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email');
+            $blueprint->string('password');
+            $blueprint->dateTime('tokens_valid_after', 0)->nullable();
+            $blueprint->timestamps();
+        });
+
+        CarbonImmutable::setTestNow($this->now);
+
+        $created  = SeparateConnectionCutoffIdentity::query()->create(['email' => 'kept@example.test', 'password' => app(Hasher::class)->make('correct horse battery staple')]);
+        $identity = SeparateConnectionCutoffIdentity::query()->whereKey($created->getKey())->firstOrFail();
+        $later    = CarbonImmutable::instance($this->now)->addSecond();
+
+        DB::beginTransaction();
+
+        $signedIn = Auth::sessions(self::CUTOFFS)->signIn('password', ['email' => 'kept@example.test', 'password' => 'correct horse battery staple'])->session;
+
+        self::assertNotNull($signedIn);
+
+        Carbon::setTestNow($later);
+        CarbonImmutable::setTestNow($later);
+
+        Auth::sessions(self::CUTOFFS)->passwordChanged($identity, $signedIn->record);
+
+        DB::commit();
+
+        self::assertSame($later->getTimestamp(), $identity->refresh()->getTokensValidAfter()?->getTimestamp());
+        self::assertNull(self::revokedReasonOf($signedIn->record->getKey()));
+
+        $guard = app('auth')->guard(self::CUTOFFS);
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+        self::assertSame($signedIn->record->getKey(), $guard->session()?->getSessionIdentifier());
+    }
+
+    /**
      * Keep the sessions on their own connection, a separate database, as the
      * storage connection, the counters on the default one, and configure the
      * `api` guard.
@@ -434,6 +491,8 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => SeparateConnectionSessionIdentity::class]);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']], 'jwt' => ['refresh_grace_seconds' => 30]]);
+        $config->set('auth.providers.' . self::CUTOFFS, ['driver' => 'model', 'model' => SeparateConnectionCutoffIdentity::class]);
+        $config->set('auth.guards.' . self::CUTOFFS, ['driver' => 'jwt', 'provider' => self::CUTOFFS, 'application' => ['methods' => ['password']]]);
     }
 
     /**

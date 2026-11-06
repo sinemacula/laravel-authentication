@@ -158,12 +158,12 @@ dispatches `SessionCreated` and `SignedIn` (with the superseded session's `Sessi
 committed (its identity, principal or tenant deactivated or deleted meanwhile, see [Sign-ins racing a deactivation or
 deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion)) dispatches none of the events that would report the
 session or the switch (a switch's `SessionReturnedToPending` among them; a superseded session's `SessionRevoked` is
-still reported, after the check): a sign-in answered with the refusal dispatches no `SessionRevoked` either, while one
-inside a caller's transaction, a choice and a switch report the session's `SessionRevoked`, and the refused choice's or
-switch's `AuthenticationFailed` names the session. An external result redeemed into a
-session dispatches `ExternalResultRedeemed` once committed, after the session's own events: flow `sign_in` for a
-`signInExternally()` that wrote a session, active or pending (after its `SessionCreated` and `SignedIn`, or its
-`SessionPending`), and flow `reauthentication` for a `reauthenticateExternally()` that issued a token (after its
+still reported, after the check and any `SessionRevoked` the check reports): a sign-in answered with the refusal
+dispatches no `SessionRevoked` either, while one inside a caller's transaction, a choice and a switch report the
+session's `SessionRevoked`, and the refused choice's or switch's `AuthenticationFailed` names the session. An external
+result redeemed into a session dispatches `ExternalResultRedeemed` once committed, after the session's own events: flow
+`sign_in` for a `signInExternally()` that wrote a session, active or pending (after its `SessionCreated` and `SignedIn`,
+or its `SessionPending`), and flow `reauthentication` for a `reauthenticateExternally()` that issued a token (after its
 `Reauthenticated`); a rolled-back redemption dispatches nothing. Its context carries the identity, principal, tenant and
 session as the redemption established them, the method `external_provider`, the connection and the request reference,
 and so does every event of a refused redemption (`AuthenticationFailed`, `ExternalResultUnlinked`), while the session's

@@ -5,9 +5,11 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Container\Container;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
@@ -38,7 +40,10 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
  * kept on that connection), so a change link requested from a session that
  * ends, which needs no session to confirm, cannot move the account afterwards.
  * A failure in the transaction leaves the cutoffs moved: more is cut off, never
- * less, and a retry is idempotent.
+ * less, and a retry is idempotent. The session a bulk revocation excepts is
+ * recorded as kept by each holder whose cutoff it moved (`KeptSessions`), so a
+ * sign-in, a choice or a switch that wrote it, and whose check is still to run,
+ * is not ended by the cutoff of the revocation that kept it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -127,10 +132,12 @@ final readonly class RevocationWriter
         \Closure $scopeEnded,
         ?\Closure $committed = null,
     ): int {
-        $cutoffs = array_map(static fn (RevocationScope $scope): ?CarbonImmutable => $scope->cutoff?->invalidateTokensIssuedBefore($now) === true ? $now : null, $scopes);
-        $anchor  = SessionLookup::model();
+        $moved  = array_map(static fn (RevocationScope $scope): ?HasTokensValidAfter => self::moveCutoff($scope, $now), $scopes);
+        $anchor = SessionLookup::model();
 
-        return $anchor->getConnection()->transaction(function () use ($scopes, $cutoffs, $reason, $except, $now, $sessionRevoked, $scopeEnded, $committed, $anchor): int {
+        self::keep($moved, $except, $now);
+
+        return $anchor->getConnection()->transaction(function () use ($scopes, $moved, $reason, $except, $now, $sessionRevoked, $scopeEnded, $committed, $anchor): int {
 
             if ($committed !== null) {
                 $this->afterCommit->run($anchor, $committed);
@@ -144,7 +151,7 @@ final readonly class RevocationWriter
 
                 self::forgetChanges($scope);
 
-                $cutoff = $cutoffs[$index];
+                $cutoff = $moved[$index] === null ? null : $now;
 
                 $this->afterCommit->run($anchor, static function () use ($scopeEnded, $scope, $revoked, $cutoff): void {
                     $scopeEnded($scope, $revoked, $cutoff);
@@ -252,6 +259,43 @@ final readonly class RevocationWriter
 
             return $revoked;
         });
+    }
+
+    /**
+     * Move the scope's "tokens valid after" cutoff to the time given, and
+     * return its holder when this moved it; `null` when it records none or
+     * already had that time or a later one.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationScope  $scope
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter
+     */
+    private static function moveCutoff(RevocationScope $scope, CarbonImmutable $now): ?HasTokensValidAfter
+    {
+        return $scope->cutoff?->invalidateTokensIssuedBefore($now) === true ? $scope->cutoff : null;
+    }
+
+    /**
+     * Record the excepted session as kept by each holder whose cutoff this call
+     * moved, so the check of a call that wrote it (`AdmissionRecheck`) does not
+     * take that cutoff for a revocation that could not see the session.
+     *
+     * @param  list<?\SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter>  $moved
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return void
+     */
+    private static function keep(array $moved, ?Session $except, CarbonImmutable $now): void
+    {
+        if (!$except instanceof Model) {
+            return;
+        }
+
+        $kept = Container::getInstance()->make(KeptSessions::class);
+
+        foreach (array_filter($moved) as $holder) {
+            $kept->keep($except, $holder, $now);
+        }
     }
 
     /**

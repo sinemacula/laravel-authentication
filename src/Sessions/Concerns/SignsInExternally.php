@@ -107,7 +107,7 @@ trait SignsInExternally
 
         $outcome = $recheck->refusal() ?? $outcome;
 
-        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, [], null, $result) : $this->bound($outcome, $transport, $context->client);
+        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, [], null, $result) : $this->bound($outcome, $transport, $recheck);
     }
 
     /**

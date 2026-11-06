@@ -163,7 +163,7 @@ trait SwitchesSessions
 
         $outcome = (new SessionSwitch($this->tokens, $this->rotations, $this->context, $client, $target, $revoke, $this->transitions, $recheck))
             ->switch($refreshToken);
-        $refusal = $outcome instanceof AuthenticationFailed ? null : $recheck->refusal();
+        $refusal = $recheck->refusal();
 
         if ($refusal !== null) {
             $outcome = new AuthenticationFailed(

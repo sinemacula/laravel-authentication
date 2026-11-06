@@ -47,6 +47,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -76,6 +77,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
+use Tests\Concerns\InteractsWithRecheckedMembers;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\InterruptingFactorPolicy;
@@ -106,7 +108,7 @@ use Tests\TestCase;
 #[CoversClass(SignInResult::class)]
 final class SessionServiceTest extends TestCase
 {
-    use InteractsWithProofs, InteractsWithSessions;
+    use InteractsWithProofs, InteractsWithRecheckedMembers, InteractsWithSessions;
 
     /** @var string Cookie application over identities. */
     private const string BROWSER = 'browser';
@@ -154,6 +156,7 @@ final class SessionServiceTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
+        $this->dropRecheckedTables();
         $this->dropSessionTables();
 
         Carbon::setTestNow();
@@ -1891,7 +1894,8 @@ final class SessionServiceTest extends TestCase
      * session is written, is refused once the session commits: the session is
      * revoked as `identity_deactivated` without a `SessionRevoked` (it was
      * never handed out), the refusal is reported as every refused sign-in is,
-     * nothing reports the session, and the guard is not bound to it.
+     * nothing reports the session, the guard is not bound to it, and the
+     * attempt-limit slots the sign-in took stay counted.
      *
      * @formatter:off
      *
@@ -1910,6 +1914,9 @@ final class SessionServiceTest extends TestCase
     public function testASignInWhoseIdentityIsDeactivatedBeforeItsWriteIsRefusedAndEnded(\Closure $signIn): void
     {
         $identity = $this->seedIdentity();
+        $limiter  = new RecordingAttemptLimiter;
+
+        app()->instance(AttemptLimiter::class, $limiter);
 
         $change = static fn (): int => IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
 
@@ -1924,6 +1931,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame(AuthenticationFlow::SIGN_IN, $this->recordedEvent(AuthenticationFailed::class)->flow);
         self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, Session::query()->sole()->getRawOriginal('revoked_reason'));
         self::assertTrue(app('auth')->guard('api')->guest());
+        self::assertSame([], $limiter->released);
     }
 
     /**
@@ -1958,7 +1966,10 @@ final class SessionServiceTest extends TestCase
      * Inside a caller's transaction a sign-in whose identity is deactivated
      * after its admission is answered with its session, which the check, at the
      * commit, then revokes and reports as revoked: nothing reports the sign-in,
-     * and the bind that waited for the commit binds nothing.
+     * the bind that waited for the commit binds nothing, and the attempt-limit
+     * slots the sign-in took stay counted, as they do for a sign-in refused
+     * before it answered; one whose session stands gives them back at the
+     * commit.
      *
      * @return void
      *
@@ -1967,6 +1978,23 @@ final class SessionServiceTest extends TestCase
     public function testInsideACallersTransactionTheSessionIsEndedAtTheCommit(): void
     {
         $identity = $this->seedIdentity();
+        $limiter  = new RecordingAttemptLimiter;
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $sessions = $this->sessions();
+        $standing = DB::transaction(static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
+
+        self::assertTrue($standing->isSignedIn());
+        self::assertNotSame([], $limiter->released);
+
+        $limiter->released = [];
+
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $guard->forgetUser();
 
         $change = static fn (): int => IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
 
@@ -1974,14 +2002,61 @@ final class SessionServiceTest extends TestCase
 
         $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class, SessionRevoked::class, Login::class]);
 
-        $sessions = $this->sessions();
-        $result   = DB::transaction(static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
+        $result = DB::transaction(static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
 
         self::assertTrue($result->isSignedIn());
         self::assertSame([SessionRevoked::class], $this->recordedClasses());
         self::assertSame(RevocationReason::IDENTITY_DEACTIVATED, $this->recordedEvent(SessionRevoked::class)->reason);
-        self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, Session::query()->sole()->getRawOriginal('revoked_reason'));
-        self::assertTrue(app('auth')->guard('api')->guest());
+        self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, Session::query()->whereKey($result->session?->record->getKey())->sole()->getRawOriginal('revoked_reason'));
+        self::assertTrue($guard->guest());
+        self::assertSame([], $limiter->released);
+    }
+
+    /**
+     * A password change that keeps the session a sign-in wrote earlier in the
+     * same transaction, made a second after that sign-in began, leaves the
+     * session standing at the commit: the change saw the session and kept it,
+     * so the cutoff it moved is no trace of a revocation that could not. Only
+     * the identity's other session ends, the sign-in is reported, and the guard
+     * stays bound to its session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionAPasswordChangeKeepsInTheSameTransactionStands(): void
+    {
+        $this->createRecheckedTables();
+
+        [$member] = $this->seedRechecked();
+
+        $sessions = $this->sessions('rechecked');
+        $earlier  = self::sessionOf($sessions->signIn('password', self::credentials('rechecked@example.test')));
+        $later    = $this->now->addSecond();
+
+        $this->recordEvents([SessionCreated::class, SignedIn::class, SessionRevoked::class]);
+
+        $signedIn = DB::transaction(static function () use ($sessions, $member, $later): SignedInSession {
+            $signedIn = self::sessionOf($sessions->signIn('password', self::credentials('rechecked@example.test')));
+
+            Carbon::setTestNow($later);
+            CarbonImmutable::setTestNow($later);
+
+            $sessions->passwordChanged($member, $signedIn->record);
+
+            return $signedIn;
+        });
+
+        self::assertSame($later->getTimestamp(), $member->refresh()->getTokensValidAfter()?->getTimestamp());
+        self::assertNull(Session::query()->whereKey($signedIn->record->getKey())->sole()->getRawOriginal('revoked_reason'));
+        self::assertSame('password_changed', Session::query()->whereKey($earlier->record->getKey())->sole()->getRawOriginal('revoked_reason'));
+        self::assertEqualsCanonicalizing([SessionCreated::class, SignedIn::class, SessionRevoked::class], $this->recordedClasses());
+        self::assertSame(IdentifierCoercion::stringify($earlier->record->getKey()), $this->recordedEvent(SessionRevoked::class)->context->sessionId);
+
+        $guard = app('auth')->guard('rechecked');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+        self::assertSame($signedIn->record->getKey(), $guard->session()?->getSessionIdentifier());
     }
 
     /**
@@ -2164,6 +2239,7 @@ final class SessionServiceTest extends TestCase
         $config = $app->make(ConfigRepository::class);
 
         self::configureSessionGuards($config);
+        self::configureRecheckedGuard($config);
 
         $config->set('auth.providers.plain', ['driver' => 'model', 'model' => NormalizedEmailIdentity::class]);
         $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain', 'application' => ['methods' => ['password']]]);

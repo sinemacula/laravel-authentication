@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -35,6 +36,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithRecheckedMembers;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\PlainPrincipalResolver;
+use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\RecheckedMember;
@@ -677,6 +679,8 @@ final class AdmissionRecheckTest extends TestCase
 
         try {
             DB::commit();
+
+            self::fail('Expected the report to throw.');
         } catch (\RuntimeException $exception) {
             self::assertSame('listener', $exception->getMessage());
         }
@@ -819,6 +823,233 @@ final class AdmissionRecheckTest extends TestCase
 
         self::assertTrue($ran);
         self::assertNull($noTenant->refusal());
+    }
+
+    /**
+     * Rows of `[what changes after the sign-in admitted the member, in the
+     * tenant other than its own the session records]`.
+     *
+     * @return iterable<string, array{0: \Closure(\Tests\Integration\Fixtures\ActivatableTenant): mixed}>
+     */
+    public static function provideOtherTenantChanges(): iterable
+    {
+        yield 'deactivated' => [static fn (ActivatableTenant $tenant): mixed => $tenant->update(['is_active' => false])];
+        yield 'soft-deleted' => [static fn (ActivatableTenant $tenant): mixed => $tenant->delete()];
+    }
+
+    /**
+     * The active tenant a sign-in or a choice records is judged on its own,
+     * apart from the principal's: one that is not the principal's own, and that
+     * is deactivated or deleted while the principal's own still stands, ends
+     * the session as `tenant_inactive`, revoked as `tenant_deactivated`.
+     *
+     * @param  \Closure(\Tests\Integration\Fixtures\ActivatableTenant): mixed  $change
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideOtherTenantChanges')]
+    public function testAnActiveTenantOtherThanThePrincipalsOwnIsJudgedOnItsOwn(\Closure $change): void
+    {
+        [$member, $membership] = $this->seedRechecked();
+
+        $other   = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+        $session = $this->signIn();
+
+        app()->instance(TenantResolver::class, new DescendantTenants);
+
+        $standing = $this->recheck();
+
+        $standing->signIn($session->record, $member, $membership, $other);
+
+        self::assertNull($standing->refusal());
+
+        $change($other);
+
+        $signIn = $this->recheck();
+
+        $signIn->signIn($session->record, $member, $membership, $other);
+
+        self::assertSame(FailureReason::TENANT_INACTIVE, $signIn->refusal()?->reason);
+        self::assertSame(RevocationReason::TENANT_DEACTIVATED->value, self::revokedReasonOf($session));
+
+        $choice = $this->recheck();
+
+        $choice->choice($session->record, new Admitted($member, $membership, $other));
+
+        self::assertSame(FailureReason::TENANT_INACTIVE, $choice->refusal()?->reason);
+    }
+
+    /**
+     * A principal's own tenant is judged with the principal, whatever active
+     * tenant the session records: deactivated while a sign-in's session records
+     * none, or while a choice's records another that still stands, it ends the
+     * session as `tenant_inactive`, revoked as `tenant_deactivated`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalsOwnTenantIsJudgedWithThePrincipal(): void
+    {
+        [$member, $membership, $own] = $this->seedRechecked();
+
+        $other   = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
+        $session = $this->signIn();
+
+        app()->instance(TenantResolver::class, new DescendantTenants);
+
+        $own->update(['is_active' => false]);
+
+        $none = $this->recheck();
+
+        $none->signIn($session->record, $member, $membership, null);
+
+        self::assertSame(FailureReason::TENANT_INACTIVE, $none->refusal()?->reason);
+        self::assertSame(RevocationReason::TENANT_DEACTIVATED->value, self::revokedReasonOf($session));
+
+        $another = $this->recheck();
+
+        $another->choice($session->record, new Admitted($member, $membership, $other));
+
+        self::assertSame(FailureReason::TENANT_INACTIVE, $another->refusal()?->reason);
+    }
+
+    /**
+     * A switch of tenant alone whose principal is gone (soft-deleted since the
+     * switch admitted it) ends the session as `principal_unresolved`, revoked
+     * as `principal_deleted`, though the tenant switched to still stands: there
+     * is no current principal to resolve the tenant through, and the instance
+     * the switch admitted holds its tenant as it was loaded before.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantSwitchWhosePrincipalIsGoneEndsTheSession(): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $session = $this->signIn();
+
+        self::assertNotNull($membership->getTenant());
+
+        $membership->delete();
+
+        $recheck = $this->recheck();
+
+        $recheck->switch($session->record, new Admitted($member, $membership, $tenant), false, true);
+
+        self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $recheck->refusal()?->reason);
+        self::assertSame(RevocationReason::PRINCIPAL_DELETED->value, self::revokedReasonOf($session));
+    }
+
+    /**
+     * Rows of `[what moves a cutoff after a revocation that kept the session
+     * moved the identity's, a second after the call began, whether the session
+     * passes]`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\Tests\Integration\Fixtures\RecheckedMember, \Tests\Integration\Fixtures\RecheckedMembership): mixed, 1: bool}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideKeptSessions(): iterable
+    {
+        yield 'nothing more' => [static fn (): mixed => null, true];
+        yield 'the identity\'s, a second later' => [
+            static fn (RecheckedMember $member): mixed => $member->update(['tokens_valid_after' => CarbonImmutable::now()->addSecond()]),
+            false,
+        ];
+        yield 'the principal\'s, in the same second' => [
+            static fn (RecheckedMember $member, RecheckedMembership $membership): mixed => $membership->update(['tokens_valid_after' => CarbonImmutable::now()]),
+            false,
+        ];
+    }
+
+    /**
+     * A revocation that keeps the session, made while its check waits for the
+     * caller's commit and a second after the call began, saw the session, so
+     * the cutoff it moves does not end it; a cutoff moved to a later second, or
+     * another holder's moved by a revocation that did not keep it, still does.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Closure(\Tests\Integration\Fixtures\RecheckedMember, \Tests\Integration\Fixtures\RecheckedMembership): mixed  $then
+     * @param  bool  $passes
+     * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideKeptSessions')]
+    public function testACutoffMovedByARevocationThatKeptTheSessionDoesNotEndIt(\Closure $then, bool $passes): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $session = $this->signIn();
+
+        DB::beginTransaction();
+
+        $recheck = $this->recheck();
+
+        $recheck->signIn($session->record, $member, $membership, $tenant);
+
+        self::assertNull($recheck->refusal());
+
+        $this->freezeAt(CarbonImmutable::now()->addSecond());
+
+        $this->sessions(self::GUARD)->passwordChanged($member, $session->record);
+
+        $then($member, $membership);
+
+        DB::commit();
+
+        self::assertSame($passes ? null : RevocationReason::SIGNED_OUT_EVERYWHERE->value, self::revokedReasonOf($session));
+        self::assertGreaterThan($recheck->began->getTimestamp(), $member->refresh()->getTokensValidAfter()?->getTimestamp());
+    }
+
+    /**
+     * A revocation that keeps the session while its check waits for a
+     * transaction on a subject's connection does not end it either.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAKeptSessionWhoseCheckWaitsForASubjectsConnectionStands(): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $session   = $this->signIn();
+        $elsewhere = (new RecheckedMember)->newFromBuilder($member->getAttributes())->setConnection(self::ELSEWHERE);
+
+        DB::connection(self::ELSEWHERE)->beginTransaction();
+
+        $recheck = $this->recheck();
+
+        $recheck->signIn($session->record, $elsewhere, $membership, $tenant);
+
+        self::assertNull($recheck->refusal());
+
+        $this->freezeAt(CarbonImmutable::now()->addSecond());
+
+        $this->sessions(self::GUARD)->passwordChanged($member, $session->record);
+
+        DB::connection(self::ELSEWHERE)->commit();
+
+        self::assertNull(self::revokedReasonOf($session));
+        self::assertGreaterThan($recheck->began->getTimestamp(), $member->refresh()->getTokensValidAfter()?->getTimestamp());
     }
 
     /**

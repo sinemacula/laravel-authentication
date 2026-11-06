@@ -494,11 +494,11 @@ Deactivation stops every token at once through these checks, and ending the sess
 `RevokeSessionsOnDeactivation` observer, or `identityDeactivated()`, `principalDeactivated()` and `tenantDeactivated()`,
 see [Revoking on security changes](sessions.md#revoking-on-security-changes)) makes the end outlast a reactivation. A
 sign-in, a choice of principal or a switch that admitted the identity, principal or tenant before the deactivation
-committed outlasts it no more: each checks its session again once it commits, and refuses or ends it when what it acts
-as was deactivated meanwhile (see [Sign-ins racing a deactivation or
-deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion)). The one exception is a deactivation undone before
-such a call checks its session, which only the identity's or principal's "tokens valid after" cutoff records, so give
-identities and principals `HasTokensValidAfter` (`ProvidesTokensValidAfter`).
+committed outlasts it no more, for Eloquent models whose standing is read on their own connection (see [Sign-ins racing
+a deactivation or deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion) for its bounds): each checks its
+session again once it commits, and refuses or ends it when what it acts as was deactivated meanwhile. A deactivation
+undone before such a call checks its session is recorded only by the identity's or principal's "tokens valid after"
+cutoff, so give identities and principals `HasTokensValidAfter` (`ProvidesTokensValidAfter`).
 
 Where the package lists an identity's principals for admission (a sign-in, a pending session, `Auth::sessions()`'s
 `principals()` for a choice or switch screen, and `principal()` for a lookup by identifier), it loads their tenants

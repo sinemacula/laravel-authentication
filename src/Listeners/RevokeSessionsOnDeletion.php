@@ -35,7 +35,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * ends that session itself once it checks it (`AdmissionRecheck`), so no
  * session survives the restore, unless the restore came before that check: then
  * only a "tokens valid after" cutoff (`HasTokensValidAfter`) this revocation
- * moved after the call began ends it (see `SessionRevocations`).
+ * moved to a later second than the call began in ends it, which a hard-deleted
+ * model has no row to move (see `SessionRevocations`).
  *
  * @api
  *

@@ -46,8 +46,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   transaction but not outside a transaction the caller opened on that connection: with the default (`null`, the storage
   connection) a caller that rolls back around a sign-in rolls its counts back too, so its attempts go uncounted. Only
   counters on a connection of their own survive such a rollback. The slots are therefore given back only once the
-  session commits on its connection and the guard is bound to it: a rollback leaves a first activation's session
-  pending, and slots given back before it would be given back again when it activates. A release that fails then is
+  session commits on its connection, the guard is bound to it and it passed the check the call is held to
+  (`AdmissionRecheck::then()`): a rollback leaves a first activation's session pending, and slots given back before it
+  would be given back again when it activates; a session the check ends at a caller's commit keeps them counted, as a
+  sign-in the check refuses before it answers does. A release that fails then is
   reported to the exception handler, not thrown, the one limiter error that does not propagate: the session already
   stands, and Laravel runs a commit's callbacks in order without catching, so a throw would stop the later ones (another
   activation's events, the caller's own). The release stops at the failure, and the slots not given back stay counted. A

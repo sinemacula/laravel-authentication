@@ -19,7 +19,8 @@ use Carbon\CarbonInterface;
  * whose identity's or principal's time moved strictly after the second the call
  * began is refused or ended once its session commits, which is how a
  * deactivation or deletion undone before such a call could see it still ends
- * the session the call admitted before it.
+ * the session the call admitted before it. A move by a revocation that kept
+ * that session (a password change keeping the current one) does not end it.
  *
  * @api
  *
