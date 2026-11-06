@@ -19,6 +19,19 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   token names a session the guard can only find through that relation, so the session's access token would never
   authenticate. A `MachineIdentity` is the exception: it is let through to admission, which refuses it as a result
   (`machine_identity`), since a non-human identity has no session whatever it implements.
+- Every sign-in, pending, proof and session action takes the client it acts for as a required plain value and never
+  reads the guard's request for it: `signIn()`, `start()` and `signInExternally()` (the `SignInContext`), `refresh()`,
+  `switchTo()`, `signOutWith()`, `satisfy()`, `choose()`, `discard()`, `stepUp()`, `reauthenticate()` and
+  `reauthenticateExternally()` (the `ClientContext`), as the code, passkey, password, identifier change and client
+  credentials services and the identifier verifier do; a password the password service sets reports the sessions it
+  ends with its client too (`SessionRevocations::revokeSessions()` given it). The rest report the client of the guard's request:
+  `signOut()` and `signOutEverywhere()`, which act on the guard's own binding, and the guard is request-scoped by
+  Laravel's contract; the revocation and security-change methods an application calls from its own administrative
+  flows or listeners, the package's opt-in listeners among them (`revokeSession()`, `revokeSessions()`,
+  `revokePrincipalSessions()`, `passwordChanged()`, `passwordReset()`, `credentialRemoved()`, `factorRemoved()`,
+  `factorChanged()`, `factorReset()`, `identityDeactivated()`, `principalDeactivated()`, `tenantDeactivated()`,
+  `tenantPolicyChanged()`, `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()`, `linkScopeWidened()`); and
+  `ApiKeyService`'s `issue()`, `rotate()` and `revoke()`.
 - No event ever receives the sign-in input. `Attempting` and `Failed` carry only `[type => identifier]` (or
   `['identifier' => ...]` for a method without a type, or nothing); `AuthenticationFailed` carries the identifier as
   given.

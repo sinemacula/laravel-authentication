@@ -120,11 +120,11 @@ it to another tenant as `session_tenant_mismatch`, so no pair is ever issued for
 refresh keeps the session in its active tenant, and is refused once the tenant is no longer one `TenantAccess` lets the
 principal act in (`tenant_ineligible`) or is inactive (`tenant_inactive`).
 
-Failed refreshes are counted against the token's session and the request's IP address by the bound `AttemptLimiter`;
-successful ones are not. Once either count is full, a refresh dispatches `Failed` and `AuthenticationFailed`
-(`rate_limited`) without looking the session up, and returns `rate_limited` with the seconds until the full count's
-window ends in `retryAfter`; answer it with Laravel's `ThrottleRequestsException`, as above, which renders as a 429 with
-`Retry-After`.
+Failed refreshes are counted against the token's session and the client's IP address (a client without one by the
+session alone) by the bound `AttemptLimiter`; successful ones are not. Once either count is full, a refresh dispatches
+`Failed` and `AuthenticationFailed` (`rate_limited`) without looking the session up, and returns `rate_limited` with the
+seconds until the full count's window ends in `retryAfter`; answer it with Laravel's `ThrottleRequestsException`, as
+above, which renders as a 429 with `Retry-After`.
 
 A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
 token valid for a retry. Once the rotation is written, the refresh schedules `Refreshed` for its commit on the session's

@@ -13,9 +13,12 @@ use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * Reads the pending credential a request presents, for a controller to hand on
- * to the session service's `satisfy()`, `choose()`, `pending()` or `discard()`
- * as a plain value, as `RefreshTokenTransport::extract()` reads a refresh token
- * for `refresh()`.
+ * to the session service as a plain value, as
+ * `RefreshTokenTransport::extract()` reads a refresh token for `refresh()`:
+ * `satisfy()` and `choose()` take what it answered once the controller has
+ * answered a `null` (nothing presented), the `Secret` or `pending_invalid`
+ * alike; `pending()` and `discard()` take only the `Secret`, so a controller
+ * answers anything else itself.
  *
  * The credential travels only in the body field
  * `session.pending_credential_field` names: the JSON body, or the form body of

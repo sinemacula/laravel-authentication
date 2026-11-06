@@ -309,7 +309,7 @@ and a guard overrides any key in an `application` block of its own:
 |-------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `methods`                     | `[]`    | The sign-in methods that may start the application's sessions, `external_provider` for external sign-in, and the machine credentials (`api_key`, `client_credentials`) it accepts (lower-case names) |
 | `require_verified_identifier` | `false` | Refuse a sign-in with an identifier the identity has not verified                                                                                                                                    |
-| `client_secret_post`          | `false` | Let a client credentials exchange read the client's id and secret from the request body; off, only HTTP Basic is accepted and body credentials are `invalid_client`                                  |
+| `client_secret_post`          | `false` | Let a client credentials exchange accept a client authenticated in the form body; off, only HTTP Basic is accepted and body credentials are `invalid_client`                                         |
 
 Every feature is opt-in, so an application allows nothing until it lists it: with the default empty `methods` (or a
 guard's own `[]`), every sign-in (`attempt()`, `signIn()`, `start()`, `signInExternally()`), refresh, switch, one-time
