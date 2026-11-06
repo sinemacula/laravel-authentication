@@ -43,7 +43,8 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
  * less, and a retry is idempotent. The session a bulk revocation excepts is
  * recorded as kept by each holder whose cutoff it moved (`KeptSessions`), so a
  * sign-in, a choice or a switch that wrote it, and whose check is still to run,
- * is not ended by the cutoff of the revocation that kept it.
+ * is not ended by the cutoff of the revocation that kept it, unless that move
+ * rolls back.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -135,7 +136,7 @@ final readonly class RevocationWriter
         $moved  = array_map(static fn (RevocationScope $scope): ?HasTokensValidAfter => self::moveCutoff($scope, $now), $scopes);
         $anchor = SessionLookup::model();
 
-        self::keep($moved, $except, $now);
+        $this->keep($moved, $except, $now);
 
         return $anchor->getConnection()->transaction(function () use ($scopes, $moved, $reason, $except, $now, $sessionRevoked, $scopeEnded, $committed, $anchor): int {
 
@@ -279,14 +280,17 @@ final readonly class RevocationWriter
     /**
      * Record the excepted session as kept by each holder whose cutoff this call
      * moved, so the check of a call that wrote it (`AdmissionRecheck`) does not
-     * take that cutoff for a revocation that could not see the session.
+     * take that cutoff for a revocation that could not see the session, until
+     * the move of an Eloquent holder's cutoff rolls back with its transaction:
+     * the cutoff is then back where a revocation that could not see the session
+     * may have left it.
      *
      * @param  list<?\SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter>  $moved
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
      * @param  \Carbon\CarbonImmutable  $now
      * @return void
      */
-    private static function keep(array $moved, ?Session $except, CarbonImmutable $now): void
+    private function keep(array $moved, ?Session $except, CarbonImmutable $now): void
     {
         if (!$except instanceof Model) {
             return;
@@ -295,7 +299,14 @@ final readonly class RevocationWriter
         $kept = Container::getInstance()->make(KeptSessions::class);
 
         foreach (array_filter($moved) as $holder) {
-            $kept->keep($except, $holder, $now);
+
+            $forget = $kept->keep($except, $holder, $now);
+
+            if (!$holder instanceof Model) {
+                continue;
+            }
+
+            $this->afterCommit->runIfRolledBack($holder, $forget);
         }
     }
 

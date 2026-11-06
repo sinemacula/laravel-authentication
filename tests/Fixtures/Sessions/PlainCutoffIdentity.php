@@ -10,8 +10,9 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 
 /**
  * An identity that is no Eloquent model and records a "tokens valid after"
- * cutoff it never moves: a stand-in for an application's identity kept
- * elsewhere than a model's row.
+ * cutoff it reads as none: a stand-in for an application's identity kept
+ * elsewhere than a model's row, which says it moved the cutoff when asked to if
+ * it was made to.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,11 +25,15 @@ final readonly class PlainCutoffIdentity implements HasTokensValidAfter, Identit
      * Constructor.
      *
      * @param  int|string  $id
+     * @param  bool  $moves
      */
     public function __construct(
 
         /** The auth identifier. */
         public int|string $id,
+
+        /** Whether it says it moved the cutoff when asked to. */
+        public bool $moves = false,
     ) {}
 
     /**
@@ -121,7 +126,7 @@ final readonly class PlainCutoffIdentity implements HasTokensValidAfter, Identit
     }
 
     /**
-     * Move nothing.
+     * Say whether it moved the cutoff, moving nothing.
      *
      * @param  \Carbon\CarbonInterface  $time
      * @return bool
@@ -133,6 +138,6 @@ final readonly class PlainCutoffIdentity implements HasTokensValidAfter, Identit
     {
         unset($time);
 
-        return false;
+        return $this->moves;
     }
 }

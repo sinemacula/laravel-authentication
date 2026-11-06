@@ -8,10 +8,12 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\KeptSessions;
+use SineMacula\Laravel\Authentication\Support\RowKey;
 use Tests\Fixtures\Sessions\PlainCutoffIdentity;
 use Tests\Fixtures\Sessions\PlainCutoffPrincipal;
 use Tests\Integration\Fixtures\RecheckedMember;
@@ -23,7 +25,7 @@ use Tests\TestCase;
  * holder's cutoff must pass to end a session's call is the call's start, or the
  * latest cutoff a revocation that kept that session moved for that holder, with
  * sessions and holders told apart as their rows are, or by class and
- * identifier.
+ * identifier, and a record forgotten again when its move rolls back.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -31,6 +33,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(KeptSessions::class)]
+#[CoversClass(RowKey::class)]
 final class KeptSessionsTest extends TestCase
 {
     /** @var string A second connection to the test database. */
@@ -64,6 +67,40 @@ final class KeptSessionsTest extends TestCase
     }
 
     /**
+     * Forgetting a record leaves the others: the floor falls back to the latest
+     * cutoff still kept, whichever order the records are forgotten in, and to
+     * the call's start once none is.
+     *
+     * @return void
+     */
+    public function testAForgottenRecordLeavesTheOthers(): void
+    {
+        $kept    = new KeptSessions;
+        $session = self::sessionWithKey(1);
+        $member  = self::member(1);
+        $began   = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+
+        $earlier = $kept->keep($session, $member, $began->addSecond());
+        $later   = $kept->keep($session, $member, $began->addSeconds(2));
+        $other   = $kept->keep($session, self::member(2), $began->addSeconds(3));
+
+        $earlier();
+
+        self::assertSame($began->addSeconds(2)->getTimestamp(), $kept->floor($session, $member, $began)->getTimestamp());
+
+        $later();
+
+        self::assertSame($began, $kept->floor($session, $member, $began));
+        self::assertSame($began->addSeconds(3)->getTimestamp(), $kept->floor($session, self::member(2), $began)->getTimestamp());
+
+        $kept->keep($session, $member, $began->addSeconds(4));
+        $other();
+
+        self::assertSame($began->addSeconds(4)->getTimestamp(), $kept->floor($session, $member, $began)->getTimestamp());
+        self::assertSame($began, $kept->floor($session, self::member(2), $began));
+    }
+
+    /**
      * Sessions and holders that are Eloquent models are told apart as their
      * rows are: another key, the same key in another table, or the same key on
      * another connection is another; another instance of the same row is the
@@ -85,6 +122,32 @@ final class KeptSessionsTest extends TestCase
         self::assertSame($began, $kept->floor(self::sessionWithKey(1), self::member(2), $began));
         self::assertSame($began, $kept->floor(self::sessionWithKey(1), self::member(1)->setConnection(self::ELSEWHERE), $began));
         self::assertSame($began, $kept->floor(self::sessionWithKey(1), (new RecheckedMembership)->forceFill(['id' => 1]), $began));
+    }
+
+    /**
+     * The same key on a connection whose table prefix or database is no longer
+     * the one it was kept under is another row.
+     *
+     * @return void
+     */
+    public function testTheSameKeyUnderAnotherPrefixOrDatabaseIsAnotherRow(): void
+    {
+        $kept   = new KeptSessions;
+        $began  = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+        $cutoff = $began->addSecond();
+
+        $kept->keep(self::sessionWithKey(1)->setConnection(self::ELSEWHERE), self::member(1), $cutoff);
+
+        self::assertSame($cutoff->getTimestamp(), $kept->floor(self::sessionWithKey(1)->setConnection(self::ELSEWHERE), self::member(1), $began)->getTimestamp());
+
+        DB::connection(self::ELSEWHERE)->setTablePrefix('other_');
+
+        self::assertSame($began, $kept->floor(self::sessionWithKey(1)->setConnection(self::ELSEWHERE), self::member(1), $began));
+
+        DB::connection(self::ELSEWHERE)->setTablePrefix('');
+        DB::connection(self::ELSEWHERE)->setDatabaseName('other');
+
+        self::assertSame($began, $kept->floor(self::sessionWithKey(1)->setConnection(self::ELSEWHERE), self::member(1), $began));
     }
 
     /**

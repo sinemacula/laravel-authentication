@@ -1096,7 +1096,8 @@ A revocation that keeps the call's session (`passwordChanged($user, Auth::sessio
 `credentialRemoved()` or the factor package's `factorRemoved()` given it, `signOutEverywhere(keepCurrentSession: true)`)
 saw it, so the cutoff it moves does not end it: that revocation, made in the same request or job before the check runs
 (inside your transaction, which the check waits for), is recorded with the session, and only a cutoff moved to a later
-second than both the call's start and that revocation's ends it.
+second than both the call's start and that revocation's ends it. A keeping revocation whose move of an Eloquent
+identity's or principal's cutoff is rolled back (inside a nested transaction of yours) keeps nothing.
 
 The check and the second pass run after durable commits. Outside your transaction a database error in either is
 thrown from the call with the session (or the change) committed, and the call is not answered with the session: call

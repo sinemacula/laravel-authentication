@@ -42,6 +42,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
+use Tests\Fixtures\Sessions\PlainCutoffIdentity;
 use Tests\Integration\Fixtures\AccessOnlyIdentity;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -952,6 +953,44 @@ final class RevocationWriterTest extends TestCase
 
         self::assertSame(CarbonImmutable::parse(self::NOW)->addSecond()->getTimestamp(), $kept->floor($session, $identity, $began)->getTimestamp());
         self::assertSame($began, $kept->floor($session, $other, $began));
+    }
+
+    /**
+     * A move of an Eloquent holder's cutoff that rolls back with its
+     * transaction forgets the session the revocation kept, since the cutoff is
+     * back where it was; a holder that is no model keeps it, since its cutoff
+     * is not written in a transaction the package can see.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAKeptSessionIsForgottenWhenTheMoveOfAModelsCutoffRollsBack(): void
+    {
+        $identity = new CutoffIdentity;
+        $identity->forceFill(['email' => 'ada@example.test'])->save();
+        $identity = CutoffIdentity::query()->findOrFail($identity->id);
+        $plain    = new PlainCutoffIdentity('7', moves: true);
+
+        $session     = (new Session)->forceFill(['id' => '00000000-0000-4000-8000-000000000001']);
+        $kept        = app(KeptSessions::class);
+        $began       = CarbonImmutable::now()->subSecond();
+        $revocations = new RevocationWriter(app('db'), static fn (): mixed => app('db.transactions'));
+        $none        = static function (): void {};
+
+        DB::beginTransaction();
+
+        $scopes = [RevocationScope::identity($identity), RevocationScope::identity($plain)];
+
+        $revocations->revokeScopes($scopes, RevocationReason::REVOKED, $session, CarbonImmutable::now(), $none, $none);
+
+        self::assertSame(CarbonImmutable::now()->getTimestamp(), $kept->floor($session, $identity, $began)->getTimestamp());
+
+        DB::rollBack();
+
+        self::assertNull(DB::table('cutoff_identities')->value('tokens_valid_after'));
+        self::assertSame($began, $kept->floor($session, $identity, $began));
+        self::assertSame(CarbonImmutable::now()->getTimestamp(), $kept->floor($session, $plain, $began)->getTimestamp());
     }
 
     /**

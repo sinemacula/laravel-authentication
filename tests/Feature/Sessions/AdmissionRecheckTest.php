@@ -1097,6 +1097,49 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
+     * A revocation that kept the session inside a nested transaction that rolls
+     * back keeps nothing: its cutoff is back where a revocation that could not
+     * see the session left it, after the call began, so the check ends the
+     * session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARevocationThatKeptTheSessionAndRolledBackKeepsNothing(): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $session = $this->signIn();
+
+        DB::beginTransaction();
+
+        $recheck = $this->recheck();
+
+        $recheck->signIn($session->record, $member, $membership, $tenant);
+
+        self::assertNull($recheck->refusal());
+
+        RecheckedMember::query()->whereKey($member->getKey())->update(['tokens_valid_after' => CarbonImmutable::now()->addSecond()]);
+
+        $this->freezeAt(CarbonImmutable::now()->addSeconds(2));
+
+        try {
+            DB::transaction(function () use ($member, $session): void {
+                $this->sessions(self::GUARD)->passwordChanged($member, $session->record);
+
+                throw new \RuntimeException('rolled back');
+            });
+        } catch (\RuntimeException $exception) {
+            self::assertSame('rolled back', $exception->getMessage());
+        }
+
+        DB::commit();
+
+        self::assertSame(RevocationReason::SIGNED_OUT_EVERYWHERE->value, self::revokedReasonOf($session));
+    }
+
+    /**
      * Register the guards.
      *
      * @param  mixed  $app
