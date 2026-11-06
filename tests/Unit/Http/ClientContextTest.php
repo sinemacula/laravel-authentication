@@ -87,6 +87,8 @@ final class ClientContextTest extends TestCase
         yield from [
             'plain'                       => ['Mozilla/5.0', 'Mozilla/5.0'],
             'NUL bytes removed'           => ["Mozilla\0/5.0\0", 'Mozilla/5.0'],
+            'controls removed'            => ["Mozilla\u{001B}[2J/5.0\u{202E}\u{0085}", 'Mozilla[2J/5.0'],
+            'controls never use the cut'  => ["\u{202E}\u{007F}" . str_repeat('a', 513), str_repeat('a', 512)],
             'invalid UTF-8 replaced'      => ["Agent \xC3\x28 \xFF", 'Agent ?( ?'],
             'exactly 512 characters'      => [str_repeat('é', 512), str_repeat('é', 512)],
             'over 512 characters cut'     => [str_repeat('é', 513), str_repeat('é', 512)],
@@ -98,8 +100,9 @@ final class ClientContextTest extends TestCase
     }
 
     /**
-     * A user agent is stored without NUL bytes, as valid UTF-8, and at most 512
-     * characters long (not bytes); one that is empty after cleaning is `null`.
+     * A user agent is stored as valid UTF-8, without control or bidirectional
+     * formatting characters, and at most 512 characters long (not bytes); one
+     * that is empty after cleaning is `null`.
      *
      * @param  ?string  $header
      * @param  ?string  $expected

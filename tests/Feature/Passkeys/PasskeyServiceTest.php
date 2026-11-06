@@ -306,20 +306,21 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[name given, name stored]`: a name is stored cleaned of NUL
-     * bytes and invalid UTF-8, cut to 255 characters, and `null` when nothing
-     * is left.
+     * Rows of `[name given, name stored]`: a name is stored cleaned of invalid
+     * UTF-8 and of control and bidirectional formatting characters, cut to 255
+     * characters, and `null` when nothing is left.
      *
      * @return iterable<string, array{0: ?string, 1: ?string}>
      */
     public static function provideNames(): iterable
     {
         yield from [
-            'none'           => [null, null],
-            'empty'          => ['', null],
-            'a NUL byte'     => ["Lap\0top", 'Laptop'],
-            'invalid UTF-8'  => ["Lap\xfftop", 'Lap?top'],
-            'over 255 chars' => [str_repeat('é', 300), str_repeat('é', 255)],
+            'none'            => [null, null],
+            'empty'           => ['', null],
+            'a NUL byte'      => ["Lap\0top", 'Laptop'],
+            'a bidi override' => ["Lap\u{202E}top", 'Laptop'],
+            'invalid UTF-8'   => ["Lap\xfftop", 'Lap?top'],
+            'over 255 chars'  => [str_repeat('é', 300), str_repeat('é', 255)],
         ];
     }
 
