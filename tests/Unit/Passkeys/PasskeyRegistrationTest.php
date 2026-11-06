@@ -52,6 +52,8 @@ final class PasskeyRegistrationTest extends TestCase
     {
         $refusals = [
             PasskeyRegistrationStatus::CHALLENGE_INVALID->value  => PasskeyRegistration::challengeInvalid(),
+            PasskeyRegistrationStatus::CHALLENGE_EXPIRED->value  => PasskeyRegistration::challengeExpired(),
+            PasskeyRegistrationStatus::CHALLENGE_USED->value     => PasskeyRegistration::challengeUsed(),
             PasskeyRegistrationStatus::RESPONSE_INVALID->value   => PasskeyRegistration::responseInvalid(),
             PasskeyRegistrationStatus::ALREADY_REGISTERED->value => PasskeyRegistration::alreadyRegistered(),
         ];

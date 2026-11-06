@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengeRefusal;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -26,10 +27,12 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * usernameless sign-in), and the session and purpose a factor ceremony, or a
  * registration a factor package asked for, is bound to. It lives
  * `authentication.passkeys.challenge_ttl_seconds` (30 to 600, 300 by default).
- * It is consumed by the first response to it, with one conditional delete that
- * only one response can make, before the response is verified, so a response
- * that fails verification has used it up too. Every read is from the write
- * connection.
+ * It is consumed by the first response to it, with one conditional update that
+ * records the time (`consumed_at`) and that only one response can make, before
+ * the response is verified, so a response that fails verification has used it
+ * up too. The row is kept, so a later response is told the challenge was used,
+ * or had expired, rather than that it never existed. Every read is from the
+ * write connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,14 +112,21 @@ final readonly class PasskeyChallenges
     }
 
     /**
-     * Use up the live challenge of the ceremony, guard, relying party and owner
+     * Use up the challenge of the ceremony, guard, relying party and owner
      * (none for a sign-in) the id names, and, when a binding is given, of its
      * session and purpose, and return it, with the options it was issued with
-     * and the binding it records; `null` for an id that names no such
-     * challenge, which a malformed one cannot (no query is made for it), or for
-     * a challenge that does not record exactly the ceremony, guard, relying
-     * party, owner and binding, whatever the columns' collation counts as
-     * equal. Only one call can use a challenge up.
+     * and the binding it records; or why it cannot be used. Only a challenge
+     * that records exactly the ceremony, guard, relying party, owner and
+     * binding, whatever the columns' collation counts as equal, is ever
+     * answered `USED` or `EXPIRED`: a malformed id, one that names no such
+     * challenge, and one of another ceremony, guard, relying party, owner or
+     * binding are all `NOT_FOUND`, so a response to someone else's challenge
+     * learns nothing of its lifecycle. A challenge a response was submitted to
+     * before is `USED`, whether or not that response authenticated (it is used
+     * up before it is verified), and one past its lifetime that was never used
+     * is `EXPIRED`. A used or expired challenge is kept for one more lifetime
+     * (see `Models\PasskeyChallenge::prunable()`), after which it is
+     * `NOT_FOUND`. Only one call can use a challenge up: the others are `USED`.
      *
      * @param  string  $id
      * @param  \SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose  $purpose
@@ -124,7 +134,7 @@ final readonly class PasskeyChallenges
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|null  $owner
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
-     * @return ?\SineMacula\Laravel\Authentication\Models\PasskeyChallenge
+     * @return \SineMacula\Laravel\Authentication\Models\PasskeyChallenge|\SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengeRefusal
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -138,16 +148,16 @@ final readonly class PasskeyChallenges
         (Identity&Model)|null $owner,
         CarbonImmutable $now,
         ?ProofBinding $binding = null,
-    ): ?PasskeyChallenge {
+    ): ChallengeRefusal|PasskeyChallenge {
         if (!Str::isUuid($id)) {
-            return null;
+            return ChallengeRefusal::NOT_FOUND;
         }
 
         $model     = new PasskeyChallenge;
         $challenge = WriteConnection::query($model->newQuery())->find($id);
 
         if (!$challenge instanceof PasskeyChallenge) {
-            return null;
+            return ChallengeRefusal::NOT_FOUND;
         }
 
         [$type, $key] = $owner === null ? [null, null] : PasskeyOwner::columns($owner);
@@ -155,7 +165,15 @@ final readonly class PasskeyChallenges
         $bound = $binding === null || self::bindingColumns($binding) === [$challenge->session_id, $challenge->binding_purpose];
 
         if (!$bound || !self::isFor($challenge, $purpose, $rp, $type, $key)) {
-            return null;
+            return ChallengeRefusal::NOT_FOUND;
+        }
+
+        if ($challenge->consumed_at !== null) {
+            return ChallengeRefusal::USED;
+        }
+
+        if ($challenge->expires_at->lessThanOrEqualTo($now)) {
+            return ChallengeRefusal::EXPIRED;
         }
 
         $consumed = $model->newQueryWithoutScopes()
@@ -167,9 +185,10 @@ final readonly class PasskeyChallenges
             ->where('authenticatable_type', $type)
             ->where('authenticatable_id', $key)
             ->where('expires_at', '>', $model->fromDateTime($now))
-            ->delete();
+            ->whereNull('consumed_at')
+            ->update(['consumed_at' => $model->fromDateTime($now)]);
 
-        return $consumed === 1 ? $challenge : null;
+        return $consumed === 1 ? $challenge : ChallengeRefusal::USED;
     }
 
     /**
@@ -205,7 +224,7 @@ final readonly class PasskeyChallenges
     /**
      * Whether the challenge records exactly the ceremony, guard, relying party
      * and owner. The statement that loaded it reads by id alone, and the
-     * conditional delete compares under the columns' collation, which may count
+     * conditional update compares under the columns' collation, which may count
      * distinct values, such as guards `api` and `API`, as equal.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\PasskeyChallenge  $challenge

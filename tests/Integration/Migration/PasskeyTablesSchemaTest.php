@@ -150,9 +150,10 @@ final class PasskeyTablesSchemaTest extends TestCase
     /**
      * The challenges table holds the id, the purpose, the guard, the relying
      * party, the owner a registration or a factor is bound to, the session and
-     * purpose a factor ceremony is bound to, the options, the expiry and the
-     * creation time; only the owner, the binding and the creation time may be
-     * missing. It is indexed on the expiry, for pruning.
+     * purpose a factor ceremony is bound to, the options, the expiry, when it
+     * was consumed and the creation time; only the owner, the binding, the
+     * consumption and the creation time may be missing. It is indexed on the
+     * expiry, for pruning.
      *
      * @return void
      */
@@ -166,6 +167,7 @@ final class PasskeyTablesSchemaTest extends TestCase
             'authenticatable_id'   => true,
             'authenticatable_type' => true,
             'binding_purpose'      => true,
+            'consumed_at'          => true,
             'created_at'           => true,
             'expires_at'           => false,
             'guard'                => false,
@@ -189,7 +191,7 @@ final class PasskeyTablesSchemaTest extends TestCase
      */
     public function testStoresEveryTimeToTheWholeSecond(): void
     {
-        foreach ([self::PASSKEYS => ['last_used_at', 'created_at', 'updated_at'], self::CHALLENGES => ['expires_at', 'created_at']] as $table => $times) {
+        foreach ([self::PASSKEYS => ['last_used_at', 'created_at', 'updated_at'], self::CHALLENGES => ['expires_at', 'consumed_at', 'created_at']] as $table => $times) {
 
             $types = array_column(Schema::getColumns($table), 'type', 'name');
 

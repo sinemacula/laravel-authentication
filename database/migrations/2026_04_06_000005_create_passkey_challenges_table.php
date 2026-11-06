@@ -55,6 +55,11 @@ return new class extends Migration {
             $blueprint->longText('options');
 
             $blueprint->dateTime('expires_at', 0);
+
+            // When the first response was submitted to the challenge, which
+            // uses it up; the row is kept, so a later response is told the
+            // challenge was used rather than that it never existed.
+            $blueprint->dateTime('consumed_at', 0)->nullable();
             $blueprint->dateTime('created_at', 0)->nullable();
 
             $blueprint->index('expires_at');

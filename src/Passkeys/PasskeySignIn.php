@@ -28,8 +28,11 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * <the browser's PublicKeyCredential, as JSON or decoded>]`. The method names
  * no identifier, so the attempt limits count the sign-in per IP address, and
  * the passkey's owner, once found, per account. In order: the guard's sign-in
- * challenge is used up (`passkey_challenge_invalid`, which says nothing about
- * any account, so the result carries it and the client starts again); the
+ * challenge is used up (`passkey_challenge_invalid`, or `passkey_challenge_expired`
+ * or `passkey_challenge_used` for a sign-in challenge of the guard that ran out
+ * or was submitted to before, whether or not that one signed in; they say
+ * nothing about any account, only about the challenge, so the result carries
+ * them and the client starts again); the
  * response must parse and name a passkey of the guard's relying party; its
  * owner must load through the guard's provider as the very model the passkey
  * records; a slot of the owner's account limit is taken before the assertion is

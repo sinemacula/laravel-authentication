@@ -67,6 +67,8 @@ final class FailureReasonTest extends TestCase
             'code_expired',
             'code_exhausted',
             'passkey_challenge_invalid',
+            'passkey_challenge_expired',
+            'passkey_challenge_used',
             'passkey_counter_regressed',
             'machine_identity',
             'credential_invalid',
@@ -107,6 +109,8 @@ final class FailureReasonTest extends TestCase
             FailureReason::CODE_EXPIRED,
             FailureReason::CODE_EXHAUSTED,
             FailureReason::PASSKEY_CHALLENGE_INVALID,
+            FailureReason::PASSKEY_CHALLENGE_EXPIRED,
+            FailureReason::PASSKEY_CHALLENGE_USED,
             FailureReason::PASSKEY_COUNTER_REGRESSED,
         ], $allowed);
     }

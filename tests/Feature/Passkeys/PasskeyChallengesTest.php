@@ -6,6 +6,7 @@ namespace Tests\Feature\Passkeys;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -13,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasskeyAdded;
 use SineMacula\Laravel\Authentication\Events\PasskeyUsed;
@@ -20,6 +22,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengeRefusal;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
@@ -112,7 +115,8 @@ final class PasskeyChallengesTest extends TestCase
 
     /**
      * A challenge is used up by the first answer that matches it, which gets
-     * its options back; a second answer gets nothing.
+     * its options back; a second answer is told it was used, and the row is
+     * kept with the time it was consumed.
      *
      * @return void
      *
@@ -123,9 +127,82 @@ final class PasskeyChallengesTest extends TestCase
         $identity = $this->seedIdentity();
         $issued   = self::challenges()->issue(ChallengePurpose::REGISTER, self::rp('api'), $identity, ['challenge' => 'abc'], $this->now);
 
-        self::assertSame(['challenge' => 'abc'], self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now)?->options);
-        self::assertNull(self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now));
-        self::assertSame(0, PasskeyChallenge::query()->count());
+        $first = self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now);
+
+        self::assertSame(['challenge' => 'abc'], $first instanceof PasskeyChallenge ? $first->options : null);
+        self::assertSame(ChallengeRefusal::USED, self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now));
+
+        $stored = PasskeyChallenge::query()->sole();
+
+        self::assertTrue($stored->consumed_at?->equalTo($this->now));
+    }
+
+    /**
+     * A challenge nobody answered in time is told it expired, from the second
+     * of its expiry, and is not consumed by the answer; one that was used and
+     * then expired is still told it was used; one answered in the last second
+     * of its lifetime is used, not expired.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExpiredChallengeIsToldApartFromAUsedOne(): void
+    {
+        $identity = $this->seedIdentity();
+        $expired  = self::challenges()->issue(ChallengePurpose::REGISTER, self::rp('api'), $identity, [], $this->now);
+        $used     = self::challenges()->issue(ChallengePurpose::REGISTER, self::rp('api'), $identity, [], $this->now);
+        $live     = self::challenges()->issue(ChallengePurpose::REGISTER, self::rp('api'), $identity, [], $this->now);
+        $later    = $this->now->addSeconds(300);
+
+        $rp = self::rp('api');
+
+        self::assertInstanceOf(PasskeyChallenge::class, self::challenges()->consume($used->challengeId, ChallengePurpose::REGISTER, $rp, $identity, $this->now));
+        self::assertInstanceOf(PasskeyChallenge::class, self::challenges()->consume($live->challengeId, ChallengePurpose::REGISTER, $rp, $identity, $this->now->addSeconds(299)));
+        self::assertSame(ChallengeRefusal::EXPIRED, self::challenges()->consume($expired->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $later));
+        self::assertSame(ChallengeRefusal::EXPIRED, self::challenges()->consume($expired->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $later->addHour()));
+        self::assertSame(ChallengeRefusal::USED, self::challenges()->consume($used->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $later));
+        self::assertNull(PasskeyChallenge::query()->findOrFail($expired->challengeId)->consumed_at);
+    }
+
+    /**
+     * An expired or used challenge answers `not found` to anyone but its own
+     * ceremony, guard, relying party, owner and binding, so a response to
+     * another's challenge learns nothing of its lifecycle.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnotherBindingNeverLearnsAChallengesLifecycle(): void
+    {
+        $identity = $this->seedIdentity();
+        $another  = $this->seedIdentity('grace@example.test');
+        $binding  = new ProofBinding($identity, 'api', 'session-7', Purpose::STEP_UP);
+        $other    = new ProofBinding($identity, 'api', 'session-8', Purpose::STEP_UP);
+        $expired  = self::challenges()->issue(ChallengePurpose::FACTOR, self::rp('api'), $identity, [], $this->now, $binding);
+        $used     = self::challenges()->issue(ChallengePurpose::FACTOR, self::rp('api'), $identity, [], $this->now, $binding);
+
+        self::challenges()->consume($used->challengeId, ChallengePurpose::FACTOR, self::rp('api'), $identity, $this->now, $binding);
+
+        $later = $this->now->addSeconds(300);
+
+        $others = [
+            [ChallengePurpose::FACTOR, 'api', $another, $binding],
+            [ChallengePurpose::FACTOR, 'api', $identity, $other],
+            [ChallengePurpose::FACTOR, 'admin', $identity, $binding],
+            [ChallengePurpose::REGISTER, 'api', $identity, null],
+            [ChallengePurpose::FACTOR, 'api', null, $binding],
+        ];
+
+        foreach ([$expired, $used] as $issued) {
+            foreach ($others as [$purpose, $guard, $owner, $answered]) {
+                self::assertNotFound($issued->challengeId, $purpose, $guard, $owner, $later, $answered);
+            }
+        }
+
+        self::assertSame(ChallengeRefusal::EXPIRED, self::challenges()->consume($expired->challengeId, ChallengePurpose::FACTOR, self::rp('api'), $identity, $later, $binding));
+        self::assertSame(ChallengeRefusal::USED, self::challenges()->consume($used->challengeId, ChallengePurpose::FACTOR, self::rp('api'), $identity, $later, $binding));
     }
 
     /**
@@ -146,7 +223,7 @@ final class PasskeyChallengesTest extends TestCase
         $first    = self::challenges()->issue(ChallengePurpose::FACTOR, self::rp('api'), $identity, ['challenge' => 'abc'], $this->now, $binding);
 
         foreach ([new ProofBinding($identity, 'api', 'session-8', Purpose::STEP_UP), new ProofBinding($identity, 'api', 'session-7', Purpose::SIGN_IN)] as $other) {
-            self::assertNull(self::challenges()->consume($first->challengeId, ChallengePurpose::FACTOR, self::rp('api'), $identity, $this->now, $other));
+            self::assertNotFound($first->challengeId, ChallengePurpose::FACTOR, 'api', $identity, $this->now, $other);
         }
 
         $consumed = self::challenges()->consume($first->challengeId, ChallengePurpose::FACTOR, self::rp('api'), $identity, $this->now, $binding);
@@ -164,11 +241,11 @@ final class PasskeyChallengesTest extends TestCase
         self::assertNotNull(self::challenges()->consume($second->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now));
 
         $unbound = self::challenges()->issue(ChallengePurpose::REGISTER, self::rp('api'), $identity, ['challenge' => 'ghi'], $this->now);
-        $stored  = PasskeyChallenge::query()->sole();
+        $stored  = PasskeyChallenge::query()->findOrFail($unbound->challengeId);
 
         self::assertSame([null, null], [$stored->session_id, $stored->binding_purpose]);
         self::assertNull(PasskeyChallenges::bindingOf($stored, $identity));
-        self::assertNull(self::challenges()->consume($unbound->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now, $binding));
+        self::assertNotFound($unbound->challengeId, ChallengePurpose::REGISTER, 'api', $identity, $this->now, $binding);
     }
 
     /**
@@ -201,15 +278,13 @@ final class PasskeyChallengesTest extends TestCase
             'no owner'             => [ChallengePurpose::REGISTER, 'api', 'none', 0, null],
             'another owner'        => [ChallengePurpose::REGISTER, 'api', 'another', 0, null],
             'another owner class'  => [ChallengePurpose::REGISTER, 'api', 'member', 0, null],
-            'at its expiry'        => [ChallengePurpose::REGISTER, 'api', 'identity', 300, null],
             'an unknown challenge' => [ChallengePurpose::REGISTER, 'api', 'identity', 0, '0192f6b2-0000-7000-8000-000000000001'],
         ];
     }
 
     /**
-     * An answer for another ceremony, guard or owner, or at the challenge's
-     * expiry, gets nothing and leaves the challenge for its own answer, which
-     * the second before the expiry still gets.
+     * An answer for another ceremony, guard or owner gets `not found` and
+     * leaves the challenge for its own answer.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose  $purpose
      * @param  string  $guard
@@ -232,11 +307,12 @@ final class PasskeyChallengesTest extends TestCase
             default    => null,
         };
 
-        self::assertNull(self::challenges()->consume($id ?? $issued->challengeId, $purpose, self::rp($guard), $answerer, $this->now->addSeconds($later)));
-        self::assertSame(1, PasskeyChallenge::query()->count());
-        $justInTime = self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now->addSeconds(299));
+        self::assertNotFound($id ?? $issued->challengeId, $purpose, $guard, $answerer, $this->now->addSeconds($later));
+        self::assertSame(1, PasskeyChallenge::query()->whereNull('consumed_at')->count());
 
-        self::assertSame(['challenge' => 'abc'], $justInTime?->options);
+        $own = self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now);
+
+        self::assertSame(['challenge' => 'abc'], $own instanceof PasskeyChallenge ? $own->options : null);
     }
 
     /**
@@ -255,7 +331,7 @@ final class PasskeyChallengesTest extends TestCase
             $queries[] = $query->sql;
         });
 
-        self::assertNull(self::challenges()->consume('0192f6b2-0000-7000-8000-000000000001', ChallengePurpose::SIGN_IN, self::rp('api'), null, $this->now));
+        self::assertNotFound('0192f6b2-0000-7000-8000-000000000001', ChallengePurpose::SIGN_IN, 'api', null, $this->now);
         self::assertCount(1, $queries);
         self::assertStringStartsWith('select', $queries[0]);
     }
@@ -274,7 +350,7 @@ final class PasskeyChallengesTest extends TestCase
 
         config()->set('auth.guards.api.passkeys', ['id' => 'app.example.test']);
 
-        self::assertNull(self::challenges()->consume($issued->challengeId, ChallengePurpose::SIGN_IN, self::rp('api'), null, $this->now));
+        self::assertSame(ChallengeRefusal::NOT_FOUND, self::challenges()->consume($issued->challengeId, ChallengePurpose::SIGN_IN, self::rp('api'), null, $this->now));
         self::assertSame(1, PasskeyChallenge::query()->count());
     }
 
@@ -293,7 +369,7 @@ final class PasskeyChallengesTest extends TestCase
             $queries++;
         });
 
-        self::assertNull(self::challenges()->consume('challenge', ChallengePurpose::SIGN_IN, self::rp('api'), null, $this->now));
+        self::assertSame(ChallengeRefusal::NOT_FOUND, self::challenges()->consume('challenge', ChallengePurpose::SIGN_IN, self::rp('api'), null, $this->now));
         self::assertSame(0, $queries);
     }
 
@@ -449,6 +525,8 @@ final class PasskeyChallengesTest extends TestCase
 
         $this->registerPasskey($owner);
 
+        DB::table('passkey_challenges')->delete();
+
         $passkeys = Auth::passkeys('api');
         $options  = self::factorCeremony($passkeys, $owner);
         $answer   = $this->authenticator()->get($options->options);
@@ -511,7 +589,7 @@ final class PasskeyChallengesTest extends TestCase
 
         self::assertIsString($answered);
         self::assertColumnFolds('passkey_challenges', $column, $answered);
-        self::assertNull(self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now));
+        self::assertSame(ChallengeRefusal::NOT_FOUND, self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now));
         self::assertSame(1, PasskeyChallenge::query()->count());
     }
 
@@ -563,6 +641,8 @@ final class PasskeyChallengesTest extends TestCase
 
         $this->registerPasskey($this->seedIdentity());
 
+        DB::table('passkey_challenges')->delete();
+
         $options = $this->signInOptions();
         $input   = ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)];
 
@@ -596,6 +676,8 @@ final class PasskeyChallengesTest extends TestCase
         $identity = $this->seedIdentity();
 
         $this->registerPasskey($identity);
+
+        DB::table('passkey_challenges')->delete();
 
         $options = self::factorCeremony(Auth::passkeys('api'), $identity);
         $answer  = $this->authenticator()->get($options->options);
@@ -644,6 +726,32 @@ final class PasskeyChallengesTest extends TestCase
         self::foldColumns('passkey_challenges', ['guard']);
 
         config()->set('auth.guards.API', config('auth.guards.api'));
+    }
+
+    /**
+     * Assert that consuming the challenge for the guard, owner and binding
+     * answers `not found`.
+     *
+     * @param  string  $id
+     * @param  \SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose  $purpose
+     * @param  string  $guard
+     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|null  $owner
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    private static function assertNotFound(
+        string $id,
+        ChallengePurpose $purpose,
+        string $guard,
+        (Identity&Model)|null $owner,
+        CarbonImmutable $now,
+        ?ProofBinding $binding = null,
+    ): void {
+        self::assertSame(ChallengeRefusal::NOT_FOUND, self::challenges()->consume($id, $purpose, self::rp($guard), $owner, $now, $binding));
     }
 
     /**

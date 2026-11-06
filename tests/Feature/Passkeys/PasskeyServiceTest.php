@@ -214,7 +214,7 @@ final class PasskeyServiceTest extends TestCase
             self::assertSame('A passkey registration needs a non-empty user name, and a display name that is null or non-empty.', $exception->getMessage());
         }
 
-        self::assertSame(0, PasskeyChallenge::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
     }
 
     /**
@@ -256,7 +256,7 @@ final class PasskeyServiceTest extends TestCase
         self::assertSame(((array) $options->options['user'])['id'], $passkey->user_handle);
         self::assertSame(0, $passkey->sign_count);
         self::assertTrue($passkey->uv_initialized);
-        self::assertSame(0, PasskeyChallenge::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
 
         $event = $this->recordedEvent(PasskeyAdded::class);
 
@@ -471,7 +471,7 @@ final class PasskeyServiceTest extends TestCase
         $identity = $this->seedIdentity();
         $id       = $challenge($this, $identity);
         $options  = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
-        $before   = PasskeyChallenge::query()->count();
+        $before   = PasskeyChallenge::query()->whereNull('consumed_at')->count();
         $stored   = Passkey::query()->count();
 
         $this->recordEvents([PasskeyAdded::class]);
@@ -480,13 +480,13 @@ final class PasskeyServiceTest extends TestCase
 
         self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, $id, $answer, self::requestClient())->status);
         self::assertSame($stored, Passkey::query()->count());
-        self::assertSame($before, PasskeyChallenge::query()->count());
+        self::assertSame($before, PasskeyChallenge::query()->whereNull('consumed_at')->count());
         self::assertSame([], $this->recorded);
     }
 
     /**
      * A registration challenge answers one registration: a second answer to it
-     * is refused, even a valid one.
+     * is refused as `challenge_used`, even a valid one.
      *
      * @return void
      *
@@ -502,13 +502,15 @@ final class PasskeyServiceTest extends TestCase
         );
         $answer = $this->authenticator()->create($options->options);
 
-        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, $options->challengeId, $answer, self::requestClient())->status);
+        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_USED, Auth::passkeys('api')->register($identity, $options->challengeId, $answer, self::requestClient())->status);
         self::assertSame(1, Passkey::query()->count());
     }
 
     /**
-     * A challenge answered at or after its expiry is refused, and one answered
-     * the second before is accepted.
+     * A challenge answered at or after its expiry is refused as
+     * `challenge_expired` (and as `challenge_invalid` through another guard,
+     * which learns nothing of it), and one answered the second before is
+     * accepted.
      *
      * @return void
      *
@@ -528,7 +530,8 @@ final class PasskeyServiceTest extends TestCase
 
         $answer = $this->authenticator()->create($expired->options);
 
-        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, $expired->challengeId, $answer, self::requestClient())->status);
+        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_EXPIRED, Auth::passkeys('api')->register($identity, $expired->challengeId, $answer, self::requestClient())->status);
+        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('admin')->register($identity, $expired->challengeId, $answer, self::requestClient())->status);
     }
 
     /**
@@ -584,7 +587,7 @@ final class PasskeyServiceTest extends TestCase
             Auth::passkeys('api')->register($identity, $assertion->challengeId, $assertionCredential, self::requestClient())->status,
         );
         self::assertSame(1, Passkey::query()->count());
-        self::assertSame(0, PasskeyChallenge::query()->where('purpose', 'register')->count());
+        self::assertSame(0, PasskeyChallenge::query()->where('purpose', 'register')->whereNull('consumed_at')->count());
     }
 
     /**
@@ -690,7 +693,7 @@ final class PasskeyServiceTest extends TestCase
             self::assertSame(IntegrationIdentity::class . ' must be saved before it can hold passkeys.', $exception->getMessage());
         }
 
-        self::assertSame(0, PasskeyChallenge::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
     }
 
     /**
@@ -716,6 +719,7 @@ final class PasskeyServiceTest extends TestCase
                 self::requestClient(),
             ),
             static fn (): mixed => Auth::passkeys('api')->passkeys($machine),
+            static fn (): mixed => Auth::passkeys('api')->credentialIds($machine),
             static fn (): mixed => Auth::passkeys('api')->remove($machine, '0192f6b2-0000-7000-8000-000000000001', self::requestClient()),
         ];
 
@@ -729,7 +733,7 @@ final class PasskeyServiceTest extends TestCase
             }
         }
 
-        self::assertSame(0, PasskeyChallenge::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
     }
 
     /**
@@ -769,7 +773,7 @@ final class PasskeyServiceTest extends TestCase
             self::assertStringStartsWith('Passkey relying party `id` for guard [api] must be', $exception->getMessage());
         }
 
-        self::assertSame(0, PasskeyChallenge::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
     }
 
     /**
@@ -847,7 +851,7 @@ final class PasskeyServiceTest extends TestCase
             self::assertSame(['Retry-After' => 300], $exception->getHeaders());
         }
 
-        self::assertSame(2, PasskeyChallenge::query()->count());
+        self::assertSame(2, PasskeyChallenge::query()->whereNull('consumed_at')->count());
         $elsewhere = Auth::passkeys('api')->signInOptions(new ClientContext('198.51.100.1', null));
 
         self::assertInstanceOf(PasskeyChallenge::class, PasskeyChallenge::query()->find($elsewhere->challengeId));
@@ -1003,8 +1007,8 @@ final class PasskeyServiceTest extends TestCase
 
     /**
      * A challenge that is not a live factor challenge for the identity is
-     * refused as `passkey_challenge_invalid`: another identity's, a sign-in's,
-     * an unknown one, and one answered already.
+     * refused as `passkey_challenge_invalid` (another identity's, a sign-in's,
+     * an unknown one) or, one answered already, as `passkey_challenge_used`.
      *
      * @return void
      *
@@ -1026,7 +1030,38 @@ final class PasskeyServiceTest extends TestCase
         }
 
         self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, self::factorBinding($identity), $own->challengeId, $response, self::requestClient())->isVerified());
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, self::verifyPasskeyFactor($identity, $own->challengeId, $response)->reason);
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_USED, self::verifyPasskeyFactor($identity, $own->challengeId, $response)->reason);
+    }
+
+    /**
+     * A factor challenge the identity let run out is refused as
+     * `passkey_challenge_expired`, and one a response was submitted to before,
+     * whether or not that one verified, as `passkey_challenge_used`; another
+     * identity's, whichever its state, is `passkey_challenge_invalid`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFactorChallengeThatExpiredIsToldApartFromOneUsed(): void
+    {
+        $identity = $this->seedIdentity();
+        $other    = $this->seedIdentity('grace@example.test');
+
+        $this->registerPasskey($identity);
+
+        $expired = self::factorCeremony(Auth::passkeys('api'), $identity);
+        $failed  = self::factorCeremony(Auth::passkeys('api'), $identity);
+        $answer  = $this->authenticator()->get($failed->options);
+
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, self::verifyPasskeyFactor($identity, $failed->challengeId, '{')->reason);
+
+        self::freezeAt($this->now->addSeconds(300));
+
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_EXPIRED, self::verifyPasskeyFactor($identity, $expired->challengeId, $answer)->reason);
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_USED, self::verifyPasskeyFactor($identity, $failed->challengeId, $answer)->reason);
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, self::verifyPasskeyFactor($other, $expired->challengeId, $answer)->reason);
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, self::verifyPasskeyFactor($other, $failed->challengeId, $answer)->reason);
     }
 
     /**
@@ -1150,6 +1185,48 @@ final class PasskeyServiceTest extends TestCase
         self::passkeyOfAnotherType($first->id);
 
         self::assertCount(2, Auth::passkeys('api')->passkeys($identity));
+    }
+
+    /**
+     * An identity's credential ids are its own stored ids, oldest registration
+     * first, for the guard's relying party only: none of another identity's
+     * (nor one of another type that shares its id), none of another relying
+     * party's, and an empty list for an identity with no passkey.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentitysCredentialIdsAreItsOwnInRegistrationOrder(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $none = Auth::passkeys('api')->credentialIds($identity);
+
+        self::assertSame([], $none);
+
+        $first = $this->registerPasskey($identity);
+
+        self::freezeAt($this->now->addMinute());
+
+        $second = $this->registerPasskey($identity, authenticator: new VirtualAuthenticator(self::ORIGIN));
+
+        $this->registerPasskey($this->seedIdentity('grace@example.test'), authenticator: new VirtualAuthenticator(self::ORIGIN));
+
+        config()->set('auth.guards.admin.passkeys', ['id' => 'app.example.test']);
+
+        $this->registerPasskey($identity, 'admin', new VirtualAuthenticator(self::ORIGIN));
+
+        $stored = static fn (string $id): string => Passkey::query()->findOrFail($id)->credential_id;
+        $listed = Auth::passkeys('api')->credentialIds($identity);
+
+        self::assertSame([$stored($first->id), $stored($second->id)], $listed);
+        self::assertCount(1, Auth::passkeys('admin')->credentialIds($identity));
+        self::assertSame([], Auth::passkeys('api')->credentialIds($this->seedIdentity('alan@example.test')));
+
+        self::passkeyOfAnotherType($first->id);
+
+        self::assertSame($listed, Auth::passkeys('api')->credentialIds($identity));
     }
 
     /**
@@ -1404,7 +1481,7 @@ final class PasskeyServiceTest extends TestCase
             }
         }
 
-        self::assertSame(1, PasskeyChallenge::query()->count());
+        self::assertSame(1, PasskeyChallenge::query()->whereNull('consumed_at')->count());
     }
 
     /**
@@ -1488,7 +1565,7 @@ final class PasskeyServiceTest extends TestCase
         }
 
         self::assertSame(0, Passkey::query()->count());
-        self::assertSame(0, PasskeyChallenge::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
         self::assertSame('ada@example.test', DB::table('integration_identities')->value('email'));
         self::assertSame([], $this->recorded);
     }
@@ -1871,7 +1948,7 @@ final class PasskeyServiceTest extends TestCase
         self::assertSame([$mine], array_column((array) $options->options['allowCredentials'], 'id'));
         self::assertSame('required', $options->options['userVerification']);
 
-        $challenge = PasskeyChallenge::query()->sole();
+        $challenge = PasskeyChallenge::query()->where('purpose', 'factor')->sole();
 
         self::assertSame(['factor', self::FACTOR_SESSION, 'step_up'], [$challenge->purpose, $challenge->session_id, $challenge->binding_purpose]);
         $preferred = $passkeys->factorOptions($identity, $binding, [$second], false)?->options;
@@ -1883,7 +1960,7 @@ final class PasskeyServiceTest extends TestCase
         self::assertSame(300000, $preferred['timeout'] ?? null);
         self::assertNull($passkeys->factorOptions($identity, $binding, [$theirs]));
         self::assertNull($passkeys->factorOptions($identity, $binding, []));
-        self::assertSame(2, PasskeyChallenge::query()->count());
+        self::assertSame(2, PasskeyChallenge::query()->whereNull('consumed_at')->count());
     }
 
     /**
@@ -1927,7 +2004,7 @@ final class PasskeyServiceTest extends TestCase
             self::assertStringContainsString('canonical unpadded base64url', $exception->getMessage());
         }
 
-        self::assertSame(0, PasskeyChallenge::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
     }
 
     /**
@@ -1988,7 +2065,7 @@ final class PasskeyServiceTest extends TestCase
             self::assertSame('A passkey ceremony\'s binding must name the identity it is for, the guard [api] and a session.', $exception->getMessage());
         }
 
-        self::assertSame(0, PasskeyChallenge::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
     }
 
     /**
@@ -2013,8 +2090,9 @@ final class PasskeyServiceTest extends TestCase
     /**
      * A factor challenge answers only the binding it was handed out for:
      * another session's or another purpose's verification of it is refused as
-     * `passkey_challenge_invalid`, as a replay is, and a verification whose
-     * binding names another identity or guard is a programming error.
+     * `passkey_challenge_invalid`, and a replay as `passkey_challenge_used`,
+     * and a verification whose binding names another identity or guard is a
+     * programming error.
      *
      * @return void
      *
@@ -2045,7 +2123,7 @@ final class PasskeyServiceTest extends TestCase
 
         self::assertTrue($passkeys->verifyFactor($identity, self::factorBinding($identity), $options->challengeId, $answer, self::requestClient())->isVerified());
         self::assertSame(
-            FailureReason::PASSKEY_CHALLENGE_INVALID,
+            FailureReason::PASSKEY_CHALLENGE_USED,
             $passkeys->verifyFactor($identity, self::factorBinding($identity), $options->challengeId, $answer, self::requestClient())->reason,
         );
 

@@ -277,7 +277,9 @@ active tenant. It says why a sign-in failed even where the client is not told: a
 | `cross_site_request`         | A cookie refresh token, sign-in, start or pending action without an allowed origin and the header                                 |
 | `code_expired`               | The one-time code expired; event only, not on a sign-in's result                                                                  |
 | `code_exhausted`             | The code used up its attempts; event only, not on a sign-in's result                                                              |
-| `passkey_challenge_invalid`  | The passkey challenge is unknown, expired, used, or another ceremony's                                                            |
+| `passkey_challenge_invalid`  | The passkey challenge is malformed, unknown, or another ceremony's, guard's, owner's or binding's                                 |
+| `passkey_challenge_expired`  | The passkey ceremony's own challenge expired before it was answered                                                               |
+| `passkey_challenge_used`     | A response was submitted to the ceremony's own challenge before, whether or not it authenticated                                  |
 | `passkey_counter_regressed`  | The passkey's sign counter did not advance; event only, not on result                                                             |
 | `machine_identity`           | A non-human identity tried a sign-in, a session, a refresh or a switch                                                            |
 | `credential_invalid`         | API key or client credential malformed, unknown, wrong, or not a machine's                                                        |
@@ -300,10 +302,11 @@ active tenant. It says why a sign-in failed even where the client is not told: a
 | `link_mismatch`              | Not established through the external result's link (or any), or the result names another link                                     |
 
 A sign-in method may answer only `invalid_credentials`, `identifier_unverified` (once its input proved possession of the
-identifier), `code_expired`, `code_exhausted`, `passkey_challenge_invalid` and `passkey_counter_regressed`; every other
-reason is the session service's to give. `account_rate_limited`, `code_expired`, `code_exhausted` and
-`passkey_counter_regressed` are on the event only: the sign-in's result says `invalid_credentials`. A code request
-refused because its number is not one is reported as `invalid_credentials`, while its result says `identifier_invalid`.
+identifier), `code_expired`, `code_exhausted`, `passkey_challenge_invalid`, `passkey_challenge_expired`,
+`passkey_challenge_used` and `passkey_counter_regressed`; every other reason is the session service's to give.
+`account_rate_limited`, `code_expired`, `code_exhausted` and `passkey_counter_regressed` are on the event only: the
+sign-in's result says `invalid_credentials`. A code request refused because its number is not one is reported as
+`invalid_credentials`, while its result says `identifier_invalid`.
 
 ## Failure outcomes
 
@@ -340,5 +343,6 @@ verification by code and an identifier change, tell the caller (an `expired` or 
 included), which no event reports: the factor's outcome is the further-factor package's to report. A verification link
 tells it too (`expired`): its expiry is read from the signed link before any identity is, so the answer says only that
 the link was authentic, and every other refusal is `invalid`. A sign-in method may answer only `invalid_credentials`,
-`identifier_unverified`, `code_expired`, `code_exhausted`, `passkey_challenge_invalid` and `passkey_counter_regressed`
+`identifier_unverified`, `code_expired`, `code_exhausted`, `passkey_challenge_invalid`, `passkey_challenge_expired`,
+`passkey_challenge_used` and `passkey_counter_regressed`
 (`FailureReason::isSignInMethodReason()`); every other reason is the session service's to give.

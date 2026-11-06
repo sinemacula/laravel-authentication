@@ -525,13 +525,15 @@ handed out, or a new random one when it had none, so registrations whose options
 completed (on two sessions, say) may each get their own; every passkey is checked against its own handle. A handle
 carries no personal data and does not depend on `app.key`. `register()` answers a `PasskeyRegistration` whose `status`
 (`PasskeyRegistrationStatus`) is `registered`, with the passkey's `PasskeySummary` in `passkey`, or `challenge_invalid`
-(not a live registration challenge of this guard for the identity), `response_invalid` (malformed, or it does not
-verify: origin, relying party, user presence and verification, challenge, algorithm, attestation statement) or
-`already_registered`, with no passkey. The name is stored cleaned and cut to 255 characters. Under
-`attestation: none` a browser may still pass an authenticator's own statement through, so the formats the WebAuthn
-library checks on its own (`none`, `packed`, `fido-u2f`, `android-key`, `tpm`, `apple`) are accepted for their internal
-consistency, but no certificate chain or metadata is evaluated and every passkey is recorded as unattested. A machine
-identity holds no passkey (an `InvalidArgumentException`), and passkeys belong to saved Eloquent identities.
+(malformed, unknown, or not a registration challenge of this guard for the identity), `challenge_expired` (the
+identity's own, unanswered in its lifetime), `challenge_used` (a response was submitted to it before, whether or not it
+registered a passkey), `response_invalid` (malformed, or it does not verify: origin, relying party, user presence and
+verification, challenge, algorithm, attestation statement) or `already_registered`, with no passkey. The name is stored
+cleaned and cut to 255 characters. Under `attestation: none` a browser may still pass an authenticator's own statement
+through, so the formats the WebAuthn library checks on its own (`none`, `packed`, `fido-u2f`, `android-key`, `tpm`,
+`apple`) are accepted for their internal consistency, but no certificate chain or metadata is evaluated and every
+passkey is recorded as unattested. A machine identity holds no passkey (an `InvalidArgumentException`), and passkeys
+belong to saved Eloquent identities.
 
 Signing in takes options and then the session service:
 
@@ -553,8 +555,10 @@ the origin, the relying party, user presence and verification, the signature, th
 passkey was registered under. The session service then decides the rest, as for any method (see [Signing in: the session
 service](#signing-in-the-session-service)): no identifier is named, so only the IP address is limited before the method
 runs and the verified-identifier requirement does not apply. A challenge the answer cannot use fails as
-`passkey_challenge_invalid`, in the result too, since it says nothing about any account (the client starts again); every
-other refusal is `invalid_credentials`.
+`passkey_challenge_invalid` (malformed, unknown or another guard's), `passkey_challenge_expired` (it ran out unanswered)
+or `passkey_challenge_used` (a response was submitted to it before, whether or not that one signed in), in the result
+too, since they say something of the challenge and nothing about any account (the client starts again); every other
+refusal is `invalid_credentials`.
 
 The sign counter guards against a cloned authenticator. With `s` the count stored and `p` the assertion's: `s = 0` and
 `p = 0` is accepted and the count stays 0 (most synced passkeys keep no counter); `p > s` is accepted and the count
@@ -598,8 +602,10 @@ relying party and the identity.
 `verifyFactor()` answers a `PasskeyFactorResult`: verified once one of the passkeys the challenge allowed verified for
 the identity (with `PasskeyUsed`), its `assertion` a `PasskeyFactorAssertion` (`passkeyId`, `credentialId`, `observed`,
 `assertedAt` and the `passkey`'s `PasskeySummary` as the use left it), or failed with its `reason`:
-`passkey_challenge_invalid` (not a live factor challenge of this guard for the identity, the binding's session and its
-purpose), `invalid_credentials` (malformed, not verified, not one the challenge allowed, or not the identity's) or
+`passkey_challenge_invalid` (malformed, unknown, or not a factor challenge of this guard for the identity, the binding's
+session and its purpose), `passkey_challenge_expired` (the identity's own, unanswered in its lifetime),
+`passkey_challenge_used` (a response was submitted to it before, whether or not that one verified),
+`invalid_credentials` (malformed, not verified, not one the challenge allowed, or not the identity's) or
 `passkey_counter_regressed`, which the caller already holding the identity may see. It checks the origin, the relying
 party id hash, user presence, user verification where the challenge required it, the signature and the challenge, and
 the sign counter rule above, a counter that stays at zero included. `observed` is what this assertion's authenticator
@@ -623,13 +629,15 @@ back, the gate's work with it, and is answered `already_registered`, with no ass
 
 `Auth::passkeys('api')->passkeys($identity)` lists the identity's passkeys for the relying party, oldest first, as
 `PasskeySummary` (id, name, transports, AAGUID, backup state, created and last used), never the credential id, public
-key, user handle or count. `remove($identity, $passkeyId, $client)` removes the identity's passkey of the relying party
-and reports `PasskeyRemoved` once committed; it answers a `PasskeyRemoval` whose `isRemoved()` says whether this call
-removed it, and whose `completion` carries what the factor gate answered for the removal, if anything, uninterpreted.
-Finding, listing and removal hold to the relying party's exact id and the identity's exact type and key, and every
-ceremony's challenge to its exact ceremony, guard, relying party and owner, whatever the column's collation counts as
-equal (`alice` and `Alice` under MySQL's default `_ci` collations). Removing a passkey removes a way to sign in, but
-ends no session unless you register the optional listener:
+key, user handle or count. `Auth::passkeys('api')->credentialIds($identity)` lists the credential ids themselves, oldest
+first, for a factor ceremony's `$credentialIds`: they are public WebAuthn data, but that the identity holds them is not,
+so keep the association behind your own access control. `remove($identity, $passkeyId, $client)` removes the identity's
+passkey of the relying party and reports `PasskeyRemoved` once committed; it answers a `PasskeyRemoval` whose
+`isRemoved()` says whether this call removed it, and whose `completion` carries what the factor gate answered for the
+removal, if anything, uninterpreted. Finding, listing and removal hold to the relying party's exact id and the
+identity's exact type and key, and every ceremony's challenge to its exact ceremony, guard, relying party and owner,
+whatever the column's collation counts as equal (`alice` and `Alice` under MySQL's default `_ci` collations). Removing a
+passkey removes a way to sign in, but ends no session unless you register the optional listener:
 
 ```php
 use Illuminate\Support\Facades\Event;
@@ -725,7 +733,8 @@ adapter's report of multifactor authentication, and a `FirstFactor` that names i
 The package's own methods report `pwd` (password), `otp` (email code, and a code of any type registered with
 `extend()`), `sms` (phone code) and `pop` (passkey). A method may also answer `identifier_unverified`, but only once its
 input proved possession of the identifier (as a one-time code does), and `code_expired`, `code_exhausted`,
-`passkey_challenge_invalid` or `passkey_counter_regressed`; `code_expired`, `code_exhausted` and
+`passkey_challenge_invalid`, `passkey_challenge_expired`, `passkey_challenge_used` or `passkey_counter_regressed`;
+`code_expired`, `code_exhausted` and
 `passkey_counter_regressed` reach the event only, and the sign-in's result says `invalid_credentials`. Every other
 reason is the session service's to give, and a method that returns one throws a `LogicException` (see
 [Events](events.md#events)). A method must not bind a guard, issue tokens or write session state, and must hold no state

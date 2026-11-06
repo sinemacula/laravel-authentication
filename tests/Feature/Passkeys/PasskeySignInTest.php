@@ -160,7 +160,7 @@ final class PasskeySignInTest extends TestCase
 
         self::assertSame(1, $stored->sign_count);
         self::assertTrue($stored->last_used_at?->equalTo($this->now));
-        self::assertSame(0, PasskeyChallenge::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
     }
 
     /**
@@ -367,7 +367,8 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
-     * A challenge answers one sign-in: the same answer again fails.
+     * A challenge answers one sign-in: the same answer again fails as
+     * `passkey_challenge_used`.
      *
      * @return void
      *
@@ -381,12 +382,12 @@ final class PasskeySignInTest extends TestCase
         $input   = ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)];
 
         self::assertTrue($this->sessions()->signIn('passkey', $input, self::requestContext())->isSignedIn());
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $this->sessions()->signIn('passkey', $input, self::requestContext())->reason);
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_USED, $this->sessions()->signIn('passkey', $input, self::requestContext())->reason);
     }
 
     /**
-     * A challenge answered at or after its expiry is refused; one answered the
-     * second before is accepted.
+     * A challenge answered at or after its expiry is refused as
+     * `passkey_challenge_expired`; one answered the second before is accepted.
      *
      * @return void
      *
@@ -417,7 +418,34 @@ final class PasskeySignInTest extends TestCase
             self::requestContext(),
         );
 
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $result->reason);
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_EXPIRED, $result->reason);
+    }
+
+    /**
+     * A challenge a response that did not sign in was submitted to is used, not
+     * expired or unknown: the next answer to it is `passkey_challenge_used`,
+     * and its event carries the same reason.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChallengeAFailedResponseSubmittedToIsUsed(): void
+    {
+        $this->registerPasskey($this->seedIdentity());
+
+        $options = $this->signInOptions();
+
+        $malformed = ['challenge' => $options->challengeId, 'credential' => '{'];
+        $answer    = ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)];
+
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('passkey', $malformed, self::requestContext())->reason);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $result = $this->sessions()->signIn('passkey', $answer, self::requestContext());
+
+        $this->assertFailed($result, FailureReason::PASSKEY_CHALLENGE_USED, FailureReason::PASSKEY_CHALLENGE_USED);
     }
 
     /**
@@ -457,7 +485,7 @@ final class PasskeySignInTest extends TestCase
 
         $this->assertFailed($result, FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS);
         self::assertSame($options->challengeId, $this->recordedEvent(AuthenticationFailed::class)->challengeId);
-        self::assertSame(0, PasskeyChallenge::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
     }
 
     /**
@@ -744,7 +772,7 @@ final class PasskeySignInTest extends TestCase
         );
 
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $result->reason);
-        self::assertSame(1, PasskeyChallenge::query()->count());
+        self::assertSame(1, PasskeyChallenge::query()->whereNull('consumed_at')->count());
     }
 
     /**

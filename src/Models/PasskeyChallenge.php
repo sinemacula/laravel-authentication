@@ -4,12 +4,15 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Models;
 
+use Illuminate\Container\Container;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 
 /**
  * The challenge of one passkey ceremony (a registration, a sign-in or a
@@ -17,11 +20,13 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * (none for a usernameless sign-in), the session and purpose a factor ceremony
  * is bound to, the options sent to the browser, which carry the challenge, and
  * until when it may be answered. It is used up by the first response made to
- * it, whatever that response proves.
+ * it, whatever that response proves, which records `consumed_at`; the row is
+ * kept so that a later response is told the challenge was used.
  *
  * Kept on the storage connection (see `Database\StorageConnection`), in the
- * table named by `authentication.passkeys.challenges_table`. Expired challenges
- * are pruned by Laravel's `model:prune --model` with this class.
+ * table named by `authentication.passkeys.challenges_table`. Challenges that
+ * expired, used or not, are pruned by Laravel's `model:prune --model` with this
+ * class once they have been expired for one more challenge lifetime.
  *
  * Only the class name is public, for applications to schedule that pruning
  * with; its columns and behaviour belong to the passkey service.
@@ -41,6 +46,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
  * @property ?string $binding_purpose
  * @property array<string, mixed> $options
  * @property \Carbon\CarbonInterface $expires_at
+ * @property ?\Carbon\CarbonInterface $consumed_at
  * @property ?\Carbon\CarbonInterface $created_at
  */
 final class PasskeyChallenge extends Model
@@ -82,13 +88,20 @@ final class PasskeyChallenge extends Model
     }
 
     /**
-     * The challenges that have expired, which can no longer be answered.
+     * The challenges that expired, consumed or not, a challenge lifetime ago:
+     * until then a response to one is told it expired or was used, rather than
+     * that it never existed.
      *
      * @return \Illuminate\Database\Eloquent\Builder<self>
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      */
     public function prunable(): Builder
     {
-        return self::query()->where('expires_at', '<=', $this->fromDateTime(Carbon::now()));
+        $retention = (new PasskeyChallenges(Container::getInstance()->make(Repository::class)))->ttlSeconds();
+
+        return self::query()->where('expires_at', '<=', $this->fromDateTime(Carbon::now()->subSeconds($retention)));
     }
 
     /**
@@ -100,8 +113,9 @@ final class PasskeyChallenge extends Model
     protected function casts(): array
     {
         return [
-            'options'    => 'array',
-            'expires_at' => 'datetime',
+            'options'     => 'array',
+            'expires_at'  => 'datetime',
+            'consumed_at' => 'datetime',
         ];
     }
 }

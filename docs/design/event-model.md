@@ -94,11 +94,11 @@ to these events, so the shape and the timing are a contract.
   refuses it, each naming its guard.
 - A sign-in method may refuse only with a sign-in method reason (`FailureReason::isSignInMethodReason()`:
   `invalid_credentials`, `identifier_unverified` once its input proved the identifier is held, `code_expired`,
-  `code_exhausted`, `passkey_challenge_invalid` and `passkey_counter_regressed`); any other reason is the session
-  service's to give, and a method that returns one is a misconfiguration (`LogicException`). A concealed reason
-  (`FailureReason::isConcealed()`: `account_rate_limited`, `code_expired`, `code_exhausted`,
-  `passkey_counter_regressed`) reaches only the event: `SignInResult::failed()` answers it as `invalid_credentials`,
-  with no wait, so the client learns nothing a guess could use.
+  `code_exhausted`, `passkey_challenge_invalid`, `passkey_challenge_expired`, `passkey_challenge_used` and
+  `passkey_counter_regressed`); any other reason is the session service's to give, and a method that returns one is a
+  misconfiguration (`LogicException`). A concealed reason (`FailureReason::isConcealed()`: `account_rate_limited`,
+  `code_expired`, `code_exhausted`, `passkey_counter_regressed`) reaches only the event: `SignInResult::failed()`
+  answers it as `invalid_credentials`, with no wait, so the client learns nothing a guess could use.
 - `RefreshTokenExchange::exchange()` returns its `AuthenticationFailed` undispatched and its caller (the guard)
   dispatches it; the exchange itself dispatches only `SessionRevoked`, after commit.
 

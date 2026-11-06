@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Http\ClientText;
 use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengeRefusal;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -139,12 +140,15 @@ final readonly class PasskeyService
      * and of control and bidirectional formatting characters, and cut to 255
      * characters). The challenge is used up whatever the outcome (unless a
      * transaction of the caller's around the call rolls back). Refused as
-     * `challenge_invalid` when the challenge is not a live registration
-     * challenge of this guard for the identity, `response_invalid` when the
-     * response is malformed or does not verify (origin, relying party, user
-     * presence and verification, challenge, algorithm, attestation statement),
-     * and `already_registered` when the credential is registered already,
-     * before the factor gate is asked.
+     * `challenge_invalid` when the challenge is malformed, unknown, or not a
+     * registration challenge of this guard for the identity,
+     * `challenge_expired` when it is the identity's own and expired unanswered,
+     * `challenge_used` when a response was submitted to it before (whether or
+     * not that one registered a passkey, since it is used up before it is
+     * verified), `response_invalid` when the response is malformed or does not
+     * verify (origin, relying party, user presence and verification, challenge,
+     * algorithm, attestation statement), and `already_registered` when the
+     * credential is registered already, before the factor gate is asked.
      *
      * Then, in one transaction on the passkey model's connection (the storage
      * connection; a savepoint in the caller's), the factor gate is asked first
@@ -185,8 +189,12 @@ final readonly class PasskeyService
 
         $consumed = $this->assertions()->challenges()->consume($challenge, ChallengePurpose::REGISTER, $rp, $owner, $now);
 
-        if ($consumed === null) {
-            return PasskeyRegistration::challengeInvalid();
+        if ($consumed instanceof ChallengeRefusal) {
+            return match ($consumed) {
+                ChallengeRefusal::NOT_FOUND => PasskeyRegistration::challengeInvalid(),
+                ChallengeRefusal::EXPIRED   => PasskeyRegistration::challengeExpired(),
+                ChallengeRefusal::USED      => PasskeyRegistration::challengeUsed(),
+            };
         }
 
         $webauthn = $this->webauthn();
@@ -305,7 +313,11 @@ final readonly class PasskeyService
      * its factor challenge for the binding: verified, with what the assertion
      * showed, or failed with why. The challenge must be a live factor
      * challenge of this guard and relying party for the identity and the
-     * binding's session and purpose (`passkey_challenge_invalid`); the passkey
+     * binding's session and purpose: not that (`passkey_challenge_invalid`, as
+     * for a malformed, unknown or another's challenge), or its own and expired
+     * (`passkey_challenge_expired`), or its own and submitted to before
+     * (`passkey_challenge_used`, whether or not that one verified, since it is
+     * used up before it is verified); the passkey
      * asserted must be one the challenge allowed, compared exactly, and the
      * identity's (`invalid_credentials`, as for a malformed or unverified
      * response); then the origin, the relying party id hash, user presence,
@@ -379,6 +391,28 @@ final readonly class PasskeyService
     public function passkeys(Identity $identity): array
     {
         return array_map(PasskeySummary::of(...), PasskeyCredentials::of($this->relyingParty(), PasskeyOwner::of($identity)));
+    }
+
+    /**
+     * The credential ids of the identity's passkeys for the guard's relying
+     * party, as stored (unpadded base64url), in registration order (oldest
+     * first), read from the write connection. A credential id is public
+     * WebAuthn data, which a ceremony sends the browser as an allowed
+     * credential, but that the identity holds it is not: the association stays
+     * the application's to access-control, so hand these only to the identity
+     * they belong to, or to a caller authorised for it. Reports nothing, so it
+     * takes no client.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return list<string>
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public function credentialIds(Identity $identity): array
+    {
+        return array_map(static fn (Passkey $passkey): string => $passkey->credential_id, PasskeyCredentials::of($this->relyingParty(), PasskeyOwner::of($identity)));
     }
 
     /**

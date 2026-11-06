@@ -148,7 +148,7 @@ final class StorageConnectionSessionsTest extends TestCase
 
         $this->signInOptions();
 
-        self::assertSame(1, DB::connection(self::STORAGE)->table('passkey_challenges')->count());
+        self::assertSame(1, DB::connection(self::STORAGE)->table('passkey_challenges')->whereNull('consumed_at')->count());
         self::assertTrue($this->signInWithPasskey()->isSignedIn());
         self::assertSame(1, $this->records()->count());
     }

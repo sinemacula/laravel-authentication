@@ -107,39 +107,48 @@ final class PasskeyChallengeTest extends TestCase
     }
 
     /**
-     * Pruning deletes the challenges that have expired, at their expiry second,
-     * and keeps those that can still be answered.
+     * Pruning deletes the challenges that expired a challenge lifetime ago (300
+     * seconds by default), used or not, at that second, and keeps those that
+     * can still be answered, those that expired less ago, so a response to them
+     * is told it expired, and a used one until it expires and its lifetime has
+     * passed too.
      *
      * @return void
      */
-    public function testPruningDeletesExpiredChallenges(): void
+    public function testPruningDeletesChallengesExpiredForALifetime(): void
     {
         $now = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
 
         Carbon::setTestNow($now);
 
-        foreach (['expired' => -60, 'expiring' => 0, 'live' => 1] as $name => $offset) {
+        $rows = [
+            1 => ['expires' => -300, 'used' => false],
+            2 => ['expires' => -300, 'used' => true],
+            3 => ['expires' => -299, 'used' => false],
+            4 => ['expires' => -299, 'used' => true],
+            5 => ['expires' => 1, 'used' => false],
+            6 => ['expires' => 1, 'used' => true],
+        ];
+
+        foreach ($rows as $number => $row) {
             (new PasskeyChallenge)->forceFill([
-                'id' => match ($name) {
-                    'expired'  => '0192f6b2-0000-7000-8000-000000000001',
-                    'expiring' => '0192f6b2-0000-7000-8000-000000000002',
-                    default    => '0192f6b2-0000-7000-8000-000000000003',
-                },
-                'purpose'    => 'sign_in',
-                'guard'      => 'api',
-                'rp_id'      => 'example.test',
-                'options'    => [],
-                'expires_at' => $now->addSeconds($offset),
+                'id'          => sprintf('0192f6b2-0000-7000-8000-%012d', $number),
+                'purpose'     => 'sign_in',
+                'guard'       => 'api',
+                'rp_id'       => 'example.test',
+                'options'     => [],
+                'expires_at'  => $now->addSeconds($row['expires']),
+                'consumed_at' => $row['used'] ? $now->addSeconds($row['expires'] - 1) : null,
             ])->save();
         }
 
         Artisan::call('model:prune', ['--model' => [PasskeyChallenge::class], '--pretend' => true]);
 
         self::assertStringContainsString('2 [' . PasskeyChallenge::class . '] records will be pruned.', Artisan::output());
-        self::assertSame(3, PasskeyChallenge::query()->count());
+        self::assertSame(6, PasskeyChallenge::query()->count());
 
         Artisan::call('model:prune', ['--model' => [PasskeyChallenge::class]]);
 
-        self::assertSame(['0192f6b2-0000-7000-8000-000000000003'], PasskeyChallenge::query()->pluck('id')->all());
+        self::assertSame([3, 4, 5, 6], array_map(static fn (string $id): int => (int) substr($id, -12), PasskeyChallenge::query()->orderBy('id')->pluck('id')->all()));
     }
 }

@@ -169,7 +169,7 @@ one transaction; every other model in chunks of one conditional `DELETE` that re
 | `Models\Session`          | it has been over (revoked, or past a deadline) for `session.prune_after_days`, with its proofs and provenance |
 | `Models\RateLimit`        | its window has ended                                                                                          |
 | `Models\OneTimeCode`      | it has expired                                                                                                |
-| `Models\PasskeyChallenge` | it has expired                                                                                                |
+| `Models\PasskeyChallenge` | it expired, used or not, a challenge lifetime ago (`passkeys.challenge_ttl_seconds`)                          |
 | `Models\ApiKey`           | it was revoked or expired more than `api_keys.prune_after_days` ago                                           |
 | `Models\IdentifierChange` | it has expired                                                                                                |
 
