@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
 use SineMacula\Laravel\Authentication\Database\IdentityLock;
+use SineMacula\Laravel\Authentication\Database\SharedConnection;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -70,6 +71,9 @@ final readonly class PasskeyService
 
     /** @var int Longest name a passkey is stored with, in characters. */
     private const int NAME_MAX_LENGTH = 255;
+
+    /** @var string What a registration on a pending sign-in is called in the shared-connection refusal. */
+    private const string PENDING_FLOW = 'A passkey registration on a pending sign-in';
 
     /** @var int Longest session key a ceremony's binding may name, in characters. */
     private const int SESSION_MAX_LENGTH = 255;
@@ -194,8 +198,11 @@ final readonly class PasskeyService
      * this identity and, when the challenge records a binding, the very session
      * it names; otherwise `pending_invalid`, whichever of these failed, with
      * the gate not asked, nothing stored and no `PasskeyAdded`. The credential
-     * is never used to retarget a bound challenge. The gate gets the credential
-     * as a `Secret` and completes the session's factor itself (see
+     * is never used to retarget a bound challenge. The identity's row is locked
+     * in the storage connection's transaction, so the identity must live on
+     * that connection, as for a password reset (a `LogicException` otherwise,
+     * before anything is consumed). The gate gets the credential as a `Secret`
+     * and completes the session's factor itself (see
      * `PasskeyFactorGate::registering()`). Either refusal is reported once, as
      * a pending action refused is (Laravel's `Failed` and
      * `AuthenticationFailed` for the sign-in flow, with the client and the
@@ -228,6 +235,10 @@ final readonly class PasskeyService
         $owner     = PasskeyOwner::of($identity);
         $rp        = $this->relyingParty();
         $now       = CarbonImmutable::now()->startOfSecond();
+
+        if ($presented !== null) {
+            SharedConnection::assert($owner, self::PENDING_FLOW, $this->container->make(Repository::class));
+        }
 
         $consumed = $this->assertions()->challenges()->consume($challenge, ChallengePurpose::REGISTER, $rp, $owner, $now);
 
@@ -601,7 +612,7 @@ final readonly class PasskeyService
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private function presented(Refused|Secret|string $presented, Identity&Model $owner, RelyingParty $rp, ClientContext $client): PasskeyRegistration|Secret
+    private function presented(#[\SensitiveParameter] Refused|Secret|string $presented, Identity&Model $owner, RelyingParty $rp, ClientContext $client): PasskeyRegistration|Secret
     {
         $transport = RefreshTokenTransport::forGuard($rp->guard, $this->container->make(Repository::class));
 

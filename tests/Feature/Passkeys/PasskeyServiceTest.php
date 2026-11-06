@@ -2606,6 +2606,75 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
+     * A pending credential handed in as a string leaves no trace of itself in
+     * the trace of an exception thrown while it is held (here a misconfigured
+     * transport), even where arguments are kept in traces.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingCredentialHandedInAsAStringLeavesNoTraceOfItself(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, null);
+
+        config()->set('auth.guards.api.refresh_token', ['transport' => 'carrier-pigeon']);
+
+        $credential = 'trace-session-key.trace-secret-value';
+        $ignored    = ini_set('zend.exception_ignore_args', '0');
+        $trace      = null;
+
+        try {
+            Auth::passkeys('api')->register($identity, $challenge, $answer, self::requestClient(), null, $credential);
+        } catch (\InvalidArgumentException $exception) {
+            $trace = $exception->getTrace();
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $ignored);
+        }
+
+        self::assertIsArray($trace);
+
+        $strings = array_filter(array_merge(...array_map(static fn (array $frame): array => $frame['args'] ?? [], $trace)), is_string(...));
+
+        self::assertSame([], array_filter($strings, static fn (string $argument): bool => str_contains($argument, 'trace-secret-value')));
+    }
+
+    /**
+     * A registration on a pending sign-in locks the identity's row inside the
+     * storage connection's transaction, so an identity on another connection is
+     * refused before the challenge is used up or anything is read; an ordinary
+     * registration is not judged.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingRegistrationOfAnIdentityOnAnotherConnectionIsRefused(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, null);
+
+        config()->set('authentication.storage.connection', 'elsewhere');
+
+        try {
+            Auth::passkeys('api')->register($identity, $challenge, $answer, self::requestClient(), null, 'key.secret');
+
+            self::fail('Expected the identity\'s connection to be refused.');
+        } catch (\LogicException $exception) {
+            self::assertStringStartsWith('A passkey registration on a pending sign-in spends its proof with its change to the identity', $exception->getMessage());
+            self::assertStringContainsString('the package\'s tables on [elsewhere]', $exception->getMessage());
+        } finally {
+            config()->set('authentication.storage.connection', null);
+        }
+
+        self::assertSame(1, PasskeyChallenge::query()->whereNull('consumed_at')->count());
+        self::assertTrue(Auth::passkeys('api')->register($identity, $challenge, $answer, self::requestClient())->isRegistered());
+    }
+
+    /**
      * Configure the guards and their relying party.
      *
      * @param  mixed  $app
