@@ -58,6 +58,12 @@ revoked, and when a session that ended is deleted. Starting a session is in
   refused as `refresh_token_conflict`: a cross-site page that auto-submits a form to the logout route (sending no
   `SameSite=Strict` cookie, but able to have the response's cookie kept) clears nothing, and a refused request leaves
   the cookie with the session it still proves.
+- `signOutWith()` takes an optional `$expectedSession` (null accepts any session; otherwise compared with
+  `IdentifierCoercion::matches()`, so `42` matches `'42'` and `'042'` does not). It is compared once `RefreshProof`
+  has proven the token, so a replay still revokes as `rotation_reuse` and every refusal of the proof reports its own
+  reason, and before the owner is read: a mismatch is `AuthenticationFailed` (flow `sign_out`, naming the token's own
+  session) and revokes nothing, forgets no binding, and carries no expired cookie, since refusing a request about
+  another session must not sign the browser out of its own.
 - A sign-out by refresh credential takes no lock, so it races a rotation's compare-and-swap: a token rotated in between
   is the previous one inside the grace window and still proves the session, and the conditional revocation means two
   sign-outs, or a sign-out and a replay, revoke and report once.

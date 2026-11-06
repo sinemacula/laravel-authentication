@@ -51,8 +51,9 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   `isGranted()`, `isRegistered()`, `isVerified()`, or the enum's success case. Its payload (the session, the passkey's
   summary, the code's expiry) is read only once the predicate or the case says it is there.
 - `sessions()->refresh()` answers a `RefreshResult`: refreshed on the same session, with its rotated `TokenPair`, or
-  failed with the exchange's or the transport's reason, `rate_limited` with `retryAfter`; one with a presented token
-  says where its token came from (`source`).
+  failed with the exchange's or the transport's reason, `rate_limited` with `retryAfter`, or `session_mismatch` for a
+  token proving a session other than the `$expectedSession` given; one with a presented token says where its token came
+  from (`source`). `switchTo()` and `signOutWith()` refuse the same way.
 - Every `TokenPair` (a sign-in's, a pending session's once it activates, a refresh's and its grace retry's, a switch's)
   says when its access token expires, as the token itself does: `expiresAt`, the signed `exp`, and `expiresIn`, `exp`
   minus `iat` in seconds and at least one, the `expires_in` of an RFC 6749 section 5.1 response, so a caller answers a

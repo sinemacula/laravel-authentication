@@ -152,6 +152,12 @@ other rotated token as a replay that revokes the session.
   blocked client costs one read. `refresh()` dispatches `Failed` and `AuthenticationFailed` and returns `rate_limited`
   with the same `retryAfter`, never thrown (a throttled refresh is an outcome, see `outcomes.md`); the route answers it
   with a 429 and `Retry-After`, since a 401 would be wrong.
+- `refresh()` takes an optional `$expectedSession` for a route scoped to one session (null accepts any). In
+  `RefreshTokenExchange::exchangeOn()`, once the rotation id is classified (so a replay revokes as `rotation_reuse`, a
+  grace retry matches its own session and the row's own states report themselves) and before the owner is hydrated, a
+  session whose identifier does not match (`IdentifierCoercion::matches()`: `42` matches `'42'`, `'042'` does not) is
+  refused as `session_mismatch`, an `AuthenticationFailed` of flow `refresh` naming the token's own session, counted
+  like any other failure. Nothing is rotated or bound; the issuance guard still commits its sequence bump.
 - A session of another guard, or of none, produces `session_guard_mismatch` without a write to the session, even for a
   token that would be a replay, and nothing is hydrated.
 - A session whose `sign_in_method` the guard no longer allows, or which records none, produces `method_not_allowed`; an

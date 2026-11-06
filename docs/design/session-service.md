@@ -166,7 +166,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `loginVerified()`, with the tenant and the sign-in method the exchange established. Every refusal is a failed
   `RefreshResult` with the exchange's or the transport's reason, `rate_limited` with its wait, never a thrown 429;
   `refresh()` answers `null` only when nothing was presented, and says where a presented token came from (see
-  `refresh-rotation-and-replay.md` and `refresh-token-transport.md`).
+  `refresh-rotation-and-replay.md` and `refresh-token-transport.md`). `refresh()`, `switchTo()` and `signOutWith()` each
+  end with an optional `$expectedSession` for a route scoped to one session, refusing a token that proves another as
+  `session_mismatch` after the token is classified and before anything is rotated, switched, revoked or bound.
 - Looking up is the service's too, in `Sessions\Concerns\LooksUpSessions`: `session($identity, $id)` and `principal()`
   (see `callers.md`), and `proofs($session, $since, $kinds, $limit)` and `firstFactor($session)`, which read the
   counting proofs and the first factor of one of this guard's live, active sessions of a person through
