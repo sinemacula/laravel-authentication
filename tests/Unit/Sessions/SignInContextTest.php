@@ -43,6 +43,7 @@ final class SignInContextTest extends TestCase
             'only a NUL byte'                => ["\0", null],
             'plain'                          => ['Work laptop', 'Work laptop'],
             'NUL bytes removed'              => ["Work\0 laptop\0", 'Work laptop'],
+            'controls and bidi removed'      => ["Work\u{202E}pot\u{001B}pal\u{0085}", 'Workpotpal'],
             'invalid UTF-8 replaced'         => ["Lap \xC3\x28 \xFF", 'Lap ?( ?'],
             'whitespace kept'                => ['  spaced  ', '  spaced  '],
             '255 characters kept'            => [str_repeat('é', 255), str_repeat('é', 255)],
@@ -52,8 +53,9 @@ final class SignInContextTest extends TestCase
     }
 
     /**
-     * The client name and platform are made safe to store: NUL bytes removed,
-     * invalid UTF-8 replaced, cut to 255 characters, and empty read as `null`.
+     * The client name and platform are made safe to store: invalid UTF-8
+     * replaced, control and bidirectional formatting characters removed, cut to
+     * 255 characters, and empty read as `null`.
      *
      * @param  ?string  $given
      * @param  ?string  $stored

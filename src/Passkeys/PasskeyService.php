@@ -135,15 +135,16 @@ final readonly class PasskeyService
 
     /**
      * Register the passkey the browser created in answer to the identity's
-     * registration challenge, under the name given (cleaned of NUL bytes and
-     * invalid UTF-8, and cut to 255 characters). The challenge is used up
-     * whatever the outcome (unless a transaction of the caller's around the
-     * call rolls back). Refused as `challenge_invalid` when the challenge is
-     * not a live registration challenge of this guard for the identity,
-     * `response_invalid` when the response is malformed or does not verify
-     * (origin, relying party, user presence and verification, challenge,
-     * algorithm, attestation statement), and `already_registered` when the
-     * credential is registered already, before the factor gate is asked.
+     * registration challenge, under the name given (cleaned of invalid UTF-8
+     * and of control and bidirectional formatting characters, and cut to 255
+     * characters). The challenge is used up whatever the outcome (unless a
+     * transaction of the caller's around the call rolls back). Refused as
+     * `challenge_invalid` when the challenge is not a live registration
+     * challenge of this guard for the identity, `response_invalid` when the
+     * response is malformed or does not verify (origin, relying party, user
+     * presence and verification, challenge, algorithm, attestation statement),
+     * and `already_registered` when the credential is registered already,
+     * before the factor gate is asked.
      *
      * Then, in one transaction on the passkey model's connection (the storage
      * connection; a savepoint in the caller's), the factor gate is asked first
