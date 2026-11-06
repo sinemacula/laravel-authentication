@@ -91,9 +91,9 @@ session held back by the policy waits as `pending-sessions.md` describes; the pe
 1. A sign-in selects one principal and no tenant: the session records the principal's own tenant, and its tokens name
    it. `Auth::tenant()` on a bearer request is that tenant, with no resolver call.
 2. The application binds a `TenantAccess` and a `TenantResolver` that let a principal act in the tenants below its own.
-   `switchTo($refreshToken, SwitchTarget::tenant(TenantSelection::of($id)))` admits the descendant, asks its policy,
-   and rotates the session into it: the old access token is refused as `session_tenant_mismatch`, and the new one acts
-   in the descendant.
+   `switchTo($presented, SwitchTarget::tenant(TenantSelection::of($id)), $client)` admits the descendant, asks its
+   policy, and rotates the session into it: the old access token is refused as `session_tenant_mismatch`, and the new
+   one acts in the descendant.
 3. The descendant's policy starts to require a further factor, and the application calls `tenantPolicyChanged()` inside
    the transaction that publishes it: the session, which lacks the factor, is revoked as `tenant_policy_changed` with
    the publication, and `SessionRevoked` follows its commit.

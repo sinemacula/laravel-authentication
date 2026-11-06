@@ -71,8 +71,8 @@ and any proof kind, by default; see [Freshness](configuration.md#freshness), whe
   method; otherwise it is `reauthentication_required`, nothing counted.
 
 A further factor your code verified proves nothing on its own: record it on the session with
-`Auth::sessions()->stepUp($proof)` (see [Stepping up](sessions.md#stepping-up)) and prove the change with the session.
-An identity that signs in only with codes or passkeys reauthenticates the session with
+`Auth::sessions()->stepUp($proof, $client)` (see [Stepping up](sessions.md#stepping-up)) and prove the change with the
+session. An identity that signs in only with codes or passkeys reauthenticates the session with
 `Auth::sessions()->reauthenticate()` (see [Reauthenticating](sessions.md#reauthenticating)), or signs in again and makes
 the change from the new session. A token with no session (in [access-only
 mode](installation.md#access-only-mode-no-sessions-no-refresh), or any access token without a `sid`) has none to offer,

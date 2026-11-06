@@ -95,12 +95,15 @@ authorisation package decides what they allow.
 
 ## Failure / Edge Cases
 
-- The exchange's request is read only from a form-encoded POST body; a parameter in the query string, repeated or not a
-  string is `invalid_request`, as are Basic and body credentials together, and a parameter without a value is omitted
-  (RFC 6749 3.1). No client authentication, malformed Basic, or body credentials on an application that does not set
-  `client_secret_post` (default `false`, `ApplicationPolicy::allowsClientSecretPost()`; Basic is always accepted, RFC
-  6749 2.3.1) is `invalid_client`. Request failures are reported as `invalid_credentials`, before any query, and not
-  counted.
+- `ClientCredentialsRequest::extract()` reads the token request only from a form-encoded POST body; a parameter in the
+  query string, repeated or not a string is `invalid_request`, as are Basic and body credentials together, and a
+  parameter without a value is omitted (RFC 6749 3.1). No client authentication or malformed Basic is `invalid_client`.
+  It answers the error or a `PresentedClient` recording how the client authenticated (`ClientAuthentication`), and
+  `exchange()` takes either with the client given: an error handed in is reported as `invalid_credentials`, before any
+  query, and not counted (any other string throws `InvalidArgumentException`). Body credentials on an application that
+  does not set `client_secret_post` (default `false`, `ApplicationPolicy::allowsClientSecretPost()`; Basic is always
+  accepted, RFC 6749 2.3.1) are `invalid_client`, reported the same way, judged by `exchange()` on every
+  `PresentedClient`, however it was built.
 - Every failure to authenticate the client (unknown, wrong secret, revoked, expired, another guard's key, owner or
   principal problems) is `invalid_client` (401, always with `WWW-Authenticate: Basic realm="<guard>"`, since a 401
   carries a challenge whatever method the client used, RFC 7235 3.1), counted per IP address; only a principal the
@@ -156,7 +159,8 @@ authorisation package decides what they allow.
 - `src/Events/EventContext.php`: `credentialId`, `scopes`.
 - `src/ApiKeys/ApiKeyService.php`, `ApiKeyToken.php`, `ApiKeyLookup.php`, `ApiKeyAuthentication.php`,
   `ApiKeyAdmission.php`, `CredentialBinding.php`, `ApiKeyRules.php`, `ApiKeySettings.php`.
-- `src/ClientCredentials/ClientCredentialsExchange.php`, `ClientCredentialsRequest.php`, `ClientCredentialsResult.php`;
+- `src/ClientCredentials/ClientCredentialsExchange.php`, `ClientCredentialsRequest.php`, `PresentedClient.php`,
+  `ClientCredentialsResult.php`, `Enums/ClientAuthentication.php`;
   `src/Jwt/MachineTokens.php`, `JwtTokenService::issueClientAccessToken()`, `src/Guards/BearerAuthentication.php`
   (`admitForKey()`), `src/Guards/AuthenticatedBearer.php`.
 - `src/Guards/ApiKeyGuard.php`, `src/Models/ApiKey.php`,

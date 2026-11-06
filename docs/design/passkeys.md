@@ -71,26 +71,26 @@ package's.
 ## Success Path
 
 - Registration: `registrationOptions($identity, $userName, $displayName)` writes a `register` challenge;
-  `register($identity, $challenge, $credential, $name)` uses it up, parses the browser's `PublicKeyCredential` (JSON or
-  decoded), runs webauthn-lib's attestation ceremony against the stored options and the relying party, inserts the
-  passkey (name cleaned and cut to 255 characters, only WebAuthn's own transports kept) and answers
+  `register($identity, $challenge, $credential, $client, $name)` uses it up, parses the browser's `PublicKeyCredential`
+  (JSON or decoded), runs webauthn-lib's attestation ceremony against the stored options and the relying party, inserts
+  the passkey (name cleaned and cut to 255 characters, only WebAuthn's own transports kept) and answers
   `PasskeyRegistration::registered()` with its `PasskeySummary`; `PasskeyAdded` once committed.
-- Sign-in: `signInOptions()` reserves a slot on the client's IP address under the guard's `passkey_options` limit
-  (never given back; its `per_identifier` must be `null`, as there is no identifier, and `AttemptLimits` refuses any
-  other value) and writes a `sign_in` challenge naming no credential. `Auth::sessions()->signIn('passkey',
-  ['challenge' => ..., 'credential' => ...])` runs the session service as for any method: no identifier, so the
-  `sign_in` limit counts only the IP address; inside the credential timebox `PasskeySignIn` uses the challenge up,
-  finds the passkey, loads its owner through the guard's provider (`retrieveById`, the very model recorded), takes a
-  slot on the owner's account limit, verifies the assertion and applies the counter rule; `PasskeyUsed` once the use is
-  committed, whether or not the session service then admits the owner. The session records the method `passkey` and no
-  identifier type.
+- Sign-in: `signInOptions()` reserves a slot on the client's IP address under the guard's `passkey_options` limit (never
+  given back; its `per_identifier` must be `null`, as there is no identifier, and `AttemptLimits` refuses any other
+  value) and writes a `sign_in` challenge naming no credential. `Auth::sessions()->signIn('passkey', ['challenge' =>
+  ..., 'credential' => ...], $context)` runs the session service as for any method: no identifier, so the `sign_in`
+  limit counts only the IP address; inside the credential timebox `PasskeySignIn` uses the challenge up, finds the
+  passkey, loads its owner through the guard's provider (`retrieveById`, the very model recorded), takes a slot on the
+  owner's account limit, verifies the assertion and applies the counter rule; `PasskeyUsed` once the use is committed,
+  whether or not the session service then admits the owner. The session records the method `passkey` and no identifier
+  type.
 - Factor (the seam for a further-factor package): `factorOptions($identity, $binding, $credentialIds)` checks the
-  `ProofBinding` names the identity, this guard and a session, and writes a `factor` challenge bound to that session
-  and purpose, allowing only the named credential ids (canonical unpadded base64url) the identity holds for the relying
+  `ProofBinding` names the identity, this guard and a session, and writes a `factor` challenge bound to that session and
+  purpose, allowing only the named credential ids (canonical unpadded base64url) the identity holds for the relying
   party, compared exactly, or answers `null`, writing nothing, when none is left. User verification is required, or
-  preferred when the caller asks. `verifyFactor($identity, $binding, $challenge, $credential)` uses up only a challenge
-  of that binding, refuses a passkey the challenge did not allow, applies the same checks for that identity and answers
-  `PasskeyFactorResult::verified()` with a `PasskeyFactorAssertion`: the passkey's id and credential id, the
+  preferred when the caller asks. `verifyFactor($identity, $binding, $challenge, $credential, $client)` uses up only a
+  challenge of that binding, refuses a passkey the challenge did not allow, applies the same checks for that identity
+  and answers `PasskeyFactorResult::verified()` with a `PasskeyFactorAssertion`: the passkey's id and credential id, the
   `ObservedProperties` its authenticator data showed (never what the ceremony asked for), the time and the passkey's
   summary as its use left it, with `PasskeyUsed`. It counts nothing and reports no failure: the factor's outcome is the
   further-factor package's.
@@ -107,9 +107,9 @@ package's.
   its type. A credential inserted by another while the gate ran rolls the change back and answers `already_registered`
   with no association; a passkey deleted by another answers `PasskeyRemoval::notRemoved()`, with no completion. The
   default, `Passkeys\NoPasskeyFactors`, associates nothing, completes nothing and refuses nothing.
-- Management: `passkeys($identity)` lists summaries oldest first; `remove($identity, $id)` finds the identity's passkey
-  of the relying party, asks the gate, deletes it with one conditional `DELETE` and reports `PasskeyRemoved` from the
-  call that removed it, answering a `PasskeyRemoval` (`isRemoved()`, and the gate's `completion`). The optional
+- Management: `passkeys($identity)` lists summaries oldest first; `remove($identity, $id, $client)` finds the identity's
+  passkey of the relying party, asks the gate, deletes it with one conditional `DELETE` and reports `PasskeyRemoved`
+  from the call that removed it, answering a `PasskeyRemoval` (`isRemoved()`, and the gate's `completion`). The optional
   `Listeners\RevokeSessionsOnPasskeyRemoval` then ends the identity's sessions (`factor_removed`, through
   `credentialRemoved()`). A passkey the factor package associated as a factor is removed the same way, and the factor
   package then calls the session service's mandatory `factorRemoved()` in the same change (from its gate's

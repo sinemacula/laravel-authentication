@@ -86,14 +86,14 @@ outdates, and why the change stands when the notice to the old identifier fails.
 
 ## Success Path
 
-1. `requestByCode($identity, 'email', $new, Reauthentication::session($session))`: configuration checked (a code needs a
-   `OneTimeCodeSender` bound, as every change needs a notifier); the proof is
-   recent; the new identifier is normalised and differs; the limits have room. In one transaction: a code is issued for
-   a fresh `request_id`, the change is written, the replaced change's code invalidated, the code's delivery queued.
-   After commit: `IdentifierChangeRequested`, and the job sends the code to the new identifier while the code is live
-   and the change still names its request and guard.
-2. `confirmByCode($identity, 'email', $challengeId, $code)` (the challenge id `requestByCode()` answered): in one
-   transaction the code is accepted and used up, the change deleted, no other holder found, the outdated proofs
+1. `requestByCode($identity, 'email', $new, Reauthentication::session($session), $client)`: configuration checked (a
+   code needs a `OneTimeCodeSender` bound, as every change needs a notifier); the proof is recent; the new identifier is
+   normalised and differs; the limits have room. In one transaction: a code is issued for a fresh `request_id`, the
+   change is written, the replaced change's code invalidated, the code's delivery queued. After commit:
+   `IdentifierChangeRequested`, and the job sends the code to the new identifier while the code is live and the change
+   still names its request and guard.
+2. `confirmByCode($identity, 'email', $challengeId, $code, $client)` (the challenge id `requestByCode()` answered): in
+   one transaction the code is accepted and used up, the change deleted, no other holder found, the outdated proofs
    invalidated, the identifier replaced and verified. After commit: `IdentifierChanged`, and the notice to `previous` is
    queued.
 3. `requestByLink(...)` / `confirmByLink($link, $client)` are the same with a signed link in place of the code: the link
@@ -106,7 +106,8 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - A confirmation link's `GET` should only show a confirmation whose form posts back to the same signed address (the
   documented routes do): mail scanners and link previews fetch links unasked, and a change confirmed by such a fetch, of
   an address mistyped into a stranger's scanned mailbox, would make that address the one password resets go to.
-  `confirmByLink()` reads the signature from the request's query, so the `POST` carries it.
+  The signature is in the link's query string, which `SignedLink::fromRequest()` captures as received, so the `POST`
+  carries it.
 - No recent authentication, a wrong password, or a password on a guard that does not allow passwords (a code- or
   passkey-only application, which counts nothing): `reauthentication_required`. A password checked too often: the
   `sign_in` limits' wait, as `rate_limited`.
@@ -156,7 +157,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
   `ChangeConfirmation.php`, `ChangeRefused.php`, `PendingChanges.php`, `RequestedChange.php`, `ChangeLinks.php`,
   `PresentedChangeLink.php`, `IdentifierChangeSettings.php`, `IdentifierChangeRequest.php`,
   `PendingIdentifierChange.php`, `IdentifierChangeNotice.php`, `Enums/*`.
-- `src/IdentifierChanges/SendIdentifierChangeCode.php`, `SendIdentifierChangeNotice.php`.
+- `src/IdentifierChanges/SendIdentifierChangeCode.php`, `SendIdentifierChangeNotice.php`; `src/Http/SignedLink.php`.
 - `src/Sessions/Reauthentication.php`, `src/Sessions/RecentAuthentication.php`, `src/Contracts/FreshnessPolicy.php`,
   `src/Freshness/ConfiguredFreshness.php`, `src/SessionRecords/SessionLookup.php` (`lock()`),
   `src/Database/IdentityLock.php`.

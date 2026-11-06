@@ -106,7 +106,9 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   shape and not a shared type: a link has no attempts to exhaust.
 - Laravel's `signed` middleware, when the application puts it on the verification route, answers an expired or tampered
   link with its own 403 (`InvalidSignatureException`) before `consume()` runs, so that route never answers `expired` and
-  no `AuthenticationFailed` is reported. `consume()` checks the signature itself, so the route needs no middleware.
+  no `AuthenticationFailed` is reported. `consume()` checks the signature and expiry itself, with every key and previous
+  key, from the `SignedLink` that `SignedLink::fromRequest()` captured (the address and the raw query string as
+  received), so the route needs no middleware.
 
 ## Implementation Anchors
 
@@ -122,7 +124,8 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 - `src/RateLimiting/LimitedOutcome.php`, `src/Codes/Enums/VerificationOutcome.php`, `src/Codes/CodeService.php`
   (`verify()`),
   `src/IdentifierChanges/Enums/IdentifierChangeOutcome.php`.
-- `src/Verification/Enums/VerificationLinkOutcome.php`, `src/Verification/VerificationLinks.php` (`consume()`).
+- `src/Verification/Enums/VerificationLinkOutcome.php`, `src/Verification/VerificationLinks.php` (`consume()`),
+  `src/Http/SignedLink.php`.
 
 ## Authoritative Tests
 

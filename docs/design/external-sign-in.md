@@ -104,17 +104,16 @@ link contract answers, and the package starts, reauthenticates and ends sessions
    savepoint in the adapter's; the reports and the guard's bind wait for its commit, and `ExternalResultRedeemed` (flow
    `sign_in`) follows the session's own events there, with the connection and the request reference in its context
    (see `event-model.md`). The result is an active pair or a pending session.
-5. To reauthenticate, the adapter hands a later result to `reauthenticateExternally($sessionId, $result)`, with the
-   identifier of the session its handoff names (an adapter holds no session object, and the session the request is
+5. To reauthenticate, the adapter hands a later result to `reauthenticateExternally($sessionId, $result, $client)`, with
+   the identifier of the session its handoff names (an adapter holds no session object, and the session the request is
    authenticated with is not necessarily that one): the method, the session as stored and its standing, the provider's
    time and the link are checked before any lock; then `ProofIssuance` locks the session's row and checks it again,
    records an `external_reauthentication`, asks the tenant's authentication policy with that proof recorded (as at every
    redemption), and issues one access token whose `auth_time` is the later of the session's and the provider's;
-   `Reauthenticated` and then `ExternalResultRedeemed` (flow `reauthentication`) report it once committed. An
-   adapter asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` for a session's standing, writing
-   nothing: with no link id (any link of the connection) and outside a transaction when a reauthentication flow starts,
-   locking nothing; with the link id inside the redemption's transaction, before it renews, locking the row until it
-   ends.
+   `Reauthenticated` and then `ExternalResultRedeemed` (flow `reauthentication`) report it once committed. An adapter
+   asks `externalStanding($sessionId, $identity, $connectionId, $linkId)` for a session's standing, writing nothing:
+   with no link id (any link of the connection) and outside a transaction when a reauthentication flow starts, locking
+   nothing; with the link id inside the redemption's transaction, before it renews, locking the row until it ends.
 6. When a link is removed or its scope widened, the adapter calls `linkRemoved()` or `linkScopeWidened()` in that
    transaction (`Sessions\ConnectionRevocations::link()`): the link's connection guard is written, then the identity's
    live session keys are read 500 at a time, then their provenance by key filtered on the connection and link and

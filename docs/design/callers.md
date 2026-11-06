@@ -88,7 +88,8 @@ uses for the caller's own instance, are the application's: the package binds no 
 - `src/Sessions/Concerns/LooksUpSessions.php`, `src/Sessions/ActiveSessions.php` (`find()`),
   `src/Sessions/PendingEvaluation.php` (`principal()`), `src/Sessions/PendingState.php` (`credentialField()`),
   `src/Http/RequestBody.php`
-- `src/Sessions/SessionRefresh.php` (`credentialFromRequest()`), `src/Sessions/RefreshCredential.php`
+- `src/Sessions/SessionRefresh.php` (`credential()`), `src/Sessions/Concerns/RefreshesSessions.php`
+  (`refreshCredential()`), `src/Sessions/RefreshCredential.php`, `src/Sessions/PendingCredential.php` (`extract()`)
 
 ## Authoritative Tests
 

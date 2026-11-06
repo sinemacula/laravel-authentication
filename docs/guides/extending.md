@@ -547,9 +547,9 @@ seam has a default that works alone.
   the new requirement: the call has read the current session's proofs under shared locks, and the package takes every
   session row before any proof. The identity may live on any connection, since nothing of it is written.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
-  `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
-  the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows
-  only the credential ids named; `verifyFactor()` answers a `PasskeyFactorResult` (see [Using
+  `verifyFactor($identity, $binding, $challenge, $credential, $client)`, which count and report nothing: the factor's
+  outcome is the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose
+  and allows only the credential ids named; `verifyFactor()` answers a `PasskeyFactorResult` (see [Using
   passkeys](signing-in.md#using-passkeys)), never `null`, whose `PasskeyFactorAssertion` carries the assertion's own
   observed properties for the factor package's `ProofResult`.
 - Bind a `Contracts\PasskeyFactorGate` to take part in the passkeys' lifecycle: `registering()` is asked inside the

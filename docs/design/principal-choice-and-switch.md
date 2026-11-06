@@ -143,11 +143,11 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 
 1. `signIn()` verifies the identity, finds several principals and none named, and writes the session pending on
    `principal`: `SessionPending` follows the commit, and the result `isPending()`, listing the principals.
-2. `pending($credential, PendingAction::LIST_PRINCIPALS)` lists them again; `choose($credential, $principal)` activates
-   the session as it, scheduling `SessionCreated` and `SignedIn` for the session's commit before it binds the guard
-   (`Validated`, `Login` and the bind events), and the slots are given back after the bind. With no transaction open
-   on the session's connection that is `SessionCreated`, `SignedIn`, then `Login`; inside a caller's transaction all
-   of it follows the commit in that order, or none of it runs on a rollback.
+2. `pending($credential, PendingAction::LIST_PRINCIPALS)` lists them again; `choose($credential, $principal, $client)`
+   activates the session as it, scheduling `SessionCreated` and `SignedIn` for the session's commit before it binds the
+   guard (`Validated`, `Login` and the bind events), and the slots are given back after the bind. With no transaction
+   open on the session's connection that is `SessionCreated`, `SignedIn`, then `Login`; inside a caller's transaction
+   all of it follows the commit in that order, or none of it runs on a rollback.
 3. Later, `switchTo($presented, SwitchTarget::principal($other), $client)` (the token the transport's `extract()`
    answered, or one a body application read, and the request's client) rotates the session to the other principal, in
    its own tenant unless one is named, or with `SwitchTarget::tenant()` to another tenant, and schedules

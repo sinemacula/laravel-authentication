@@ -25,7 +25,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `signIn()` order: the method is resolved (unknown throws); `Attempting`; a cookie application's request must come
   from a page of its own site (`SessionPreconditions::crossSite()`: `cross_site_request`, nothing read, counted or
   written, judged on the context's client; `start()`, `satisfy()` and `choose()` are held to it too, the last two on
-  the `ClientContext` they are given or else the guard's request, before the pending session is read, and only
+  the `ClientContext` they are given, before the pending session is read, and only
   `signInExternally()` is exempt; see `refresh-token-transport.md`); the application policy must allow the method
   (`method_not_allowed`, nothing counted, no timebox); the attempt limiter must grant a slot (`rate_limited`); then, in
   the guard's credential timebox, cut short only for an admitted identity: the method verifies the input, the identity
@@ -196,7 +196,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   to the most permissive `per_identifier` limit among the guards that check the account (see `application-policy.md`);
   for a method that counts no account, only by its identifier's and the IP address's limits. A pending session from
   `start()` or `signInExternally()` holds no slots (nothing was guessed), so its external verifier bounds it.
-- An activation runs in the acting request's client, or the one `satisfy()` or `choose()` is given: its events and the
+- An activation runs in the client `satisfy()` or `choose()` is given: its events and the
   session's last use carry that client, while the session keeps the client the sign-in came from as its creation. The
   bind's `PrincipalAssigned` and `SessionAuthenticated` carry it too (`bound()` hands the client to
   `GuardBinding::login()`), as they carry a sign-in's `SignInContext` client, so a last use the bind records is the same

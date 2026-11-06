@@ -126,9 +126,9 @@ a cookie application's results hand back the cookie instead of the token.
   was presented from; a reason handed in, the same with no `source`. A switch's refusal dispatches only
   `AuthenticationFailed` (flow `switch`), a sign-out's only `AuthenticationFailed` (flow `sign_out`).
   It reaches no session and no limit.
-- A plain refusal (a reason handed in, or `judge()`'s) is reported as the request form reports it, with the client
-  given, and costs no query; a refused token's result carries its `source`, a reason handed in none. `null` answers
-  `null` (refresh) or nothing signed out, dispatching nothing.
+- A plain refusal (a reason handed in, or `judge()`'s) is reported with the client given and costs no query; a refused
+  token's result carries its `source`, a reason handed in none. `null` answers `null` (refresh) or nothing signed out,
+  dispatching nothing.
 - A cookie the routes' `EncryptCookies` cannot decrypt arrives as `null` and is `token_invalid`; leave the cookie out
   of encryption, or set and read it on routes that both encrypt.
 - A refusal by the exchange returns the exchange's reason after the same events as `refresh()`, `rate_limited` with its

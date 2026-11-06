@@ -202,9 +202,8 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
    rolls back (the proof stays unspent), `invalid` (the recipient's reason). Accepted for a found model on another
    connection than the storage connection (a provider whose configuration names no model, which step 1 cannot check):
    roll back and throw the connection rule's `LogicException`, only now, so the refusal never tells someone without a
-   valid proof that the identifier is held.
-   Accepted for an eligible one: `PasswordWriter::write($identity, $password, RESET)` (a savepoint inside), then commit;
-   the timebox ends early and the reservation is released.
+   valid proof that the identifier is held. Accepted for an eligible one: `PasswordWriter::write($identity, $password,
+   RESET, $client)` (a savepoint inside), then commit; the timebox ends early and the reservation is released.
 5. The reset signs no one in and verifies no identifier.
 
 ## Failure / Edge Cases
