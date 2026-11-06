@@ -168,7 +168,7 @@ final class PasskeyAssertionsTest extends TestCase
         $first = $this->signInOptions();
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn($first, 42, $owner));
-        self::assertNull(PasskeyChallenge::query()->find($first->challengeId));
+        self::assertNotNull(PasskeyChallenge::query()->findOrFail($first->challengeId)->consumed_at);
 
         $stranger = new VirtualAuthenticator(self::ORIGIN);
 

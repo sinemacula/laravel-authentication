@@ -94,7 +94,7 @@ final class ReplicaPasskeysTest extends TestCase
         self::assertTrue(self::verifyPasskeyFactor($identity, $factor->challengeId, $this->authenticator()->get($factor->options))->isVerified());
 
         self::assertTrue($this->signInWithPasskey()->isSignedIn());
-        self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('passkey_challenges')->count());
+        self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('passkey_challenges')->whereNull('consumed_at')->count());
     }
 
     /**

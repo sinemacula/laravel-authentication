@@ -56,14 +56,34 @@ final readonly class PasskeyRegistration
     }
 
     /**
-     * The challenge is not a live registration challenge of the guard for the
-     * identity.
+     * The challenge is malformed, unknown, or not a registration challenge of
+     * the guard for the identity.
      *
      * @return self
      */
     public static function challengeInvalid(): self
     {
         return new self(PasskeyRegistrationStatus::CHALLENGE_INVALID);
+    }
+
+    /**
+     * The identity's registration challenge expired before it was answered.
+     *
+     * @return self
+     */
+    public static function challengeExpired(): self
+    {
+        return new self(PasskeyRegistrationStatus::CHALLENGE_EXPIRED);
+    }
+
+    /**
+     * A response was submitted to the identity's registration challenge before.
+     *
+     * @return self
+     */
+    public static function challengeUsed(): self
+    {
+        return new self(PasskeyRegistrationStatus::CHALLENGE_USED);
     }
 
     /**

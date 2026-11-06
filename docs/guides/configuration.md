@@ -778,9 +778,11 @@ closed with an `InvalidArgumentException` naming the guard and the key when the 
 `authentication:check` reports it for every guard whose application allows `passkey` or that sets a `passkeys` block.
 
 A challenge lives `challenge_ttl_seconds` (30 to 600, five minutes by default), which is also the `timeout` the options
-give the browser. Both tables live on the storage connection; prune expired challenges with `model:prune` (see [Pruning
-sessions](operations.md#pruning)). Passkeys are not pruned: one lasts until its owner removes it. The algorithms offered
-are ES256, EdDSA (when PHP's sodium extension is loaded, as it is by default) and RS256.
+give the browser. Both tables live on the storage connection; prune challenges with `model:prune` (see [Pruning
+sessions](operations.md#pruning)): a used challenge is kept, not deleted, so a late response is told it was used, and a
+challenge goes once it has been expired, used or not, for one more `challenge_ttl_seconds`. Passkeys are not pruned: one
+lasts until its owner removes it. The algorithms offered are ES256, EdDSA (when PHP's sodium extension is loaded, as it
+is by default) and RS256.
 
 ## Rate limits
 

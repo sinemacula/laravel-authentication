@@ -65,8 +65,9 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   its observed properties and its summary as its use left it), or failed with the reason (not concealed: the caller
   already holds the identity).
 - `passkeys()->register()` answers a `PasskeyRegistration`: `registered` with the passkey's summary and the factor
-  gate's association, if any, or `challenge_invalid`, `response_invalid` or `already_registered`. The association may
-  carry the factor package's completion of the registration (`completion`, an opaque `?object`).
+  gate's association, if any, or `challenge_invalid`, `challenge_expired`, `challenge_used`, `response_invalid` or
+  `already_registered`. The association may carry the factor package's completion of the registration (`completion`, an
+  opaque `?object`).
 - `passkeys()->remove()` answers a `PasskeyRemoval`: removed by this call (`isRemoved()`), with the factor gate's
   completion of the removal, if any (an opaque `?object`, such as the factor package's own result carrying a new
   pending credential), or not removed, with none: it would be a `bool`, but its success carries a payload.

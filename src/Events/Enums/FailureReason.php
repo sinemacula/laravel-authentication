@@ -164,9 +164,16 @@ enum FailureReason: string
     // requested; only on the event
     case CODE_EXHAUSTED = 'code_exhausted';
 
-    // The passkey ceremony's challenge is unknown, expired, already used, or
-    // another guard's or purpose's
+    // The passkey ceremony's challenge is malformed, unknown, or another
+    // guard's, relying party's, purpose's, owner's or binding's
     case PASSKEY_CHALLENGE_INVALID = 'passkey_challenge_invalid';
+
+    // The passkey ceremony's own challenge expired before it was answered
+    case PASSKEY_CHALLENGE_EXPIRED = 'passkey_challenge_expired';
+
+    // A response was submitted to the passkey ceremony's own challenge before,
+    // whether or not that one authenticated
+    case PASSKEY_CHALLENGE_USED = 'passkey_challenge_used';
 
     // The passkey's sign counter did not advance, as a cloned authenticator's
     // would not; only on the event
@@ -270,6 +277,8 @@ enum FailureReason: string
             self::CODE_EXPIRED,
             self::CODE_EXHAUSTED,
             self::PASSKEY_CHALLENGE_INVALID,
+            self::PASSKEY_CHALLENGE_EXPIRED,
+            self::PASSKEY_CHALLENGE_USED,
             self::PASSKEY_COUNTER_REGRESSED => true,
             default                         => false,
         };

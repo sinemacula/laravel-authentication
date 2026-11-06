@@ -22,13 +22,18 @@ package's.
 - A passkey belongs to a saved Eloquent identity that is not a `MachineIdentity`, recorded as sessions record their
   owner: its morph class and its key as a string. A machine identity is refused with an `InvalidArgumentException`
   (it has no interactive sign-in), an identity that is not a model or has no key with a `LogicException`.
-- Every ceremony's options carry 32 random bytes as the challenge, require user verification (a factor's may only
-  prefer it, when its caller asks), and are stored with the challenge in `passkey_challenges`, bound to the purpose
+- Every ceremony's options carry 32 random bytes as the challenge, require user verification (a factor's may only prefer
+  it, when its caller asks), and are stored with the challenge in `passkey_challenges`, bound to the purpose
   (`register`, `sign_in`, `factor`), the guard, the relying party id, for a registration or a factor the identity, and
   for a factor (or a registration given one) the `ProofBinding`'s session and purpose. An answer uses the challenge up
-  with one conditional `DELETE` matching all of them and `expires_at > now` (after a writer `SELECT` that reads the
-  options), before the answer is verified, so of two answers only one uses it and a failed answer burns it. A challenge lives
-  `challenge_ttl_seconds` (30 to 600, 300 by default), which is also the options' `timeout`.
+  with one conditional `UPDATE` that sets `consumed_at`, matching all of them, `expires_at > now` and `consumed_at IS
+  NULL` (after a writer `SELECT` that reads the options), before the answer is verified, so of two answers only one uses
+  it and a failed answer burns it; the other is told the challenge was used. The row is kept, not deleted. A challenge
+  lives `challenge_ttl_seconds` (30 to 600, 300 by default), which is also the options' `timeout`, and is pruned once it
+  has been expired, used or not, for one more lifetime. The binding is checked before the state is: a challenge that
+  records another ceremony, guard, relying party, owner or binding answers as not found, never as used or expired, so a
+  response learns the lifecycle of its own challenge only. Used means a response was submitted to the challenge, not
+  that it authenticated.
 - Registration asks for a discoverable credential (`residentKey: required`), `attestation: none`, and ES256, EdDSA
   (when sodium is loaded) and RS256, excluding the identity's passkeys. The statement formats webauthn-lib checks
   without further dependencies are accepted for their internal consistency (`none`, `packed`, `fido-u2f`,
@@ -121,18 +126,23 @@ package's.
 ## Failure / Edge Cases
 
 - Registration answers a `PasskeyRegistration` whose status (`PasskeyRegistrationStatus`) is `challenge_invalid`
-  (unknown, malformed, expired, used, or another guard's, relying party's, purpose's or identity's challenge),
-  `response_invalid` (malformed or not verified, an assertion included) or `already_registered` (the digest exists, for
-  anyone), with no passkey.
+  (unknown, malformed, or another guard's, relying party's, purpose's or identity's challenge), `challenge_expired` (the
+  identity's own, unanswered in its lifetime), `challenge_used` (a response was submitted to it before, whether or not
+  that registered a passkey), `response_invalid` (malformed or not verified, an assertion included) or
+  `already_registered` (the digest exists, for anyone), with no passkey.
 - A factor is refused with `PasskeyFactorResult::failed()` and its reason, unconcealed: `passkey_challenge_invalid`
-  (including a challenge of another session or purpose), `invalid_credentials` (malformed, not verified, not a passkey
-  the challenge allowed, or not the identity's passkey) or `passkey_counter_regressed`.
-- A sign-in fails as `passkey_challenge_invalid` when its challenge cannot be used, in the result too (it reveals no
-  account; the client starts again), and otherwise as `invalid_credentials`: a malformed answer, a passkey of no or
-  another relying party, an owner the provider does not return as recorded, an account with no attempts left (the event
-  says `account_rate_limited`, and the assertion is not checked), or an assertion that does not verify. A regressed
-  counter is `passkey_counter_regressed` on the event and `invalid_credentials` in the result (a concealed reason, see
-  `FailureReason::isConcealed()`).
+  (unknown, malformed, or another identity's, guard's, session's or purpose's challenge), `passkey_challenge_expired`
+  (its own, unanswered in its lifetime), `passkey_challenge_used` (submitted to before, whether or not that verified),
+  `invalid_credentials` (malformed, not verified, not a passkey the challenge allowed, or not the identity's passkey) or
+  `passkey_counter_regressed`.
+- A sign-in fails as `passkey_challenge_invalid` (unknown, malformed or another guard's challenge),
+  `passkey_challenge_expired` or `passkey_challenge_used` when its challenge cannot be used, in the result too (a
+  usernameless challenge has no owner and is used up before any credential is looked up, so these reveal the challenge's
+  lifecycle, never an account; the client starts again), and otherwise as `invalid_credentials`: a malformed answer, a
+  passkey of no or another relying party, an owner the provider does not return as recorded, an account with no attempts
+  left (the event says `account_rate_limited`, and the assertion is not checked), or an assertion that does not verify.
+  A regressed counter is `passkey_counter_regressed` on the event and `invalid_credentials` in the result (a concealed
+  reason, see `FailureReason::isConcealed()`).
 - Enumeration: sign-in names no identifier, and every refusal that could tell one passkey or account from another (the
   `invalid_credentials` cases above and a regressed counter) gives the same result and takes the whole credential
   timebox, whether or not an owner was looked up; `signInOptions()` does no identity work. The one-time codes, API keys

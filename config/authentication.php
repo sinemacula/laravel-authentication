@@ -783,8 +783,10 @@ return [
     | single-use challenges in `challenges_table`, both on the package's storage
     | connection. A challenge lives `challenge_ttl_seconds` (30 to 600; an
     | integer, or a digit string as `env()` returns one), which is also the
-    | `timeout` the options give the browser. Prune expired challenges with
-    | `model:prune`.
+    | `timeout` the options give the browser. A used challenge is kept, not
+    | deleted, so a late response is told it was used; prune challenges with
+    | `model:prune`, which removes one once it has been expired, used or not,
+    | for one more lifetime.
     |
     | `relying_party` is the default every guard starts from; a guard
     | overrides any of its keys in a `passkeys` block on its `config/auth.php`

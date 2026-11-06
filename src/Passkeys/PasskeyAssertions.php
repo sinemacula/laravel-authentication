@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Events\PasskeyUsed;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
+use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengeRefusal;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use Webauthn\PublicKeyCredential;
@@ -25,9 +26,11 @@ use Webauthn\PublicKeyCredential;
  * order that spends nothing on a response that cannot succeed and never changes
  * a passkey for one that fails:
  *
- * 1. the challenge is used up (unknown, expired, already answered, or another
- *    guard's, relying party's, ceremony's, identity's, or, for a factor,
- *    session's or purpose's: `passkey_challenge_invalid`);
+ * 1. the challenge is used up (malformed, unknown, or another guard's, relying
+ *    party's, ceremony's, identity's, or, for a factor, session's or purpose's:
+ *    `passkey_challenge_invalid`; the response's own, and expired:
+ *    `passkey_challenge_expired`; the response's own, and submitted to before,
+ *    whether or not that one verified: `passkey_challenge_used`);
  * 2. the response must parse, and name a passkey of the relying party, one of
  *    those the challenge allowed when it named any, compared exactly
  *    (`invalid_credentials`);
@@ -103,10 +106,10 @@ final readonly class PasskeyAssertions
         CarbonImmutable $now,
         ?ProofBinding $binding = null,
     ): array|FailureReason {
-        $consumed = is_string($challenge) ? $this->challenges()->consume($challenge, $purpose, $rp, $bound, $now, $binding) : null;
+        $consumed = is_string($challenge) ? $this->challenges()->consume($challenge, $purpose, $rp, $bound, $now, $binding) : ChallengeRefusal::NOT_FOUND;
 
-        if ($consumed === null) {
-            return FailureReason::PASSKEY_CHALLENGE_INVALID;
+        if ($consumed instanceof ChallengeRefusal) {
+            return $consumed->reason();
         }
 
         $options = $consumed->options;

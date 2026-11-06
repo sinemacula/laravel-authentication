@@ -30,6 +30,9 @@ final class EnumsTest extends TestCase
     public function testTheValuesAreFixed(): void
     {
         self::assertSame(['register', 'sign_in', 'factor'], array_column(ChallengePurpose::cases(), 'value'));
-        self::assertSame(['registered', 'challenge_invalid', 'response_invalid', 'already_registered'], array_column(PasskeyRegistrationStatus::cases(), 'value'));
+        self::assertSame(
+            ['registered', 'challenge_invalid', 'challenge_expired', 'challenge_used', 'response_invalid', 'already_registered'],
+            array_column(PasskeyRegistrationStatus::cases(), 'value'),
+        );
     }
 }

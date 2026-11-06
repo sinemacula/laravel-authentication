@@ -28,7 +28,7 @@ use Tests\TestCase;
  * a database connection of its own: one runs inside a transaction it holds
  * open, and the other, started meanwhile, waits on the row the first wrote.
  *
- * - Two answers to one challenge: only the one whose delete commits proceeds;
+ * - Two answers to one challenge: only the one whose update commits proceeds;
  *   when that transaction rolls back, the waiting answer uses the challenge.
  * - Two assertions read against the same sign count: only the first to commit
  *   its compare-and-set moves the count; the other is refused as a regression,
@@ -117,8 +117,8 @@ final class ConcurrentPasskeyTest extends TestCase
     }
 
     /**
-     * Of two answers to one challenge, the one whose delete commits first
-     * proceeds; the other, which waited on it, finds the challenge gone.
+     * Of two answers to one challenge, the one whose update commits first
+     * proceeds; the other, which waited on it, finds the challenge used.
      *
      * @return void
      *
@@ -146,14 +146,14 @@ final class ConcurrentPasskeyTest extends TestCase
         );
 
         self::assertNull($first);
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID->value, $second['outcome']);
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_USED->value, $second['outcome']);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertSame(1, Passkey::query()->sole()->sign_count);
     }
 
     /**
      * When the first answer's transaction rolls back, the answer that waited on
-     * its delete uses the challenge instead.
+     * its update uses the challenge instead.
      *
      * @return void
      *
