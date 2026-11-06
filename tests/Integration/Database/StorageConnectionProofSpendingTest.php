@@ -156,7 +156,10 @@ final class StorageConnectionProofSpendingTest extends TestCase
         $identity = $this->seedStored();
         $code     = $this->requestChange($identity);
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::CHANGED,
+            $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code, self::requestClient())->outcome,
+        );
         self::assertSame(self::NEW_EMAIL, $this->stored()->value('email'));
         self::assertSame(0, $this->storage('identifier_changes')->count());
         self::assertSame(0, $this->unspentCodes());
@@ -179,7 +182,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
 
         $this->failAfterWriting = 'stored_identities';
 
-        $this->assertFails(fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
+        $this->assertFails(fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code, self::requestClient())->outcome);
 
         self::assertSame(self::EMAIL, $this->stored()->value('email'));
         self::assertSame(1, $this->storage('identifier_changes')->count());
@@ -187,9 +190,15 @@ final class StorageConnectionProofSpendingTest extends TestCase
 
         $this->failAfterWriting = null;
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::CHANGED,
+            $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code, self::requestClient())->outcome,
+        );
         self::assertSame(self::NEW_EMAIL, $this->stored()->value('email'));
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code)->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::INVALID,
+            $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), $code, self::requestClient())->outcome,
+        );
     }
 
     /**
@@ -320,7 +329,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
      */
     private function requestChange(StoredIdentity $identity): string
     {
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), self::requestClient())->isSent());
         self::assertSame(1, $this->storage('identifier_changes')->count());
 
         app()->terminate();
@@ -341,7 +350,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
      */
     private function requestLink(): string
     {
-        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL])->isSent());
+        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient())->isSent());
 
         app()->terminate();
 
@@ -362,7 +371,7 @@ final class StorageConnectionProofSpendingTest extends TestCase
      */
     private function reset(string $token): ResetResult
     {
-        return $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+        return $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
     }
 
     /**

@@ -115,13 +115,13 @@ final class ReusedSessionKeyTest extends TestCase
     public function testASessionWhoseKeyIsIssuedAgainCountsOnlyItsOwnProofs(): void
     {
         $identity = $this->seedIdentity();
-        $earlier  = $this->sessions()->signInExternally($this->linkedResult($identity))->session;
+        $earlier  = $this->sessions()->signInExternally($this->linkedResult($identity), self::requestContext())->session;
 
         self::assertNotNull($earlier);
 
         $this->clockAt($this->now->addMinute());
 
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $earlier->record->getKey()))->isIssued());
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $earlier->record->getKey()), self::requestClient())->isIssued());
         self::assertSame([FirstFactor::EXTERNAL_PROVIDER_METHOD, 'otp', 'mfa'], AuthenticationClaims::forSession($earlier->record)->methods);
 
         IntegerKeySession::query()->truncate();
@@ -130,7 +130,7 @@ final class ReusedSessionKeyTest extends TestCase
 
         $this->clockAt($signedInAt);
 
-        $later = $this->sessions()->signIn('password', self::credentials())->session;
+        $later = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($later);
 

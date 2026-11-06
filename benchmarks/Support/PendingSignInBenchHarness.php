@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
@@ -33,6 +34,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -149,7 +151,7 @@ final readonly class PendingSignInBenchHarness
      */
     private function signInToPendingToActive(): SignInResult
     {
-        $result     = $this->sessions()->signIn('password', ['email' => self::EMAIL, 'password' => self::PASSWORD]);
+        $result     = $this->sessions()->signIn('password', ['email' => self::EMAIL, 'password' => self::PASSWORD], SignInContext::fromRequest(BenchRequest::client()));
         $pending    = $result->pending;
         $credential = $result->credential?->reveal();
 
@@ -169,7 +171,7 @@ final readonly class PendingSignInBenchHarness
             new ProofBinding($pending->identity, self::GUARD, $pending->id, Purpose::SIGN_IN),
         );
 
-        return $this->sessions()->satisfy($credential, $proof);
+        return $this->sessions()->satisfy($credential, $proof, ClientContext::fromRequest(BenchRequest::client()));
     }
 
     /**

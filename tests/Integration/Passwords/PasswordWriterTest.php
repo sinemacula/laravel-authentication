@@ -87,7 +87,7 @@ final class PasswordWriterTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame(2, Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::RESET)->revoked);
+        self::assertSame(2, Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::RESET, self::requestClient())->revoked);
         self::assertSame([], $this->recordedClasses());
 
         DB::rollBack();
@@ -118,7 +118,7 @@ final class PasswordWriterTest extends TestCase
         $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         DB::transaction(function () use ($identity, $kept): void {
-            Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept);
+            Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, self::requestClient(), $kept);
 
             self::assertSame([], $this->recordedClasses());
         });
@@ -128,31 +128,34 @@ final class PasswordWriterTest extends TestCase
     }
 
     /**
-     * A client the caller names is the one `PasswordSet` reports; otherwise the
-     * request being served.
+     * Every report of a write carries the client it was given, the sessions it
+     * ends and the `SignedOutEverywhere` as well as `PasswordSet`, while the
+     * guard serves a request from another address and user agent.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheClientNamedIsReported(): void
+    public function testTheClientGivenIsReported(): void
     {
         $identity = self::seedPasswordIdentity();
-        $client   = new ClientContext('198.51.100.9', 'Kiosk/2.0');
-        $context  = $this->freshGuard('web')->context();
-        $writer   = new PasswordWriter($context, SessionRevocations::forContext($context, app()), app());
 
-        $this->recordEvents([PasswordSet::class]);
+        $this->signInWithPassword('web');
+        $this->signInWithPassword('admin');
 
-        $writer->write($identity, 'a brand new passphrase', PasswordFlow::CHANGE, null, $client);
-        $writer->write($identity, 'another new passphrase', PasswordFlow::CHANGE);
+        $client  = new ClientContext('198.51.100.9', 'Kiosk/2.0');
+        $context = $this->freshGuard('web')->context();
+        $writer  = new PasswordWriter($context, SessionRevocations::forContext($context, app()), app());
 
-        [$named, $served] = $this->recorded;
+        $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
-        self::assertInstanceOf(PasswordSet::class, $named);
-        self::assertInstanceOf(PasswordSet::class, $served);
-        self::assertSame($client, $named->context->client);
-        self::assertSame(self::CLIENT_IP, $served->context->client->ip);
+        self::assertSame(2, $writer->write($identity, 'a brand new passphrase', PasswordFlow::RESET, $client));
+        self::assertSame([SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame([$client, $client, $client, $client], array_map(
+            static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
+            $this->recorded,
+        ));
+        self::assertSame(self::CLIENT_IP, $context->client()->ip);
     }
 
     /**
@@ -184,7 +187,7 @@ final class PasswordWriterTest extends TestCase
         $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         DB::transaction(static function () use ($identity, $kept, $guard, $swapped): void {
-            self::assertSame(1, Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept)->revoked);
+            self::assertSame(1, Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, self::requestClient(), $kept)->revoked);
 
             $guard->setDispatcher($swapped);
         });

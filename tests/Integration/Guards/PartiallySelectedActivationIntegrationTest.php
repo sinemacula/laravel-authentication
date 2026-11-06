@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -150,7 +151,7 @@ final class PartiallySelectedActivationIntegrationTest extends TestCase
         $guard        = $this->guardForRequest(Request::create('/refresh', 'POST'));
 
         try {
-            GuardSessions::of($guard)->refresh($refreshToken);
+            GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient($guard->getRequest()));
 
             self::fail('The unloaded activation flag should have been reported.');
         } catch (\LogicException $exception) {

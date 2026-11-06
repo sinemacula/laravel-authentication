@@ -87,7 +87,7 @@ final class PasskeyOutcomesTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $options  = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
-        $result   = Auth::passkeys('api')->register($identity, $options->challengeId, $this->authenticator()->create($options->options), 'Laptop');
+        $result   = Auth::passkeys('api')->register($identity, $options->challengeId, $this->authenticator()->create($options->options), self::requestClient(), 'Laptop');
 
         self::assertSame(PasskeyRegistrationStatus::REGISTERED, $result->status);
         self::assertNotNull($result->passkey);
@@ -110,15 +110,18 @@ final class PasskeyOutcomesTest extends TestCase
         $options  = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
         $answer   = $this->authenticator()->create($options->options);
 
-        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('api')->register($identity, '0192f6b2-0000-7000-8000-000000000001', $answer)->status);
-        self::assertSame(PasskeyRegistrationStatus::RESPONSE_INVALID, Auth::passkeys('api')->register($identity, $options->challengeId, '{')->status);
+        self::assertSame(
+            PasskeyRegistrationStatus::CHALLENGE_INVALID,
+            Auth::passkeys('api')->register($identity, '0192f6b2-0000-7000-8000-000000000001', $answer, self::requestClient())->status,
+        );
+        self::assertSame(PasskeyRegistrationStatus::RESPONSE_INVALID, Auth::passkeys('api')->register($identity, $options->challengeId, '{', self::requestClient())->status);
         self::assertSame(0, DB::table('passkeys')->count());
 
         $this->registerPasskey($identity);
 
         $again     = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
         $duplicate = $this->authenticator()->create($again->options, id: VirtualAuthenticator::decode($this->authenticator()->lastCredentialId()));
-        $result    = Auth::passkeys('api')->register($identity, $again->challengeId, $duplicate);
+        $result    = Auth::passkeys('api')->register($identity, $again->challengeId, $duplicate, self::requestClient());
 
         self::assertSame([PasskeyRegistrationStatus::ALREADY_REGISTERED, null], [$result->status, $result->passkey]);
         self::assertSame(1, DB::table('passkeys')->count());
@@ -141,8 +144,14 @@ final class PasskeyOutcomesTest extends TestCase
         self::freezeAt($this->now->addSeconds(60));
 
         $options = self::factorCeremony(Auth::passkeys('api'), $identity);
-        $result  = Auth::passkeys('api')->verifyFactor($identity, self::factorBinding($identity), $options->challengeId, $this->authenticator()->get($options->options));
-        $stored  = Auth::passkeys('api')->passkeys($identity)[0];
+        $result  = Auth::passkeys('api')->verifyFactor(
+            $identity,
+            self::factorBinding($identity),
+            $options->challengeId,
+            $this->authenticator()->get($options->options),
+            self::requestClient(),
+        );
+        $stored = Auth::passkeys('api')->passkeys($identity)[0];
 
         self::assertTrue($result->isVerified());
         self::assertSame($stored->toArray(), $result->assertion?->passkey->toArray());
@@ -175,7 +184,13 @@ final class PasskeyOutcomesTest extends TestCase
         $this->authenticator()->setCounter($this->authenticator()->lastCredentialId(), 0);
 
         $again  = self::factorCeremony(Auth::passkeys('api'), $identity);
-        $result = Auth::passkeys('api')->verifyFactor($identity, self::factorBinding($identity), $again->challengeId, $this->authenticator()->get($again->options));
+        $result = Auth::passkeys('api')->verifyFactor(
+            $identity,
+            self::factorBinding($identity),
+            $again->challengeId,
+            $this->authenticator()->get($again->options),
+            self::requestClient(),
+        );
 
         self::assertSame([FailureReason::PASSKEY_COUNTER_REGRESSED, null], [$result->reason, $result->assertion]);
         self::assertEquals($before, Passkey::query()->sole()->only(['sign_count', 'last_used_at', 'updated_at']));

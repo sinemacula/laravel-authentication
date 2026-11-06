@@ -177,7 +177,7 @@ final class ByteDistinctBindingTest extends TestCase
     public function testBindingsOf255FourByteCharactersAreKeptWhole(): void
     {
         $alias  = str_repeat("\u{1D4AF}", 255);
-        $record = $this->sessions()->start($this->seedIdentity(), null, 'sso')->session?->record;
+        $record = $this->sessions()->start($this->seedIdentity(), null, 'sso', self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 
@@ -217,7 +217,7 @@ final class ByteDistinctBindingTest extends TestCase
     {
         $this->seedIdentity();
 
-        $record = $this->sessions()->signIn('password', self::credentials())->session?->record;
+        $record = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 
@@ -255,7 +255,7 @@ final class ByteDistinctBindingTest extends TestCase
     private function sessionAndTwin(\Closure $spell): array
     {
         $identity = $this->seedIdentity();
-        $record   = $this->sessions()->signInExternally($this->linkedResult($identity))->session?->record;
+        $record   = $this->sessions()->signInExternally($this->linkedResult($identity), self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 

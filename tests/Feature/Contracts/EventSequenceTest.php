@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
@@ -419,7 +420,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
-        $result = $sessions->signIn('password', self::credentials());
+        $result = $sessions->signIn('password', self::credentials(), self::requestContext());
 
         self::assertSame(SignInStatus::SIGNED_IN, $result->status);
         self::assertSame([
@@ -489,7 +490,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
-        $result = self::sessionsOf($guard)->signIn('password', self::credentials());
+        $result = self::sessionsOf($guard)->signIn('password', self::credentials(), self::requestContext());
 
         self::assertSame(SignInStatus::PENDING, $result->status);
         self::assertSame([
@@ -516,7 +517,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($chooser, null);
         $this->recordSequence();
 
-        $result = self::sessionsOf($guard)->signIn('password', self::credentials('chooser@example.test'));
+        $result = self::sessionsOf($guard)->signIn('password', self::credentials('chooser@example.test'), self::requestContext());
 
         self::assertSame(SignInStatus::PENDING, $result->status);
         self::assertSame([
@@ -540,13 +541,13 @@ final class EventSequenceTest extends TestCase
 
         self::allowOneSignInAttempt();
 
-        self::assertTrue($this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->isFailed());
+        self::assertTrue($this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'], self::requestContext())->isFailed());
 
         $sessions = $this->sessions();
 
         $this->recordSequence();
 
-        $result = $sessions->signIn('password', self::credentials());
+        $result = $sessions->signIn('password', self::credentials(), self::requestContext());
 
         self::assertSame([FailureReason::RATE_LIMITED, true], [$result->reason, $result->retryAfter > 0]);
         self::assertSame([
@@ -572,7 +573,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
-        $result = $sessions->start($identity, null, 'sso');
+        $result = $sessions->start($identity, null, 'sso', self::requestContext());
 
         self::assertTrue($result->isSignedIn());
         self::assertSame([
@@ -600,7 +601,7 @@ final class EventSequenceTest extends TestCase
         $identity = $this->seedIdentity();
         $this->requireAFurtherFactor();
 
-        $held     = $this->sessions()->signIn('password', self::credentials());
+        $held     = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
         $sessions = $this->sessions();
 
         self::assertNotNull($held->pending);
@@ -609,7 +610,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
-        $result = $sessions->satisfy($held->credential->reveal(), self::adapterProof($identity, 'api', $held->pending->id, Purpose::SIGN_IN));
+        $result = $sessions->satisfy($held->credential->reveal(), self::adapterProof($identity, 'api', $held->pending->id, Purpose::SIGN_IN), self::requestClient());
 
         self::assertTrue($result->isSignedIn());
         self::assertSame([
@@ -636,7 +637,7 @@ final class EventSequenceTest extends TestCase
     {
         [$chooser, $membership] = $this->seedChooser();
 
-        $token    = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->credential?->reveal();
+        $token    = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'), self::requestContext())->credential?->reveal();
         $sessions = $this->sessions('choosers');
 
         self::assertIsString($token);
@@ -644,7 +645,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($chooser, $membership);
         $this->recordSequence();
 
-        $result = $sessions->choose($token, $membership);
+        $result = $sessions->choose($token, $membership, self::requestClient());
 
         self::assertTrue($chooser->is($result->session?->identity));
         self::assertSame([
@@ -671,7 +672,7 @@ final class EventSequenceTest extends TestCase
         $identity = $this->seedIdentity();
         $this->requireAFurtherFactor();
 
-        $token    = $this->sessions()->signIn('password', self::credentials())->credential?->reveal();
+        $token    = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->credential?->reveal();
         $sessions = $this->sessions();
 
         self::assertIsString($token);
@@ -679,8 +680,8 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
-        self::assertTrue($sessions->discard($token));
-        self::assertFalse($sessions->discard($token));
+        self::assertTrue($sessions->discard($token, self::requestClient()));
+        self::assertFalse($sessions->discard($token, self::requestClient()));
         self::assertSame([
             'SessionRevoked api signed_out i1/p1/s1',
         ], $this->recordedSequence());
@@ -705,7 +706,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity, $session->record);
         $this->recordSequence();
 
-        self::assertTrue(self::sessionsOf($guard)->refresh($refresh)->isRefreshed());
+        self::assertTrue(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($refresh), self::requestClient())->isRefreshed());
         self::assertSame([
             'Attempting api',
             'Refreshed api i1/p1/s1',
@@ -737,12 +738,14 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity, $session->record);
         $this->recordSequence();
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refreshFromRequest());
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh(self::servedToken(), self::requestClient()));
         self::assertSame(
             FailureReason::REFRESH_TOKEN_CONFLICT,
-            self::sessionsOf($this->refreshGuard(['HTTP_X_REFRESH_TOKEN' => $refresh], ['refresh_token' => $refresh]))->refreshFromRequest()?->reason,
+            self::sessionsOf(
+                $this->refreshGuard(['HTTP_X_REFRESH_TOKEN' => $refresh], ['refresh_token' => $refresh]),
+            )->refresh(self::servedToken(), self::requestClient())?->reason,
         );
-        self::assertTrue(self::sessionsOf($this->refreshGuard(['HTTP_X_REFRESH_TOKEN' => $refresh]))->refreshFromRequest()?->isRefreshed());
+        self::assertTrue(self::sessionsOf($this->refreshGuard(['HTTP_X_REFRESH_TOKEN' => $refresh]))->refresh(self::servedToken(), self::requestClient())?->isRefreshed());
         self::assertSame([
             'Attempting api',
             'Failed api -',
@@ -774,7 +777,7 @@ final class EventSequenceTest extends TestCase
         $record  = $session->record;
         $refresh = $session->tokens->refreshToken?->reveal();
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($refresh)->session);
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($refresh), self::requestClient())->session);
 
         $this->moveTo($this->now->addMinute());
 
@@ -783,7 +786,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity, $record);
         $this->recordSequence();
 
-        self::assertNull(self::sessionsOf($guard)->refresh($refresh)->session);
+        self::assertNull(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($refresh), self::requestClient())->session);
         self::assertSame('rotation_reuse', $record->fresh()?->getRevokedReason());
         self::assertSame([
             'Attempting api',
@@ -804,13 +807,13 @@ final class EventSequenceTest extends TestCase
     {
         config()->set('authentication.rate_limits.refresh.per_ip.max', 1);
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh('not-a-token')->session);
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody('not-a-token'), self::requestClient())->session);
 
         $guard = $this->freshGuard();
 
         $this->recordSequence();
 
-        $result = self::sessionsOf($guard)->refresh('not-a-token');
+        $result = self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody('not-a-token'), self::requestClient());
 
         self::assertSame([FailureReason::RATE_LIMITED, 60], [$result->reason, $result->retryAfter]);
 
@@ -842,7 +845,9 @@ final class EventSequenceTest extends TestCase
         $this->namePrincipals($second);
         $this->recordSequence();
 
-        self::assertTrue($sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue(
+            $sessions->switchTo(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), SwitchTarget::principal($second), self::requestClient())->isSwitched(),
+        );
         self::assertSame([
             'PrincipalSwitched members from:p1 i1/p2/s1',
             'Authenticated members i1',
@@ -980,7 +985,7 @@ final class EventSequenceTest extends TestCase
 
         $this->recordSequence();
 
-        $result = Auth::passwords('web')->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, $current);
+        $result = Auth::passwords('web')->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient(), $current);
 
         self::assertTrue($result->isSet());
         self::assertSame([
@@ -1011,7 +1016,7 @@ final class EventSequenceTest extends TestCase
         $this->freshGuard('web');
         $this->recordSequence();
 
-        $result = Auth::passwords('web')->reset(['email' => 'ada@example.test', 'token' => $issued->code(), 'password' => self::NEW_PASSWORD]);
+        $result = Auth::passwords('web')->reset(['email' => 'ada@example.test', 'token' => $issued->code(), 'password' => self::NEW_PASSWORD], self::requestClient());
 
         self::assertSame([ResetStatus::RESET, 1], [$result->status, $result->revoked]);
         self::assertSame([
@@ -1036,10 +1041,10 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, null);
         $this->recordSequence();
 
-        self::assertTrue($this->changes('changes')->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity, 'changes'))->isSent());
+        self::assertTrue($this->changes('changes')->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity, 'changes'), self::requestClient())->isSent());
         self::assertSame(
             IdentifierChangeOutcome::CHANGED,
-            $this->changes('changes')->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome,
+            $this->changes('changes')->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE, self::requestClient())->outcome,
         );
         self::assertSame([
             'IdentifierChangeRequested changes i1/-/-',
@@ -1064,8 +1069,10 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($machine, $machine);
         $this->recordSequence();
 
-        self::assertTrue(Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key()->reveal(), 20))->isGranted());
-        self::assertFalse(Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, 'wrong')->isGranted());
+        self::assertTrue(
+            Auth::clientCredentials('m2m')->exchange(self::basicClient($issued->summary->publicId, substr($issued->key()->reveal(), 20)), self::requestClient())->isGranted(),
+        );
+        self::assertFalse(Auth::clientCredentials('m2m')->exchange(self::basicClient($issued->summary->publicId, 'wrong'), self::requestClient())->isGranted());
         self::assertSame([
             'ClientCredentialsGranted m2m i1/p1/-',
             'AuthenticationFailed m2m client_credentials:credential_invalid -/-/-',

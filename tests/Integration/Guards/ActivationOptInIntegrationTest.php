@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Concerns\InteractsWithSessionRecords;
@@ -140,7 +141,7 @@ final class ActivationOptInIntegrationTest extends TestCase
 
         $guard = $this->freshGuard();
 
-        self::assertNotNull(GuardSessions::of($guard)->refresh($refreshToken)->session);
+        self::assertNotNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient($guard->getRequest()))->session);
         self::assertSame($user->getKey(), $guard->identity()?->getAuthIdentifier());
     }
 

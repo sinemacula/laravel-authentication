@@ -87,7 +87,10 @@ final class ExternalReauthenticationTest extends TestCase
     public function testTheSessionsLinkIsMatchedByteForByte(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, 'conn-a', 'link-a', 'subject-a', authenticatedAt: $this->now))->session;
+        $session  = $this->sessions()->signInExternally(
+            $this->linkedResult($identity, 'conn-a', 'link-a', 'subject-a', authenticatedAt: $this->now),
+            self::requestContext(),
+        )->session;
 
         self::assertNotNull($session);
 
@@ -99,12 +102,12 @@ final class ExternalReauthenticationTest extends TestCase
         ];
 
         foreach ($others as $result) {
-            self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($session->record->getKey(), $result)->reason);
+            self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($session->record->getKey(), $result, self::requestClient())->reason);
         }
 
         $own = $this->linkedResult($identity, 'conn-a', 'link-a', 'subject-a', authenticatedAt: $this->now);
 
-        self::assertTrue($this->sessions()->reauthenticateExternally($session->record->getKey(), $own)->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($session->record->getKey(), $own, self::requestClient())->isIssued());
     }
 
     /**
@@ -119,7 +122,7 @@ final class ExternalReauthenticationTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $result   = $this->linkedResult($identity, authenticatedAt: $this->now);
-        $session  = $this->sessions()->signInExternally($result)->session;
+        $session  = $this->sessions()->signInExternally($result, self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -127,7 +130,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->sessions()->reauthenticateExternally($session->record->getKey(), $result)->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($session->record->getKey(), $result, self::requestClient())->isIssued());
 
         DB::rollBack();
 
@@ -136,7 +139,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->sessions()->reauthenticateExternally($session->record->getKey(), $result)->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($session->record->getKey(), $result, self::requestClient())->isIssued());
         self::assertSame([], $this->recordedClasses());
 
         DB::commit();

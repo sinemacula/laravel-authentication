@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
@@ -64,6 +65,9 @@ final class RefreshCredentialTest extends TestCase
 
     /** @var list<class-string> Every event a refresh or a sign-out could dispatch. */
     private const array EVENTS = [Attempting::class, Failed::class, AuthenticationFailed::class, SessionRevoked::class, Logout::class];
+
+    /** @var string The cookie application, over the same identities as the body one. */
+    private const string COOKIE = 'admin';
 
     /** @var string A rotation id the tests store the digest of, so they can issue tokens that carry it. */
     private const string KNOWN_ROTATION = 'known-rotation-id';
@@ -118,7 +122,7 @@ final class RefreshCredentialTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $credential = $this->serving(body: ['refresh_token' => self::refreshOf($session)])->refreshCredentialFromRequest();
+        $credential = $this->serving(body: ['refresh_token' => self::refreshOf($session)])->refreshCredential(self::servedToken(), self::requestClient());
 
         self::assertInstanceOf(RefreshCredential::class, $credential);
         self::assertTrue($identity->is($credential->identity));
@@ -150,7 +154,10 @@ final class RefreshCredentialTest extends TestCase
         $policy  = $this->tenantPolicy(new TenantRequirement('v2'));
         $before  = (array) DB::table('authentication_sessions')->sole();
 
-        $credential = $this->serving(['HTTP_X_REFRESH_TOKEN' => self::refreshOf($session)], guard: 'members')->refreshCredentialFromRequest();
+        $credential = $this->serving(
+            ['HTTP_X_REFRESH_TOKEN' => self::refreshOf($session)],
+            guard: 'members',
+        )->refreshCredential(self::servedToken('members'), self::requestClient());
 
         self::assertInstanceOf(RefreshCredential::class, $credential);
         self::assertTrue($member->is($credential->identity));
@@ -189,7 +196,10 @@ final class RefreshCredentialTest extends TestCase
         $this->tenantPolicy(new TenantRequirement('v2', connections: ['conn-a']));
         $this->recordEvents(self::EVENTS);
 
-        self::assertSame(FailureReason::SSO_REQUIRED, $this->serving(body: ['refresh_token' => self::refreshOf($session)], guard: 'members')->refreshCredentialFromRequest());
+        self::assertSame(
+            FailureReason::SSO_REQUIRED,
+            $this->serving(body: ['refresh_token' => self::refreshOf($session)], guard: 'members')->refreshCredential(self::servedToken('members'), self::requestClient()),
+        );
         self::assertSame([], $this->recordedClasses());
         self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
     }
@@ -217,7 +227,7 @@ final class RefreshCredentialTest extends TestCase
 
         self::assertSame(
             FailureReason::ADDITIONAL_FACTOR_REQUIRED,
-            $this->serving(body: ['refresh_token' => self::refreshOf($session)], guard: 'members')->refreshCredentialFromRequest(),
+            $this->serving(body: ['refresh_token' => self::refreshOf($session)], guard: 'members')->refreshCredential(self::servedToken('members'), self::requestClient()),
         );
         self::assertSame([], $this->recordedClasses());
         self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
@@ -247,7 +257,7 @@ final class RefreshCredentialTest extends TestCase
         $service = $this->serving(body: ['refresh_token' => self::refreshOf($session)], guard: 'members');
 
         self::assertSame([false, false], self::proofReadLocks(static function () use ($service): void {
-            self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $service->refreshCredentialFromRequest());
+            self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $service->refreshCredential(self::servedToken(), self::requestClient()));
         }));
     }
 
@@ -262,7 +272,7 @@ final class RefreshCredentialTest extends TestCase
     {
         $this->recordEvents(self::EVENTS);
 
-        self::assertNull($this->serving()->refreshCredentialFromRequest());
+        self::assertNull($this->serving()->refreshCredential(self::servedToken(), self::requestClient()));
         self::assertSame([], $this->recordedClasses());
     }
 
@@ -302,16 +312,64 @@ final class RefreshCredentialTest extends TestCase
         $this->recordEvents(self::EVENTS);
 
         foreach ($cases as $case => [$server, $body, $reason]) {
-            self::assertSame($reason, $this->serving($server, $body)->refreshCredentialFromRequest(), $case);
+            self::assertSame($reason, $this->serving($server, $body)->refreshCredential(self::servedToken(), self::requestClient()), $case);
         }
 
         self::assertSame([], $this->recordedClasses());
         self::assertSame(0, Session::query()->whereNotNull('revoked_at')->count());
 
-        $credential = $this->serving(body: ['refresh_token' => self::refreshOf($session)])->refreshCredentialFromRequest();
+        $credential = $this->serving(body: ['refresh_token' => self::refreshOf($session)])->refreshCredential(self::servedToken(), self::requestClient());
 
         self::assertInstanceOf(RefreshCredential::class, $credential);
         self::assertTrue($identity->is($credential->identity));
+    }
+
+    /**
+     * A cookie application's token is judged on the client given before
+     * anything is read: a same-site client's cookie is its session's credential
+     * while the guard serves a cross-site request, and the cookie twice, a body
+     * token, or the cookie with a client that is not same-site while the guard
+     * serves a same-site request, are refused as a conflict, a mismatch and a
+     * cross-site request, with no query and nothing dispatched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationsTokenIsJudgedOnTheClientBeforeAnythingIsRead(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signedIn(self::COOKIE);
+        $token    = self::cookieTokenOf($session);
+
+        $cookie     = self::presentedToken($token, RefreshTokenSource::COOKIE);
+        $credential = self::sessionsOf($this->crossSiteGuard(self::COOKIE))->refreshCredential($cookie, self::sameSiteClient());
+
+        self::assertInstanceOf(RefreshCredential::class, $credential);
+        self::assertTrue($identity->is($credential->identity));
+        self::assertSame(RefreshTokenSource::COOKIE, $credential->source);
+
+        $service = $this->sessions(self::COOKIE);
+        $twice   = self::presentedToken($token, RefreshTokenSource::COOKIE, [RefreshTokenSource::COOKIE, RefreshTokenSource::COOKIE]);
+        $cases   = [
+            'the cookie twice'    => [$twice, self::sameSiteClient(), FailureReason::REFRESH_TOKEN_CONFLICT],
+            'a body token'        => [PresentedRefreshToken::fromBody($token), self::sameSiteClient(), FailureReason::REFRESH_TRANSPORT_MISMATCH],
+            'a cross-site client' => [$cookie, self::crossSiteClient(), FailureReason::CROSS_SITE_REQUEST],
+        ];
+        $queries = 0;
+
+        $this->recordEvents(self::EVENTS);
+
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        foreach ($cases as $case => [$presented, $client, $reason]) {
+            self::assertSame($reason, $service->refreshCredential($presented, $client), $case);
+        }
+
+        self::assertSame(0, $queries);
+        self::assertSame([], $this->recordedClasses());
     }
 
     /**
@@ -330,19 +388,19 @@ final class RefreshCredentialTest extends TestCase
         $session  = $this->signedIn();
         $replaced = self::refreshOf($session);
 
-        self::assertTrue($this->sessions()->refresh($replaced)->isRefreshed());
+        self::assertTrue($this->sessions()->refresh(PresentedRefreshToken::fromBody($replaced), self::requestClient())->isRefreshed());
 
         $this->moveTo(CarbonImmutable::now()->addMinutes(2));
         $this->recordEvents(self::EVENTS);
 
-        self::assertSame(FailureReason::ROTATION_REUSE, $this->serving(body: ['refresh_token' => $replaced])->refreshCredentialFromRequest());
+        self::assertSame(FailureReason::ROTATION_REUSE, $this->serving(body: ['refresh_token' => $replaced])->refreshCredential(self::servedToken(), self::requestClient()));
         self::assertSame([SessionRevoked::class], $this->recordedClasses());
         self::assertSame(RevocationReason::ROTATION_REUSE, $this->recordedEvent(SessionRevoked::class)->reason);
         self::assertSame('rotation_reuse', Session::query()->whereKey($session->record->getKey())->value('revoked_reason'));
     }
 
     /**
-     * Configure the session guards.
+     * Configure the session guards, `admin` a cookie application.
      *
      * @param  mixed  $app
      * @return void
@@ -356,7 +414,11 @@ final class RefreshCredentialTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('auth.guards.' . self::COOKIE . '.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
     }
 
     /**
@@ -385,7 +447,7 @@ final class RefreshCredentialTest extends TestCase
      */
     private function signedIn(string $guard = 'api', string $email = 'ada@example.test'): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session);
 

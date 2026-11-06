@@ -237,7 +237,7 @@ final class ActingContextTest extends TestCase
      */
     private function record(string $guard, string $email): Session
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session?->record;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $session);
 

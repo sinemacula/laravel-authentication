@@ -57,7 +57,7 @@ final class NotifyingResetLinkSenderTest extends TestCase
         $identity = self::seedResettable();
         $token    = null;
 
-        $this->passwords()->sendResetLink(['email' => self::EMAIL]);
+        $this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient());
         app()->terminate();
 
         Notification::assertSentTo($identity, ResetPassword::class, static function (ResetPassword $notification) use (&$token): bool {
@@ -67,7 +67,10 @@ final class NotifyingResetLinkSenderTest extends TestCase
         });
 
         self::assertIsString($token);
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -87,7 +90,7 @@ final class NotifyingResetLinkSenderTest extends TestCase
         app()->singleton(PasswordResetLinkSender::class, NotifyingResetLinkSender::class);
 
         try {
-            $this->passwords()->sendResetLink(['phone' => self::PHONE]);
+            $this->passwords()->sendResetLink(['phone' => self::PHONE], self::requestClient());
             self::fail('The default sender was given a phone number to link.');
         } catch (\InvalidArgumentException $exception) {
             self::assertStringStartsWith('Guard [web] identifies passwords by [phone], but the bound ' . NotifyingResetLinkSender::class, $exception->getMessage());
@@ -97,7 +100,7 @@ final class NotifyingResetLinkSenderTest extends TestCase
 
         FakePasswordResetLinkSender::fake($this->app);
 
-        self::assertTrue($this->passwords()->sendResetLink(['phone' => self::PHONE])->isSent());
+        self::assertTrue($this->passwords()->sendResetLink(['phone' => self::PHONE], self::requestClient())->isSent());
     }
 
     /**

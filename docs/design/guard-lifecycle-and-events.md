@@ -97,10 +97,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `SignedIn` (`refresh` set) events once the rotation is committed on the session's connection (at once with no
   transaction open there), then `Validated` and the full bind
   (`Login -> Authenticated -> PrincipalAssigned -> SessionAuthenticated`), through the binding's `loginVerified()` with
-  the tenant and sign-in method the exchange established. `refreshFromRequest()` emits the same once its transport has
-  read the token, and `refreshPresented()` once its transport has judged the token handed in, its own events and the
-  bind's `PrincipalAssigned` and `SessionAuthenticated` carrying the client given (a parameter of `loginVerified()` and
-  `login()` for that bind only, never guard state); a request that carries none (or `null` handed in)
+  the tenant and sign-in method the exchange established, once the transport has judged the token presented, its own
+  events and the bind's `PrincipalAssigned` and `SessionAuthenticated` carrying the client given (a parameter of
+  `loginVerified()` and `login()` for that bind only, never guard state); a request that carries none (or `null` handed in)
   emits nothing, and one its transport refuses (`refresh_token_conflict`, `refresh_transport_mismatch`,
   `cross_site_request`, `token_invalid`) emits `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`), as
   any failed refresh does (see `refresh-token-transport.md`).
@@ -225,7 +224,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: the ownership checks for principals and sessions pinned on
   `attempt()`.
 - `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`; `src/Sessions/SessionRefresh.php`:
-  `refresh()`, `refreshFromRequest()`, `refuse()`, `report()`; `src/Guards/Concerns/BindsContextualState.php`:
+  `refresh()`, `refuse()`, `report()`; `src/Guards/Concerns/BindsContextualState.php`:
   `loginVerified()`, the refresh's bind.
 - `src/AuthManager.php`: `forgetGuardState()`; `src/Listeners/ForgetGuardStateBeforeJob.php`.
 - `src/Guards/BearerAuthentication.php` and `src/SessionRecords/OwnedSession.php`: the bearer checks, their order and

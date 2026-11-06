@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeConfirmation;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
@@ -112,8 +113,8 @@ final class ConcurrentIdentifierChangesTest extends TestCase
         $link = $this->requestByLink(self::seedChangeable(), self::NEW_EMAIL);
 
         [$first, $second] = $this->race(
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))->outcome->value,
             commitFirst: true,
         );
 
@@ -138,8 +139,8 @@ final class ConcurrentIdentifierChangesTest extends TestCase
         $second = $this->requestByLink(self::seedChangeable('bea@example.test'), self::NEW_EMAIL);
 
         [$won, $lost] = $this->race(
-            fn (): string => $this->changes()->confirmByLink(Request::create($first))->outcome->value,
-            fn (): string => $this->changes()->confirmByLink(Request::create($second))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($first)), self::requestClient(Request::create($first)))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($second)), self::requestClient(Request::create($second)))->outcome->value,
             commitFirst: true,
         );
 
@@ -164,8 +165,8 @@ final class ConcurrentIdentifierChangesTest extends TestCase
         $second = $this->requestByLink(self::seedChangeable('bea@example.test'), self::NEW_EMAIL);
 
         [, $outcome] = $this->race(
-            fn (): string => $this->changes()->confirmByLink(Request::create($first))->outcome->value,
-            fn (): string => $this->changes()->confirmByLink(Request::create($second))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($first)), self::requestClient(Request::create($first)))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($second)), self::requestClient(Request::create($second)))->outcome->value,
             commitFirst: false,
         );
 
@@ -201,7 +202,7 @@ final class ConcurrentIdentifierChangesTest extends TestCase
      */
     private function requestByLink(ChangeableIdentity $identity, string $email): string
     {
-        $link = $this->changes()->requestByLink($identity, 'email', $email, self::freshSession($identity), 'email.confirm')->link()?->reveal();
+        $link = $this->changes()->requestByLink($identity, 'email', $email, self::freshSession($identity), 'email.confirm', self::requestClient())->link()?->reveal();
 
         self::assertIsString($link);
 

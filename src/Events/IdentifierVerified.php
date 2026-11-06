@@ -16,8 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
  * transaction commits otherwise, and never for a record that is rolled back.
  *
  * The context carries the guard the verification was made for, the identity,
- * and the client that proved the identifier (the request being served when the
- * caller named none). It carries no identifier, code, link or token.
+ * and the client the verification was given, which proved the identifier. It
+ * carries no identifier, code, link or token.
  *
  * @api
  *

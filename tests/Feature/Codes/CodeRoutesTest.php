@@ -214,7 +214,7 @@ final class CodeRoutesTest extends TestCase
     {
         $identity = self::seedCodeIdentity(email: null, verified: false);
 
-        $access = Auth::sessions('mobile')->start($identity, null, 'phone_code')->session?->tokens->accessToken->reveal();
+        $access = Auth::sessions('mobile')->start($identity, null, 'phone_code', self::requestContext())->session?->tokens->accessToken->reveal();
 
         self::assertIsString($access);
 
@@ -263,7 +263,7 @@ final class CodeRoutesTest extends TestCase
     private static function requestCode(Request $request): JsonResponse
     {
         $input  = $request->validate(['phone' => ['required', 'string']]); // @phpstan-ignore staticMethod.dynamicCall
-        $result = Auth::codes('mobile')->send('phone_code', ['phone' => $input['phone']]);
+        $result = Auth::codes('mobile')->send('phone_code', ['phone' => $input['phone']], self::requestClient());
 
         return match ($result->status) {
             CodeRequestStatus::RATE_LIMITED,
@@ -290,7 +290,11 @@ final class CodeRoutesTest extends TestCase
         $rules = ['phone' => ['required', 'string'], 'challenge' => ['required', 'string'], 'code' => ['required', 'string']];
         $input = $request->validate($rules); // @phpstan-ignore staticMethod.dynamicCall
 
-        $result = Auth::sessions('mobile')->signIn('phone_code', ['phone' => $input['phone'], 'challenge' => $input['challenge'], 'code' => $input['code']]);
+        $result = Auth::sessions('mobile')->signIn(
+            'phone_code',
+            ['phone' => $input['phone'], 'challenge' => $input['challenge'], 'code' => $input['code']],
+            self::requestContext(),
+        );
 
         abort_unless($result->isSignedIn(), 401);
 
@@ -314,7 +318,7 @@ final class CodeRoutesTest extends TestCase
 
         abort_unless($identity instanceof Identity, 401);
 
-        $result = Auth::codes('mobile')->sendVerification($identity, 'phone');
+        $result = Auth::codes('mobile')->sendVerification($identity, 'phone', self::requestClient());
 
         return response()->json(['status' => $result->status->value, 'challenge' => $result->challengeId], $result->isSent() ? 202 : 429);
     }
@@ -333,7 +337,7 @@ final class CodeRoutesTest extends TestCase
 
         abort_unless($identity instanceof Identity, 401);
 
-        $outcome = Auth::codes('mobile')->verify($identity, 'phone', $input['challenge'], $input['code'])->outcome;
+        $outcome = Auth::codes('mobile')->verify($identity, 'phone', $input['challenge'], $input['code'], self::requestClient())->outcome;
 
         abort_unless(in_array($outcome, [VerificationOutcome::VERIFIED, VerificationOutcome::ALREADY_VERIFIED], true), 422);
 

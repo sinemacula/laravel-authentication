@@ -284,7 +284,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
 
         $this->refresh('api', '', ['refresh_token' => $api])->assertOk()->assertJson(['source' => 'body']);
 
-        $admin = $this->sessions('admin')->signIn('password', self::credentials())->session?->tokens->refreshCookie;
+        $admin = $this->sessions('admin')->signIn('password', self::credentials(), self::requestContext())->session?->tokens->refreshCookie;
 
         self::assertNotNull($admin);
         self::assertSame('__Host-refresh_token', $admin->name);
@@ -312,7 +312,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
 
         $this->seedIdentity();
 
-        $cookie = $this->sessions('admin')->signIn('password', self::credentials())->session?->tokens->refreshCookie?->cookie();
+        $cookie = $this->sessions('admin')->signIn('password', self::credentials(), self::requestContext())->session?->tokens->refreshCookie?->cookie();
 
         self::assertNotNull($cookie);
         self::assertSame(['__Host-admin_refresh_token', '/', null], [$cookie->getName(), $cookie->getPath(), $cookie->getDomain()]);
@@ -422,7 +422,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     {
         $this->seedIdentity();
 
-        $tokens = $this->sessions($guard)->signIn('password', self::credentials())->session?->tokens;
+        $tokens = $this->sessions($guard)->signIn('password', self::credentials(), self::requestContext())->session?->tokens;
 
         self::assertNotNull($tokens);
 
@@ -467,7 +467,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
      */
     private static function refreshRoute(string $guard): JsonResponse
     {
-        $result = Auth::sessions($guard)->refreshFromRequest();
+        $result = Auth::sessions($guard)->refresh(self::servedToken($guard), self::requestClient());
 
         if ($result === null) {
             return new JsonResponse(['reason' => null], 400);

@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
@@ -78,7 +79,7 @@ final class AccessContractsTest extends TestCase
     {
         [$member, $membership] = $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertTrue($membership->is($session->principal)); // @phpstan-ignore method.notFound
@@ -105,7 +106,10 @@ final class AccessContractsTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->reason);
+        self::assertSame(
+            FailureReason::PRINCIPAL_INELIGIBLE,
+            $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->reason,
+        );
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertFalse($this->freshGuard('members')->attempt(self::credentials('member@example.test')));
         self::assertSame([], $this->sessions('members')->principals($member));
@@ -113,7 +117,7 @@ final class AccessContractsTest extends TestCase
 
         $this->seedIdentity();
 
-        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
     }
 
     /**
@@ -129,20 +133,25 @@ final class AccessContractsTest extends TestCase
     {
         $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
         app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(static fn (): bool => true));
 
-        $refused = self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal());
+        $refused = self::sessionsOf($this->freshGuard('members'))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient());
 
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $refused->reason);
         self::assertNull(Session::query()->sole()->getRevokedAt());
 
         app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(static fn (): bool => false));
 
-        self::assertTrue(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue(
+            self::sessionsOf($this->freshGuard('members'))->refresh(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::requestClient(),
+            )->isRefreshed(),
+        );
     }
 
     /**
@@ -181,7 +190,7 @@ final class AccessContractsTest extends TestCase
 
         app()->instance(TenantAccess::class, $access);
 
-        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'));
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $result->reason);
         self::assertSame([[$membership->getKey(), $tenant->getKey()]], $access->asked);

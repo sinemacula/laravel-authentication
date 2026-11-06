@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\FactorChangeResult;
@@ -180,7 +181,7 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
         $proof   = self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), Purpose::SIGN_IN);
 
         self::assertInstanceOf(Secret::class, $pending);
-        self::assertTrue($this->sessions()->satisfy($pending, $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($pending, $proof, self::requestClient())->isSignedIn());
     }
 
     /**
@@ -205,7 +206,7 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
 
         $reported = $this->race(
             function () use ($signedIn, $refreshed): void {
-                $result = $this->sessions()->refresh((string) $signedIn->tokens->refreshToken?->reveal());
+                $result = $this->sessions()->refresh(PresentedRefreshToken::fromBody((string) $signedIn->tokens->refreshToken?->reveal()), self::requestClient());
 
                 self::assertTrue($result->isRefreshed());
 
@@ -225,9 +226,12 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
 
         self::assertNotNull($tokens);
         self::assertFalse($this->authenticates($tokens->accessToken));
-        self::assertSame(FailureReason::SESSION_PENDING, $this->sessions()->refresh((string) $tokens->refreshToken?->reveal())->reason);
+        self::assertSame(
+            FailureReason::SESSION_PENDING,
+            $this->sessions()->refresh(PresentedRefreshToken::fromBody((string) $tokens->refreshToken?->reveal()), self::requestClient())->reason,
+        );
         self::assertIsString($reported['credential']);
-        self::assertTrue($this->sessions()->satisfy($reported['credential'], $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($reported['credential'], $proof, self::requestClient())->isSignedIn());
     }
 
     /**
@@ -260,7 +264,7 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     {
         $this->seedIdentity();
 
-        $signedIn = $this->sessions()->signIn('password', self::credentials())->session;
+        $signedIn = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 
@@ -338,7 +342,7 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     {
         self::isolateAt($level);
 
-        [$failed, $result] = self::retried(fn (): RefreshResult => $this->sessions()->refresh($refreshToken));
+        [$failed, $result] = self::retried(fn (): RefreshResult => $this->sessions()->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient()));
 
         return ['failed' => $failed, 'refreshed' => $result->isRefreshed(), 'reason' => $result->reason?->value];
     }

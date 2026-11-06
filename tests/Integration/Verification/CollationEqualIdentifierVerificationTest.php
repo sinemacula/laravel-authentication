@@ -133,7 +133,7 @@ final class CollationEqualIdentifierVerificationTest extends TestCase
 
         $this->replaceAddressWith($variant);
 
-        self::assertSame(IdentifierVerification::MISMATCH, app(IdentifierVerifier::class)->verify('api', $identity, 'email', self::PROVEN));
+        self::assertSame(IdentifierVerification::MISMATCH, app(IdentifierVerifier::class)->verify('api', $identity, 'email', self::PROVEN, self::requestClient()));
         self::assertNull(DB::table('verifiable_identities')->value('email_verified_at'));
 
         Event::assertNotDispatched(IdentifierVerified::class);

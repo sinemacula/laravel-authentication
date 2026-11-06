@@ -84,9 +84,9 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
         $passkey  = $this->registerPasskey($identity);
 
         self::assertTrue($this->signInWithPasskey()->isSignedIn());
-        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('integration_identities')->count());
-        self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id)->isRemoved());
+        self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id, self::requestClient())->isRemoved());
 
         self::assertSame(['factor_removed', 'factor_removed'], DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->pluck('revoked_reason')->all());
     }

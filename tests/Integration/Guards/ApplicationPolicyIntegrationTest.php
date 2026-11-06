@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -192,7 +193,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $refreshed);
 
-        $result = GuardSessions::of($refreshed)->refresh($refreshToken)->session?->tokens;
+        $result = GuardSessions::of($refreshed)->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient())->session?->tokens;
 
         self::assertNotNull($result);
         $this->assertExpiresInMinutes(2, $result->accessToken->reveal());
@@ -215,19 +216,23 @@ final class ApplicationPolicyIntegrationTest extends TestCase
         $second = TypedMembership::query()->create(['identity_id' => $first->identity_id, 'tenant_id' => null, 'type' => 'service']);
 
         $sessions = Auth::sessions(self::GUARD);
-        $signedIn = $sessions->start($first->getIdentity(), $first, 'password')->session;
+        $signedIn = $sessions->start($first->getIdentity(), $first, 'password', self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 
         Auth::forgetGuards();
 
-        $refreshed = Auth::sessions(self::GUARD)->refresh($signedIn->tokens->refreshToken?->reveal())->session;
+        $refreshed = Auth::sessions(self::GUARD)->refresh(PresentedRefreshToken::fromBody($signedIn->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 
         Auth::forgetGuards();
 
-        $switched = Auth::sessions(self::GUARD)->switchTo($refreshed->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->session;
+        $switched = Auth::sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($refreshed->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+        )->session;
 
         self::assertNotNull($switched);
         self::assertSame($second->getKey(), $switched->principal->getPrincipalIdentifier());

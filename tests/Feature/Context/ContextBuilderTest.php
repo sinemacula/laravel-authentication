@@ -154,7 +154,7 @@ final class ContextBuilderTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()), self::requestClient())->isIssued());
 
         $this->clockAt($this->now->addSeconds(150));
 
@@ -184,7 +184,7 @@ final class ContextBuilderTest extends TestCase
         $evaluation = new Evaluation(true, false);
         $proof      = self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), kind: ProofKind::RECOVERY_CODE, evaluation: $evaluation, methods: ['kba']);
 
-        self::assertTrue($this->sessions()->stepUp($proof)->isIssued());
+        self::assertTrue($this->sessions()->stepUp($proof, self::requestClient())->isIssued());
 
         $context = $this->contextOf($signedIn->tokens->accessToken->reveal())['authentication'];
 
@@ -206,7 +206,7 @@ final class ContextBuilderTest extends TestCase
     {
         $signedIn = $this->signedIn();
 
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()), self::requestClient())->isIssued());
 
         $guard = $this->freshGuard();
 
@@ -319,7 +319,7 @@ final class ContextBuilderTest extends TestCase
 
         $identity = $this->seedIdentity();
         $result   = $this->linkedResult($identity, evidence: new ExternalEvidence(['hwk', 'pin'], 'phrh', $this->now->subMinute()));
-        $session  = $this->sessions()->signInExternally($result)->session;
+        $session  = $this->sessions()->signInExternally($result, self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -343,7 +343,7 @@ final class ContextBuilderTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -456,7 +456,7 @@ final class ContextBuilderTest extends TestCase
 
         $identity = $this->seedIdentity();
         $result   = $this->linkedResult($identity, providerContext: new ProviderContext(['protocol' => 'saml-6c1f', 'verified_by' => 'domain-4b7d']));
-        $session  = $this->sessions()->signInExternally($result)->session;
+        $session  = $this->sessions()->signInExternally($result, self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -580,7 +580,7 @@ final class ContextBuilderTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

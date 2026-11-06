@@ -108,7 +108,7 @@ final class RevocationScopeTest extends TestCase
     {
         [$member, $membership] = $this->seedMember();
 
-        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->isSignedIn());
 
         $membership->setRelation('identity', new AccessOnlyMember);
 
@@ -136,7 +136,7 @@ final class RevocationScopeTest extends TestCase
     {
         [$member, $membership] = $this->seedMember();
 
-        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->isSignedIn());
 
         DB::table('activatable_tenant_members')->where('id', $member->getKey())->delete();
 
@@ -165,7 +165,7 @@ final class RevocationScopeTest extends TestCase
 
         $this->seedMember('second@example.test', $tenant);
 
-        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->isSignedIn());
 
         Model::preventLazyLoading();
 

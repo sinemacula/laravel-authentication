@@ -73,8 +73,9 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * factor, then the choice, and holding no token. `pending()` reads a pending
  * session for an action, `satisfy()` hands it the proof of a further factor,
  * `choose()` makes the choice, and `discard()` ends it; each takes the pending
- * credential, which travels only in a response body. `satisfy()` and `choose()`
- * judge the client they are given, or the guard's request's.
+ * credential, which travels only in a response body
+ * (`PendingCredential::extract()` reads it from a request's). `satisfy()` and
+ * `choose()` judge the client they are given.
  *
  * Every sign-in creates a new session, which records the proof of its first
  * factor (and the provenance of a session an external provider established) in
@@ -115,10 +116,14 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
  * and server errors. The service keeps no state between calls: it runs on the
- * guard's context, reading its provider, resolver, dispatcher and request, and
- * the sign-in policies bound in the container, each time it needs them, and
- * reaches the guard's bound state only through the binding it is given. The
- * auth manager builds one on each call of `Auth::sessions()`.
+ * guard's context, reading its provider, resolver and dispatcher, and the
+ * sign-in policies bound in the container, each time it needs them, and reaches
+ * the guard's bound state only through the binding it is given. Every sign-in,
+ * refresh, switch, pending action, step-up, reauthentication and sign-out by
+ * refresh credential takes the client it acts for as a plain value (a
+ * `ClientContext`, or the `SignInContext` that carries one), which it judges,
+ * limits, reports and binds with, and never reads the guard's request for it.
+ * The auth manager builds one on each call of `Auth::sessions()`.
  *
  * @api
  *
@@ -199,7 +204,7 @@ final readonly class SessionService
         $exchange     = new RefreshTokenExchange($tokens, $context, $connections, $transactions);
 
         $this->refreshes = new SessionRefresh($context, $binding, $exchange, $this->afterCommit, $this->binds, $container, $refreshProof);
-        $this->signOuts  = new SessionSignOut($context, $binding, $this->revocations, $sessions, $refreshProof, $container);
+        $this->signOuts  = new SessionSignOut($context, $binding, $sessions, $refreshProof, $container);
 
         $this->connectionRevocations = new ConnectionRevocations($context, $binding, $sessions, $this->afterCommit, $container);
         $this->factorRevocations     = new FactorRevocations(
@@ -228,24 +233,25 @@ final readonly class SessionService
      * from a page of its own site (`cross_site_request`, before anything is
      * read, counted or written: see
      * `RefreshTokenTransport::isSameSiteClient()`, judged on the context's
-     * client, the guard request's unless a context is given); the application
-     * policy must allow the method (`method_not_allowed`, nothing counted); the
-     * identifier and the client's IP address must have attempts left
-     * (`rate_limited`); then, inside the credential timebox, the method must
-     * verify the input (its `FirstFactor` is the session's first proof, timed
-     * when it returned) and the identity must be human, active and admitted
-     * with the identifier type the input used. Then the sign-in follows the
-     * order the service describes: a deadline the context supplies that has
-     * already passed fails as `session_expired`; the principal the context
-     * names, or the only one the application admits, is selected, or a choice
-     * is left outstanding (with none left, the sign-in fails with the reason
-     * the last was refused, or `principal_unresolved`); a password is rehashed
-     * when its hash is outdated; the client's refresh token, if any, is checked
-     * as proof of an existing session; the identity-level factor policy is
-     * asked; a selected principal's tenant (the context's, or its own) is
-     * admitted; and that tenant's authentication policy is asked, judged
-     * against the sign-in's own proof and provenance: one requiring sign-in
-     * through a connection the sign-in did not come through fails it as
+     * client, the request's as the controller handed it on with
+     * `SignInContext::fromRequest()`, never read from the guard's request); the
+     * application policy must allow the method (`method_not_allowed`, nothing
+     * counted); the identifier and the client's IP address must have attempts
+     * left (`rate_limited`); then, inside the credential timebox, the method
+     * must verify the input (its `FirstFactor` is the session's first proof,
+     * timed when it returned) and the identity must be human, active and
+     * admitted with the identifier type the input used. Then the sign-in
+     * follows the order the service describes: a deadline the context supplies
+     * that has already passed fails as `session_expired`; the principal the
+     * context names, or the only one the application admits, is selected, or a
+     * choice is left outstanding (with none left, the sign-in fails with the
+     * reason the last was refused, or `principal_unresolved`); a password is
+     * rehashed when its hash is outdated; the client's refresh token, if any,
+     * is checked as proof of an existing session; the identity-level factor
+     * policy is asked; a selected principal's tenant (the context's, or its
+     * own) is admitted; and that tenant's authentication policy is asked,
+     * judged against the sign-in's own proof and provenance: one requiring
+     * sign-in through a connection the sign-in did not come through fails it as
      * `sso_required`, writing nothing, and a further factor it requires is
      * outstanding as the identity's own is. With nothing outstanding the
      * session starts and the sign-in gives back the attempt's slots and those
@@ -254,17 +260,16 @@ final readonly class SessionService
      *
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function signIn(string $method, #[\SensitiveParameter] array $input, ?SignInContext $context = null): SignInResult
+    public function signIn(string $method, #[\SensitiveParameter] array $input, SignInContext $context): SignInResult
     {
-        $began     = CarbonImmutable::now()->startOfSecond();
-        $transport = $this->transport();
-        $driver    = $this->container->make(SignInMethodManager::class)->method($method);
-        $context ??= SignInContext::fromRequest($this->context->request());
+        $began      = CarbonImmutable::now()->startOfSecond();
+        $transport  = $this->transport();
+        $driver     = $this->container->make(SignInMethodManager::class)->method($method);
         $type       = $driver->identifierType($this->context->name());
         $identifier = $driver->identifier($this->context->name(), $input);
         $safe       = $identifier === null ? [] : [$type ?? 'identifier' => $identifier];
@@ -317,22 +322,21 @@ final readonly class SessionService
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $method
-     * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \InvalidArgumentException
      * @throws \Throwable
      */
-    public function start(Identity $identity, ?Principal $principal, string $method, ?SignInContext $context = null): SignInResult
+    public function start(Identity $identity, ?Principal $principal, string $method, SignInContext $context): SignInResult
     {
         SessionPreconditions::assertSessionMethod($method);
 
         $began     = CarbonImmutable::now()->startOfSecond();
         $transport = $this->transport();
-        $context ??= SignInContext::fromRequest($this->context->request());
-        $pinned  = SessionPreconditions::pinnedPrincipal($principal, $context);
-        $proof   = SignInProof::unattested($method, CarbonImmutable::now());
-        $recheck = $this->recheck($context->client, $began);
+        $pinned    = SessionPreconditions::pinnedPrincipal($principal, $context);
+        $proof     = SignInProof::unattested($method, CarbonImmutable::now());
+        $recheck   = $this->recheck($context->client, $began);
 
         $outcome = SessionPreconditions::crossSite($transport, $context->client) ?? $this->startFor($identity, $pinned, $method, $context, $proof, $recheck);
         $outcome = $recheck->refusal()                                           ?? $outcome;
@@ -385,37 +389,41 @@ final readonly class SessionService
      * credential consumed), stays pending, or moves on to the choice of
      * principal. A refusal leaves the session pending and the proof unstored; a
      * credential that names no live pending session of this guard fails as
-     * `pending_invalid`. A cookie application's client that did not come from a
-     * page of its own site fails as `cross_site_request` before the pending
-     * session is read. Every refusal is reported with Laravel's `Failed` and
-     * `AuthenticationFailed`.
+     * `pending_invalid`, as does `pending_invalid` handed in. A cookie
+     * application's client that did not come from a page of its own site fails
+     * as `cross_site_request` before the pending session is read. Every refusal
+     * is reported with Laravel's `Failed` and `AuthenticationFailed`.
      *
-     * The client is the request's unless one is given: a service layer that
-     * keeps HTTP out passes the `ClientContext` its controller built, which is
-     * judged by the same-site rule (a context without its `Origin`, scheme and
-     * host or custom header fails it on a cookie application), written by the
-     * activation as the session's last use, and carried by the events that
-     * report the action (`AuthenticationFailed`, `SessionCreated` or
+     * The credential is what `PendingCredential::extract()` read from the
+     * request, once the controller answered its absence: the `Secret`, or
+     * `pending_invalid` for a field that was not a non-empty string (any other
+     * reason is a caller's error, an `InvalidArgumentException`, nothing
+     * dispatched). The client is the request's `ClientContext`, handed on as a
+     * plain value, never read from the guard's request: it is judged by the
+     * same-site rule (a context without its `Origin`, scheme and host or custom
+     * header fails it on a cookie application), written by the activation as
+     * the session's last use, and carried by the events that report the action
+     * (`Failed` aside: `AuthenticationFailed`, `SessionCreated` or
      * `SessionActivated`, `SignedIn`, a superseded session's `SessionRevoked`)
      * and the guard's bind (`PrincipalAssigned` and `SessionAuthenticated`, so
      * a last use the bind records is that client's too); the guard keeps no
      * client, so its later events describe its own request.
      *
-     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function satisfy(#[\SensitiveParameter] Secret|string $credential, ProofResult $proof, ?ClientContext $client = null): SignInResult
+    public function satisfy(#[\SensitiveParameter] FailureReason|Secret|string $credential, ProofResult $proof, ClientContext $client): SignInResult
     {
         $now       = CarbonImmutable::now()->startOfSecond();
         $transport = $this->transport();
-        $client ??= $this->context->client();
-        $recheck = $this->recheck($client, $now);
-        $outcome = SessionPreconditions::crossSite($transport, $client)
-            ?? $this->pendings->satisfy($credential, $proof, $now, $recheck);
+        $presented = SessionPreconditions::pendingCredential($credential);
+        $recheck   = $this->recheck($client, $now);
+        $outcome   = SessionPreconditions::crossSite($transport, $client)
+            ?? ($presented instanceof Refused ? $presented : $this->pendings->satisfy($presented, $proof, $now, $recheck));
 
         return $this->acted($outcome, $transport, $recheck);
     }
@@ -438,27 +446,31 @@ final readonly class SessionService
      * meet, records the principal and tenant and leaves the session waiting for
      * it; otherwise the session activates. A refusal leaves the session pending
      * for another choice; a credential that names no live pending session of
-     * this guard fails as `pending_invalid`; a cookie application's client that
-     * did not come from a page of its own site fails as `cross_site_request`
-     * before the pending session is read. The client is the request's unless
-     * one is given, as for `satisfy()`.
+     * this guard fails as `pending_invalid`, as does `pending_invalid` handed
+     * in; a cookie application's client that did not come from a page of its
+     * own site fails as `cross_site_request` before the pending session is
+     * read. The credential and the client are plain values, as for `satisfy()`.
      *
-     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $tenant
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function choose(#[\SensitiveParameter] Secret|string $credential, Principal $principal, ?TenantSelection $tenant = null, ?ClientContext $client = null): SignInResult
-    {
+    public function choose(
+        #[\SensitiveParameter] FailureReason|Secret|string $credential,
+        Principal $principal,
+        ClientContext $client,
+        ?TenantSelection $tenant = null,
+    ): SignInResult {
         $now       = CarbonImmutable::now()->startOfSecond();
         $transport = $this->transport();
-        $client ??= $this->context->client();
-        $recheck = $this->recheck($client, $now);
-        $outcome = SessionPreconditions::crossSite($transport, $client)
-            ?? $this->pendings->choose($credential, $principal, $tenant, $now, $recheck);
+        $presented = SessionPreconditions::pendingCredential($credential);
+        $recheck   = $this->recheck($client, $now);
+        $outcome   = SessionPreconditions::crossSite($transport, $client)
+            ?? ($presented instanceof Refused ? $presented : $this->pendings->choose($presented, $principal, $tenant, $now, $recheck));
 
         return $this->acted($recheck->refusal() ?? $outcome, $transport, $recheck);
     }
@@ -470,18 +482,19 @@ final readonly class SessionService
      * credential cannot be tried again. The attempt-limit slots its sign-in
      * took stay counted: each factor guess costs a sign-in attempt. Returns
      * whether the credential named a live pending session of this guard, which
-     * this call ended.
+     * this call ended. `SessionRevoked` describes the client given.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return bool
      *
      * @throws \Throwable
      *
      * @imperative
      */
-    public function discard(#[\SensitiveParameter] Secret|string $credential): bool
+    public function discard(#[\SensitiveParameter] Secret|string $credential, ClientContext $client): bool
     {
-        return $this->pendings->discard($credential, CarbonImmutable::now()->startOfSecond());
+        return $this->pendings->discard($credential, CarbonImmutable::now()->startOfSecond(), $client);
     }
 
     /**

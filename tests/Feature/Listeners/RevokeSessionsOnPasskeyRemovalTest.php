@@ -90,10 +90,10 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
         $this->seedIdentity('grace@example.test');
 
         self::assertTrue($this->signInWithPasskey()->isSignedIn());
-        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
-        self::assertTrue($this->sessions()->signIn('password', self::credentials('grace@example.test'))->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials('grace@example.test'), self::requestContext())->isSignedIn());
 
-        Auth::passkeys('api')->remove($identity, $passkey->id);
+        Auth::passkeys('api')->remove($identity, $passkey->id, self::requestClient());
 
         $reasons = DB::table('authentication_sessions')->where('authenticatable_id', (string) $identity->id)->pluck('revoked_reason')->all();
 
@@ -117,7 +117,7 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
 
         DB::beginTransaction();
 
-        Auth::passkeys('api')->remove($identity, $passkey->id);
+        Auth::passkeys('api')->remove($identity, $passkey->id, self::requestClient());
 
         DB::rollBack();
 
@@ -157,7 +157,7 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
         $passkey  = $this->registerPasskey($identity);
 
         self::assertTrue($this->signInWithPasskey()->isSignedIn());
-        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
 
         IntegrationIdentity::addGlobalScope('nobody', static function (Builder $query): void {
             $query->whereRaw('1 = 0');
@@ -165,7 +165,7 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
 
         try {
             self::assertNull(IntegrationIdentity::query()->find($identity->id));
-            self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id)->isRemoved());
+            self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id, self::requestClient())->isRemoved());
         } finally {
             IntegrationIdentity::clearBootedModels();
         }
@@ -227,9 +227,9 @@ final class RevokeSessionsOnPasskeyRemovalTest extends TestCase
             $other    = HandleIdentity::query()->create(['handle' => 'grace', 'email' => 'grace@example.test', 'password' => $password]);
 
             self::assertSame([1, 2], [$owner->id, $other->id]);
-            self::assertTrue($this->sessions('handles')->signIn('password', self::credentials())->isSignedIn());
-            self::assertTrue($this->sessions('handles')->signIn('password', self::credentials())->isSignedIn());
-            self::assertTrue($this->sessions('handles')->signIn('password', self::credentials('grace@example.test'))->isSignedIn());
+            self::assertTrue($this->sessions('handles')->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
+            self::assertTrue($this->sessions('handles')->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
+            self::assertTrue($this->sessions('handles')->signIn('password', self::credentials('grace@example.test'), self::requestContext())->isSignedIn());
 
             event(new PasskeyRemoved(new EventContext('handles', new ClientContext(null, null), $owner, method: 'passkey', credentialId: 'removed')));
 

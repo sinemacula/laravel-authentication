@@ -521,7 +521,7 @@ final class SendOneTimeCodeTest extends TestCase
 
         Auth::extend('copied_jwt', static fn (Application $app): JwtGuard => AuthenticationServiceProvider::createJwtGuard($app, 'mobile', config()->array('auth.guards.mobile')));
 
-        self::assertTrue(Auth::codes('copied')->send('phone_code', ['phone' => self::PHONE])->isSent());
+        self::assertTrue(Auth::codes('copied')->send('phone_code', ['phone' => self::PHONE], self::requestClient())->isSent());
 
         Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--stop-when-empty' => true]);
 
@@ -649,7 +649,7 @@ final class SendOneTimeCodeTest extends TestCase
         config()->set('queue.default', 'database');
         config()->set('queue.connections.database', ['driver' => 'database', 'table' => 'jobs', 'queue' => 'default', 'retry_after' => 90]);
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         $payload = DB::table('jobs')->value('payload');
 
@@ -683,7 +683,7 @@ final class SendOneTimeCodeTest extends TestCase
         config()->set('queue.default', 'database');
         config()->set('queue.connections.database', ['driver' => 'database', 'table' => 'jobs', 'queue' => 'default', 'retry_after' => 90]);
 
-        $this->codeService()->sendVerification($identity, 'phone');
+        $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
 
         $identity->delete();
 
@@ -714,7 +714,7 @@ final class SendOneTimeCodeTest extends TestCase
         $sender = $this->sender;
 
         Route::post('/codes', static function () use ($sender): array {
-            $sent = Auth::codes('mobile')->send('phone_code', ['phone' => self::PHONE])->isSent();
+            $sent = Auth::codes('mobile')->send('phone_code', ['phone' => self::PHONE], self::requestClient())->isSent();
 
             return ['sent' => $sent, 'delivered' => $sender->count()];
         });
@@ -744,7 +744,7 @@ final class SendOneTimeCodeTest extends TestCase
         $sender = $this->sender;
 
         Route::post('/codes', static function () use ($sender): array {
-            $sent = Auth::codes('mobile')->send('phone_code', ['phone' => self::PHONE])->isSent();
+            $sent = Auth::codes('mobile')->send('phone_code', ['phone' => self::PHONE], self::requestClient())->isSent();
 
             return ['sent' => $sent, 'delivered' => $sender->count()];
         });
@@ -773,7 +773,7 @@ final class SendOneTimeCodeTest extends TestCase
         config()->set('authentication.delivery.queue.connection', 'failover');
 
         Route::post('/codes', static function (): array {
-            $sent = Auth::codes('mobile')->send('phone_code', ['phone' => self::PHONE])->isSent();
+            $sent = Auth::codes('mobile')->send('phone_code', ['phone' => self::PHONE], self::requestClient())->isSent();
 
             return ['sent' => $sent, 'pushed' => DB::table('jobs')->count()];
         });
@@ -801,7 +801,7 @@ final class SendOneTimeCodeTest extends TestCase
 
         Bus::withoutDispatchingAfterResponses();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         self::assertSame(self::CODE, $this->sender->lastCodeFor(self::PHONE));
     }

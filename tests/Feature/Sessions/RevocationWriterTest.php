@@ -406,8 +406,8 @@ final class RevocationWriterTest extends TestCase
         self::assertNull(self::revokedAt($theirs));
         self::assertSame(self::NOW, self::revokedAt($revoked));
         self::assertSame('password_changed', DB::table('authentication_sessions')->where('id', $pending)->value('revoked_reason'));
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($pendingCredential, $pendingProof)->reason);
-        self::assertTrue($this->sessions()->satisfy($theirsCredential, $theirsProof)->isSignedIn());
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($pendingCredential, $pendingProof, self::requestClient())->reason);
+        self::assertTrue($this->sessions()->satisfy($theirsCredential, $theirsProof, self::requestClient())->isSignedIn());
     }
 
     /**
@@ -1075,7 +1075,7 @@ final class RevocationWriterTest extends TestCase
      */
     private function signIn(string $guard = 'api', string $email = 'ada@example.test'): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -1110,7 +1110,7 @@ final class RevocationWriterTest extends TestCase
             }
         });
 
-        $result = $this->sessions()->signIn('password', self::credentials($email));
+        $result = $this->sessions()->signIn('password', self::credentials($email), self::requestContext());
 
         app()->instance(AdditionalFactorPolicy::class, $previous);
 

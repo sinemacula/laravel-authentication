@@ -111,7 +111,7 @@ final class ConcurrentExternalSignInAndConnectionDisablingTest extends TestCase
 
         self::assertSame(0, DB::table('authentication_provenance')->count());
 
-        $signedIn = $this->onSignInConnection(fn (): SignInResult => $this->sessions()->signInExternally($result));
+        $signedIn = $this->onSignInConnection(fn (): SignInResult => $this->sessions()->signInExternally($result, self::requestContext()));
         $key      = $signedIn->session?->record->getKey();
 
         self::assertTrue($signedIn->isSignedIn());
@@ -154,7 +154,7 @@ final class ConcurrentExternalSignInAndConnectionDisablingTest extends TestCase
 
         self::assertSame(0, DB::table('authentication_provenance')->count());
         self::assertSame(0, $this->onSignInConnection(fn (): int => $this->sessions()->connectionDisabled('connection-7')));
-        self::assertSame('40001', self::serializationFailure(fn (): mixed => $this->sessions()->signInExternally($result)));
+        self::assertSame('40001', self::serializationFailure(fn (): mixed => $this->sessions()->signInExternally($result, self::requestContext())));
         self::assertSame(0, DB::table('authentication_sessions')->count());
     }
 

@@ -193,7 +193,7 @@ final class QueueWorkerRehashingTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
 
         IntegrationIdentity::observe(RevokeSessionsOnPasswordChange::class);
 

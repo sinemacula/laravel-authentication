@@ -163,7 +163,10 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $this->startMachineRequest();
 
-        $token = PackageAuth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key()->reveal(), 20), null)->accessToken?->reveal();
+        $token = PackageAuth::clientCredentials('m2m')->exchange(
+            self::basicClient($issued->summary->publicId, substr($issued->key()->reveal(), 20)),
+            self::requestClient(),
+        )->accessToken?->reveal();
 
         self::assertIsString($token);
 

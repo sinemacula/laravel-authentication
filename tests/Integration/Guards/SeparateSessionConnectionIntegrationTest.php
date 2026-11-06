@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -144,7 +145,10 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->signIn();
 
-        $pair = GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal())->session?->tokens;
+        $pair = GuardSessions::of($this->guard())->refresh(
+            PresentedRefreshToken::fromBody($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal()),
+            self::requestClient(),
+        )->session?->tokens;
 
         self::assertNotNull($pair);
         self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->row($session)['refresh_key']);
@@ -173,7 +177,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertNull(GuardSessions::of($this->guard())->refresh($replay)->session);
+        self::assertNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($replay), self::requestClient())->session);
         self::assertSame(['SessionRevoked', 'Failed', 'AuthenticationFailed'], $this->dispatched->getArrayCopy());
 
         DB::rollBack();
@@ -200,7 +204,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         $connection->beginTransaction();
 
-        self::assertNull(GuardSessions::of($this->guard())->refresh($replay)->session);
+        self::assertNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($replay), self::requestClient())->session);
 
         $connection->rollBack();
 
@@ -211,7 +215,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         $connection->beginTransaction();
 
-        self::assertNull(GuardSessions::of($this->guard())->refresh($replay)->session);
+        self::assertNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($replay), self::requestClient())->session);
         self::assertSame(['Failed', 'AuthenticationFailed'], $this->dispatched->getArrayCopy());
 
         $connection->commit();
@@ -238,7 +242,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
         $connection->beginTransaction();
         $connection->beginTransaction();
 
-        self::assertNull(GuardSessions::of($this->guard())->refresh($replay)->session);
+        self::assertNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($replay), self::requestClient())->session);
 
         $connection->rollBack();
         $connection->commit();
@@ -263,7 +267,12 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertNotNull(GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal())->session);
+        self::assertNotNull(
+            GuardSessions::of($this->guard())->refresh(
+                PresentedRefreshToken::fromBody($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal()),
+                self::requestClient(),
+            )->session,
+        );
         self::assertSame(['Refreshed'], $this->dispatched->getArrayCopy());
 
         DB::rollBack();
@@ -290,7 +299,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         $connection->beginTransaction();
 
-        self::assertNotNull(GuardSessions::of($this->guard())->refresh($token)->session);
+        self::assertNotNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
 
         $connection->rollBack();
 
@@ -299,7 +308,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         $connection->beginTransaction();
 
-        self::assertNotNull(GuardSessions::of($this->guard())->refresh($token)->session);
+        self::assertNotNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
         self::assertSame([], $this->dispatched->getArrayCopy());
 
         $connection->commit();
@@ -319,7 +328,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
         [$identity, $session] = $this->signIn();
 
         $token      = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
-        $statements = $this->statementsOf(fn (): mixed => GuardSessions::of($this->guard())->refresh($token)->session);
+        $statements = $this->statementsOf(fn (): mixed => GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
 
         self::assertIssuedInATransactionOnTheSessionsConnection($statements, 'refresh_rotated_at');
     }
@@ -336,7 +345,13 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
         [$identity, $session] = $this->signIn();
 
         $token      = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
-        $statements = $this->statementsOf(fn (): mixed => GuardSessions::of($this->guard())->switchTo($token, SwitchTarget::tenant(TenantSelection::none()))->session);
+        $statements = $this->statementsOf(
+            fn (): mixed => GuardSessions::of($this->guard())->switchTo(
+                PresentedRefreshToken::fromBody($token),
+                SwitchTarget::tenant(TenantSelection::none()),
+                self::requestClient(),
+            )->session,
+        );
 
         self::assertIssuedInATransactionOnTheSessionsConnection($statements, 'refresh_rotated_at');
     }
@@ -388,7 +403,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        $kept = Auth::sessions()->signIn('password', $credentials)->session;
+        $kept = Auth::sessions()->signIn('password', $credentials, self::requestContext())->session;
 
         self::assertNotNull($kept);
         self::assertSame(['SessionAuthenticated'], $reported->getArrayCopy());
@@ -402,7 +417,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        $ended = Auth::sessions()->signIn('password', $credentials)->session;
+        $ended = Auth::sessions()->signIn('password', $credentials, self::requestContext())->session;
 
         self::assertNotNull($ended);
 
@@ -443,7 +458,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        $ended = Auth::sessions()->signIn('password', ['email' => 'thrown@example.test', 'password' => 'correct horse battery staple'])->session;
+        $ended = Auth::sessions()->signIn('password', ['email' => 'thrown@example.test', 'password' => 'correct horse battery staple'], self::requestContext())->session;
 
         self::assertNotNull($ended);
         self::assertSame($ended->record->getKey(), $guard->session()?->getSessionIdentifier());
@@ -498,7 +513,11 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        $signedIn = Auth::sessions(self::CUTOFFS)->signIn('password', ['email' => 'kept@example.test', 'password' => 'correct horse battery staple'])->session;
+        $signedIn = Auth::sessions(self::CUTOFFS)->signIn(
+            'password',
+            ['email' => 'kept@example.test', 'password' => 'correct horse battery staple'],
+            self::requestContext(),
+        )->session;
 
         self::assertNotNull($signedIn);
 

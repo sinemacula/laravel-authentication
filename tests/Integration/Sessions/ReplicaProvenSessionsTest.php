@@ -184,7 +184,7 @@ final class ReplicaProvenSessionsTest extends TestCase
         $this->revokeOnThePrimary($first);
 
         $proof     = self::adapterProof($first->identity, $this->guard()->getName(), $pending->id, Purpose::SIGN_IN);
-        $completed = $this->signedIn(Auth::sessions($this->guard()->getName())->satisfy($waiting->credential->reveal(), $proof));
+        $completed = $this->signedIn(Auth::sessions($this->guard()->getName())->satisfy($waiting->credential->reveal(), $proof, self::requestClient()));
 
         self::assertNotSame($first->record->getSessionIdentifier(), $completed->record->getSessionIdentifier());
         self::assertNull(DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->where('id', $first->record->getSessionIdentifier())->value('revoked_reason'));

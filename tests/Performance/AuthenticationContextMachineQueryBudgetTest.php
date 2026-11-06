@@ -89,7 +89,7 @@ final class AuthenticationContextMachineQueryBudgetTest extends PerformanceContr
 
         $this->startMachineRequest();
 
-        $token = Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key()->reveal(), 20))->accessToken;
+        $token = Auth::clientCredentials('m2m')->exchange(self::basicClient($issued->summary->publicId, substr($issued->key()->reveal(), 20)), self::requestClient())->accessToken;
 
         self::assertNotNull($token);
 

@@ -7,7 +7,6 @@ namespace Tests\Integration\Verification;
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
@@ -113,24 +112,6 @@ final class IdentifierVerifierTest extends TestCase
     }
 
     /**
-     * A verification whose caller names no client reports the client of the
-     * request being served.
-     *
-     * @return void
-     */
-    public function testAVerificationWithoutAClientReportsTheServedRequest(): void
-    {
-        Event::fake([IdentifierVerified::class]);
-
-        $this->app?->instance('request', Request::create('/verify', 'GET', server: ['REMOTE_ADDR' => '198.51.100.4', 'HTTP_USER_AGENT' => 'Served/1.0']));
-
-        self::assertSame(IdentifierVerification::VERIFIED, $this->verifier()->verify(self::GUARD, self::seedVerifiableIdentity(), 'email', 'ben@example.com'));
-
-        Event::assertDispatched(IdentifierVerified::class, static fn (IdentifierVerified $event): bool => $event->context->client->ip === '198.51.100.4'
-            && $event->context->client->userAgent                                                                                     === 'Served/1.0');
-    }
-
-    /**
      * Verifying again reports the identifier already verified and dispatches
      * nothing, whether the identity in hand knows it is verified or not.
      *
@@ -141,12 +122,12 @@ final class IdentifierVerifierTest extends TestCase
         $identity = self::seedVerifiableIdentity();
         $stale    = VerifiableIdentity::query()->findOrFail($identity->getKey());
 
-        $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com');
+        $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com', self::requestClient());
 
         Event::fake([IdentifierVerified::class]);
 
-        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com'));
-        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $this->verifier()->verify(self::GUARD, $stale, 'email', 'ben@example.com'));
+        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com', self::requestClient()));
+        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $this->verifier()->verify(self::GUARD, $stale, 'email', 'ben@example.com', self::requestClient()));
 
         Event::assertNotDispatched(IdentifierVerified::class);
     }
@@ -165,9 +146,9 @@ final class IdentifierVerifierTest extends TestCase
         $identity  = self::seedVerifiableIdentity();
         $phoneless = self::seedVerifiableIdentity('other@example.com');
 
-        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $identity, 'email', 'old@example.com'));
-        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $identity, 'email', '   '));
-        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $phoneless, 'phone', '+447700900123'));
+        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $identity, 'email', 'old@example.com', self::requestClient()));
+        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $identity, 'email', '   ', self::requestClient()));
+        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $phoneless, 'phone', '+447700900123', self::requestClient()));
         self::assertNull(DB::table('verifiable_identities')->where('id', $identity->getKey())->value('email_verified_at'));
 
         Event::assertNotDispatched(IdentifierVerified::class);
@@ -199,8 +180,8 @@ final class IdentifierVerifierTest extends TestCase
 
         $identity = self::seedVerifiableIdentity('ben@example.com', 'Member-42');
 
-        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $identity, 'phone', 'member-42'));
-        self::assertSame(IdentifierVerification::VERIFIED, $this->verifier()->verify(self::GUARD, $identity, 'phone', 'Member-42'));
+        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $identity, 'phone', 'member-42', self::requestClient()));
+        self::assertSame(IdentifierVerification::VERIFIED, $this->verifier()->verify(self::GUARD, $identity, 'phone', 'Member-42', self::requestClient()));
     }
 
     /**
@@ -218,11 +199,11 @@ final class IdentifierVerifierTest extends TestCase
 
         DB::table('verifiable_identities')->update(['email' => 'new@example.com', 'email_verified_at' => '2027-02-01 00:00:00']);
 
-        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com'));
+        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com', self::requestClient()));
 
         DB::table('verifiable_identities')->delete();
 
-        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com'));
+        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com', self::requestClient()));
 
         Event::assertNotDispatched(IdentifierVerified::class);
     }
@@ -244,7 +225,7 @@ final class IdentifierVerifierTest extends TestCase
         $identity = self::seedVerifiableIdentity('ben@example.com', '+447700900123');
 
         DB::transaction(function () use ($identity, &$events): void {
-            $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com');
+            $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com', self::requestClient());
 
             self::assertSame([], $events);
         });
@@ -252,7 +233,7 @@ final class IdentifierVerifierTest extends TestCase
         self::assertSame(['email'], $events);
 
         DB::beginTransaction();
-        $this->verifier()->verify(self::GUARD, $identity, 'phone', '+447700900123');
+        $this->verifier()->verify(self::GUARD, $identity, 'phone', '+447700900123', self::requestClient());
         DB::rollBack();
 
         self::assertSame(['email'], $events);
@@ -272,14 +253,17 @@ final class IdentifierVerifierTest extends TestCase
         $identity = new StubVerifiableIdentity(7, ['email' => 'ben@example.com']);
 
         DB::transaction(function () use ($identity): void {
-            self::assertSame(IdentifierVerification::VERIFIED, $this->verifier()->verify(self::GUARD, $identity, 'email', 'BEN@example.com'));
+            self::assertSame(IdentifierVerification::VERIFIED, $this->verifier()->verify(self::GUARD, $identity, 'email', 'BEN@example.com', self::requestClient()));
 
             Event::assertDispatchedTimes(IdentifierVerified::class, 1);
         });
 
         self::assertTrue($identity->hasVerifiedIdentifier('email'));
-        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com'));
-        self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, new StubVerifiableIdentity(8, []), 'email', 'ben@example.com'));
+        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com', self::requestClient()));
+        self::assertSame(
+            IdentifierVerification::MISMATCH,
+            $this->verifier()->verify(self::GUARD, new StubVerifiableIdentity(8, []), 'email', 'ben@example.com', self::requestClient()),
+        );
     }
 
     /**
@@ -291,7 +275,7 @@ final class IdentifierVerifierTest extends TestCase
     public function testMisconfigurationIsReported(): void
     {
         try {
-            $this->verifier()->verify(self::GUARD, new PlainIdentityFixture(1), 'email', 'ben@example.com');
+            $this->verifier()->verify(self::GUARD, new PlainIdentityFixture(1), 'email', 'ben@example.com', self::requestClient());
             self::fail('Expected an identity without the contract to be reported.');
         } catch (\LogicException $e) {
             self::assertSame(PlainIdentityFixture::class . ' cannot verify identifiers: it does not implement ' . HasVerifiableIdentifiers::class . '.', $e->getMessage());
@@ -300,7 +284,7 @@ final class IdentifierVerifierTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Identifier type [e-mail] must be');
 
-        $this->verifier()->verify(self::GUARD, self::seedVerifiableIdentity(), 'e-mail', 'ben@example.com');
+        $this->verifier()->verify(self::GUARD, self::seedVerifiableIdentity(), 'e-mail', 'ben@example.com', self::requestClient());
     }
 
     /**

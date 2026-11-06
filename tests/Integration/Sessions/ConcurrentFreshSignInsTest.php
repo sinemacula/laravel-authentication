@@ -230,7 +230,7 @@ final class ConcurrentFreshSignInsTest extends TestCase
      */
     private function startFor(IntegrationIdentity $identity, string $linkId): string
     {
-        $session = $this->sessions()->signInExternally($this->linkedResult($identity, linkId: $linkId))->session;
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity, linkId: $linkId), self::requestContext())->session;
 
         self::assertNotNull($session);
 

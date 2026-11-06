@@ -621,7 +621,7 @@ final class BearerFormsTest extends TestCase
     {
         $this->startMachineRequest();
 
-        $result = Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key()->reveal(), 20), null);
+        $result = Auth::clientCredentials('m2m')->exchange(self::basicClient($issued->summary->publicId, substr($issued->key()->reveal(), 20)), self::requestClient());
 
         self::assertNotNull($result->accessToken);
 

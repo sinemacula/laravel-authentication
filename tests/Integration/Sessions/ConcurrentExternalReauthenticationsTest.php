@@ -128,7 +128,10 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
     public function testTheLaterProviderTimeWinsWhicheverCommitsLast(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->start))->session?->record;
+        $session  = $this->sessions()->signInExternally(
+            $this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->start),
+            self::requestContext(),
+        )->session?->record;
 
         self::assertInstanceOf(Session::class, $session);
 
@@ -191,7 +194,10 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
     public function testTheLaterProviderTimeWinsInsideACallersRepeatableReadTransaction(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->start))->session?->record;
+        $session  = $this->sessions()->signInExternally(
+            $this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->start),
+            self::requestContext(),
+        )->session?->record;
 
         self::assertInstanceOf(Session::class, $session);
 
@@ -305,7 +311,11 @@ final class ConcurrentExternalReauthenticationsTest extends TestCase
      */
     private function reauthenticate(Session $session, CarbonImmutable $at): AccessTokenResult
     {
-        return $this->sessions()->reauthenticateExternally($session->getKey(), new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $at));
+        return $this->sessions()->reauthenticateExternally(
+            $session->getKey(),
+            new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $at),
+            self::requestClient(),
+        );
     }
 
     /**

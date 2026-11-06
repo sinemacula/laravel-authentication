@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\SessionTokens;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
@@ -106,7 +107,7 @@ final class TokenPairTest extends TestCase
 
         foreach (['api', self::BROWSER] as $guard) {
 
-            $tokens = $this->sessions($guard)->signIn('password', self::credentials())->session?->tokens;
+            $tokens = $this->sessions($guard)->signIn('password', self::credentials(), self::requestContext())->session?->tokens;
 
             self::assertNotNull($tokens);
             self::assertSame($guard === self::BROWSER, $tokens->refreshCookie !== null);
@@ -130,13 +131,17 @@ final class TokenPairTest extends TestCase
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $pending = $this->sessions()->signIn('password', self::credentials());
+        $pending = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
 
         $this->clockAt($this->now->addMinute());
 
-        $satisfied = $this->sessions()->satisfy($pending->credential?->reveal() ?? '', self::adapterProof($identity, 'api', $pending->pending->id, Purpose::SIGN_IN));
+        $satisfied = $this->sessions()->satisfy(
+            $pending->credential?->reveal() ?? '',
+            self::adapterProof($identity, 'api', $pending->pending->id, Purpose::SIGN_IN),
+            self::requestClient(),
+        );
 
         self::assertNotNull($satisfied->session);
 
@@ -146,11 +151,11 @@ final class TokenPairTest extends TestCase
 
         [$chooser, $first] = $this->seedChooser();
 
-        $choice = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials($chooser->email));
+        $choice = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials($chooser->email), self::requestContext());
 
         $this->clockAt($this->now->addMinute());
 
-        $chosen = $this->sessions(self::CHOOSERS)->choose($choice->credential?->reveal() ?? '', $first);
+        $chosen = $this->sessions(self::CHOOSERS)->choose($choice->credential?->reveal() ?? '', $first, self::requestClient());
 
         self::assertNotNull($chosen->session);
 
@@ -169,11 +174,14 @@ final class TokenPairTest extends TestCase
     {
         $this->seedIdentity();
 
-        $token = $this->sessions()->signIn('password', self::credentials())->session?->tokens->refreshToken?->reveal() ?? '';
+        $token = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->tokens->refreshToken?->reveal() ?? '';
 
         $this->clockAt($this->now->addMinutes(2));
 
-        foreach ([$this->sessions()->refresh($token), $this->sessions()->refresh($token)] as $refreshed) {
+        $first  = $this->sessions()->refresh(PresentedRefreshToken::fromBody($token), self::requestClient());
+        $second = $this->sessions()->refresh(PresentedRefreshToken::fromBody($token), self::requestClient());
+
+        foreach ([$first, $second] as $refreshed) {
 
             self::assertTrue($refreshed->isRefreshed());
             self::assertNotNull($refreshed->session);
@@ -199,7 +207,7 @@ final class TokenPairTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(3));
 
-        $switched = $this->sessions('members')->switchTo($token, SwitchTarget::principal($second));
+        $switched = $this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($second), self::requestClient());
 
         self::assertTrue($switched->isSwitched());
         self::assertNotNull($switched->session);

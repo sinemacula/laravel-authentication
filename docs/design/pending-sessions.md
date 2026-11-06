@@ -44,6 +44,12 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   principal it records, if any, resolves through the hinted path as that principal and is still owned
   (`PendingSessions::find()`). Anything else is "not found": `null` from `pending()`, `pending_invalid` from the rest,
   without saying why.
+- A request presents the credential only in the body field `session.pending_credential_field`, read by
+  `PendingCredential::extract()` (the JSON body, or the form body of a method that may have one; never the query string
+  or a header): `null` when the field is absent, `pending_invalid` when it is not a non-empty string, else a `Secret`.
+  `satisfy()` and `choose()` take what it answered, absence aside: `pending_invalid` handed in is refused after the
+  same-site check exactly as a credential that names no live pending session is, and any other reason is the caller's
+  error (`InvalidArgumentException`, nothing dispatched).
 - The credential allows only the actions of the first outstanding requirement (`PendingRequirement::actions()`): the
   five `mfa.*` actions while the factor is owed, `list_principals` and `choose_principal` once only the choice is left.
   `pending($credential, $action)` answers `null` for any other, and `satisfy()` or `choose()` out of turn is
@@ -56,12 +62,12 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   on the client before it calls `PendingSessions` (`SessionPreconditions::crossSite()`): an activation sets the cookie,
   so a request from another site fails as `cross_site_request` before the pending session is read, leaving it pending,
   its credential unconsumed and the proof unstored (see `refresh-token-transport.md`). The client is the `ClientContext`
-  the caller gives (a service layer that keeps HTTP out), else the guard's request's, read once at the start; one
-  without the same-site facts fails closed. `PendingSessions::satisfy()` and `choose()` take it and pass it to
-  `SessionActivation::activate()`, so the activation's last use, `SessionCreated` or `SessionActivated`, `SignedIn` and
-  a superseded session's `SessionRevoked` carry it, and the service reports a refusal with it. The guard's bind carries
-  it too (`GuardBinding::login()` given the client), so its `SessionAuthenticated` records the same client as the last
-  use whenever the last-use throttle allows a use so soon.
+  the caller gives, required and never read from the guard's request; one without the same-site facts fails closed.
+  `PendingSessions::satisfy()` and `choose()` take it and pass it to `SessionActivation::activate()`, so the
+  activation's last use, `SessionCreated` or `SessionActivated`, `SignedIn` and a superseded session's `SessionRevoked`
+  carry it, and the service reports a refusal with it. The guard's bind carries it too (`GuardBinding::login()` given
+  the client), so its `SessionAuthenticated` records the same client as the last use whenever the last-use throttle
+  allows a use so soon.
 - `satisfy()` and `choose()` run in one transaction on the session's connection that locks the row, finds the credential
   again under the lock, and rolls back on any refusal, so a refused proof is never stored, a refused choice records
   nothing, and no refusal revokes the session: it waits until its credential expires, and only `discard()` ends it
@@ -123,8 +129,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 1. `signIn()` for an identity whose factor policy asks for a factor writes the session pending on `mfa` and dispatches
    `SessionPending` once committed; the result `isPending()`, with its `PendingSession` and the credential.
 2. The further-factor package checks `pending($credential, PendingAction::VERIFY)` before it verifies, then calls
-   `satisfy($credential, $proof)`: the proof is stored, the gate finds nothing left, and the session activates, the
-   guard is bound and the result is signed in, under the session's original key.
+   `satisfy($credential, $proof, $client)`: the proof is stored, the gate finds nothing left, and the session activates,
+   the guard is bound and the result is signed in, under the session's original key.
 3. For an identity with several principals, the same sign-in waits on `mfa` and then `principal`: `satisfy()` moves it
    on to the choice, listing the principals, and `choose()` activates it as the principal chosen.
 4. Later, a refresh whose tenant now asks for a factor returns the session to pending (`RefreshResult::pending()`), and
@@ -173,7 +179,8 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   `src/Jwt/RefreshJudgment.php`: `classify()`.
 - `src/Concerns/RecordsSessionStanding.php` and `src/Contracts/EloquentSessionStanding.php`: the record's columns.
 - `src/Events/SessionPending.php`, `src/Events/SessionReturnedToPending.php`, `src/Events/SessionActivated.php`.
-- `src/Sessions/SessionService.php`: `satisfy()`, `choose()`; `src/Sessions/SessionPreconditions.php`: `crossSite()`.
+- `src/Sessions/SessionService.php`: `satisfy()`, `choose()`; `src/Sessions/SessionPreconditions.php`: `crossSite()`,
+  `pendingCredential()`; `src/Sessions/PendingCredential.php`: `extract()`.
 - `src/Sessions/AdmissionRecheck.php`: `choice()`, `then()`, `refusal()` (the check a choice's write is held to once it
   commits).
 

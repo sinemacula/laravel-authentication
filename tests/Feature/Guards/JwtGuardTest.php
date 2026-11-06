@@ -130,7 +130,7 @@ final class JwtGuardTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard(Request::create('/refresh', 'POST', server: ['REMOTE_ADDR' => '203.0.113.9']));
 
-        $result = GuardSessions::of($guard)->refresh('not-a-jwt');
+        $result = GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody('not-a-jwt'), self::requestClient($guard->getRequest()));
 
         self::assertSame([FailureReason::RATE_LIMITED, 30], [$result->reason, $result->retryAfter]);
 
@@ -221,7 +221,9 @@ final class JwtGuardTest extends JwtGuardTestCase
     {
         $this->events->shouldNotReceive('dispatch');
 
-        self::assertNull(GuardSessions::of($this->makeGuard(Request::create('/auth/refresh', 'POST')))->refreshFromRequest());
+        $request = Request::create('/auth/refresh', 'POST');
+
+        self::assertNull(GuardSessions::of($this->makeGuard($request))->refresh(self::servedToken(self::GUARD_NAME, $request), self::requestClient($request)));
     }
 
     /**
@@ -241,7 +243,10 @@ final class JwtGuardTest extends JwtGuardTestCase
         $request    = Request::create('/auth/refresh', 'POST', ['refresh_token' => 'a'], server: $server);
         $guard      = $this->makeGuard($request);
 
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, GuardSessions::of($guard)->refreshFromRequest()?->reason);
+        self::assertSame(
+            FailureReason::REFRESH_TOKEN_CONFLICT,
+            GuardSessions::of($guard)->refresh(self::servedToken(self::GUARD_NAME, $request), self::requestClient($request))?->reason,
+        );
         self::assertSame([Attempting::class, Failed::class, AuthenticationFailed::class], self::classesOf($dispatched));
 
         $failure = $dispatched[2];
@@ -269,15 +274,17 @@ final class JwtGuardTest extends JwtGuardTestCase
     {
         $dispatched = $this->recordEvents();
 
-        $guard = $this->makeGuard(Request::create('/auth/refresh', 'POST', ['refresh_token' => 'not-a-jwt']));
+        $request = Request::create('/auth/refresh', 'POST', ['refresh_token' => 'not-a-jwt']);
+        $guard   = $this->makeGuard($request);
 
-        self::assertSame(FailureReason::TOKEN_INVALID, GuardSessions::of($guard)->refreshFromRequest()?->reason);
+        self::assertSame(FailureReason::TOKEN_INVALID, GuardSessions::of($guard)->refresh(self::servedToken(self::GUARD_NAME, $request), self::requestClient($request))?->reason);
         self::assertSame([Attempting::class, Failed::class, AuthenticationFailed::class], self::classesOf($dispatched));
     }
 
     /**
      * A refresh with the token the request carried says where it was read from,
-     * while `refresh()` with a token the caller read says nothing of it.
+     * and one with a token a body application read itself says it came from the
+     * body.
      *
      * @return void
      *
@@ -289,15 +296,16 @@ final class JwtGuardTest extends JwtGuardTestCase
         $this->events->shouldReceive('dispatch');
 
         $header = Request::create('/auth/refresh', 'POST', server: ['HTTP_X_REFRESH_TOKEN' => $this->liveRefreshToken('first')]);
-        $read   = GuardSessions::of($this->makeGuard($header))->refreshFromRequest();
-        $passed = GuardSessions::of($this->makeGuard(Request::create('/auth/refresh', 'POST')))->refresh($this->liveRefreshToken('second'));
+        $empty  = Request::create('/auth/refresh', 'POST');
+        $read   = GuardSessions::of($this->makeGuard($header))->refresh(self::servedToken(self::GUARD_NAME, $header), self::requestClient($header));
+        $passed = GuardSessions::of($this->makeGuard($empty))->refresh(PresentedRefreshToken::fromBody($this->liveRefreshToken('second')), self::requestClient($empty));
 
         self::assertTrue($read?->isRefreshed());
         self::assertSame(RefreshTokenSource::HEADER, $read->source);
         self::assertNotSame('', $read->session?->tokens->accessToken->reveal());
         self::assertIsArray($this->tokens->parse((string) $read->session?->tokens->refreshToken?->reveal(), TokenType::REFRESH));
         self::assertTrue($passed->isRefreshed());
-        self::assertNull($passed->source);
+        self::assertSame(RefreshTokenSource::BODY, $passed->source);
     }
 
     /**
@@ -315,12 +323,13 @@ final class JwtGuardTest extends JwtGuardTestCase
     public function testARefreshFromTheRequestReportsAndBindsAsASignInOnceCommitted(): void
     {
         $dispatched = $this->recordEvents();
-        $guard      = $this->makeGuard(Request::create('/auth/refresh', 'POST', ['refresh_token' => $this->liveRefreshToken('rotation')]));
+        $request    = Request::create('/auth/refresh', 'POST', ['refresh_token' => $this->liveRefreshToken('rotation')]);
+        $guard      = $this->makeGuard($request);
         $before     = [];
         $bound      = null;
 
-        DB::transaction(static function () use ($guard, $dispatched, &$before, &$bound): void {
-            self::assertTrue(GuardSessions::of($guard)->refreshFromRequest()?->isRefreshed());
+        DB::transaction(static function () use ($guard, $request, $dispatched, &$before, &$bound): void {
+            self::assertTrue(GuardSessions::of($guard)->refresh(self::servedToken(self::GUARD_NAME, $request), self::requestClient($request))?->isRefreshed());
 
             $before = self::classesOf($dispatched);
             $bound  = $guard->hasUser();
@@ -386,7 +395,7 @@ final class JwtGuardTest extends JwtGuardTestCase
         $token = $this->liveRefreshToken('rotation');
 
         try {
-            GuardSessions::of($guard)->refresh($token);
+            GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()));
             self::fail('Expected the listener to throw.');
         } catch (\RuntimeException $exception) {
             self::assertSame('listener failed', $exception->getMessage());
@@ -410,11 +419,11 @@ final class JwtGuardTest extends JwtGuardTestCase
         $guard   = $this->makeGuard(Request::create('/'));
         $request = Request::create('/auth/refresh', 'POST', server: ['HTTP_X_TOKEN' => 'a']);
 
-        $before = $guard->refreshTransport()->read($request);
+        $before = $guard->refreshTransport()->extract($request);
 
         config()->set('auth.guards.' . self::GUARD_NAME . '.refresh_token', ['header' => 'X-Token']);
 
-        $after = $guard->refreshTransport()->read($request);
+        $after = $guard->refreshTransport()->extract($request);
 
         self::assertNull($before);
         self::assertInstanceOf(PresentedRefreshToken::class, $after);

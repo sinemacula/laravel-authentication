@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
@@ -22,8 +23,9 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * the guard's provider returned the very identity that was verified, that a
  * session is never started under a machine credential kind or, outside the
  * external sign-in, under `external_provider`, that a sign-in method refused
- * only as a method may, and that a cookie application's request that would set
- * the refresh cookie came from its own site.
+ * only as a method may, that a cookie application's request that would set the
+ * refresh cookie came from its own site, and what a pending-session action was
+ * handed as its credential.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -131,6 +133,31 @@ final class SessionPreconditions
     public static function crossSite(RefreshTokenTransport $transport, ClientContext $client): ?Refused
     {
         return $transport->usesCookie() && !$transport->isSameSiteClient($client) ? new Refused(FailureReason::CROSS_SITE_REQUEST) : null;
+    }
+
+    /**
+     * The pending credential a pending-session action was handed, or its
+     * refusal: `pending_invalid`, the one reason `PendingCredential::extract()`
+     * answers, is refused as a credential that names no live pending session
+     * is; any other reason is a caller's error (`InvalidArgumentException`),
+     * raised before anything is dispatched.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
+     * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Secrets\Secret|string
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function pendingCredential(#[\SensitiveParameter] FailureReason|Secret|string $credential): Refused|Secret|string
+    {
+        if (!$credential instanceof FailureReason) {
+            return $credential;
+        }
+
+        if ($credential !== FailureReason::PENDING_INVALID) {
+            throw new \InvalidArgumentException("A pending credential is never refused as `{$credential->value}`: hand in only what `PendingCredential::extract()` answered.");
+        }
+
+        return new Refused($credential);
     }
 
     /**

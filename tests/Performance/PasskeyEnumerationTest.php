@@ -110,7 +110,9 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
             'an account with no attempts' => [true, static function (self $test): array {
                 config()->set('authentication.rate_limits.sign_in.per_identifier', ['max' => 1, 'decay_seconds' => 300]);
 
-                self::assertTrue($test->sessions()->signIn('passkey', $test->answerWith($test->authenticator(), self::tamper('signature', 'Zm9yZ2Vk')))->isFailed());
+                self::assertTrue(
+                    $test->sessions()->signIn('passkey', $test->answerWith($test->authenticator(), self::tamper('signature', 'Zm9yZ2Vk')), self::requestContext())->isFailed(),
+                );
 
                 return $test->answerWith($test->authenticator());
             }],
@@ -138,7 +140,7 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
         $lookups  = SlowModelProvider::$lookups;
         $sessions = $this->sessions();
         $started  = hrtime(true);
-        $result   = $sessions->signIn('passkey', $input);
+        $result   = $sessions->signIn('passkey', $input, self::requestContext());
         $took     = hrtime(true) - $started;
 
         self::assertEquals(SignInResult::failed(FailureReason::INVALID_CREDENTIALS), $result);
@@ -186,7 +188,7 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
 
         $this->freshGuard();
 
-        Auth::passkeys('api')->signInOptions();
+        Auth::passkeys('api')->signInOptions(self::requestClient());
 
         self::assertSame(0, SlowModelProvider::$lookups);
         self::assertSame([], array_filter($queries, static fn (string $sql): bool => str_contains($sql, 'integration_identities')));

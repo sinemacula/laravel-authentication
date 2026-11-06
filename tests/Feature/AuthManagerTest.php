@@ -216,11 +216,11 @@ final class AuthManagerTest extends TestCase
         $manager = app('auth');
         $request = Request::create('/auth/refresh', 'POST', server: ['HTTP_X_TOKEN' => 'token']);
 
-        $named = $manager->refreshTransport('test_jwt')->read($request);
+        $named = $manager->refreshTransport('test_jwt')->extract($request);
 
         self::assertInstanceOf(PresentedRefreshToken::class, $named);
         self::assertSame(RefreshTokenSource::HEADER, $named->source);
-        self::assertInstanceOf(PresentedRefreshToken::class, $manager->refreshTransport()->read($request));
+        self::assertInstanceOf(PresentedRefreshToken::class, $manager->refreshTransport()->extract($request));
     }
 
     /**

@@ -127,7 +127,7 @@ final class IntegerKeyPendingSessionTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertTrue($result->isPending());
         self::assertNotNull($result->pending);
@@ -140,7 +140,7 @@ final class IntegerKeyPendingSessionTest extends TestCase
         self::assertStringStartsWith($key . '.', $result->credential->reveal());
         self::assertSame($key, IdentifierCoercion::stringify($this->sessions()->pending($result->credential->reveal())?->id));
 
-        $satisfied = $this->sessions()->satisfy($result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN));
+        $satisfied = $this->sessions()->satisfy($result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN), self::requestClient());
 
         self::assertTrue($satisfied->isSignedIn());
         self::assertSame($key, IdentifierCoercion::stringify($satisfied->session?->record->getKey()));
@@ -160,7 +160,7 @@ final class IntegerKeyPendingSessionTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->credential);
 
@@ -169,7 +169,7 @@ final class IntegerKeyPendingSessionTest extends TestCase
         self::assertNull($this->sessions()->pending('not-a-number.' . $secret));
         $proof = self::adapterProof($identity, 'api', $result->pending?->id, Purpose::SIGN_IN);
 
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy('not-a-number.' . $secret, $proof)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy('not-a-number.' . $secret, $proof, self::requestClient())->reason);
         self::assertSame('pending', DB::table(self::TABLE)->value('status'));
     }
 

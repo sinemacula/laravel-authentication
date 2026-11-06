@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -122,7 +123,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
         self::assertInstanceOf(DatabaseTransactionsManager::class, app('db.transactions'));
         self::assertSame(1, DB::transactionLevel());
 
-        self::assertNull(GuardSessions::of($this->guard())->refresh($this->replay($session))->session);
+        self::assertNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($this->replay($session)), self::requestClient())->session);
         self::assertSame([$session->getKey()], array_map(
             static fn (SessionRevoked $event): mixed => $event->context->sessionId,
             $this->revoked->getArrayCopy(),
@@ -147,7 +148,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertNull(GuardSessions::of($this->guard())->refresh($replay)->session);
+        self::assertNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($replay), self::requestClient())->session);
 
         DB::rollBack();
 
@@ -156,7 +157,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertNull(GuardSessions::of($this->guard())->refresh($replay)->session);
+        self::assertNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($replay), self::requestClient())->session);
         self::assertCount(0, $this->revoked);
 
         DB::commit();

@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -137,7 +138,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = $sessions->signOutFromRequest();
+        $result = self::signOutServed($sessions);
 
         self::assertTrue($result->isSignedOut());
         self::assertFalse($result->isFailed());
@@ -168,7 +169,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = $sessions->signOutFromRequest();
+        $result = self::signOutServed($sessions);
 
         self::assertFalse($result->isSignedOut());
         self::assertFalse($result->isFailed());
@@ -179,14 +180,16 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * An access-only token with a refresh token signs the session the refresh
-     * token proves out, and `Logout` fires once, for the forgotten binding.
+     * An access-only token with a refresh token, signed out as a controller
+     * does, forgets the access-only binding with `Logout`, and the refresh
+     * token then signs the session it proves out, with a `Logout` of its own:
+     * the sign-out by refresh credential stands apart from the guard's binding.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnAccessOnlyTokenWithARefreshTokenSignsItsSessionOutWithOneLogout(): void
+    public function testAnAccessOnlyTokenWithARefreshTokenSignsItsSessionOutWithALogoutEach(): void
     {
         $identity = $this->seedIdentity();
         $session  = $this->signedIn();
@@ -197,20 +200,20 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = $sessions->signOutFromRequest();
+        $result = self::signOutServed($sessions);
 
         self::assertTrue($result->isSignedOut());
         self::assertSame(RefreshTokenSource::BODY, $result->source);
-        self::assertSame([Logout::class, SessionRevoked::class], $this->recordedClasses());
+        self::assertSame([Logout::class, SessionRevoked::class, Logout::class], $this->recordedClasses());
         self::assertSame('signed_out', $this->revokedReasonOf($session));
         self::assertFalse(Auth::guard('api')->check());
     }
 
     /**
      * A binding to a session the package does not store, an Eloquent model the
-     * application bound itself, is forgotten as an access-only token's is: the
-     * refresh token the request carries signs its own session out, and `Logout`
-     * fires once.
+     * application bound itself, is forgotten as an access-only token's is, with
+     * `Logout`; the refresh token the request carries then signs its own
+     * session out, with a `Logout` of its own.
      *
      * @return void
      *
@@ -229,11 +232,11 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = $sessions->signOutFromRequest();
+        $result = self::signOutServed($sessions);
 
         self::assertTrue($result->isSignedOut());
         self::assertSame(RefreshTokenSource::BODY, $result->source);
-        self::assertSame([Logout::class, SessionRevoked::class], $this->recordedClasses());
+        self::assertSame([Logout::class, SessionRevoked::class, Logout::class], $this->recordedClasses());
         self::assertSame('signed_out', $this->revokedReasonOf($session));
         self::assertFalse(Auth::guard('api')->check());
     }
@@ -284,7 +287,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::SIGN_OUT_EVENTS);
 
-        $result = $sessions->signOutFromRequest();
+        $result = self::signOutServed($sessions);
 
         self::assertTrue($result->isSignedOut());
         self::assertSame($source, $result->source);
@@ -300,7 +303,7 @@ final class SessionSignOutTest extends TestCase
         self::assertTrue($identity->is($this->recordedEvent(Logout::class)->user));
         self::assertSame('api', $this->recordedEvent(Logout::class)->guard);
         self::assertSame('signed_out', $this->revokedReasonOf($session));
-        self::assertSame(FailureReason::SESSION_REVOKED, $this->sessions()->refresh(self::refreshOf($session))->reason);
+        self::assertSame(FailureReason::SESSION_REVOKED, $this->sessions()->refresh(PresentedRefreshToken::fromBody(self::refreshOf($session)), self::requestClient())->reason);
     }
 
     /**
@@ -319,7 +322,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = $this->serving()->signOutFromRequest();
+        $result = self::signOutServed($this->serving());
 
         self::assertFalse($result->isSignedOut());
         self::assertFalse($result->isFailed());
@@ -349,7 +352,7 @@ final class SessionSignOutTest extends TestCase
         $revoked  = $this->signedIn();
         $admin    = $this->signedIn('admin');
 
-        self::assertTrue($this->sessions()->refresh(self::refreshOf($replayed))->isRefreshed());
+        self::assertTrue($this->sessions()->refresh(PresentedRefreshToken::fromBody(self::refreshOf($replayed)), self::requestClient())->isRefreshed());
 
         Session::query()->whereKey($pending->record->getKey())->update(['status' => 'pending']);
         Session::query()->whereKey($revoked->record->getKey())->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'revoked']);
@@ -372,7 +375,7 @@ final class SessionSignOutTest extends TestCase
 
             $this->recordEvents(self::EVENTS);
 
-            $result = $sessions->signOutFromRequest();
+            $result = self::signOutServed($sessions);
 
             self::assertTrue($result->isFailed(), $case);
             self::assertFalse($result->isSignedOut(), $case);
@@ -422,7 +425,7 @@ final class SessionSignOutTest extends TestCase
 
             $this->recordEvents(self::EVENTS);
 
-            $result = $sessions->signOutFromRequest();
+            $result = self::signOutServed($sessions);
 
             self::assertSame($reason, $result->reason, $case);
             self::assertNull($result->source, $case);
@@ -457,7 +460,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        self::assertTrue($sessions->signOutFromRequest()->isSignedOut());
+        self::assertTrue(self::signOutServed($sessions)->isSignedOut());
         self::assertSame([SessionRevoked::class], $this->recordedClasses());
 
         $context = $this->recordedEvent(SessionRevoked::class)->context;
@@ -487,7 +490,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = self::sessionsOf($guard)->signOutFromRequest();
+        $result = self::signOutServed(self::sessionsOf($guard));
 
         self::assertFalse($result->isSignedOut());
         self::assertFalse($result->isFailed());
@@ -517,17 +520,17 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $elsewhere = $sessions->signOutWith(self::refreshOf($other));
+        $elsewhere = $sessions->signOutWith(PresentedRefreshToken::fromBody(self::refreshOf($other)), self::requestClient());
 
         self::assertTrue($elsewhere->isSignedOut());
-        self::assertNull($elsewhere->source);
+        self::assertSame(RefreshTokenSource::BODY, $elsewhere->source);
         self::assertNull($elsewhere->forgetCookie);
         self::assertSame([SessionRevoked::class, Logout::class], $this->recordedClasses());
         self::assertTrue(Auth::guard('api')->check());
 
         $this->recordEvents(self::EVENTS);
 
-        self::assertTrue($sessions->signOutWith(self::refreshOf($current))->isSignedOut());
+        self::assertTrue($sessions->signOutWith(PresentedRefreshToken::fromBody(self::refreshOf($current)), self::requestClient())->isSignedOut());
         self::assertSame([SessionRevoked::class, Logout::class], $this->recordedClasses());
         self::assertTrue($identity->is($this->recordedEvent(Logout::class)->user));
         self::assertTrue(Auth::guard('api')->guest());
@@ -551,13 +554,13 @@ final class SessionSignOutTest extends TestCase
         $token   = $session->tokens->refreshToken;
 
         self::assertNotNull($token);
-        self::assertTrue($this->serving()->signOutWith($token)->isSignedOut());
+        self::assertTrue($this->serving()->signOutWith(PresentedRefreshToken::fromBody($token), self::requestClient())->isSignedOut());
         self::assertSame('signed_out', $this->revokedReasonOf($session));
     }
 
     /**
      * A token handed in that proves no session is refused with its reason and
-     * no source, reported with the flow `sign_out`.
+     * the body it was presented from, reported with the flow `sign_out`.
      *
      * @return void
      *
@@ -567,11 +570,11 @@ final class SessionSignOutTest extends TestCase
     {
         $this->recordEvents(self::EVENTS);
 
-        $result = $this->serving()->signOutWith('not-a-token');
+        $result = $this->serving()->signOutWith(PresentedRefreshToken::fromBody('not-a-token'), self::requestClient());
 
         self::assertTrue($result->isFailed());
         self::assertSame(FailureReason::TOKEN_INVALID, $result->reason);
-        self::assertNull($result->source);
+        self::assertSame(RefreshTokenSource::BODY, $result->source);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(AuthenticationFlow::SIGN_OUT, $this->recordedEvent(AuthenticationFailed::class)->flow);
     }
@@ -593,10 +596,13 @@ final class SessionSignOutTest extends TestCase
         $session = $this->signedIn();
 
         foreach (range(1, 3) as $attempt) {
-            self::assertSame(FailureReason::TOKEN_INVALID, $this->serving()->signOutWith('not-a-token-' . $attempt)->reason);
+            self::assertSame(
+                FailureReason::TOKEN_INVALID,
+                $this->serving()->signOutWith(PresentedRefreshToken::fromBody('not-a-token-' . $attempt), self::requestClient())->reason,
+            );
         }
 
-        self::assertTrue($this->serving()->signOutWith(self::refreshOf($session))->isSignedOut());
+        self::assertTrue($this->serving()->signOutWith(PresentedRefreshToken::fromBody(self::refreshOf($session)), self::requestClient())->isSignedOut());
     }
 
     /**
@@ -624,7 +630,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $elsewhere = $sessions->signOutPresented(self::presentedToken(self::cookieTokenOf($other), RefreshTokenSource::COOKIE), $client);
+        $elsewhere = $sessions->signOutWith(self::presentedToken(self::cookieTokenOf($other), RefreshTokenSource::COOKIE), $client);
 
         self::assertTrue($elsewhere->isSignedOut());
         self::assertSame(RefreshTokenSource::COOKIE, $elsewhere->source);
@@ -637,7 +643,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $signed = $sessions->signOutPresented(self::presentedToken(self::cookieTokenOf($current), RefreshTokenSource::COOKIE), $client);
+        $signed = $sessions->signOutWith(self::presentedToken(self::cookieTokenOf($current), RefreshTokenSource::COOKIE), $client);
 
         self::assertTrue($signed->isSignedOut());
         self::assertClears($signed);
@@ -669,8 +675,8 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents($events);
 
-        self::assertTrue($sessions->signOutPresented(self::presentedToken('not-a-token', RefreshTokenSource::BODY), $client)->isFailed());
-        self::assertTrue($sessions->signOutPresented(self::presentedToken((string) $session->tokens->refreshToken?->reveal(), RefreshTokenSource::BODY), $client)->isSignedOut());
+        self::assertTrue($sessions->signOutWith(self::presentedToken('not-a-token', RefreshTokenSource::BODY), $client)->isFailed());
+        self::assertTrue($sessions->signOutWith(self::presentedToken((string) $session->tokens->refreshToken?->reveal(), RefreshTokenSource::BODY), $client)->isSignedOut());
         self::assertSame([AuthenticationFailed::class, SessionRevoked::class, Logout::class], $this->recordedClasses());
 
         self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
@@ -705,7 +711,7 @@ final class SessionSignOutTest extends TestCase
         yield 'the body' => [[RefreshTokenSource::BODY], $same, false, FailureReason::REFRESH_TRANSPORT_MISMATCH, RefreshTokenSource::BODY, true];
         yield 'a conflict handed in' => [FailureReason::REFRESH_TOKEN_CONFLICT, $same, false, FailureReason::REFRESH_TOKEN_CONFLICT, null, false];
         yield 'a mismatch handed in' => [FailureReason::REFRESH_TRANSPORT_MISMATCH, $same, false, FailureReason::REFRESH_TRANSPORT_MISMATCH, null, true];
-        yield 'a cross-site refusal handed in' => [FailureReason::CROSS_SITE_REQUEST, $cross, false, FailureReason::CROSS_SITE_REQUEST, null, false];
+        yield 'a mismatch handed in, cross-site' => [FailureReason::REFRESH_TRANSPORT_MISMATCH, $cross, false, FailureReason::REFRESH_TRANSPORT_MISMATCH, null, false];
         yield 'an invalid token handed in' => [FailureReason::TOKEN_INVALID, $same, false, FailureReason::TOKEN_INVALID, null, true];
         yield 'nothing, same-site' => [null, $same, false, null, null, true];
         yield 'nothing, cross-site' => [null, $cross, false, null, null, false];
@@ -746,7 +752,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = $sessions->signOutPresented(is_array($presented) ? self::presentedToken($token, $presented[0], $presented) : $presented, $client);
+        $result = $sessions->signOutWith(is_array($presented) ? self::presentedToken($token, $presented[0], $presented) : $presented, $client);
 
         self::assertSame([$signedOut, $reason, $source], [$result->isSignedOut(), $result->reason, $result->source]);
         self::assertSame($signedOut ? 'signed_out' : null, $this->revokedReasonOf($session));
@@ -791,16 +797,16 @@ final class SessionSignOutTest extends TestCase
         foreach ([RefreshTokenSource::BODY, RefreshTokenSource::HEADER] as $source) {
 
             $session = $this->signedIn();
-            $result  = $this->serving(['REMOTE_ADDR' => self::CROSS_SITE_IP])->signOutPresented(self::presentedToken(self::refreshOf($session), $source), self::crossSiteClient());
+            $result  = $this->serving(['REMOTE_ADDR' => self::CROSS_SITE_IP])->signOutWith(self::presentedToken(self::refreshOf($session), $source), self::crossSiteClient());
 
             self::assertSame([true, $source, null], [$result->isSignedOut(), $result->source, $result->forgetCookie], $source->value);
             self::assertSame('signed_out', $this->revokedReasonOf($session));
         }
 
-        $refused = $this->serving()->signOutPresented(self::presentedToken('not-a-token', RefreshTokenSource::COOKIE), self::sameSiteClient());
+        $refused = $this->serving()->signOutWith(self::presentedToken('not-a-token', RefreshTokenSource::COOKIE), self::sameSiteClient());
 
         self::assertSame([FailureReason::REFRESH_TRANSPORT_MISMATCH, RefreshTokenSource::COOKIE, null], [$refused->reason, $refused->source, $refused->forgetCookie]);
-        self::assertNull($this->serving()->signOutPresented(null, self::sameSiteClient())->forgetCookie);
+        self::assertNull($this->serving()->signOutWith(null, self::sameSiteClient())->forgetCookie);
     }
 
     /**
@@ -823,18 +829,18 @@ final class SessionSignOutTest extends TestCase
         foreach ([$graced, $replayed] as $session) {
             $presented = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
 
-            self::assertTrue($this->serving(guard: self::BROWSER)->refreshPresented($presented, $client)->isRefreshed());
+            self::assertTrue($this->serving(guard: self::BROWSER)->refresh($presented, $client)->isRefreshed());
         }
 
         $presented = self::presentedToken(self::cookieTokenOf($graced), RefreshTokenSource::COOKIE);
 
-        self::assertTrue($this->serving(guard: self::BROWSER)->signOutPresented($presented, $client)->isSignedOut());
+        self::assertTrue($this->serving(guard: self::BROWSER)->signOutWith($presented, $client)->isSignedOut());
         self::assertSame('signed_out', $this->revokedReasonOf($graced));
 
         $this->moveTo(CarbonImmutable::now()->addMinutes(2));
         $this->recordEvents(self::EVENTS);
 
-        $result = $this->serving(guard: self::BROWSER)->signOutPresented(self::presentedToken(self::cookieTokenOf($replayed), RefreshTokenSource::COOKIE), $client);
+        $result = $this->serving(guard: self::BROWSER)->signOutWith(self::presentedToken(self::cookieTokenOf($replayed), RefreshTokenSource::COOKIE), $client);
 
         self::assertSame([false, FailureReason::ROTATION_REUSE], [$result->isSignedOut(), $result->reason]);
         self::assertClears($result);
@@ -845,8 +851,8 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
-     * A reason the transport never answers, handed in, is the caller's error:
-     * it throws before anything is dispatched.
+     * A reason the extraction never answers, handed in, is the caller's error,
+     * `cross_site_request` included: it throws before anything is dispatched.
      *
      * @return void
      *
@@ -857,12 +863,14 @@ final class SessionSignOutTest extends TestCase
         $this->recordEvents(self::EVENTS);
 
         foreach ([self::BROWSER, 'api'] as $guard) {
-            try {
-                $this->serving(guard: $guard)->signOutPresented(FailureReason::SESSION_REVOKED, self::sameSiteClient());
+            foreach ([FailureReason::SESSION_REVOKED, FailureReason::CROSS_SITE_REQUEST] as $reason) {
+                try {
+                    $this->serving(guard: $guard)->signOutWith($reason, self::sameSiteClient());
 
-                self::fail('A sign-out took a reason the transport never answers.');
-            } catch (\InvalidArgumentException $exception) {
-                self::assertStringContainsString('`session_revoked`', $exception->getMessage());
+                    self::fail('A sign-out took a reason the transport never answers.');
+                } catch (\InvalidArgumentException $exception) {
+                    self::assertStringContainsString("`{$reason->value}`", $exception->getMessage());
+                }
             }
         }
 
@@ -889,7 +897,7 @@ final class SessionSignOutTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($sessions->signOutPresented(self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE), self::sameSiteClient())->isSignedOut());
+        self::assertTrue($sessions->signOutWith(self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE), self::sameSiteClient())->isSignedOut());
 
         DB::rollBack();
 
@@ -978,7 +986,7 @@ final class SessionSignOutTest extends TestCase
 
         $token = self::refreshOf($session);
 
-        self::assertTrue($this->sessions('members')->switchTo($token, SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue($this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($second), self::requestClient())->isSwitched());
 
         return $token;
     }
@@ -994,7 +1002,7 @@ final class SessionSignOutTest extends TestCase
      */
     private function signedIn(string $guard = 'api', string $email = 'ada@example.test'): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session);
 

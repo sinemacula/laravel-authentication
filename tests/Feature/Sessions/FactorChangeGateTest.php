@@ -171,7 +171,7 @@ final class FactorChangeGateTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(5));
 
-        self::assertTrue($this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials())->isIssued());
+        self::assertTrue($this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient())->isIssued());
 
         $verdict = $this->sessions()->factorChange($signedIn->record, FactorChange::ADD_FIRST);
 
@@ -343,7 +343,7 @@ final class FactorChangeGateTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
@@ -460,7 +460,7 @@ final class FactorChangeGateTest extends TestCase
         self::assertEquals($before, [DB::table('authentication_sessions')->sole(), DB::table('authentication_proofs')->count()]);
         self::assertSame([], $events);
 
-        $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+        $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient());
 
         self::assertContains(Reauthenticated::class, $events);
     }
@@ -533,7 +533,7 @@ final class FactorChangeGateTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions($guard)->signIn('password', self::credentials())->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -570,7 +570,7 @@ final class FactorChangeGateTest extends TestCase
 
         $this->clockAt($at);
 
-        self::assertTrue($this->sessions($guard)->stepUp($proof)->isIssued());
+        self::assertTrue($this->sessions($guard)->stepUp($proof, self::requestClient())->isIssued());
 
         $this->clockAt($now);
     }

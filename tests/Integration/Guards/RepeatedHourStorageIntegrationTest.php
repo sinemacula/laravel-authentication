@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -193,7 +194,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     {
         [$token, $session] = $this->rotateAtTheEndOfTheRepeatedHourAndRetry('UTC');
 
-        self::assertNotNull(GuardSessions::of($this->guard())->refresh($token)->session);
+        self::assertNotNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
         self::assertNull($this->stored($session)->getRevokedAt());
     }
 
@@ -263,7 +264,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
         $token = $this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal();
 
         try {
-            GuardSessions::of($this->guard())->refresh($token);
+            GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient());
 
             self::fail('The refresh should not have been able to issue tokens.');
         } catch (\InvalidArgumentException $exception) {
@@ -464,7 +465,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull(GuardSessions::of($this->guard())->refresh($token)->session);
+        self::assertNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
 
         return $reasons[0] ?? null;
     }

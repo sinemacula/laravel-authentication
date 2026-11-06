@@ -396,7 +396,7 @@ final class SessionRoutesTest extends TestCase
 
         if (!$verify($pending->identity, $code)) {
 
-            $sessions->discard($credential);
+            $sessions->discard($credential, self::requestClient());
 
             abort(401);
         }
@@ -413,7 +413,7 @@ final class SessionRoutesTest extends TestCase
             new ProofBinding($pending->identity, 'api', $pending->id, Purpose::SIGN_IN),
         );
 
-        $result = $sessions->satisfy($credential, $proof);
+        $result = $sessions->satisfy($credential, $proof, self::requestClient());
 
         abort_if(!$result->isSignedIn(), 401);
 

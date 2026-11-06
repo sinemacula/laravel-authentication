@@ -22,6 +22,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
@@ -184,7 +185,9 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken->reveal()])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNull(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
     }
 
     /**
@@ -266,7 +269,9 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $between->tokens->accessToken->reveal()])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($between->tokens->refreshToken?->reveal())->session);
+        self::assertNull(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($between->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
 
         Auth::forgetGuards();
 
@@ -652,7 +657,9 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $between->tokens->accessToken->reveal()])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($between->tokens->refreshToken?->reveal())->session);
+        self::assertNull(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($between->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
     }
 
     /**
@@ -721,7 +728,9 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken->reveal()])->getJson('/me')->assertOk();
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
     }
 
     /**
@@ -846,7 +855,9 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken->reveal()])->getJson('/me')->assertUnauthorized();
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNull(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
     }
 
     /**
@@ -1039,7 +1050,7 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
      */
     private function signIn(?array $credentials = null): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', $credentials ?? self::credentials())->session;
+        $session = $this->sessions()->signIn('password', $credentials ?? self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

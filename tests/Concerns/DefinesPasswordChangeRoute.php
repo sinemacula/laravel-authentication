@@ -57,7 +57,7 @@ trait DefinesPasswordChangeRoute
                 $current = ['password' => $request->string('current_password')->value()];
                 $right   = $locked instanceof Identity && Auth::guard($guard)->getProvider()->validateCredentials($locked, $current);
 
-                return $right ? $passwords->set($locked, $request->string('password')->value(), PasswordFlow::CHANGE, Auth::session()) : null;
+                return $right ? $passwords->set($locked, $request->string('password')->value(), PasswordFlow::CHANGE, self::requestClient(), Auth::session()) : null;
             });
 
             if ($result === null) {

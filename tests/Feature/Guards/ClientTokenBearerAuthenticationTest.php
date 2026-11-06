@@ -402,7 +402,7 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
     {
         $this->startMachineRequest();
 
-        $result = Auth::clientCredentials($guard)->exchange($issued->summary->publicId, substr($issued->key()->reveal(), 20), $scope);
+        $result = Auth::clientCredentials($guard)->exchange(self::basicClient($issued->summary->publicId, substr($issued->key()->reveal(), 20), $scope), self::requestClient());
 
         self::assertNotNull($result->accessToken);
 

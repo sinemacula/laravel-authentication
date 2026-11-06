@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -613,7 +614,7 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     private function signIn(string $guard = self::GUARD): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -631,7 +632,7 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     private function refresh(#[\SensitiveParameter] string $refreshToken, string $guard = self::GUARD): RefreshResult
     {
-        return self::sessionsOf($this->freshGuard($guard))->refresh($refreshToken);
+        return self::sessionsOf($this->freshGuard($guard))->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient());
     }
 
     /**
@@ -646,7 +647,11 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     private function switchTenant(#[\SensitiveParameter] string $refreshToken, ActivatableTenant $tenant): SwitchResult
     {
-        return self::sessionsOf($this->freshGuard(self::GUARD))->switchTo($refreshToken, SwitchTarget::tenant(TenantSelection::of($tenant->getKey())));
+        return self::sessionsOf($this->freshGuard(self::GUARD))->switchTo(
+            PresentedRefreshToken::fromBody($refreshToken),
+            SwitchTarget::tenant(TenantSelection::of($tenant->getKey())),
+            self::requestClient(),
+        );
     }
 
     /**

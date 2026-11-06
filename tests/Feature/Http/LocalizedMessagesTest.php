@@ -58,7 +58,7 @@ final class LocalizedMessagesTest extends TestCase
 
         Route::middleware('auth:api')->get('/package', static fn (): string => 'ok');
         Route::middleware(ApplicationAuthenticate::class . ':api')->get('/application', static fn (): string => 'ok');
-        Route::post('/sign-in/passkey/options', static fn (): mixed => Auth::passkeys('api')->signInOptions());
+        Route::post('/sign-in/passkey/options', static fn (): mixed => Auth::passkeys('api')->signInOptions(self::requestClient()));
 
         app('translator')->addJsonPath(dirname(__DIR__, 2) . '/Fixtures/lang');
     }

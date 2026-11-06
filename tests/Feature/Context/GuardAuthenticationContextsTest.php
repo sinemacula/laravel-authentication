@@ -210,7 +210,7 @@ final class GuardAuthenticationContextsTest extends TestCase
      */
     private function signedIn(string $guard): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials())->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

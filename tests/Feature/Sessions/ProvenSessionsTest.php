@@ -68,7 +68,7 @@ final class ProvenSessionsTest extends TestCase
 
         $this->identity = $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

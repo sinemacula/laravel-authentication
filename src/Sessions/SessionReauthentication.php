@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\Reauthenticated;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
@@ -103,12 +104,13 @@ final readonly class SessionReauthentication
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      *
      * @throws \InvalidArgumentException
      * @throws \Throwable
      */
-    public function reauthenticate(Session $session, string $method, #[\SensitiveParameter] array $input): AccessTokenResult
+    public function reauthenticate(Session $session, string $method, #[\SensitiveParameter] array $input, ClientContext $client): AccessTokenResult
     {
         SessionPreconditions::assertSessionMethod($method);
 
@@ -116,14 +118,14 @@ final readonly class SessionReauthentication
         $policy = CredentialAttempt::checkMethod($this->container, $this->context->name(), $method);
 
         if ($policy instanceof Refused) {
-            return $this->fail($policy, $method, null);
+            return $this->fail($policy, $method, null, $client);
         }
 
         $challenge = $this->challengeOf($method, $input);
-        $outcome   = $this->verified($session, $policy, $method, $input, $now);
+        $outcome   = $this->verified($session, $policy, $method, $input, $now, $client);
 
         if ($outcome instanceof Refused) {
-            return $this->fail($outcome, $method, $challenge);
+            return $this->fail($outcome, $method, $challenge, $client);
         }
 
         [$stored, $factor, $at, $attempt] = $outcome;
@@ -135,15 +137,14 @@ final readonly class SessionReauthentication
         if ($issued instanceof Refused) {
             $refused = $issued->reason === FailureReason::SESSION_UNKNOWN ? new Refused(FailureReason::SESSION_UNKNOWN, session: $stored) : $issued;
 
-            return $this->fail($refused, $method, $challenge);
+            return $this->fail($refused, $method, $challenge, $client);
         }
 
         [$admitted, $record, $token, $expires] = $issued;
 
         $attempt->release();
 
-        $client = $this->context->client();
-        $event  = new Reauthenticated(new EventContext($this->context->name(), $client, $admitted->identity, $admitted->principal, $admitted->tenant, $record, $method));
+        $event = new Reauthenticated(new EventContext($this->context->name(), $client, $admitted->identity, $admitted->principal, $admitted->tenant, $record, $method));
 
         $this->afterCommit->run($record, fn () => $this->context->dispatch($event));
 
@@ -165,6 +166,7 @@ final readonly class SessionReauthentication
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 1: \SineMacula\Laravel\Authentication\Proofs\FirstFactor, 2: \Carbon\CarbonImmutable, 3: \SineMacula\Laravel\Authentication\Sessions\CredentialAttempt}|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -173,8 +175,14 @@ final readonly class SessionReauthentication
      *
      * @throws \Throwable
      */
-    private function verified(Session $session, ApplicationPolicy $policy, string $method, #[\SensitiveParameter] array $input, CarbonImmutable $now): array|Refused
-    {
+    private function verified(
+        Session $session,
+        ApplicationPolicy $policy,
+        string $method,
+        #[\SensitiveParameter] array $input,
+        CarbonImmutable $now,
+        ClientContext $client,
+    ): array|Refused {
         $guard  = $this->context->name();
         $stored = self::stored($session);
         $live   = $stored === null ? FailureReason::SESSION_UNKNOWN : OwnedSession::refusal($stored, $guard, $now);
@@ -184,14 +192,14 @@ final readonly class SessionReauthentication
         }
 
         $driver  = $this->container->make(SignInMethodManager::class)->method($method);
-        $subject = new AttemptSubject($guard, AttemptFlow::SIGN_IN, $driver->identifier($guard, $input), $driver->identifierType($guard), $this->context->client()->ip);
+        $subject = new AttemptSubject($guard, AttemptFlow::SIGN_IN, $driver->identifier($guard, $input), $driver->identifierType($guard), $client->ip);
         $attempt = CredentialAttempt::begin($this->container->make(AttemptLimiter::class), $policy, $subject);
 
         if ($attempt instanceof Refused) {
             return new Refused($attempt->reason, session: $stored, retryAfter: $attempt->retryAfter);
         }
 
-        $request = new SignInRequest($guard, $this->context->provider(), $input, $this->context->client(), $attempt->accounts->reserve(...));
+        $request = new SignInRequest($guard, $this->context->provider(), $input, $client, $attempt->accounts->reserve(...));
 
         $factor = $this->context->timebox()->run(fn (Timebox $timebox): FailureReason|FirstFactor => $this->verify($driver, $request, $attempt, $stored, $timebox));
 
@@ -290,12 +298,12 @@ final readonly class SessionReauthentication
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @param  string  $method
      * @param  ?string  $challengeId
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      */
-    private function fail(Refused $refused, string $method, ?string $challengeId): AccessTokenResult
+    private function fail(Refused $refused, string $method, ?string $challengeId, ClientContext $client): AccessTokenResult
     {
         $session = $refused->session;
-        $client  = $this->context->client();
         $context = new EventContext($this->context->name(), $client, $refused->identity, $refused->principal, $refused->tenant, $session, $method, fromSession: $session !== null);
 
         $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::REAUTHENTICATION, $refused->reason, null, $refused->retryAfter, $challengeId));

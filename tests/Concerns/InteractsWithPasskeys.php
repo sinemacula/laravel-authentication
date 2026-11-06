@@ -85,7 +85,13 @@ trait InteractsWithPasskeys
     {
         $passkeys = Auth::passkeys($guard);
         $options  = $passkeys->registrationOptions($identity, self::USER_NAME);
-        $summary  = $passkeys->register($identity, $options->challengeId, ($authenticator ?? $this->authenticator())->create($options->options), 'Laptop')->passkey;
+        $summary  = $passkeys->register(
+            $identity,
+            $options->challengeId,
+            ($authenticator ?? $this->authenticator())->create($options->options),
+            self::requestClient(),
+            'Laptop',
+        )->passkey;
 
         self::assertInstanceOf(PasskeySummary::class, $summary);
 
@@ -102,7 +108,7 @@ trait InteractsWithPasskeys
      */
     protected function signInOptions(string $guard = 'api'): CeremonyOptions
     {
-        return Auth::passkeys($guard)->signInOptions();
+        return Auth::passkeys($guard)->signInOptions(self::requestClient());
     }
 
     /**
@@ -120,7 +126,11 @@ trait InteractsWithPasskeys
         $options    = $this->signInOptions($guard);
         $credential = $this->authenticator()->get($options->options);
 
-        return $this->sessions($guard)->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $tamper === null ? $credential : $tamper($credential)]);
+        return $this->sessions($guard)->signIn(
+            'passkey',
+            ['challenge' => $options->challengeId, 'credential' => $tamper === null ? $credential : $tamper($credential)],
+            self::requestContext(),
+        );
     }
 
     /**
@@ -176,6 +186,6 @@ trait InteractsWithPasskeys
         #[\SensitiveParameter] array|string $credential,
         string $guard = 'api',
     ): PasskeyFactorResult {
-        return Auth::passkeys($guard)->verifyFactor($identity, self::factorBinding($identity, $guard), $challenge, $credential);
+        return Auth::passkeys($guard)->verifyFactor($identity, self::factorBinding($identity, $guard), $challenge, $credential, self::requestClient());
     }
 }

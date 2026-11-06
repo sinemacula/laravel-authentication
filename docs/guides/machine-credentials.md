@@ -231,21 +231,34 @@ accept. Credentials in the form body (`client_secret_post`), which RFC 6749 does
 the application sets `'client_secret_post' => true` beside its methods; otherwise they are refused as `invalid_client`,
 before any query and without counting.
 
-Routes stay yours; the exchange reads the request and answers in RFC 6749's shapes:
+Routes stay yours; the controller extracts the token request and the client, and the exchange takes both as plain
+values and answers in RFC 6749's shapes:
 
 ```php
+use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsRequest;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 
-Route::post('/oauth/token', fn () => Auth::clientCredentials('m2m')->fromRequest());
+Route::post('/oauth/token', fn (Request $request) => Auth::clientCredentials('m2m')->exchange(
+    ClientCredentialsRequest::extract($request),
+    ClientContext::fromRequest($request),
+));
 ```
 
-`fromRequest()` reads a form-encoded POST: `grant_type=client_credentials`, an optional `scope` (space-separated), and
-the client authenticated with HTTP Basic (`client_id:client_secret`, each form-url-encoded) or, where the application
-allows it, with `client_id` and `client_secret` in the body, never both. A parameter in the query string, given twice or
-not a string is refused rather than ignored, so a credential in a URL never works, and a parameter sent without a value
-is treated as omitted (RFC 6749 section 3.1), so `grant_type=` names no grant and an empty `client_id` beside Basic is
-no second authentication. `exchange($clientId, $clientSecret, $scope)` does the same for a client id and secret your
-code read itself. The result is `Responsable`, answered with `Cache-Control: no-store` and `Pragma: no-cache`, or read
+`ClientCredentialsRequest::extract($request)` reads a form-encoded POST: `grant_type=client_credentials`, an optional
+`scope` (space-separated), and the client authenticated with HTTP Basic (`client_id:client_secret`, each
+form-url-encoded) or with `client_id` and `client_secret` in the body, never both. A parameter in the query string,
+given twice or not a string is refused rather than ignored, so a credential in a URL never works, and a parameter sent
+without a value is treated as omitted (RFC 6749 section 3.1), so `grant_type=` names no grant and an empty `client_id`
+beside Basic is no second authentication. It answers a `PresentedClient`, which records how the client authenticated
+(`ClientAuthentication::BASIC`, `client_secret_basic`, or `ClientAuthentication::POST`, `client_secret_post`), or the
+error it refused the request with. `exchange($presented, $client)` judges either before any query and without counting:
+an error is refused with it, any other string is the caller's error (`InvalidArgumentException`), and a client
+authenticated in the body is refused as `invalid_client` unless the application sets `client_secret_post`. A
+`PresentedClient` your code builds from a client id and secret it read itself is your trusted description of the
+request: it is judged on the facts given and cannot show facts left out (Basic credentials beside the body ones), so
+prefer `extract()`. The result is `Responsable`, answered with `Cache-Control: no-store` and `Pragma: no-cache`, or read
 with `isGranted()`, `accessToken` (a `Secret`), `expiresIn`, `scopes`, `error` and `reason`. Its `toArray()` is the
 response body alone with the token revealed, for a response you build yourself and must not let be stored; a granted
 result encoded as JSON any other way (`json_encode()`, `response()->json()`) throws `SecretNotRevealedException` rather

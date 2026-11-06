@@ -99,7 +99,7 @@ final class ProofIssuanceTest extends TestCase
             $statements[] = [strtolower(strtok($query->sql, ' ') ?: ''), $query->sql, $query->connection->transactionLevel()];
         });
 
-        $result = $this->sessions()->stepUp(self::adapterProof($session->identity, 'api', $session->record->getKey()));
+        $result = $this->sessions()->stepUp(self::adapterProof($session->identity, 'api', $session->record->getKey()), self::requestClient());
 
         self::assertTrue($result->isIssued());
 
@@ -138,7 +138,7 @@ final class ProofIssuanceTest extends TestCase
             $writes += (int) preg_match('/^\s*(insert|update|delete)\b/i', $query->sql);
         });
 
-        $result = $this->sessions()->stepUp(self::adapterProof($session->identity, 'api', $session->record->getKey(), Purpose::REAUTHENTICATE));
+        $result = $this->sessions()->stepUp(self::adapterProof($session->identity, 'api', $session->record->getKey(), Purpose::REAUTHENTICATE), self::requestClient());
 
         self::assertFalse($result->isIssued());
         self::assertSame(FailureReason::PROOF_INVALID, $result->reason);
@@ -160,7 +160,7 @@ final class ProofIssuanceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($session->identity, 'api', $session->record->getKey()))->isIssued());
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($session->identity, 'api', $session->record->getKey()), self::requestClient())->isIssued());
         self::assertSame(1, self::issuanceGuardWrites($session->record->getKey()));
 
         DB::rollBack();
@@ -196,7 +196,7 @@ final class ProofIssuanceTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

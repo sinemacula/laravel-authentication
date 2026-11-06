@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -181,7 +182,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
         $resolver->setDefaultPrincipal($principal);
 
         try {
-            GuardSessions::of($this->guard($resolver))->refresh($refreshToken);
+            GuardSessions::of($this->guard($resolver))->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient());
 
             self::fail('The issuing failure should have propagated.');
         } catch (\RuntimeException $exception) {
@@ -219,7 +220,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
 
         $guard = $this->guard($resolver);
 
-        self::assertTrue(GuardSessions::of($guard)->refresh($refreshToken)->isRefreshed());
+        self::assertTrue(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient($guard->getRequest()))->isRefreshed());
         self::assertTrue($identity->is($guard->user()));
         self::assertNotSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->storedDigest($session));
     }

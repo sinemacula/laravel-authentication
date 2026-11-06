@@ -136,7 +136,7 @@ trait InteractsWithPasswords
      */
     protected function signInWithPassword(string $guard = 'web', string $email = 'ada@example.test'): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session, "The password sign-in through [{$guard}] failed.");
 

@@ -22,6 +22,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnDeactivation;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
@@ -75,7 +76,10 @@ final class SecurityChangeEndToEndTest extends TestCase
 
             assert($guard instanceof JwtGuard);
 
-            return ['refreshed' => self::sessionsOf($guard)->refresh($request->string('refresh_token')->toString())->isRefreshed()];
+            return ['refreshed' => self::sessionsOf($guard)->refresh(
+                PresentedRefreshToken::fromBody($request->string('refresh_token')->toString()),
+                self::requestClient(),
+            )->isRefreshed()];
         });
 
         IntegrationIdentity::observe([RevokeSessionsOnPasswordChange::class, RevokeSessionsOnDeactivation::class]);
@@ -124,7 +128,7 @@ final class SecurityChangeEndToEndTest extends TestCase
 
         $this->assertSessionEnded($session);
 
-        self::assertTrue($this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'a new password'])->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'a new password'], self::requestContext())->isSignedIn());
     }
 
     /**
@@ -165,7 +169,7 @@ final class SecurityChangeEndToEndTest extends TestCase
 
             IntegrationIdentity::query()->whereKey($saved->getKey())->firstOrFail()->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
 
-            $between = $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'a new password'])->session;
+            $between = $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'a new password'], self::requestContext())->session;
 
             $saved->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
         });
@@ -287,7 +291,7 @@ final class SecurityChangeEndToEndTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

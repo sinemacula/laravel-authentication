@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -118,7 +119,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         $this->app?->instance('hash', $hasher);
 
-        $result = $this->sessions('machines')->signIn('password', self::credentials(self::EMAIL));
+        $result = $this->sessions('machines')->signIn('password', self::credentials(self::EMAIL), self::requestContext());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $result->reason);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->recordedEvent(AuthenticationFailed::class)->reason);
@@ -146,13 +147,13 @@ final class MachineIdentitySignInTest extends TestCase
         $this->seedMachineWithPassword();
         $this->seedIdentity('human@example.test');
 
-        $this->sessions('machines')->signIn('password', ['email' => self::EMAIL, 'password' => 'wrong']);
+        $this->sessions('machines')->signIn('password', ['email' => self::EMAIL, 'password' => 'wrong'], self::requestContext());
 
         $forMachine = DB::table('rate_limits')->count();
 
         DB::table('rate_limits')->delete();
 
-        $this->sessions('api')->signIn('password', ['email' => 'human@example.test', 'password' => 'wrong']);
+        $this->sessions('api')->signIn('password', ['email' => 'human@example.test', 'password' => 'wrong'], self::requestContext());
 
         self::assertSame(2, $forMachine);
         self::assertSame(3, DB::table('rate_limits')->count());
@@ -181,7 +182,7 @@ final class MachineIdentitySignInTest extends TestCase
     {
         $machine = $this->seedMachineWithPassword();
 
-        $result = $this->sessions('machines')->signIn($method, ['email' => self::EMAIL]);
+        $result = $this->sessions('machines')->signIn($method, ['email' => self::EMAIL], self::requestContext());
 
         self::assertTrue($result->isFailed());
         self::assertSame(FailureReason::MACHINE_IDENTITY, $result->reason);
@@ -241,7 +242,7 @@ final class MachineIdentitySignInTest extends TestCase
     {
         $machine = $this->seedMachineWithPassword();
 
-        $result = $this->sessions('machines')->start($machine, null, 'proven');
+        $result = $this->sessions('machines')->start($machine, null, 'proven', self::requestContext());
 
         self::assertSame(FailureReason::MACHINE_IDENTITY, $result->reason);
         self::assertSame(0, DB::table('authentication_sessions')->count());
@@ -261,13 +262,19 @@ final class MachineIdentitySignInTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNull(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
         self::assertSame(FailureReason::MACHINE_IDENTITY, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(AuthenticationFlow::REFRESH, $this->recordedEvent(AuthenticationFailed::class)->flow);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $switched = $this->sessions()->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($session->principal));
+        $switched = $this->sessions()->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($session->principal),
+            self::requestClient(),
+        );
 
         self::assertSame(FailureReason::MACHINE_IDENTITY, $switched->reason);
 
@@ -371,7 +378,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         self::assertSame($human->getKey(), $machine->getKey());
 
-        $session = $this->sessions()->signIn('password', self::credentials(self::EMAIL))->session;
+        $session = $this->sessions()->signIn('password', self::credentials(self::EMAIL), self::requestContext())->session;
 
         self::assertNotNull($session);
 

@@ -139,7 +139,7 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
         $proof    = self::adapterProof($session->identity, 'api', $session->record->getKey());
 
-        self::assertTrue($this->assertQueryBudget(3, 2, static fn (): AccessTokenResult => $sessions->stepUp($proof))->isIssued());
+        self::assertTrue($this->assertQueryBudget(3, 2, static fn (): AccessTokenResult => $sessions->stepUp($proof, self::requestClient()))->isIssued());
     }
 
     /**
@@ -161,7 +161,7 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
         self::assertTrue($this->assertQueryBudget(
             5,
             8,
-            static fn (): AccessTokenResult => $sessions->reauthenticate($session->record, 'password', self::credentials()),
+            static fn (): AccessTokenResult => $sessions->reauthenticate($session->record, 'password', self::credentials(), self::requestClient()),
         )->isIssued());
     }
 
@@ -180,11 +180,17 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     {
         $identity = $this->seedIdentity();
         $sessions = $this->sessions();
-        $session  = $sessions->signInExternally($this->linkedResult($identity, subject: 'subject-1'))->session;
+        $session  = $sessions->signInExternally($this->linkedResult($identity, subject: 'subject-1'), self::requestContext())->session;
         $result   = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: CarbonImmutable::now());
 
         self::assertNotNull($session);
-        self::assertTrue($this->assertQueryBudget(5, 2, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($session->record->getKey(), $result))->isIssued());
+        self::assertTrue(
+            $this->assertQueryBudget(
+                5,
+                2,
+                static fn (): AccessTokenResult => $sessions->reauthenticateExternally($session->record->getKey(), $result, self::requestClient()),
+            )->isIssued(),
+        );
 
         $standing = $this->assertQueryBudget(2, 0, static fn (): ?FailureReason => DB::transaction(
             static fn (): ?FailureReason => $sessions->externalStanding($session->record->getKey(), $session->identity, 'connection-7', 'link-1'),
@@ -226,11 +232,11 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
 
         $key = $session->record->getKey();
 
-        self::assertTrue($this->assertQueryBudget(7, 2, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($key, $result))->isIssued());
+        self::assertTrue($this->assertQueryBudget(7, 2, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($key, $result, self::requestClient()))->isIssued());
 
         $policy->requirement = new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart), ['connection-7']);
 
-        self::assertTrue($this->assertQueryBudget(10, 2, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($key, $result))->isIssued());
+        self::assertTrue($this->assertQueryBudget(10, 2, static fn (): AccessTokenResult => $sessions->reauthenticateExternally($key, $result, self::requestClient()))->isIssued());
         self::assertNull($this->assertQueryBudget(2, 0, static fn (): ?FailureReason => $sessions->externalStanding($key, $member, 'connection-7')));
     }
 
@@ -494,7 +500,7 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

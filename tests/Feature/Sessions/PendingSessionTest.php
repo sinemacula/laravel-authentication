@@ -92,14 +92,14 @@ final class PendingSessionTest extends TestCase
     public function testReadsItsProofsAtTheSmallestAndTheLargestPage(): void
     {
         $identity = $this->seedIdentity();
-        $signIn   = $this->sessions()->signIn('password', self::credentials());
+        $signIn   = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($signIn->pending);
         self::assertNotNull($signIn->credential);
 
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinute());
 
-        $pending = $this->sessions()->satisfy($signIn->credential, self::adapterProof($identity, 'api', $signIn->pending->id, Purpose::SIGN_IN))->pending;
+        $pending = $this->sessions()->satisfy($signIn->credential, self::adapterProof($identity, 'api', $signIn->pending->id, Purpose::SIGN_IN), self::requestClient())->pending;
 
         self::assertNotNull($pending);
         self::assertSame([ProofKind::ADDITIONAL_FACTOR], array_column($pending->proofs(limit: 1), 'kind'));
@@ -117,14 +117,14 @@ final class PendingSessionTest extends TestCase
     public function testReadsItsProofsSinceAMutableTime(): void
     {
         $identity = $this->seedIdentity();
-        $signIn   = $this->sessions()->signIn('password', self::credentials());
+        $signIn   = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($signIn->pending);
         self::assertNotNull($signIn->credential);
 
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinute());
 
-        $pending = $this->sessions()->satisfy($signIn->credential, self::adapterProof($identity, 'api', $signIn->pending->id, Purpose::SIGN_IN))->pending;
+        $pending = $this->sessions()->satisfy($signIn->credential, self::adapterProof($identity, 'api', $signIn->pending->id, Purpose::SIGN_IN), self::requestClient())->pending;
 
         self::assertNotNull($pending);
         self::assertSame([ProofKind::ADDITIONAL_FACTOR], array_column($pending->proofs(Carbon::instance(CarbonImmutable::now())), 'kind'));
@@ -142,7 +142,7 @@ final class PendingSessionTest extends TestCase
     {
         $this->seedIdentity();
 
-        $pending    = $this->sessions()->signIn('password', self::credentials())->pending;
+        $pending    = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->pending;
         $statements = [];
 
         self::assertNotNull($pending);

@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
@@ -68,7 +69,7 @@ final class EmptyApplicationIntegrationTest extends TestCase
 
         Route::post('/refresh', static function (Request $request): array {
 
-            $result = Auth::sessions('api')->refresh($request->string('refresh_token')->toString());
+            $result = Auth::sessions('api')->refresh(PresentedRefreshToken::fromBody($request->string('refresh_token')->toString()), self::requestClient());
 
             return ['refreshed' => $result->isRefreshed(), 'reason' => $result->reason?->value];
         });
@@ -116,9 +117,9 @@ final class EmptyApplicationIntegrationTest extends TestCase
 
         self::assertFalse($this->freshGuard()->attempt(self::credentials()));
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(AuthenticationFailed::class)->reason);
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->signIn('password', self::credentials())->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->signIn('password', self::credentials(), self::requestContext())->reason);
         self::assertSame(0, $queries);
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start($identity, null, 'password')->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start($identity, null, 'password', self::requestContext())->reason);
         self::assertSame(0, DB::table('rate_limits')->count());
         self::assertSame(0, Session::query()->count());
     }
@@ -186,7 +187,7 @@ final class EmptyApplicationIntegrationTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

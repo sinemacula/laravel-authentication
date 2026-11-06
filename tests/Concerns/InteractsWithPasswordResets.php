@@ -96,10 +96,19 @@ trait InteractsWithPasswordResets
             static fn (Application $app): MappedColumnModelProvider => new MappedColumnModelProvider($app->make(Hasher::class), MappedEmailIdentity::class),
         );
 
-        Route::post('/password/forgot', static fn (Request $request): array => ['status' => Auth::passwords('web')->sendResetLink($request->all())->status->value]);
-        Route::post('/password/forgot/code', static fn (Request $request): array => ['status' => Auth::passwords('web')->sendResetCode('phone', $request->all())->status->value]);
-        Route::post('/password/reset', static fn (Request $request): array => self::answer(Auth::passwords('web')->reset($request->all())));
-        Route::post('/password/reset/code', static fn (Request $request): array => self::answer(Auth::passwords('web')->resetWithCode('phone', $request->all())));
+        Route::post(
+            '/password/forgot',
+            static fn (Request $request): array => ['status' => Auth::passwords('web')->sendResetLink($request->all(), self::requestClient())->status->value],
+        );
+        Route::post(
+            '/password/forgot/code',
+            static fn (Request $request): array => ['status' => Auth::passwords('web')->sendResetCode('phone', $request->all(), self::requestClient())->status->value],
+        );
+        Route::post('/password/reset', static fn (Request $request): array => self::answer(Auth::passwords('web')->reset($request->all(), self::requestClient())));
+        Route::post(
+            '/password/reset/code',
+            static fn (Request $request): array => self::answer(Auth::passwords('web')->resetWithCode('phone', $request->all(), self::requestClient())),
+        );
     }
 
     /**
@@ -173,7 +182,7 @@ trait InteractsWithPasswordResets
      */
     protected function requestLink(): string
     {
-        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL])->isSent());
+        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient())->isSent());
 
         app()->terminate();
 

@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -111,10 +112,13 @@ final class StorageConnectionSessionsTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->reason);
+        self::assertSame(
+            FailureReason::INVALID_CREDENTIALS,
+            $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'], self::requestContext())->reason,
+        );
         self::assertSame(1, $this->accountHits($identity));
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertSame(self::STORAGE, $session->record->getConnectionName());
@@ -122,7 +126,9 @@ final class StorageConnectionSessionsTest extends TestCase
 
         $digest = $this->records()->value('refresh_key');
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
         self::assertNotSame($digest, $this->records()->value('refresh_key'));
     }
 
@@ -182,7 +188,7 @@ final class StorageConnectionSessionsTest extends TestCase
 
         $this->requireAFurtherFactor();
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
@@ -195,7 +201,7 @@ final class StorageConnectionSessionsTest extends TestCase
         });
 
         try {
-            $this->sessions()->satisfy($result->credential->reveal(), $proof);
+            $this->sessions()->satisfy($result->credential->reveal(), $proof, self::requestClient());
 
             self::fail('Expected the proof write to fail.');
         } catch (\RuntimeException $exception) {
@@ -207,9 +213,9 @@ final class StorageConnectionSessionsTest extends TestCase
 
         SessionProof::flushEventListeners();
 
-        self::assertTrue($this->sessions()->satisfy($result->credential->reveal(), $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($result->credential->reveal(), $proof, self::requestClient())->isSignedIn());
         self::assertSame(1, $this->records()->where('status', 'active')->count());
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($result->credential->reveal(), $proof)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($result->credential->reveal(), $proof, self::requestClient())->reason);
     }
 
     /**
@@ -228,7 +234,10 @@ final class StorageConnectionSessionsTest extends TestCase
 
         $storage->beginTransaction();
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->reason);
+        self::assertSame(
+            FailureReason::INVALID_CREDENTIALS,
+            $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'], self::requestContext())->reason,
+        );
 
         $storage->rollBack();
 
@@ -249,7 +258,7 @@ final class StorageConnectionSessionsTest extends TestCase
     public function testAFactorChangeFollowsTheCallersTransactionOnTheStorageConnection(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signIn('password', self::credentials())->session;
+        $session  = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -288,7 +297,7 @@ final class StorageConnectionSessionsTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

@@ -415,13 +415,16 @@ final class PasskeyChallengesTest extends TestCase
 
         Event::fake([PasskeyAdded::class]);
 
-        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, $passkeys->register(self::namedIdentity($folded), $options->challengeId, $answer)->status);
+        self::assertSame(
+            PasskeyRegistrationStatus::CHALLENGE_INVALID,
+            $passkeys->register(self::namedIdentity($folded), $options->challengeId, $answer, self::requestClient())->status,
+        );
         self::assertSame(1, DB::table('passkey_challenges')->count());
         self::assertSame(0, DB::table('passkeys')->count());
 
         Event::assertNotDispatched(PasskeyAdded::class);
 
-        self::assertTrue($passkeys->register($owner, $options->challengeId, $answer)->isRegistered());
+        self::assertTrue($passkeys->register($owner, $options->challengeId, $answer, self::requestClient())->isRegistered());
         self::assertSame(self::NAMED, DB::table('passkeys')->value('authenticatable_id'));
     }
 
@@ -456,12 +459,15 @@ final class PasskeyChallengesTest extends TestCase
 
         $other = self::namedIdentity($folded);
 
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $passkeys->verifyFactor($other, self::factorBinding($other), $options->challengeId, $answer)->reason);
+        self::assertSame(
+            FailureReason::PASSKEY_CHALLENGE_INVALID,
+            $passkeys->verifyFactor($other, self::factorBinding($other), $options->challengeId, $answer, self::requestClient())->reason,
+        );
         self::assertSame(1, DB::table('passkey_challenges')->count());
 
         Event::assertNotDispatched(PasskeyUsed::class);
 
-        self::assertTrue($passkeys->verifyFactor($owner, self::factorBinding($owner), $options->challengeId, $answer)->isVerified());
+        self::assertTrue($passkeys->verifyFactor($owner, self::factorBinding($owner), $options->challengeId, $answer, self::requestClient())->isVerified());
     }
 
     /**
@@ -531,13 +537,13 @@ final class PasskeyChallengesTest extends TestCase
 
         Event::fake([PasskeyAdded::class]);
 
-        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('API')->register($identity, $options->challengeId, $answer)->status);
+        self::assertSame(PasskeyRegistrationStatus::CHALLENGE_INVALID, Auth::passkeys('API')->register($identity, $options->challengeId, $answer, self::requestClient())->status);
         self::assertSame(1, DB::table('passkey_challenges')->count());
         self::assertSame(0, DB::table('passkeys')->count());
 
         Event::assertNotDispatched(PasskeyAdded::class);
 
-        self::assertTrue(Auth::passkeys('api')->register($identity, $options->challengeId, $answer)->isRegistered());
+        self::assertTrue(Auth::passkeys('api')->register($identity, $options->challengeId, $answer, self::requestClient())->isRegistered());
     }
 
     /**
@@ -564,13 +570,13 @@ final class PasskeyChallengesTest extends TestCase
 
         Event::fake([PasskeyUsed::class]);
 
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $this->sessions('API')->signIn('passkey', $input)->reason);
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $this->sessions('API')->signIn('passkey', $input, self::requestContext())->reason);
         self::assertSame(1, DB::table('passkey_challenges')->count());
         self::assertSame(0, Passkey::query()->sole()->sign_count);
 
         Event::assertNotDispatched(PasskeyUsed::class);
 
-        self::assertTrue($this->sessions()->signIn('passkey', $input)->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('passkey', $input, self::requestContext())->isSignedIn());
     }
 
     /**
@@ -603,7 +609,7 @@ final class PasskeyChallengesTest extends TestCase
 
         Event::assertNotDispatched(PasskeyUsed::class);
 
-        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, self::factorBinding($identity), $options->challengeId, $answer)->isVerified());
+        self::assertTrue(Auth::passkeys('api')->verifyFactor($identity, self::factorBinding($identity), $options->challengeId, $answer, self::requestClient())->isVerified());
     }
 
     /**

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
@@ -51,105 +52,108 @@ trait SwitchesSessions
     private readonly PendingTransitions $transitions;
 
     /**
-     * Switch the session the refresh token proves to the target: another
-     * principal of its identity (in the tenant selected for it, its default
-     * unless one is named), another active tenant for the principal it acts as,
-     * or both, in the same session.
+     * Switch the session the refresh token presented proves to the target:
+     * another principal of its identity (in the tenant selected for it, its
+     * default unless one is named), another active tenant for the principal it
+     * acts as, or both, in the same session.
      *
-     * On success `PrincipalSwitched` is scheduled for once the switch is
-     * committed on the session's connection (at once when no transaction is
-     * open there), and then, once it commits too, as `DeferredBind` binds, the
-     * guard is bound to the session as the destination principal in the
-     * destination tenant (`Authenticated`, `PrincipalAssigned`,
-     * `SessionAuthenticated`, no `Login`); a bind listener that throws cannot
-     * withhold the switch's report, and a switch inside a transaction that
-     * rolls back binds nothing. A switch to the principal and tenant the
-     * session already records rotates the credential like a refresh and reports
-     * no switch. A destination whose tenant's authentication policy asks for a
-     * further factor the session lacks returns the session to pending with the
-     * destination recorded: the result carries the pending session and its
-     * credential, binds nothing, and forgets a binding to that session. A
-     * refused switch reports `AuthenticationFailed` (flow `switch`) and leaves
-     * the session as it was, unless the token proved a replay, which revokes
-     * the session.
-     *
-     * For a body application only: a cookie application's refresh token is read
-     * from its cookie, with the cookie's cross-site checks, by
-     * `switchFromRequest()` alone, so a token handed in here is a
-     * misconfiguration (`LogicException`). A switched session's new pair is
-     * delivered as the application's transport says: a cookie application's
-     * refresh token only in its cookie.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
-     * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
-     * @return \SineMacula\Laravel\Authentication\Sessions\SwitchResult
-     *
-     * @throws \Throwable
-     */
-    public function switchTo(#[\SensitiveParameter] Secret|string $refreshToken, SwitchTarget $target): SwitchResult
-    {
-        $transport = $this->transport();
-
-        SessionRefresh::refuseHandedIn($transport);
-
-        return $this->switchWith($refreshToken, $target, $transport);
-    }
-
-    /**
-     * Switch the session to the target with the refresh token the request
-     * carries, read through the application's refresh token transport, so it
-     * comes by the application's own transport and a cookie passes its
-     * cross-site checks, as `refreshFromRequest()` reads one.
-     *
-     * Returns `null`, dispatching nothing, when the request carries no token. A
-     * token the transport refuses fails with its reason
+     * What was presented is what `RefreshTokenTransport::extract()` answered
+     * from the request, or a `PresentedRefreshToken` the application built as
+     * its trusted description of a request it read itself
+     * (`PresentedRefreshToken::fromBody()` for a body application's), with the
+     * request's `ClientContext`, as `refresh()` takes them. Valid on a cookie
+     * and a body application alike; nothing is read from the guard's request to
+     * judge the token, limit the attempt, report the switch or bind the guard.
+     * The package judges the token again as `refresh()` does
      * (`refresh_token_conflict`, `refresh_transport_mismatch`,
-     * `cross_site_request`, `token_invalid`) after `AuthenticationFailed` (flow
-     * `switch`), touching no session; otherwise it is switched as `switchTo()`
-     * switches. The result says where the token was read from.
+     * `cross_site_request`), and a reason `extract()` answered is reported as
+     * one of these is; any other is a caller's error
+     * (`InvalidArgumentException`), and nothing is dispatched. A refusal here
+     * reports `AuthenticationFailed` (flow `switch`, with no `Attempting` or
+     * `Failed`: a switch is not a sign-in) and touches no session; `null`
+     * returns `null`, dispatching nothing.
      *
+     * Otherwise the attempt limit counts the client's IP address and the
+     * token's session, as a refresh's does. On success `PrincipalSwitched` is
+     * scheduled for once the switch is committed on the session's connection
+     * (at once when no transaction is open there), and then, once it commits
+     * too, as `DeferredBind` binds, the guard is bound to the session as the
+     * destination principal in the destination tenant (`Authenticated`,
+     * `PrincipalAssigned`, `SessionAuthenticated`, no `Login`); a bind listener
+     * that throws cannot withhold the switch's report, and a switch inside a
+     * transaction that rolls back binds nothing. A switch to the principal and
+     * tenant the session already records rotates the credential like a refresh
+     * and reports no switch. A destination whose tenant's authentication policy
+     * asks for a further factor the session lacks returns the session to
+     * pending with the destination recorded (`SessionReturnedToPending`): the
+     * result carries the pending session and its credential, binds nothing, and
+     * forgets a binding to that session. A refused switch reports
+     * `AuthenticationFailed` (flow `switch`) and leaves the session as it was,
+     * unless the token proved a replay, which revokes the session
+     * (`SessionRevoked`, `rotation_reuse`). Every package event the switch
+     * dispatches carries the client, as do the guard's bind events and so the
+     * session's last use; the guard keeps no client, so its later events
+     * describe its own request. A switched session's new pair is delivered as
+     * the application's transport says: a cookie application's refresh token
+     * only in its cookie (`RefreshCookie::attachTo()`). A retry inside the
+     * grace window gets the current credential. The result says where the token
+     * was presented.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
-     * @return ?\SineMacula\Laravel\Authentication\Sessions\SwitchResult
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return ($presented is null ? null : \SineMacula\Laravel\Authentication\Sessions\SwitchResult)
      *
      * @throws \Throwable
      */
-    public function switchFromRequest(SwitchTarget $target): ?SwitchResult
+    public function switchTo(#[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented, SwitchTarget $target, ClientContext $client): ?SwitchResult
     {
-        $request   = $this->context->request();
         $transport = $this->transport();
-        $presented = $transport->read($request);
 
-        if ($presented instanceof PresentedRefreshToken) {
-            return $this->switchWith($presented->token, $target, $transport)->withSource($presented->source);
+        if ($presented instanceof FailureReason) {
+            return $this->refuseSwitch(SessionRefresh::handedIn($presented), $client);
         }
 
-        if ($presented !== null) {
-
-            $context = new EventContext($this->context->name(), ClientContext::fromRequest($request));
-
-            $this->context->dispatch(new AuthenticationFailed($context, AuthenticationFlow::SWITCH, $presented));
-
-            return SwitchResult::failed($presented);
+        if ($presented === null) {
+            return null;
         }
 
-        return null;
+        $refusal = $transport->judge($presented, $client);
+        $result  = $refusal === null ? $this->switchWith($presented->token, $target, $transport, $client) : $this->refuseSwitch($refusal, $client);
+
+        return $result->withSource($presented->source);
     }
 
     /**
-     * Switch the session the refresh token proves to the target, and deliver
-     * the switched session's pair through the transport.
+     * Report a refresh token refused before the switch read any session, and
+     * answer it.
      *
-     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Sessions\SwitchResult
+     */
+    private function refuseSwitch(FailureReason $reason, ClientContext $client): SwitchResult
+    {
+        $this->context->dispatch(new AuthenticationFailed(new EventContext($this->context->name(), $client), AuthenticationFlow::SWITCH, $reason));
+
+        return SwitchResult::failed($reason);
+    }
+
+    /**
+     * Switch the session the refresh token proves to the target for the client,
+     * and deliver the switched session's pair through the transport.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\SwitchResult
      *
      * @throws \Throwable
      */
-    private function switchWith(#[\SensitiveParameter] Secret|string $refreshToken, SwitchTarget $target, RefreshTokenTransport $transport): SwitchResult
+    private function switchWith(#[\SensitiveParameter] Secret $refreshToken, SwitchTarget $target, RefreshTokenTransport $transport, ClientContext $client): SwitchResult
     {
         $began   = CarbonImmutable::now()->startOfSecond();
-        $client  = $this->context->client();
         $recheck = $this->recheck($client, $began);
         $revoke  = function (EloquentSession&Model $record, CarbonImmutable $now) use ($client): bool {
 
@@ -161,7 +165,7 @@ trait SwitchesSessions
             return $this->switchRevocations->revoke($record, RevocationReason::ROTATION_REUSE, $now, fn () => $this->context->dispatch($event));
         };
 
-        $outcome = (new SessionSwitch($this->tokens, $this->rotations, $this->context, $client, $target, $revoke, $this->transitions, $recheck))
+        $outcome = (new SessionSwitch($this->tokens, $this->rotations, $this->context, $client, $target, $revoke, $this->transitions->forClient($client), $recheck))
             ->switch($refreshToken);
         $refusal = $recheck->refusal();
 
@@ -205,7 +209,8 @@ trait SwitchesSessions
      * session in its destination tenant once it commits too, and answer it, its
      * pair delivered at once. The report is scheduled before the bind, so a
      * bind listener that throws cannot withhold it from the switch it already
-     * wrote.
+     * wrote. The bind's events, and so the session's last use, describe the
+     * client the switch was for.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal  $switched
      * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
@@ -238,7 +243,7 @@ trait SwitchesSessions
         $this->binds->run(
             $session->record,
             $session->principal,
-            fn () => $this->binding->authenticateAs($session->identity, $session->principal, $session->record, null, $session->tenant),
+            fn () => $this->binding->authenticateAs($session->identity, $session->principal, $session->record, null, $session->tenant, $client),
         );
 
         return SwitchResult::switched(new SignedInSession($session->identity, $session->principal, $session->record, $tokens, (string) $session->method));

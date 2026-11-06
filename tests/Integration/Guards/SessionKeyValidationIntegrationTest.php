@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionKeyShape;
@@ -163,10 +164,16 @@ final class SessionKeyValidationIntegrationTest extends TestCase
         });
 
         self::assertNotNull(
-            GuardSessions::of($this->refreshGuard())->refresh($this->authManager()->jwt('api')->issueRefreshToken($valid, self::ROTATION_ID, $identity)->reveal())->session,
+            GuardSessions::of($this->refreshGuard())->refresh(
+                PresentedRefreshToken::fromBody($this->authManager()->jwt('api')->issueRefreshToken($valid, self::ROTATION_ID, $identity)->reveal()),
+                self::requestClient(),
+            )->session,
         );
         self::assertNull(
-            GuardSessions::of($this->refreshGuard())->refresh($this->authManager()->jwt('api')->issueRefreshToken($legacy, self::ROTATION_ID, $identity)->reveal())->session,
+            GuardSessions::of($this->refreshGuard())->refresh(
+                PresentedRefreshToken::fromBody($this->authManager()->jwt('api')->issueRefreshToken($legacy, self::ROTATION_ID, $identity)->reveal()),
+                self::requestClient(),
+            )->session,
         );
         self::assertSame([FailureReason::SESSION_UNKNOWN], $reasons);
 

@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -142,7 +143,13 @@ final class LifecycleEventsContractTest extends TestCase
         )->session;
 
         self::assertNotNull($session);
-        self::assertTrue($this->sessions('members')->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue(
+            $this->sessions('members')->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->isSwitched(),
+        );
 
         $guard = $this->freshGuard('members');
 
@@ -159,7 +166,7 @@ final class LifecycleEventsContractTest extends TestCase
             ChoosingMembership::query()->create(['identity_id' => $chooser->getKey(), 'tenant_id' => $choosable->getKey()]);
         }
 
-        self::assertTrue($this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->isPending());
+        self::assertTrue($this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'), self::requestContext())->isPending());
 
         $identity = $this->seedIdentity();
 
@@ -177,11 +184,11 @@ final class LifecycleEventsContractTest extends TestCase
             }
         });
 
-        self::assertNotNull($this->sessions()->signIn('password', self::credentials())->pending);
+        self::assertNotNull($this->sessions()->signIn('password', self::credentials(), self::requestContext())->pending);
 
         $verifiable = self::seedVerifiableIdentity();
 
-        self::assertSame(IdentifierVerification::VERIFIED, app(IdentifierVerifier::class)->verify('api', $verifiable, 'email', 'ben@example.com'));
+        self::assertSame(IdentifierVerification::VERIFIED, app(IdentifierVerifier::class)->verify('api', $verifiable, 'email', 'ben@example.com', self::requestClient()));
 
         $memberId   = IdentifierCoercion::stringify($member->getKey());
         $secondId   = IdentifierCoercion::stringify($second->getKey());

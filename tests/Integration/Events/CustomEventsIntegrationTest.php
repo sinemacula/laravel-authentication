@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -271,7 +272,7 @@ final class CustomEventsIntegrationTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $result = GuardSessions::of($guard)->refresh($refreshToken)->session?->tokens;
+        $result = GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient($guard->getRequest()))->session?->tokens;
 
         self::assertInstanceOf(TokenPair::class, $result);
 
@@ -348,7 +349,12 @@ final class CustomEventsIntegrationTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
         self::assertNotNull($tokens);
-        self::assertTrue(GuardSessions::of($guard)->refresh($tokens->issueRefreshToken($session, 'stored-rotation-id', $user)->reveal())->isRefreshed());
+        self::assertTrue(
+            GuardSessions::of($guard)->refresh(
+                PresentedRefreshToken::fromBody($tokens->issueRefreshToken($session, 'stored-rotation-id', $user)->reveal()),
+                self::requestClient($guard->getRequest()),
+            )->isRefreshed(),
+        );
 
         self::assertSame([
             'AuthenticationFailed:api',

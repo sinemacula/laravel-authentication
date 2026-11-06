@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Freshness\Operations;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
@@ -265,7 +266,7 @@ final class CurrentProofReadsTest extends TestCase
 
         $session = $this->satisfied('api', $identity, 'factor-1');
 
-        self::assertTrue($this->sessions()->stepUp($this->proof($identity, 'api', $session->record->getKey(), 'factor-2', Purpose::STEP_UP))->isIssued());
+        self::assertTrue($this->sessions()->stepUp($this->proof($identity, 'api', $session->record->getKey(), 'factor-2', Purpose::STEP_UP), self::requestClient())->isIssued());
 
         $removed = $this->judgeAfter(
             $level,
@@ -297,7 +298,7 @@ final class CurrentProofReadsTest extends TestCase
         $key     = $session->record->getKey();
 
         foreach (['factor-1', 'factor-2'] as $factor) {
-            self::assertTrue($this->sessions('members')->stepUp($this->proof($member, 'members', $key, $factor, Purpose::STEP_UP))->isIssued());
+            self::assertTrue($this->sessions('members')->stepUp($this->proof($member, 'members', $key, $factor, Purpose::STEP_UP), self::requestClient())->isIssued());
         }
 
         $this->policy->requirement = new TenantRequirement('v2', new Requirement(new RequirementPart));
@@ -345,7 +346,7 @@ final class CurrentProofReadsTest extends TestCase
         $identity = $this->seedIdentity();
         $session  = $this->signedIn('api', $identity);
 
-        self::assertTrue($this->sessions()->stepUp($this->proof($identity, 'api', $session->record->getKey(), 'factor-1', Purpose::STEP_UP))->isIssued());
+        self::assertTrue($this->sessions()->stepUp($this->proof($identity, 'api', $session->record->getKey(), 'factor-1', Purpose::STEP_UP), self::requestClient())->isIssued());
         self::assertTrue($this->sessions()->factorChange($session->record, FactorChange::ADD)->isAllowed());
 
         self::bindFreshness($policy);
@@ -409,7 +410,7 @@ final class CurrentProofReadsTest extends TestCase
         $session  = $this->signedIn('api', $identity);
         $policy   = app(FreshnessPolicy::class);
 
-        self::assertTrue($this->sessions()->stepUp($this->proof($identity, 'api', $session->record->getKey(), 'factor-1', Purpose::STEP_UP))->isIssued());
+        self::assertTrue($this->sessions()->stepUp($this->proof($identity, 'api', $session->record->getKey(), 'factor-1', Purpose::STEP_UP), self::requestClient())->isIssued());
         self::assertNotNull($policy->freshUntil($session->record, Operations::FACTOR_CHANGE));
 
         $answers = $this->judgeAfter(
@@ -446,7 +447,10 @@ final class CurrentProofReadsTest extends TestCase
         $refreshed = $this->judgeAfter(
             $level,
             fn () => $this->stepUpElsewhere($member, $session, 'factor-1'),
-            fn (): bool => $this->sessions('members')->refresh((string) $session->tokens->refreshToken?->reveal())->isRefreshed(),
+            fn (): bool => $this->sessions('members')->refresh(
+                PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal()),
+                self::requestClient(),
+            )->isRefreshed(),
         );
 
         self::assertTrue($refreshed);
@@ -472,7 +476,7 @@ final class CurrentProofReadsTest extends TestCase
         $session = $this->signedIn('members', $member);
         $key     = $session->record->getKey();
 
-        self::assertTrue($this->sessions('members')->stepUp($this->proof($member, 'members', $key, 'factor-1', Purpose::STEP_UP))->isIssued());
+        self::assertTrue($this->sessions('members')->stepUp($this->proof($member, 'members', $key, 'factor-1', Purpose::STEP_UP), self::requestClient())->isIssued());
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
 
@@ -481,7 +485,10 @@ final class CurrentProofReadsTest extends TestCase
         $outstanding = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere('members', $key, 'factor-1'),
-            fn (): ?array => $this->sessions('members')->refresh((string) $session->tokens->refreshToken?->reveal())->pending?->requirement->kinds(),
+            fn (): ?array => $this->sessions('members')->refresh(
+                PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal()),
+                self::requestClient(),
+            )->pending?->requirement->kinds(),
         );
 
         self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $outstanding);
@@ -520,7 +527,11 @@ final class CurrentProofReadsTest extends TestCase
         $switched = $this->judgeAfter(
             $level,
             fn () => $this->stepUpElsewhere($member, $session, 'factor-1'),
-            fn (): bool => $this->sessions('members')->switchTo((string) $session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched(),
+            fn (): bool => $this->sessions('members')->switchTo(
+                PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->isSwitched(),
         );
 
         self::assertTrue($switched);
@@ -555,7 +566,7 @@ final class CurrentProofReadsTest extends TestCase
         $session   = $result->session;
         $presented = (string) $session->tokens->refreshToken?->reveal();
 
-        self::assertTrue($this->sessions('members')->switchTo($presented, SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue($this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($presented), SwitchTarget::principal($second), self::requestClient())->isSwitched());
 
         $rotated = DB::table('authentication_sessions')->value('refresh_key');
 
@@ -566,7 +577,7 @@ final class CurrentProofReadsTest extends TestCase
         $retried = $this->judgeAfter(
             $level,
             fn () => $this->stepUpElsewhere($member, $session, 'factor-1'),
-            fn (): bool => $this->sessions('members')->switchTo($presented, SwitchTarget::principal($second))->isSwitched(),
+            fn (): bool => $this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($presented), SwitchTarget::principal($second), self::requestClient())->isSwitched(),
         );
 
         self::assertTrue($retried);
@@ -601,7 +612,7 @@ final class CurrentProofReadsTest extends TestCase
         $key       = $session->record->getKey();
         $presented = (string) $session->tokens->refreshToken?->reveal();
 
-        self::assertTrue($this->sessions('members')->stepUp($this->proof($member, 'members', $key, 'factor-1', Purpose::STEP_UP))->isIssued());
+        self::assertTrue($this->sessions('members')->stepUp($this->proof($member, 'members', $key, 'factor-1', Purpose::STEP_UP), self::requestClient())->isIssued());
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
 
@@ -612,7 +623,11 @@ final class CurrentProofReadsTest extends TestCase
         $outstanding = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere('members', $key, 'factor-1'),
-            fn (): ?array => $this->sessions('members')->switchTo($presented, SwitchTarget::principal($second))->pending?->requirement->kinds(),
+            fn (): ?array => $this->sessions('members')->switchTo(
+                PresentedRefreshToken::fromBody($presented),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->pending?->requirement->kinds(),
         );
 
         self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $outstanding);
@@ -636,20 +651,24 @@ final class CurrentProofReadsTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
 
-        $pending = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
+        $pending = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
 
         $credential = $pending->credential->reveal();
-        $satisfied  = $this->sessions(self::CHOOSERS)->satisfy($credential, $this->proof($member, self::CHOOSERS, $pending->pending->id, 'factor-1', Purpose::SIGN_IN));
+        $satisfied  = $this->sessions(self::CHOOSERS)->satisfy(
+            $credential,
+            $this->proof($member, self::CHOOSERS, $pending->pending->id, 'factor-1', Purpose::SIGN_IN),
+            self::requestClient(),
+        );
 
         self::assertSame([PendingRequirement::PRINCIPAL], $satisfied->pending?->requires);
 
         $chosen = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere(self::CHOOSERS, $pending->pending->id, 'factor-1'),
-            fn (): ?array => $this->sessions(self::CHOOSERS)->choose($credential, $first)->pending?->requires,
+            fn (): ?array => $this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient())->pending?->requires,
         );
 
         self::assertSame([PendingRequirement::MFA], $chosen);
@@ -675,13 +694,17 @@ final class CurrentProofReadsTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
 
-        $pending = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
+        $pending = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
 
         $credential = $pending->credential->reveal();
-        $satisfied  = $this->sessions(self::CHOOSERS)->satisfy($credential, $this->proof($member, self::CHOOSERS, $pending->pending->id, 'factor-1', Purpose::SIGN_IN));
+        $satisfied  = $this->sessions(self::CHOOSERS)->satisfy(
+            $credential,
+            $this->proof($member, self::CHOOSERS, $pending->pending->id, 'factor-1', Purpose::SIGN_IN),
+            self::requestClient(),
+        );
 
         self::assertSame([PendingRequirement::PRINCIPAL], $satisfied->pending?->requires);
 
@@ -692,7 +715,7 @@ final class CurrentProofReadsTest extends TestCase
         $chosen = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere(self::CHOOSERS, $pending->pending->id, 'factor-1'),
-            fn (): ?array => $this->sessions(self::CHOOSERS)->choose($credential, $first)->pending?->requires,
+            fn (): ?array => $this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient())->pending?->requires,
         );
 
         self::assertSame([PendingRequirement::MFA], $chosen);
@@ -717,7 +740,7 @@ final class CurrentProofReadsTest extends TestCase
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
         app()->instance(RequirementCheck::class, self::twoFactorCheck());
 
-        $pending = $this->sessions()->signIn('password', self::credentials());
+        $pending = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
@@ -725,12 +748,12 @@ final class CurrentProofReadsTest extends TestCase
         $credential = $pending->credential->reveal();
         $key        = $pending->pending->id;
 
-        self::assertTrue($this->sessions()->satisfy($credential, $this->proof($identity, 'api', $key, 'factor-1', Purpose::SIGN_IN))->isPending());
+        self::assertTrue($this->sessions()->satisfy($credential, $this->proof($identity, 'api', $key, 'factor-1', Purpose::SIGN_IN), self::requestClient())->isPending());
 
         $satisfied = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere('api', $key, 'factor-1'),
-            fn (): bool => $this->sessions()->satisfy($credential, $this->proof($identity, 'api', $key, 'factor-2', Purpose::SIGN_IN))->isPending(),
+            fn (): bool => $this->sessions()->satisfy($credential, $this->proof($identity, 'api', $key, 'factor-2', Purpose::SIGN_IN), self::requestClient())->isPending(),
         );
 
         self::assertTrue($satisfied);
@@ -767,9 +790,12 @@ final class CurrentProofReadsTest extends TestCase
             fn () => $this->elsewhere(function () use ($session): void {
                 $result = $this->throughTheLink(new ExternalEvidence(['mfa'], null, $this->now));
 
-                self::assertTrue($this->sessions('members')->reauthenticateExternally($session->record->getKey(), $result)->isIssued());
+                self::assertTrue($this->sessions('members')->reauthenticateExternally($session->record->getKey(), $result, self::requestClient())->isIssued());
             }),
-            fn (): bool => $this->sessions('members')->refresh((string) $session->tokens->refreshToken?->reveal())->isRefreshed(),
+            fn (): bool => $this->sessions('members')->refresh(
+                PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal()),
+                self::requestClient(),
+            )->isRefreshed(),
         );
 
         self::assertTrue($refreshed);
@@ -799,7 +825,7 @@ final class CurrentProofReadsTest extends TestCase
         $reauthenticated = $this->judgeAfter(
             $level,
             fn () => $this->stepUpElsewhere($member, $session, 'factor-1'),
-            fn (): ?FailureReason => $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink())->reason,
+            fn (): ?FailureReason => $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink(), self::requestClient())->reason,
         );
 
         self::assertNull($reauthenticated);
@@ -939,7 +965,7 @@ final class CurrentProofReadsTest extends TestCase
         $session  = $this->signedIn('api', $identity);
         $key      = $session->record->getKey();
 
-        self::assertTrue($this->sessions()->stepUp($this->proof($identity, 'api', $key, 'factor-2', Purpose::STEP_UP))->isIssued());
+        self::assertTrue($this->sessions()->stepUp($this->proof($identity, 'api', $key, 'factor-2', Purpose::STEP_UP), self::requestClient())->isIssued());
 
         $kinds = $this->judgeAfter(
             $level,
@@ -1075,7 +1101,7 @@ final class CurrentProofReadsTest extends TestCase
 
         $answers = [
             self::kindsOf($this->sessions()->proofs($key)),
-            $this->sessions()->stepUp($this->proof($identity, 'api', $key, 'factor-1', Purpose::STEP_UP))->isIssued(),
+            $this->sessions()->stepUp($this->proof($identity, 'api', $key, 'factor-1', Purpose::STEP_UP), self::requestClient())->isIssued(),
             $this->sessions()->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $record)->isActive(),
             self::kindsOf($this->sessions()->proofs($key)),
         ];
@@ -1291,7 +1317,9 @@ final class CurrentProofReadsTest extends TestCase
         $guard = (string) $session->record->getGuard();
 
         $this->elsewhere(function () use ($identity, $session, $guard, $factor): void {
-            self::assertTrue($this->sessions($guard)->stepUp($this->proof($identity, $guard, $session->record->getKey(), $factor, Purpose::STEP_UP))->isIssued());
+            self::assertTrue(
+                $this->sessions($guard)->stepUp($this->proof($identity, $guard, $session->record->getKey(), $factor, Purpose::STEP_UP), self::requestClient())->isIssued(),
+            );
         });
     }
 
@@ -1331,7 +1359,7 @@ final class CurrentProofReadsTest extends TestCase
     private function signedIn(string $guard, Identity $identity): SignedInSession
     {
         $email   = $guard === 'api' ? 'ada@example.test' : 'member@example.test';
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertTrue($session->identity->getAuthIdentifier() === $identity->getAuthIdentifier());
@@ -1352,12 +1380,16 @@ final class CurrentProofReadsTest extends TestCase
      */
     private function satisfied(string $guard, Identity $identity, string $factor): SignedInSession
     {
-        $pending = $this->sessions($guard)->signIn('password', self::credentials());
+        $pending = $this->sessions($guard)->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
 
-        $session = $this->sessions($guard)->satisfy($pending->credential->reveal(), $this->proof($identity, $guard, $pending->pending->id, $factor, Purpose::SIGN_IN))->session;
+        $session = $this->sessions($guard)->satisfy(
+            $pending->credential->reveal(),
+            $this->proof($identity, $guard, $pending->pending->id, $factor, Purpose::SIGN_IN),
+            self::requestClient(),
+        )->session;
 
         self::assertNotNull($session);
 

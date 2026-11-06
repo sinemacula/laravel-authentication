@@ -78,7 +78,7 @@ final class ReplicaSessionListingTest extends TestCase
 
         $this->copyRowToReplica('integration_identities', $identity->getKey());
 
-        $revoked = $this->sessions()->signIn('password', self::credentials())->session;
+        $revoked = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($revoked);
 
@@ -86,7 +86,7 @@ final class ReplicaSessionListingTest extends TestCase
 
         DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->update(['revoked_at' => now(), 'revoked_reason' => 'revoked']);
 
-        $created = $this->sessions()->signIn('password', self::credentials())->session;
+        $created = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($created);
         $live = DB::connection(self::REPLICA_CONNECTION)->table('authentication_sessions')->whereNull('revoked_at')->pluck('id')->all();
@@ -115,7 +115,7 @@ final class ReplicaSessionListingTest extends TestCase
 
         $this->copyRowToReplica('integration_identities', $identity->getKey());
 
-        $revoked = $this->sessions()->signIn('password', self::credentials())->session;
+        $revoked = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($revoked);
 
@@ -123,7 +123,7 @@ final class ReplicaSessionListingTest extends TestCase
 
         DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->update(['revoked_at' => now(), 'revoked_reason' => 'revoked']);
 
-        $created = $this->sessions()->signIn('password', self::credentials())->session;
+        $created = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($created);
         self::assertSame(1, DB::connection(self::REPLICA_CONNECTION)->table('authentication_sessions')->whereNull('revoked_at')->count());

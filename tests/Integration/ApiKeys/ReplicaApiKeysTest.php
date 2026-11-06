@@ -181,7 +181,7 @@ final class ReplicaApiKeysTest extends TestCase
 
         $this->startMachineRequest();
 
-        $result = Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key()->reveal(), 20));
+        $result = Auth::clientCredentials('m2m')->exchange(self::basicClient($issued->summary->publicId, substr($issued->key()->reveal(), 20)), self::requestClient());
 
         self::assertTrue($result->isGranted());
         self::assertNotNull($result->accessToken);
@@ -319,7 +319,7 @@ final class ReplicaApiKeysTest extends TestCase
     {
         $this->startMachineRequest();
 
-        return Auth::clientCredentials('m2m')->exchange($client->summary->publicId, substr($client->key()->reveal(), 20));
+        return Auth::clientCredentials('m2m')->exchange(self::basicClient($client->summary->publicId, substr($client->key()->reveal(), 20)), self::requestClient());
     }
 
     /**

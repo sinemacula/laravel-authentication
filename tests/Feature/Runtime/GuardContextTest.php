@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use Tests\Concerns\InteractsWithPasskeys;
@@ -174,7 +175,7 @@ final class GuardContextTest extends TestCase
         $identity = $this->seedIdentity();
         $passkey  = $this->registerPasskey($identity);
         $guard    = $this->freshGuard();
-        $session  = self::sessionsOf($guard)->signIn('password', self::credentials())->session;
+        $session  = self::sessionsOf($guard)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -187,11 +188,13 @@ final class GuardContextTest extends TestCase
 
         self::assertSame(Event::getFacadeRoot(), $guard->context()->events());
 
-        self::assertNull($sessions->signIn('password', ['email' => 'ada@example.test', 'password' => self::WRONG_PASSWORD])->session);
-        self::assertFalse($codes->send('email_code', ['email' => 'ada@example.test'])->isSent());
-        self::assertTrue($passkeys->remove($identity, $passkey->id)->isRemoved());
-        self::assertFalse($passwords->reset(['email' => 'ada@example.test', 'token' => str_repeat('a', 43), 'password' => 'a brand new passphrase'])->isReset());
-        self::assertTrue(self::sessionsOf($guard)->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertNull($sessions->signIn('password', ['email' => 'ada@example.test', 'password' => self::WRONG_PASSWORD], self::requestContext())->session);
+        self::assertFalse($codes->send('email_code', ['email' => 'ada@example.test'], self::requestClient())->isSent());
+        self::assertTrue($passkeys->remove($identity, $passkey->id, self::requestClient())->isRemoved());
+        self::assertFalse(
+            $passwords->reset(['email' => 'ada@example.test', 'token' => str_repeat('a', 43), 'password' => 'a brand new passphrase'], self::requestClient())->isReset(),
+        );
+        self::assertTrue(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
 
         $guard->setRequest(Request::create('/', server: ['HTTP_AUTHORIZATION' => 'Bearer not-a-token']));
 
@@ -226,8 +229,8 @@ final class GuardContextTest extends TestCase
 
         DB::transaction(function () use ($identity, $passkey): void {
             self::assertTrue($this->signInWithPasskey()->isSignedIn());
-            self::assertTrue(Auth::passwords('api')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE)->isSet());
-            self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id)->isRemoved());
+            self::assertTrue(Auth::passwords('api')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, self::requestClient())->isSet());
+            self::assertTrue(Auth::passkeys('api')->remove($identity, $passkey->id, self::requestClient())->isRemoved());
 
             Event::fake();
         });
@@ -261,14 +264,14 @@ final class GuardContextTest extends TestCase
         app()->instance('request', Request::create('/sign-in', 'POST', server: ['REMOTE_ADDR' => '198.51.100.20', 'HTTP_USER_AGENT' => 'Rebound/1.0']));
 
         self::assertSame('198.51.100.20', $guard->context()->request()->ip());
-        self::assertNotNull($sessions->signIn('password', self::credentials())->session);
+        self::assertNotNull($sessions->signIn('password', self::credentials(), self::requestContext())->session);
         $client = $this->recordedEvent(SignedIn::class)->context->client;
 
         self::assertSame(['198.51.100.20', 'Rebound/1.0'], [$client->ip, $client->userAgent]);
 
         app()->instance('request', Request::create('/refresh', 'POST', server: ['REMOTE_ADDR' => '198.51.100.30']));
 
-        self::assertNull(self::sessionsOf($guard)->refresh('not-a-token')->session);
+        self::assertNull(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody('not-a-token'), self::requestClient())->session);
         self::assertSame('198.51.100.30', $this->recordedEvent(AuthenticationFailed::class)->context->client->ip);
     }
 
@@ -285,7 +288,7 @@ final class GuardContextTest extends TestCase
         $this->seedIdentity();
 
         $guard   = $this->freshGuard();
-        $session = self::sessionsOf($guard)->signIn('password', self::credentials())->session;
+        $session = self::sessionsOf($guard)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -294,7 +297,7 @@ final class GuardContextTest extends TestCase
         app()->instance(PrincipalResolver::class, $resolver);
 
         self::assertSame($resolver, $guard->context()->resolver());
-        self::assertTrue(self::sessionsOf($guard)->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
         self::assertGreaterThan(0, $resolver->calls);
     }
 
@@ -312,7 +315,7 @@ final class GuardContextTest extends TestCase
 
         $guard   = $this->freshGuard('local');
         $local   = $guard->context()->resolver();
-        $session = self::sessionsOf($guard)->signIn('password', self::credentials())->session;
+        $session = self::sessionsOf($guard)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertInstanceOf(IdentityAsPrincipalResolver::class, $local);
         self::assertNotNull($session);
@@ -322,7 +325,7 @@ final class GuardContextTest extends TestCase
         app()->instance(PrincipalResolver::class, $resolver);
 
         self::assertSame($local, $guard->context()->resolver());
-        self::assertTrue(self::sessionsOf($guard)->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
         self::assertSame(0, $resolver->calls);
     }
 
@@ -352,21 +355,21 @@ final class GuardContextTest extends TestCase
         self::assertSame($api->context()->request(), $admin->context()->request());
         self::assertNotSame($api->context()->timebox(), $admin->context()->timebox());
 
-        $apiSession   = self::sessionsOf($api)->signIn('password', self::credentials())->session;
-        $adminSession = self::sessionsOf($admin)->signIn('password', self::credentials())->session;
+        $apiSession   = self::sessionsOf($api)->signIn('password', self::credentials(), self::requestContext())->session;
+        $adminSession = self::sessionsOf($admin)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($apiSession);
         self::assertNotNull($adminSession);
 
         $this->recordEvents([Refreshed::class, AuthenticationFailed::class]);
 
-        self::assertNull(self::sessionsOf($api)->refresh($adminSession->tokens->refreshToken?->reveal())->session);
-        self::assertNull(self::sessionsOf($admin)->refresh($apiSession->tokens->refreshToken?->reveal())->session);
+        self::assertNull(self::sessionsOf($api)->refresh(PresentedRefreshToken::fromBody($adminSession->tokens->refreshToken?->reveal()), self::requestClient())->session);
+        self::assertNull(self::sessionsOf($admin)->refresh(PresentedRefreshToken::fromBody($apiSession->tokens->refreshToken?->reveal()), self::requestClient())->session);
         self::assertSame(['api', 'admin'], array_map(static fn (AuthenticationFailed $event): ?string => $event->context->guard, $this->recorded));
 
         $this->recordEvents([Refreshed::class]);
 
-        self::assertTrue(self::sessionsOf($api)->refresh($apiSession->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue(self::sessionsOf($api)->refresh(PresentedRefreshToken::fromBody($apiSession->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
         self::assertSame(['api'], array_map(static fn (Refreshed $event): ?string => $event->context->guard, $this->recorded));
 
         $silent = \Mockery::mock(Dispatcher::class);
@@ -376,7 +379,7 @@ final class GuardContextTest extends TestCase
 
         $this->recordEvents([Refreshed::class]);
 
-        self::assertTrue(self::sessionsOf($admin)->refresh($adminSession->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue(self::sessionsOf($admin)->refresh(PresentedRefreshToken::fromBody($adminSession->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
         self::assertSame(['admin'], array_map(static fn (Refreshed $event): ?string => $event->context->guard, $this->recorded));
         self::assertNotSame($silent, $admin->context()->events());
     }

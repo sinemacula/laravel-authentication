@@ -298,7 +298,7 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
 
         $passwords = $this->passwords();
         $started   = hrtime(true);
-        $result    = $passwords->reset(['email' => $email, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+        $result    = $passwords->reset(['email' => $email, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
         $elapsed   = hrtime(true) - $started;
 
         self::assertEquals(ResetResult::invalid(), $result);
@@ -370,7 +370,7 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
             $passwords = $this->passwords();
             $started   = hrtime(true);
 
-            self::assertTrue($passwords->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->isReset());
+            self::assertTrue($passwords->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->isReset());
 
             $fastest = min($fastest, hrtime(true) - $started);
         }
@@ -488,7 +488,7 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
             $passwords = $this->passwords();
             $started   = hrtime(true);
 
-            self::assertTrue($passwords->sendResetLink(['email' => $email])->isSent());
+            self::assertTrue($passwords->sendResetLink(['email' => $email], self::requestClient())->isSent());
 
             $fastest = min($fastest, hrtime(true) - $started);
         }

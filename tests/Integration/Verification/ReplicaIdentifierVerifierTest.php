@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
@@ -96,7 +97,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
 
         $identity = (new VerifiableIdentity)->newFromBuilder((array) $stale);
 
-        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, app(IdentifierVerifier::class)->verify('api', $identity, 'email', 'ben@example.com'));
+        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, app(IdentifierVerifier::class)->verify('api', $identity, 'email', 'ben@example.com', self::requestClient()));
     }
 
     /**
@@ -132,7 +133,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
 
         $identity = (new QueryingVerifiableIdentity)->newFromBuilder(['id' => 1]);
 
-        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, app(IdentifierVerifier::class)->verify('api', $identity, 'email', 'ben@example.com'));
+        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, app(IdentifierVerifier::class)->verify('api', $identity, 'email', 'ben@example.com', self::requestClient()));
     }
 
     /**
@@ -154,7 +155,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
 
         DB::connection(self::REPLICA_CONNECTION)->table('verifiable_identities')->update(['email' => 'old@example.com']);
 
-        self::assertSame(VerificationLinkOutcome::ALREADY_VERIFIED, $links->consume(Request::create($link)));
+        self::assertSame(VerificationLinkOutcome::ALREADY_VERIFIED, $links->consume(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link))));
     }
 
     /**
@@ -177,7 +178,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
         $links    = app(VerificationLinks::class);
         $link     = $links->create('querying', $identity, 'email', 'verify')->reveal();
 
-        self::assertSame(VerificationLinkOutcome::VERIFIED, $links->consume(Request::create($link)));
+        self::assertSame(VerificationLinkOutcome::VERIFIED, $links->consume(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link))));
         self::assertNotNull(DB::connection(self::PRIMARY_CONNECTION)->table('verifiable_identities')->value('email_verified_at'));
     }
 

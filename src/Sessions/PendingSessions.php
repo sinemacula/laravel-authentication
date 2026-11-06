@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
@@ -291,22 +292,23 @@ final readonly class PendingSessions
     /**
      * End the live pending session the credential names: revoke it as
      * `signed_out`, under the row lock, and report `SessionRevoked` once
-     * committed. Returns whether the credential named one, which this call
-     * ended.
+     * committed, for the client given. Returns whether the credential named
+     * one, which this call ended.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return bool
      *
      * @throws \Throwable
      *
      * @imperative
      */
-    public function discard(#[\SensitiveParameter] Secret|string $credential, CarbonImmutable $now): bool
+    public function discard(#[\SensitiveParameter] Secret|string $credential, CarbonImmutable $now, ClientContext $client): bool
     {
         $held = new \SensitiveParameterValue($credential);
 
-        return SessionLookup::model()->getConnection()->transaction(function () use ($held, $now): bool {
+        return SessionLookup::model()->getConnection()->transaction(function () use ($held, $now, $client): bool {
 
             $found = $this->find($held->getValue(), $now, true);
 
@@ -317,7 +319,7 @@ final readonly class PendingSessions
             [$session, $identity, $principal] = $found;
 
             $event = new SessionRevoked(
-                new EventContext($this->context->name(), $this->context->client(), $identity, $principal, session: $session, method: $session->getSignInMethod()),
+                new EventContext($this->context->name(), $client, $identity, $principal, session: $session, method: $session->getSignInMethod()),
                 RevocationReason::SIGNED_OUT,
             );
 

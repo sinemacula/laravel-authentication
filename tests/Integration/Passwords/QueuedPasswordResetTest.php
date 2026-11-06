@@ -67,8 +67,8 @@ final class QueuedPasswordResetTest extends TestCase
         self::seedResettable();
 
         $request = $channel === 'link'
-            ? $this->passwords()->sendResetLink(['email' => self::EMAIL])
-            : $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE]);
+            ? $this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient())
+            : $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE], self::requestClient());
 
         $payload = DB::table('jobs')->value('payload');
 
@@ -88,8 +88,12 @@ final class QueuedPasswordResetTest extends TestCase
         }
 
         $result = $channel === 'link'
-            ? $this->passwords()->reset(['email' => self::EMAIL, 'token' => $secret, 'password' => self::NEW_PASSWORD])
-            : $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $secret, 'password' => self::NEW_PASSWORD]);
+            ? $this->passwords()->reset(['email' => self::EMAIL, 'token' => $secret, 'password' => self::NEW_PASSWORD], self::requestClient())
+            : $this->passwords()->resetWithCode(
+                'phone',
+                ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $secret, 'password' => self::NEW_PASSWORD],
+                self::requestClient(),
+            );
 
         self::assertSame(ResetStatus::RESET, $result->status);
     }
@@ -114,7 +118,7 @@ final class QueuedPasswordResetTest extends TestCase
 
         Auth::extend('copied_jwt', static fn (Application $app): JwtGuard => AuthenticationServiceProvider::createJwtGuard($app, 'web', config()->array('auth.guards.web')));
 
-        self::assertTrue(Auth::passwords('copied')->sendResetLink(['email' => self::EMAIL])->isSent());
+        self::assertTrue(Auth::passwords('copied')->sendResetLink(['email' => self::EMAIL], self::requestClient())->isSent());
 
         Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--stop-when-empty' => true]);
 
@@ -123,7 +127,9 @@ final class QueuedPasswordResetTest extends TestCase
         self::assertNotNull($link);
         self::assertSame('web', $link->guard);
         self::assertTrue($identity->is($link->identity));
-        self::assertTrue($this->passwords()->reset(['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD])->isReset());
+        self::assertTrue(
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD], self::requestClient())->isReset(),
+        );
     }
 
     /**

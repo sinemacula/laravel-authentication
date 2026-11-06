@@ -16,10 +16,10 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Http\RequestBody;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
+use SineMacula\Laravel\Authentication\Sessions\PendingCredential;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
-use SineMacula\Laravel\Authentication\Sessions\PendingState;
 use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
 
 /**
@@ -28,12 +28,15 @@ use SineMacula\Laravel\Authentication\Sessions\RefreshCredential;
  *
  * The access credential is the guard's own: its identity, principal, active
  * tenant and session, the guard reporting its own failures. The refresh
- * credential is the one the guard's refresh token transport reads, proven and
- * admitted as a refresh would be and judged against the tenant's authentication
- * policy as a refresh judges it, without rotating or writing, though a replayed
- * one revokes its session. The pending credential is read from the configured
- * body field, never the query string or a header, and must name a live pending
- * session of the guard that allows the declared action now. A refresh or
+ * credential is the one the guard's refresh token transport extracts
+ * (`RefreshTokenTransport::extract()`), judged with the request's client,
+ * proven and admitted as a refresh would be and judged against the tenant's
+ * authentication policy as a refresh judges it, without rotating or writing,
+ * though a replayed one revokes its session. The pending credential is the one
+ * `PendingCredential::extract()` reads from the configured body field, never
+ * the query string or a header, and must name a live pending session of the
+ * guard that allows the declared action now. The request's client is read only
+ * once the request carries a refresh or pending credential. A refresh or
  * pending credential the request carries and that is refused is reported once,
  * with `AuthenticationFailed` and its reason (flow `refresh`, or `sign_in` with
  * `pending_invalid` or `pending_action_not_allowed`), never the credential; a
@@ -67,7 +70,7 @@ final readonly class CallerCredentials
         /** The package's auth manager, which resolves the guards and their session services. */
         private AuthManager $auth,
 
-        /** Configuration the pending credential's field and the jwt guards are read from. */
+        /** Configuration the jwt guards are read from. */
         private Repository $config,
 
         /** Dispatcher a refused credential is reported to. */
@@ -146,11 +149,18 @@ final readonly class CallerCredentials
      */
     private function refresh(Request $request, string $guard): ?Caller
     {
+        $presented = $this->auth->refreshTransport($guard)->extract($request);
+
+        if ($presented === null) {
+            return null;
+        }
+
+        $client     = ClientContext::fromRequest($request);
         $sessions   = $this->auth->sessions($guard);
-        $credential = $sessions->refreshCredentialFromRequest();
+        $credential = $sessions->refreshCredential($presented, $client);
 
         if ($credential instanceof FailureReason) {
-            $this->report(new EventContext($guard, ClientContext::fromRequest($request)), AuthenticationFlow::REFRESH, $credential);
+            $this->report(new EventContext($guard, $client), AuthenticationFlow::REFRESH, $credential);
         }
 
         return $credential instanceof RefreshCredential
@@ -173,17 +183,15 @@ final readonly class CallerCredentials
      */
     private function pending(Request $request, string $guard, ?PendingAction $action): ?Caller
     {
-        $body  = RequestBody::fields($request);
-        $field = PendingState::credentialField($this->config);
+        $credential = PendingCredential::extract($request);
 
-        if (!array_key_exists($field, $body)) {
+        if ($credential === null) {
             return null;
         }
 
-        $sessions   = $this->auth->sessions($guard);
-        $credential = $body[$field];
-        $pending    = is_string($credential) && $credential !== '' ? $sessions->pending($credential) : null;
-        $reason     = self::pendingRefusal($pending, $action);
+        $sessions = $this->auth->sessions($guard);
+        $pending  = $credential instanceof Secret ? $sessions->pending($credential) : null;
+        $reason   = self::pendingRefusal($pending, $action);
 
         if ($reason !== null || $pending === null) {
             $this->report(self::pendingContext($request, $guard, $pending), AuthenticationFlow::SIGN_IN, $reason ?? FailureReason::PENDING_INVALID);

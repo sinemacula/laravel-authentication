@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
@@ -206,7 +207,7 @@ final class LooksUpSessionsTest extends TestCase
 
         $current   = $this->signIn('api', 'Phone');
         $other     = $this->signIn('api', 'Other', 'grace@example.test');
-        $refreshed = $this->sessions()->refresh((string) $current->tokens->refreshToken?->reveal())->session;
+        $refreshed = $this->sessions()->refresh(PresentedRefreshToken::fromBody((string) $current->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 
@@ -214,7 +215,7 @@ final class LooksUpSessionsTest extends TestCase
 
         CarbonImmutable::setTestNow($signedInAt->addMinute());
 
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $current->record->getKey()))->isIssued());
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $current->record->getKey()), self::requestClient())->isIssued());
 
         $all = $this->proofsOf($token, self::idOf($current))->assertOk();
 
@@ -289,7 +290,7 @@ final class LooksUpSessionsTest extends TestCase
 
         CarbonImmutable::setTestNow($at);
 
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $key))->isIssued());
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $key), self::requestClient())->isIssued());
 
         $since = fn (CarbonInterface $time): array => array_map(
             static fn (RecordedProof $proof): ProofKind => $proof->kind,
@@ -324,7 +325,7 @@ final class LooksUpSessionsTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
 
-        $pending = $this->sessions('api')->signIn('password', self::credentials())->pending;
+        $pending = $this->sessions('api')->signIn('password', self::credentials(), self::requestContext())->pending;
 
         self::assertNotNull($pending);
         self::assertSame([ProofKind::FIRST_FACTOR], array_map(static fn (RecordedProof $proof): ProofKind => $proof->kind, $pending->proofs()));
@@ -354,7 +355,7 @@ final class LooksUpSessionsTest extends TestCase
         $current  = $this->signIn('api', 'Phone');
         $key      = $current->record->getKey();
 
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $key))->isIssued());
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($identity, 'api', $key), self::requestClient())->isIssued());
 
         $bound = $this->withHeaders(['Authorization' => 'Bearer ' . $current->tokens->accessToken->reveal()])->getJson('/session/proofs')->assertOk();
 
@@ -412,7 +413,7 @@ final class LooksUpSessionsTest extends TestCase
         $queries = self::queriesDuring(static function () use ($sessions, $identity, $record, $key, &$answers): void {
             $answers = DB::transaction(static fn (): array => [
                 self::kindsOf($sessions->proofs($key)),
-                $sessions->stepUp(self::adapterProof($identity, 'api', $key))->isIssued(),
+                $sessions->stepUp(self::adapterProof($identity, 'api', $key), self::requestClient())->isIssued(),
                 $sessions->factorChanged($identity, FactorChangeMade::FACTOR_CONFIRMED, $record)->isActive(),
                 self::kindsOf($sessions->proofs($key)),
                 $sessions->firstFactor($key)?->kind,

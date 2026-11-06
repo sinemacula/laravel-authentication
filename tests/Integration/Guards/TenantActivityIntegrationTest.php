@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -206,7 +207,7 @@ final class TenantActivityIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull(GuardSessions::of($this->freshGuard())->refresh($refreshToken)->session);
+        self::assertNull(GuardSessions::of($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient())->session);
         self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
 
         $fresh = Session::query()->findOrFail($session->getKey());
@@ -456,7 +457,7 @@ final class TenantActivityIntegrationTest extends TestCase
 
         $guard = $this->freshGuard()->setPrincipalResolver(new StubFixedPrincipalResolver(MorphTenantMembership::query()->findOrFail($membership->getKey())));
 
-        self::assertNull(GuardSessions::of($guard)->refresh($refreshToken)->session);
+        self::assertNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient($guard->getRequest()))->session);
         self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
 
         $fresh = Session::query()->findOrFail($session->getKey());
@@ -518,7 +519,7 @@ final class TenantActivityIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull(GuardSessions::of($this->freshGuard())->refresh($refreshToken)->session);
+        self::assertNull(GuardSessions::of($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient())->session);
         self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
     }
 

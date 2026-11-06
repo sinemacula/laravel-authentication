@@ -320,6 +320,6 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
      */
     private function signIn(): void
     {
-        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
     }
 }

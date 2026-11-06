@@ -120,7 +120,10 @@ final class PasskeyFactorChangesTest extends TestCase
 
         $options = $passkeys->registrationOptions($identity, self::USER_NAME);
 
-        self::assertSame('factor-1', $passkeys->register($identity, $options->challengeId, $this->authenticator()->create($options->options))->factor?->factor);
+        self::assertSame(
+            'factor-1',
+            $passkeys->register($identity, $options->challengeId, $this->authenticator()->create($options->options), self::requestClient())->factor?->factor,
+        );
 
         DB::rollBack();
 
@@ -131,7 +134,7 @@ final class PasskeyFactorChangesTest extends TestCase
         $registered = DB::transaction(function () use ($passkeys, $identity): bool {
             $options = $passkeys->registrationOptions($identity, self::USER_NAME);
 
-            return $passkeys->register($identity, $options->challengeId, $this->authenticator()->create($options->options))->isRegistered();
+            return $passkeys->register($identity, $options->challengeId, $this->authenticator()->create($options->options), self::requestClient())->isRegistered();
         });
 
         self::assertTrue($registered);
@@ -159,7 +162,7 @@ final class PasskeyFactorChangesTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($passkeys->remove($identity, $passkey->id)->isRemoved());
+        self::assertTrue($passkeys->remove($identity, $passkey->id, self::requestClient())->isRemoved());
 
         DB::rollBack();
 
@@ -167,7 +170,7 @@ final class PasskeyFactorChangesTest extends TestCase
 
         Event::assertNotDispatched(PasskeyRemoved::class);
 
-        self::assertTrue(DB::transaction(static fn (): bool => $passkeys->remove($identity, $passkey->id)->isRemoved()));
+        self::assertTrue(DB::transaction(static fn (): bool => $passkeys->remove($identity, $passkey->id, self::requestClient())->isRemoved()));
         self::assertSame([0, 0], [Passkey::query()->count(), DB::table(self::FACTORS)->count()]);
 
         Event::assertDispatchedTimes(PasskeyRemoved::class, 1);

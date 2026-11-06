@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
@@ -157,7 +158,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
 
                 $proof = self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), methods: ['hwk'], evaluation: new Evaluation(true, true));
 
-                self::assertTrue($this->sessions()->stepUp($proof)->isIssued());
+                self::assertTrue($this->sessions()->stepUp($proof, self::requestClient())->isIssued());
             },
             $signedIn,
             $steppedUpAt,
@@ -189,7 +190,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
         $signedIn = $this->signedIn();
         $proof    = self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), methods: ['hwk'], evaluation: new Evaluation(true, true));
 
-        self::assertTrue($this->sessions()->stepUp($proof)->isIssued());
+        self::assertTrue($this->sessions()->stepUp($proof, self::requestClient())->isIssued());
 
         $reported = $this->race(
             $level,
@@ -235,7 +236,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
     {
         $this->seedIdentity();
 
-        $signedIn = $this->sessions()->signIn('password', self::credentials())->session;
+        $signedIn = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 
@@ -343,10 +344,10 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
         $failed = null;
 
         try {
-            $refreshed = $this->sessions()->refresh($refreshToken);
+            $refreshed = $this->sessions()->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient());
         } catch (QueryException $exception) {
             $failed    = (string) $exception->getPrevious()?->getCode();
-            $refreshed = $this->sessions()->refresh($refreshToken);
+            $refreshed = $this->sessions()->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient());
         }
 
         $claims = Auth::manager()->jwt('api')->parse((string) $refreshed->session?->tokens->accessToken->reveal(), TokenType::ACCESS);

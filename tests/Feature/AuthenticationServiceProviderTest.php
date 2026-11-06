@@ -75,6 +75,7 @@ use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Http\Middleware\NoStore;
 use SineMacula\Laravel\Authentication\Http\Middleware\UsePendingCredential;
 use SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -99,6 +100,7 @@ use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
 use SineMacula\Laravel\Authentication\Tenancy\RequireNothingOfTenants;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\Concerns\BuildsPlainValues;
 use Tests\Fixtures\Context\ScriptedContributor;
 use Tests\Fixtures\Database\ShippedMigrations;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
@@ -117,6 +119,8 @@ use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
 #[CoversClass(AuthenticationServiceProvider::class)]
 final class AuthenticationServiceProviderTest extends TestCase
 {
+    use BuildsPlainValues;
+
     /** @var string Shared JWT secret for guard defaults. */
     private const string JWT_SECRET = 'service-provider-test-secret-32!!';
 
@@ -825,7 +829,7 @@ final class AuthenticationServiceProviderTest extends TestCase
         Event::fake([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
         self::assertSame(Event::getFacadeRoot(), $this->contextOf($this->exchangeOf($guard))->events());
-        self::assertNull(Auth::sessions('api')->refresh('not-a-jwt')->session);
+        self::assertNull(Auth::sessions('api')->refresh(PresentedRefreshToken::fromBody('not-a-jwt'), self::requestClient())->session);
 
         Event::assertDispatched(
             AuthenticationFailed::class,

@@ -26,6 +26,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -122,7 +124,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         Route::post('/refresh', static function (Request $request): array {
 
-            $result = Auth::sessions('members')->refresh($request->string('refresh_token')->toString());
+            $result = Auth::sessions('members')->refresh(PresentedRefreshToken::fromBody($request->string('refresh_token')->toString()), self::requestClient());
 
             if ($result->reason === FailureReason::RATE_LIMITED) {
                 throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
@@ -133,7 +135,10 @@ final class SignInPolicyEndToEndTest extends TestCase
             return ['refresh_token' => $result->session->tokens->refreshToken?->reveal()];
         });
 
-        Route::get('/verify', static fn (Request $request): array => ['outcome' => app(VerificationLinks::class)->consume($request)->value])->name('verify');
+        Route::get(
+            '/verify',
+            static fn (Request $request): array => ['outcome' => app(VerificationLinks::class)->consume(SignedLink::fromRequest($request), self::requestClient($request))->value],
+        )->name('verify');
     }
 
     /**
@@ -174,18 +179,18 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         self::assertSame('ada@example.test', $identity->email);
 
-        $session = $this->signedIn($this->sessions()->signIn('password', ['email' => '  ADA@example.TEST ', 'password' => self::PASSWORD]));
+        $session = $this->signedIn($this->sessions()->signIn('password', ['email' => '  ADA@example.TEST ', 'password' => self::PASSWORD], self::requestContext()));
 
         self::assertTrue($identity->is($session->identity));
         self::assertTrue($this->freshGuard()->attempt(['email' => 'ada@EXAMPLE.test', 'password' => self::PASSWORD]));
 
         foreach (['ada@example.test', 'ADA@EXAMPLE.TEST', ' Ada@Example.Test', 'ada@example.TEST ', 'aDa@example.test'] as $email) {
-            self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => $email, 'password' => 'wrong'])->reason);
+            self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => $email, 'password' => 'wrong'], self::requestContext())->reason);
         }
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $refused = $this->sessions()->signIn('password', ['email' => 'ADA@example.test', 'password' => self::PASSWORD]);
+        $refused = $this->sessions()->signIn('password', ['email' => 'ADA@example.test', 'password' => self::PASSWORD], self::requestContext());
 
         self::assertSame(FailureReason::RATE_LIMITED, $refused->reason);
         self::assertSame(280, $refused->retryAfter);
@@ -269,7 +274,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $refused = $this->sessions()->signIn('password', self::credentials());
+        $refused = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $refused->reason);
         self::assertNull($refused->retryAfter);
@@ -281,7 +286,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         Carbon::setTestNow(Carbon::now()->addSeconds(280));
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(280));
 
-        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
     }
 
     /**
@@ -301,22 +306,28 @@ final class SignInPolicyEndToEndTest extends TestCase
         $byNumber = ['id' => (string) $identity->getKey(), 'password' => 'wrong']; // @phpstan-ignore cast.string
 
         for ($attempt = 0; $attempt < 3; $attempt++) {
-            self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->reason);
+            self::assertSame(
+                FailureReason::INVALID_CREDENTIALS,
+                $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'], self::requestContext())->reason,
+            );
         }
 
         for ($attempt = 0; $attempt < 2; $attempt++) {
-            self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', $byNumber)->reason);
+            self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', $byNumber, self::requestContext())->reason);
         }
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials())->reason);
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', ['password' => self::PASSWORD] + $byNumber)->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials(), self::requestContext())->reason);
+        self::assertSame(
+            FailureReason::INVALID_CREDENTIALS,
+            $this->sessions('by_number')->signIn('password', ['password' => self::PASSWORD] + $byNumber, self::requestContext())->reason,
+        );
         self::assertFalse($this->freshGuard('by_number')->attempt(['password' => self::PASSWORD] + $byNumber));
         self::assertSame(0, Session::query()->count());
 
         Carbon::setTestNow(Carbon::now()->addSeconds(280));
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(280));
 
-        self::assertTrue($this->sessions('by_number')->signIn('password', ['password' => self::PASSWORD] + $byNumber)->isSignedIn());
+        self::assertTrue($this->sessions('by_number')->signIn('password', ['password' => self::PASSWORD] + $byNumber, self::requestContext())->isSignedIn());
     }
 
     /**
@@ -338,13 +349,13 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         foreach (['api', 'loose'] as $guard) {
             for ($attempt = 0; $attempt < 5; $attempt++) {
-                self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions($guard)->signIn('password', $wrong)->reason);
+                self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions($guard)->signIn('password', $wrong, self::requestContext())->reason);
             }
         }
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('loose')->signIn('password', self::credentials())->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('loose')->signIn('password', self::credentials(), self::requestContext())->reason);
         self::assertSame(FailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(10, self::counterHits('sign_in', 'per_account', AccountAttempts::account(VerifiableIdentity::query()->sole())));
     }
@@ -367,12 +378,15 @@ final class SignInPolicyEndToEndTest extends TestCase
         $this->seedPasswordIdentity('ada@example.test');
 
         for ($attempt = 0; $attempt < 5; $attempt++) {
-            self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->reason);
+            self::assertSame(
+                FailureReason::INVALID_CREDENTIALS,
+                $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'], self::requestContext())->reason,
+            );
         }
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('staff')->signIn('password', self::credentials())->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('staff')->signIn('password', self::credentials(), self::requestContext())->reason);
         self::assertSame(FailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertFalse($this->freshGuard('staff')->attempt(self::credentials()));
         self::assertSame(0, Session::query()->count());
@@ -401,10 +415,13 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         foreach ($variants as $variant) {
             self::assertSame(1, VerifiableIdentity::query()->where('email', $variant)->count(), "MySQL no longer finds the account by {$variant}");
-            self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => $variant, 'password' => 'wrong'])->reason);
+            self::assertSame(
+                FailureReason::INVALID_CREDENTIALS,
+                $this->sessions()->signIn('password', ['email' => $variant, 'password' => 'wrong'], self::requestContext())->reason,
+            );
         }
 
-        $refused = $this->sessions()->signIn('password', ['email' => "victi\u{200B}m@example.test", 'password' => self::PASSWORD]);
+        $refused = $this->sessions()->signIn('password', ['email' => "victi\u{200B}m@example.test", 'password' => self::PASSWORD], self::requestContext());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $refused->reason);
         self::assertSame(0, Session::query()->count());
@@ -432,15 +449,15 @@ final class SignInPolicyEndToEndTest extends TestCase
         foreach ([['api', self::credentials()], ['by_number', $byNumber]] as [$guard, $credentials]) {
             for ($guess = 0; $guess < ($guard === 'api' ? 3 : 2); $guess++) {
 
-                $credential = $this->sessions($guard)->signIn('password', $credentials)->credential?->reveal();
+                $credential = $this->sessions($guard)->signIn('password', $credentials, self::requestContext())->credential?->reveal();
 
                 self::assertNotNull($credential, "Expected a pending session through {$guard}");
-                self::assertTrue($this->sessions($guard)->discard($credential));
+                self::assertTrue($this->sessions($guard)->discard($credential, self::requestClient()));
             }
         }
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials())->reason);
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', $byNumber)->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials(), self::requestContext())->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', $byNumber, self::requestContext())->reason);
         self::assertSame(5, Session::query()->where('status', 'pending')->where('revoked_reason', 'signed_out')->count());
         self::assertSame(0, Session::query()->whereNull('revoked_at')->count());
     }
@@ -468,10 +485,13 @@ final class SignInPolicyEndToEndTest extends TestCase
         $variants = ["v\u{00ED}ctim@example.test", "vic\u{200B}tim@example.test", "\u{FF56}ictim@example.test", "victi\u{0301}m@example.test", "victim@ex\u{00E1}mple.test"];
 
         foreach ($variants as $variant) {
-            self::assertTrue($this->sessions()->signIn('password', ['email' => $variant, 'password' => self::PASSWORD])->isPending(), "No pending session for {$variant}");
+            self::assertTrue(
+                $this->sessions()->signIn('password', ['email' => $variant, 'password' => self::PASSWORD], self::requestContext())->isPending(),
+                "No pending session for {$variant}",
+            );
         }
 
-        $refused = $this->sessions()->signIn('password', ['email' => "victi\u{200B}m@example.test", 'password' => self::PASSWORD]);
+        $refused = $this->sessions()->signIn('password', ['email' => "victi\u{200B}m@example.test", 'password' => self::PASSWORD], self::requestContext());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $refused->reason);
         self::assertSame(5, Session::query()->where('status', 'pending')->count());
@@ -493,10 +513,10 @@ final class SignInPolicyEndToEndTest extends TestCase
         $identity = $this->seedPasswordIdentity('ada@example.test');
         $number   = (string) $identity->getKey(); // @phpstan-ignore cast.string
 
-        self::assertTrue($this->sessions('by_number')->signIn('password', ['id' => $number, 'password' => self::PASSWORD])->isSignedIn());
-        self::assertTrue($this->sessions('by_number')->signIn('password', ['id' => (int) $number, 'password' => self::PASSWORD])->isSignedIn());
+        self::assertTrue($this->sessions('by_number')->signIn('password', ['id' => $number, 'password' => self::PASSWORD], self::requestContext())->isSignedIn());
+        self::assertTrue($this->sessions('by_number')->signIn('password', ['id' => (int) $number, 'password' => self::PASSWORD], self::requestContext())->isSignedIn());
         self::assertTrue($this->freshGuard('by_number')->attempt(['id' => (int) $number, 'password' => self::PASSWORD]));
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', self::credentials())->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', self::credentials(), self::requestContext())->reason);
 
         for ($attempt = 0; $attempt < 5; $attempt++) {
             self::assertFalse($this->freshGuard('by_number')->attempt(['id' => $attempt % 2 === 0 ? $number : (int) $number, 'password' => 'wrong']));
@@ -525,7 +545,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         $this->seedPasswordIdentity('ada@example.test');
 
         self::assertFalse($this->freshGuard()->attempt(['email' => 0, 'password' => self::PASSWORD]));
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 0, 'password' => self::PASSWORD])->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 0, 'password' => self::PASSWORD], self::requestContext())->reason);
     }
 
     /**
@@ -540,7 +560,7 @@ final class SignInPolicyEndToEndTest extends TestCase
     {
         $this->seedPasswordIdentity('ada@example.test');
 
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions('sso_only')->signIn('password', self::credentials())->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions('sso_only')->signIn('password', self::credentials(), self::requestContext())->reason);
         self::assertFalse($this->freshGuard('sso_only')->attempt(self::credentials()));
         self::assertSame(0, DB::table('rate_limits')->count());
         self::assertSame(0, Session::query()->count());
@@ -562,7 +582,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         self::requireAFurtherFactor();
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
@@ -571,8 +591,8 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $proof = self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN);
 
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential->reveal(), $proof)->reason);
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential->reveal(), $proof)->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential->reveal(), $proof, self::requestClient())->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential->reveal(), $proof, self::requestClient())->reason);
         self::assertSame(1, Session::query()->where('status', 'pending')->whereNull('revoked_at')->count());
         self::assertSame(0, Session::query()->where('status', 'active')->count());
         self::assertSame(1, SessionProof::query()->count());
@@ -596,7 +616,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         foreach (['client@example.test' => 'client_staff', 'staff@example.test' => 'staff'] as $email => $type) {
 
-            $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember($email, $type)));
+            $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember($email, $type), self::requestContext()));
             $access  = $tokens->parse($session->tokens->accessToken->reveal(), TokenType::ACCESS);
             $refresh = $tokens->parse($session->tokens->refreshToken?->reveal(), TokenType::REFRESH);
 
@@ -628,16 +648,21 @@ final class SignInPolicyEndToEndTest extends TestCase
     {
         self::refuseMembersOfType('contractor');
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', $this->seedMember('contractor@example.test', 'contractor'))->reason);
+        self::assertSame(
+            FailureReason::PRINCIPAL_INELIGIBLE,
+            $this->sessions('members')->signIn('password', $this->seedMember('contractor@example.test', 'contractor'), self::requestContext())->reason,
+        );
         self::assertSame(0, Session::query()->count());
 
-        $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember('client@example.test', 'client_staff')));
+        $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember('client@example.test', 'client_staff'), self::requestContext()));
 
         self::refuseMembersOfType('client_staff');
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNull(
+            self::sessionsOf($this->freshGuard('members'))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull(self::stored($session)->getRevokedAt());
     }
@@ -660,7 +685,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->sessions('verified')->signIn('password', self::credentials())->reason);
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->sessions('verified')->signIn('password', self::credentials(), self::requestContext())->reason);
         self::assertFalse($this->freshGuard('verified')->attempt(self::credentials()));
         self::assertFalse($this->freshGuard('verified')->attempt([
             'email'    => static fn (Builder $query): Builder => $query->where('email', 'ada@example.test'),
@@ -671,7 +696,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         self::assertSame(array_fill(0, 3, FailureReason::IDENTIFIER_UNVERIFIED), $reasons);
         self::assertSame(0, Session::query()->count());
 
-        $this->signedIn($this->sessions('verified')->start($identity, null, 'sso'));
+        $this->signedIn($this->sessions('verified')->start($identity, null, 'sso', self::requestContext()));
 
         $link = app(VerificationLinks::class)->create('verified', $identity, 'email', 'verify')->reveal();
 
@@ -680,7 +705,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         self::assertSame(1, Session::query()->count());
         self::assertTrue($identity->refresh()->hasVerifiedIdentifier('email'));
 
-        $this->signedIn($this->sessions('verified')->signIn('password', self::credentials()));
+        $this->signedIn($this->sessions('verified')->signIn('password', self::credentials(), self::requestContext()));
     }
 
     /**
@@ -695,7 +720,7 @@ final class SignInPolicyEndToEndTest extends TestCase
      */
     public function testRefreshesRefusedForTheirFailuresAreAnswered429ThroughTheRoute(): void
     {
-        $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember('client@example.test', 'staff')));
+        $session = $this->signedIn($this->sessions('members')->signIn('password', $this->seedMember('client@example.test', 'staff'), self::requestContext()));
         $before  = self::stored($session)->getRefreshKey();
 
         foreach (['not-a-token', 'still-not-a-token', 'never-a-token'] as $token) {

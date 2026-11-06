@@ -11,6 +11,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\QueryException;
 use Illuminate\Events\Dispatcher;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
@@ -28,6 +29,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\RequestBody;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
@@ -99,8 +101,8 @@ final class ResetSubmissionsTest extends TestCase
         self::assertSame([SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
         self::assertSame(PasswordFlow::RESET, $this->recordedEvent(PasswordSet::class)->flow);
         self::assertSame(self::NOW, PasswordIdentity::query()->sole()->tokens_valid_after?->format('Y-m-d H:i:s'));
-        self::assertNull($this->sessions('web')->signIn('password', self::credentials(self::EMAIL))->session);
-        self::assertNotNull($this->sessions('web')->signIn('password', ['email' => self::EMAIL, 'password' => self::NEW_PASSWORD])->session);
+        self::assertNull($this->sessions('web')->signIn('password', self::credentials(self::EMAIL), self::requestContext())->session);
+        self::assertNotNull($this->sessions('web')->signIn('password', ['email' => self::EMAIL, 'password' => self::NEW_PASSWORD], self::requestContext())->session);
 
         $this->postJson('/password/reset', ['email' => self::EMAIL, 'token' => $token, 'password' => 'yet another passphrase'])
             ->assertExactJson(['status' => 'invalid', 'revoked' => 0, 'violations' => []]);
@@ -147,8 +149,16 @@ final class ResetSubmissionsTest extends TestCase
     {
         self::seedResettable();
 
-        Route::post('/password/reset/body', static fn (): array => self::answer(Auth::passwords('web')->resetFromRequest()));
-        Route::post('/password/reset/code/body', static fn (): array => self::answer(Auth::passwords('web')->resetWithCodeFromRequest('phone')));
+        Route::post(
+            '/password/reset/body',
+            static fn (Request $request): array => self::answer(Auth::passwords('web')->reset(RequestBody::fields($request), ClientContext::fromRequest($request))),
+        );
+        Route::post(
+            '/password/reset/code/body',
+            static fn (Request $request): array => self::answer(
+                Auth::passwords('web')->resetWithCode('phone', RequestBody::fields($request), ClientContext::fromRequest($request)),
+            ),
+        );
 
         $token = $this->requestLink();
         $query = http_build_query(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
@@ -157,7 +167,7 @@ final class ResetSubmissionsTest extends TestCase
         $this->postJson('/password/reset/body?token=' . $token, ['email' => self::EMAIL, 'password' => self::NEW_PASSWORD])->assertJsonPath('status', 'invalid');
         $this->postJson('/password/reset/body', ['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->assertJsonPath('status', 'reset');
 
-        $challenge = Auth::passwords('web')->sendResetCode('phone', ['phone' => self::PHONE])->challengeId;
+        $challenge = Auth::passwords('web')->sendResetCode('phone', ['phone' => self::PHONE], self::requestClient())->challengeId;
 
         app()->terminate();
 
@@ -196,7 +206,7 @@ final class ResetSubmissionsTest extends TestCase
         $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         DB::transaction(static function () use ($passwords, $guard, $swapped, $token): void {
-            self::assertTrue($passwords->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->isReset());
+            self::assertTrue($passwords->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->isReset());
 
             $guard->setDispatcher($swapped);
         });
@@ -216,15 +226,21 @@ final class ResetSubmissionsTest extends TestCase
     {
         self::seedResettable();
 
-        $this->passwords('admin')->sendResetLink(['email' => self::EMAIL]);
+        $this->passwords('admin')->sendResetLink(['email' => self::EMAIL], self::requestClient());
         app()->terminate();
 
         $token = $this->links->lastTokenFor(self::EMAIL);
 
         self::assertIsString($token);
         self::assertSame('admin', $this->links->sent()[0]->guard);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
-        self::assertSame(ResetStatus::RESET, $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -242,12 +258,15 @@ final class ResetSubmissionsTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         $token  = $this->requestLink();
-        $result = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => 'short']);
+        $result = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => 'short'], self::requestClient());
 
         self::assertSame([ResetStatus::PASSWORD_REJECTED, [PasswordViolation::TOO_SHORT]], [$result->status, $result->violations]);
         self::assertFalse($result->isReset());
         self::assertSame([], $this->recordedClasses());
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -305,7 +324,7 @@ final class ResetSubmissionsTest extends TestCase
 
         $token = $this->requestLink();
 
-        self::assertTrue($this->passwords()->sendResetCode('phone', ['phone' => self::PHONE])->isSent());
+        self::assertTrue($this->passwords()->sendResetCode('phone', ['phone' => self::PHONE], self::requestClient())->isSent());
 
         app()->terminate();
 
@@ -316,8 +335,8 @@ final class ResetSubmissionsTest extends TestCase
         $byCode = ['phone' => self::PHONE, 'challenge' => self::challenge(CodeBinding::passwordReset('web', 'phone', self::PHONE)), 'code' => $code];
 
         $resets = [
-            [$token, fn (): mixed => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])],
-            [$code, fn (): mixed => $this->passwords()->resetWithCode('phone', [...$byCode, 'password' => self::NEW_PASSWORD])],
+            [$token, fn (): mixed => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())],
+            [$code, fn (): mixed => $this->passwords()->resetWithCode('phone', [...$byCode, 'password' => self::NEW_PASSWORD], self::requestClient())],
         ];
 
         foreach ($resets as [$proof, $reset]) {
@@ -360,7 +379,10 @@ final class ResetSubmissionsTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, PasswordSet::class]);
 
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
         self::assertTrue($deactivated);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(FailureReason::IDENTITY_INACTIVE, $this->recordedEvent(AuthenticationFailed::class)->reason);
@@ -368,7 +390,10 @@ final class ResetSubmissionsTest extends TestCase
 
         DB::table('password_identities')->update(['is_active' => true]);
 
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -389,20 +414,28 @@ final class ResetSubmissionsTest extends TestCase
 
         $token = $this->requestLink();
 
-        $challenge = $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE])->challengeId;
+        $challenge = $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE], self::requestClient())->challengeId;
 
         app()->terminate();
 
         $code   = (string) $this->codes->lastCodeFor(self::PHONE, CodePurpose::PASSWORD_RESET);
-        $link   = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => "correct horse battery\0staple"]);
-        $byCode = $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => $code, 'password' => "correct horse battery\0staple"]);
+        $link   = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => "correct horse battery\0staple"], self::requestClient());
+        $byCode = $this->passwords()->resetWithCode(
+            'phone',
+            ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => $code, 'password' => "correct horse battery\0staple"],
+            self::requestClient(),
+        );
 
         self::assertSame([ResetStatus::PASSWORD_REJECTED, [PasswordViolation::NULL_CHARACTER]], [$link->status, $link->violations]);
         self::assertSame([ResetStatus::PASSWORD_REJECTED, [PasswordViolation::NULL_CHARACTER]], [$byCode->status, $byCode->violations]);
         self::assertSame([0, 0], [(int) DB::table('one_time_codes')->sum('attempts'), DB::table('one_time_codes')->whereNotNull('consumed_at')->count()]);
         self::assertSame(
             ResetStatus::RESET,
-            $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => $code, 'password' => self::NEW_PASSWORD])->status,
+            $this->passwords()->resetWithCode(
+                'phone',
+                ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => $code, 'password' => self::NEW_PASSWORD],
+                self::requestClient(),
+            )->status,
         );
     }
 
@@ -420,7 +453,7 @@ final class ResetSubmissionsTest extends TestCase
 
         self::seedResettable();
 
-        $answer = $this->passwords()->sendResetLink(['email' => self::EMAIL]);
+        $answer = $this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient());
 
         self::assertSame('2026-10-29 09:35:00', $answer->expiresAt?->format('Y-m-d H:i:s'));
 
@@ -432,7 +465,10 @@ final class ResetSubmissionsTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
 
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
@@ -458,8 +494,14 @@ final class ResetSubmissionsTest extends TestCase
         $second = $this->requestLink();
 
         self::assertNotSame($first, $second);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $first, 'password' => self::NEW_PASSWORD])->status);
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $second, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $first, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $second, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -477,7 +519,7 @@ final class ResetSubmissionsTest extends TestCase
 
         self::seedResettable();
 
-        $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE]);
+        $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE], self::requestClient());
         app()->terminate();
 
         $code  = (string) $this->codes->lastCodeFor(self::PHONE);
@@ -487,7 +529,11 @@ final class ResetSubmissionsTest extends TestCase
 
         foreach ([$wrong, $wrong, $code] as $attempt) {
 
-            $result = $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $attempt, 'password' => self::NEW_PASSWORD]);
+            $result = $this->passwords()->resetWithCode(
+                'phone',
+                ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $attempt, 'password' => self::NEW_PASSWORD],
+                self::requestClient(),
+            );
 
             self::assertSame(ResetStatus::INVALID, $result->status);
         }
@@ -545,7 +591,7 @@ final class ResetSubmissionsTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $result = $channel === 'link' ? $this->passwords()->reset($input) : $this->passwords()->resetWithCode('phone', $input);
+        $result = $channel === 'link' ? $this->passwords()->reset($input, self::requestClient()) : $this->passwords()->resetWithCode('phone', $input, self::requestClient());
 
         self::assertSame([ResetStatus::INVALID, [], null, 0], [$result->status, $result->violations, $result->retryAfter, $result->revoked]);
         $event = $this->recordedEvent(AuthenticationFailed::class);
@@ -575,14 +621,23 @@ final class ResetSubmissionsTest extends TestCase
         $token   = $this->requestLink();
         $wrong   = str_repeat('a', 43);
 
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $wrong, 'password' => self::NEW_PASSWORD])->status);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $wrong, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $wrong, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $wrong, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
         self::assertSame(3, $checker->count());
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $limited = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $wrong, 'password' => self::NEW_PASSWORD]);
+        $limited = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $wrong, 'password' => self::NEW_PASSWORD], self::requestClient());
 
         self::assertSame([ResetStatus::RATE_LIMITED, 900], [$limited->status, $limited->retryAfter]);
         self::assertSame(['rate_limited', 900], [$this->recordedEvent(AuthenticationFailed::class)->reason->value, $this->recordedEvent(AuthenticationFailed::class)->retryAfter]);
@@ -603,11 +658,11 @@ final class ResetSubmissionsTest extends TestCase
 
         $input = ['phone' => self::PHONE, 'challenge' => self::NO_CHALLENGE, 'code' => '123456', 'password' => self::NEW_PASSWORD];
 
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', $input)->status);
+        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', $input, self::requestClient())->status);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(ResetStatus::RATE_LIMITED, $this->passwords()->resetWithCode('phone', $input)->status);
+        self::assertSame(ResetStatus::RATE_LIMITED, $this->passwords()->resetWithCode('phone', $input, self::requestClient())->status);
 
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
@@ -632,17 +687,18 @@ final class ResetSubmissionsTest extends TestCase
 
         app()->instance(Timebox::class, $box);
 
-        $this->passwords()->reset(['email' => self::EMAIL, 'token' => str_repeat('a', 43), 'password' => self::NEW_PASSWORD]);
-        $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => 'short']);
-        $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
-        $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+        $this->passwords()->reset(['email' => self::EMAIL, 'token' => str_repeat('a', 43), 'password' => self::NEW_PASSWORD], self::requestClient());
+        $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => 'short'], self::requestClient());
+        $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
+        $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
 
         self::assertSame([false, false, true, false], $box->endedEarly);
     }
 
     /**
-     * A client the caller names is the one the events report, not the request
-     * being served.
+     * A client the caller names is the one every event reports, not the request
+     * being served: a refusal's, and a reset's `PasswordSet`, the sessions it
+     * ends and its `SignedOutEverywhere`.
      *
      * @return void
      *
@@ -652,16 +708,21 @@ final class ResetSubmissionsTest extends TestCase
     {
         self::seedResettable();
 
+        $this->signInWithPassword('web', self::EMAIL);
+
         $token  = $this->requestLink();
         $client = new ClientContext('198.51.100.9', 'Kiosk/2.0');
 
-        $this->recordEvents([AuthenticationFailed::class, PasswordSet::class]);
+        $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
 
         $this->passwords()->reset(['email' => self::EMAIL, 'token' => str_repeat('a', 43), 'password' => self::NEW_PASSWORD], $client);
         $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], $client);
 
-        self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
-        self::assertSame($client, $this->recordedEvent(PasswordSet::class)->context->client);
+        self::assertSame([AuthenticationFailed::class, SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame([$client, $client, $client, $client], array_map(
+            static fn (AuthenticationFailed|PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
+            $this->recorded,
+        ));
     }
 
     /**
@@ -696,7 +757,7 @@ final class ResetSubmissionsTest extends TestCase
         config()->set($settings);
 
         try {
-            $this->passwords()->reset(['email' => self::EMAIL, 'token' => str_repeat('a', 43), 'password' => self::NEW_PASSWORD]);
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => str_repeat('a', 43), 'password' => self::NEW_PASSWORD], self::requestClient());
             self::fail('A malformed setting was accepted.');
         } catch (\InvalidArgumentException $exception) {
             self::assertStringStartsWith($message, $exception->getMessage());
@@ -722,7 +783,10 @@ final class ResetSubmissionsTest extends TestCase
         $statements = self::recordStatements();
         $lock       = $identity->newModelQuery()->whereKey($identity->getKey())->lockForUpdate()->limit(1)->toSql();
 
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
 
         $at = array_search($lock, $statements(), true);
 
@@ -742,7 +806,11 @@ final class ResetSubmissionsTest extends TestCase
     public function testACodeResetNeedsANormalizedType(): void
     {
         try {
-            $this->passwords()->resetWithCode('username', ['username' => 'ada', 'challenge' => self::challenge(), 'code' => '123456', 'password' => self::NEW_PASSWORD]);
+            $this->passwords()->resetWithCode(
+                'username',
+                ['username' => 'ada', 'challenge' => self::challenge(), 'code' => '123456', 'password' => self::NEW_PASSWORD],
+                self::requestClient(),
+            );
             self::fail('A reset code was checked for a type with no normaliser.');
         } catch (\InvalidArgumentException $exception) {
             self::assertStringStartsWith('Password reset codes need a normaliser registered for identifier type [username]', $exception->getMessage());
@@ -768,7 +836,7 @@ final class ResetSubmissionsTest extends TestCase
 
         $token = $this->requestLink();
 
-        self::assertTrue($this->passwords()->sendResetCode('phone', ['phone' => self::PHONE])->isSent());
+        self::assertTrue($this->passwords()->sendResetCode('phone', ['phone' => self::PHONE], self::requestClient())->isSent());
 
         app()->terminate();
 
@@ -782,8 +850,8 @@ final class ResetSubmissionsTest extends TestCase
         });
 
         $resets = [
-            [$token, fn (): mixed => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])],
-            [$code, fn (): mixed => $this->passwords()->resetWithCode('phone', [...$byCode, 'password' => self::NEW_PASSWORD])],
+            [$token, fn (): mixed => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())],
+            [$code, fn (): mixed => $this->passwords()->resetWithCode('phone', [...$byCode, 'password' => self::NEW_PASSWORD], self::requestClient())],
         ];
 
         foreach ($resets as [$proof, $reset]) {
@@ -829,7 +897,7 @@ final class ResetSubmissionsTest extends TestCase
         DB::beginTransaction();
 
         try {
-            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
 
             self::fail('The deadlock was not thrown on.');
         } catch (DeadlockException $thrown) {
@@ -847,7 +915,7 @@ final class ResetSubmissionsTest extends TestCase
         self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
         self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
 
-        $result = DB::transaction(fn (): mixed => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]));
+        $result = DB::transaction(fn (): mixed => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient()));
 
         self::assertInstanceOf(ResetResult::class, $result);
         self::assertSame([ResetStatus::RESET, 1], [$result->status, $result->revoked]);
@@ -874,7 +942,7 @@ final class ResetSubmissionsTest extends TestCase
         $raised   = self::failOnce('update', 'one_time_codes', $deadlock);
 
         try {
-            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
 
             self::fail('The deadlock was not thrown on.');
         } catch (QueryException $thrown) {
@@ -886,7 +954,10 @@ final class ResetSubmissionsTest extends TestCase
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
         self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
         self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -903,7 +974,7 @@ final class ResetSubmissionsTest extends TestCase
     {
         self::seedResettable();
 
-        $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE]);
+        $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE], self::requestClient());
         app()->terminate();
 
         $code  = (string) $this->codes->lastCodeFor(self::PHONE);
@@ -915,7 +986,11 @@ final class ResetSubmissionsTest extends TestCase
 
         DB::table('password_identities')->update(['nickname' => 'set by the caller']);
 
-        $result = $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $wrong, 'password' => self::NEW_PASSWORD]);
+        $result = $this->passwords()->resetWithCode(
+            'phone',
+            ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => $wrong, 'password' => self::NEW_PASSWORD],
+            self::requestClient(),
+        );
 
         self::assertSame(1, DB::transactionLevel());
 
@@ -953,7 +1028,7 @@ final class ResetSubmissionsTest extends TestCase
 
         DB::table('password_identities')->update(['nickname' => 'set by the caller']);
 
-        $result = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+        $result = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
 
         self::assertSame(1, DB::transactionLevel());
 
@@ -966,7 +1041,10 @@ final class ResetSubmissionsTest extends TestCase
 
         DB::table('password_identities')->update(['is_active' => true]);
 
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -995,7 +1073,7 @@ final class ResetSubmissionsTest extends TestCase
         DB::table('password_identities')->update(['nickname' => 'set by the caller']);
 
         try {
-            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
 
             self::fail('The failing revocation was swallowed.');
         } catch (\RuntimeException $thrown) {

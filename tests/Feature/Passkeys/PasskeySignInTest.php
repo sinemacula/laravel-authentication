@@ -215,7 +215,7 @@ final class PasskeySignInTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $passkey  = $this->registerPasskey($identity);
-        $session  = $this->sessions()->signIn('password', self::credentials())->session;
+        $session  = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -225,7 +225,7 @@ final class PasskeySignInTest extends TestCase
 
         $options = $this->signInOptions();
         $input   = ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)];
-        $result  = $this->sessions()->reauthenticate($session->record, 'passkey', $input);
+        $result  = $this->sessions()->reauthenticate($session->record, 'passkey', $input, self::requestClient());
 
         self::assertTrue($result->isIssued());
 
@@ -255,7 +255,13 @@ final class PasskeySignInTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $options  = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
-        $passkey  = Auth::passkeys('api')->register($identity, $options->challengeId, $this->authenticator()->create($options->options, 1023), 'Laptop')->passkey;
+        $passkey  = Auth::passkeys('api')->register(
+            $identity,
+            $options->challengeId,
+            $this->authenticator()->create($options->options, 1023),
+            self::requestClient(),
+            'Laptop',
+        )->passkey;
 
         self::assertNotNull($passkey);
         self::assertTrue($this->signInWithPasskey()->isSignedIn());
@@ -326,7 +332,7 @@ final class PasskeySignInTest extends TestCase
             'not a string'      => [static fn (): mixed => ['0192f6b2-0000-7000-8000-000000000001']],
             'not a UUID'        => [static fn (): mixed => 'challenge'],
             'an unknown id'     => [static fn (): mixed => '0192f6b2-0000-7000-8000-000000000001'],
-            'another guard\'s'  => [static fn (): mixed => Auth::passkeys('admin')->signInOptions()->challengeId],
+            'another guard\'s'  => [static fn (): mixed => Auth::passkeys('admin')->signInOptions(self::requestClient())->challengeId],
             'a registration\'s' => [static fn (self $test): mixed => Auth::passkeys('api')->registrationOptions(IntegrationIdentity::query()->firstOrFail(), 'ada')->challengeId],
             'a factor\'s'       => [static fn (self $test): mixed => self::factorCeremony(Auth::passkeys('api'), IntegrationIdentity::query()->firstOrFail())->challengeId],
         ];
@@ -353,7 +359,7 @@ final class PasskeySignInTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, PasskeyUsed::class]);
 
-        $result = $this->sessions()->signIn('passkey', ['challenge' => $id, 'credential' => $credential]);
+        $result = $this->sessions()->signIn('passkey', ['challenge' => $id, 'credential' => $credential], self::requestContext());
 
         $this->assertFailed($result, FailureReason::PASSKEY_CHALLENGE_INVALID, FailureReason::PASSKEY_CHALLENGE_INVALID);
         self::assertSame(is_string($id) && Str::isUuid($id) ? $id : null, $this->recordedEvent(AuthenticationFailed::class)->challengeId);
@@ -374,8 +380,8 @@ final class PasskeySignInTest extends TestCase
         $options = $this->signInOptions();
         $input   = ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)];
 
-        self::assertTrue($this->sessions()->signIn('passkey', $input)->isSignedIn());
-        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $this->sessions()->signIn('passkey', $input)->reason);
+        self::assertTrue($this->sessions()->signIn('passkey', $input, self::requestContext())->isSignedIn());
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $this->sessions()->signIn('passkey', $input, self::requestContext())->reason);
     }
 
     /**
@@ -395,11 +401,21 @@ final class PasskeySignInTest extends TestCase
 
         self::freezeAt($this->now->addSeconds(299));
 
-        self::assertTrue($this->sessions()->signIn('passkey', ['challenge' => $live->challengeId, 'credential' => $this->authenticator()->get($live->options)])->isSignedIn());
+        self::assertTrue(
+            $this->sessions()->signIn(
+                'passkey',
+                ['challenge' => $live->challengeId, 'credential' => $this->authenticator()->get($live->options)],
+                self::requestContext(),
+            )->isSignedIn(),
+        );
 
         self::freezeAt($this->now->addSeconds(300));
 
-        $result = $this->sessions()->signIn('passkey', ['challenge' => $expired->challengeId, 'credential' => $this->authenticator()->get($expired->options)]);
+        $result = $this->sessions()->signIn(
+            'passkey',
+            ['challenge' => $expired->challengeId, 'credential' => $this->authenticator()->get($expired->options)],
+            self::requestContext(),
+        );
 
         self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $result->reason);
     }
@@ -437,7 +453,7 @@ final class PasskeySignInTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, PasskeyUsed::class]);
 
-        $result = $this->sessions()->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $credential]);
+        $result = $this->sessions()->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $credential], self::requestContext());
 
         $this->assertFailed($result, FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS);
         self::assertSame($options->challengeId, $this->recordedEvent(AuthenticationFailed::class)->challengeId);
@@ -463,7 +479,7 @@ final class PasskeySignInTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, PasskeyUsed::class]);
 
-        $result = $this->sessions()->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $stranger->get($options->options)]);
+        $result = $this->sessions()->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $stranger->get($options->options)], self::requestContext());
 
         $this->assertFailed($result, FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS);
     }
@@ -487,7 +503,7 @@ final class PasskeySignInTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, PasskeyUsed::class]);
 
-        $result = $this->sessions()->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $credential]);
+        $result = $this->sessions()->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $credential], self::requestContext());
 
         $this->assertFailed($result, FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS);
     }
@@ -721,7 +737,11 @@ final class PasskeySignInTest extends TestCase
 
         config()->set('auth.guards.api.application.methods', ['password']);
 
-        $result = $this->sessions()->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)]);
+        $result = $this->sessions()->signIn(
+            'passkey',
+            ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)],
+            self::requestContext(),
+        );
 
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $result->reason);
         self::assertSame(1, PasskeyChallenge::query()->count());

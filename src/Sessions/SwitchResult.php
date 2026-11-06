@@ -17,10 +17,10 @@ use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
  * reports why; `retryAfter` carries the wait of a `rate_limited` refusal. A
  * switch returned to pending carries the pending session and its credential,
  * which only ever goes in the response's body; the session's tokens are then
- * refused until it is satisfied. A switch read from the request
- * (`switchFromRequest()`) says where the refresh token came from (`source`). A
- * cookie application's switched pair carries the cookie that sets the new
- * refresh token, never the token itself.
+ * refused until it is satisfied. A switch with a presented refresh token says
+ * where the token came from (`source`), unless a reason `extract()` answered
+ * was handed in. A cookie application's switched pair carries the cookie that
+ * sets the new refresh token, never the token itself.
  *
  * `switched()` makes a switch that succeeded and `isSwitched()` says whether it
  * did; `pending()` makes one returned to pending and `isPending()` says whether

@@ -69,12 +69,12 @@ final class SessionListingQueryBudgetTest extends PerformanceContractTestCase
         $identity = $this->seedIdentity();
 
         for ($index = 0; $index < 5; $index++) {
-            $this->sessions()->signIn('password', self::credentials());
+            $this->sessions()->signIn('password', self::credentials(), self::requestContext());
         }
 
         $sessions = $this->sessions();
 
-        $sessions->signIn('password', self::credentials());
+        $sessions->signIn('password', self::credentials(), self::requestContext());
 
         $page = $this->assertQueryBudget(2, 0, static fn (): LengthAwarePaginator => $sessions->sessions($identity, 4));
 
@@ -108,11 +108,11 @@ final class SessionListingQueryBudgetTest extends PerformanceContractTestCase
         $identity = $this->seedIdentity();
 
         for ($index = 0; $index < 4; $index++) {
-            $this->sessions()->signIn('password', self::credentials());
+            $this->sessions()->signIn('password', self::credentials(), self::requestContext());
         }
 
         $sessions = $this->sessions();
-        $bound    = $sessions->signIn('password', self::credentials())->session;
+        $bound    = $sessions->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($bound);
 
@@ -134,7 +134,7 @@ final class SessionListingQueryBudgetTest extends PerformanceContractTestCase
         $identity = $this->seedIdentity();
         $sessions = $this->sessions();
 
-        $sessions->signIn('password', self::credentials());
+        $sessions->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNull($this->assertQueryBudget(0, 0, static fn (): ?SessionSummary => $sessions->session($identity, 'not-a-uuid')));
     }

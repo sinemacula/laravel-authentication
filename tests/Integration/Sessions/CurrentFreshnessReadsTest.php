@@ -143,7 +143,13 @@ final class CurrentFreshnessReadsTest extends TestCase
         $status = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere($session),
-            fn (): IdentifierChangeRequestStatus => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session))->status,
+            fn (): IdentifierChangeRequestStatus => $this->changes()->requestByCode(
+                $identity,
+                'email',
+                self::NEW_EMAIL,
+                Reauthentication::session($session),
+                self::requestClient(),
+            )->status,
         );
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $status);
@@ -176,7 +182,7 @@ final class CurrentFreshnessReadsTest extends TestCase
 
         $this->stepUpElsewhere($identity, $session);
 
-        $status = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session))->status;
+        $status = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session), self::requestClient())->status;
 
         DB::commit();
 
@@ -206,7 +212,7 @@ final class CurrentFreshnessReadsTest extends TestCase
         $outcome = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere($session),
-            static fn (): ?string => Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->reason?->value,
+            static fn (): ?string => Auth::passwords('web')->establish($session, self::NEW_PASSWORD, self::requestClient())->reason?->value,
         );
 
         self::assertSame('reauthentication_required', $outcome);
@@ -233,7 +239,7 @@ final class CurrentFreshnessReadsTest extends TestCase
         $set = $this->judgeAfter(
             $level,
             fn () => $this->stepUpElsewhere($identity, $session),
-            static fn (): bool => Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->isSet(),
+            static fn (): bool => Auth::passwords('web')->establish($session, self::NEW_PASSWORD, self::requestClient())->isSet(),
         );
 
         self::assertTrue($set);
@@ -332,7 +338,7 @@ final class CurrentFreshnessReadsTest extends TestCase
      */
     private function stepUpElsewhere(ChangeableIdentity $identity, Session $session): void
     {
-        $this->elsewhere(fn () => self::assertTrue(Auth::sessions('web')->stepUp($this->stepUp($identity, $session))->isIssued()));
+        $this->elsewhere(fn () => self::assertTrue(Auth::sessions('web')->stepUp($this->stepUp($identity, $session), self::requestClient())->isIssued()));
     }
 
     /**
@@ -370,7 +376,7 @@ final class CurrentFreshnessReadsTest extends TestCase
     {
         $session = self::started($identity);
 
-        self::assertTrue(Auth::sessions('web')->stepUp($this->stepUp($identity, $session))->isIssued());
+        self::assertTrue(Auth::sessions('web')->stepUp($this->stepUp($identity, $session), self::requestClient())->isIssued());
 
         return $session;
     }
@@ -422,7 +428,7 @@ final class CurrentFreshnessReadsTest extends TestCase
      */
     private static function started(ChangeableIdentity $identity): Session
     {
-        $record = Auth::sessions('web')->start($identity, null, 'password')->session?->record;
+        $record = Auth::sessions('web')->start($identity, null, 'password', self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 

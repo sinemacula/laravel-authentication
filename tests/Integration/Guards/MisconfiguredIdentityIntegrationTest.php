@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -138,7 +139,7 @@ final class MisconfiguredIdentityIntegrationTest extends TestCase
         Event::fake([AuthenticationFailed::class]);
 
         try {
-            GuardSessions::of($this->freshGuard())->refresh($refreshToken);
+            GuardSessions::of($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient());
             self::fail('Expected the UnresolvableIdentityException to propagate.');
         } catch (UnresolvableIdentityException) {
             Event::assertNotDispatched(AuthenticationFailed::class);

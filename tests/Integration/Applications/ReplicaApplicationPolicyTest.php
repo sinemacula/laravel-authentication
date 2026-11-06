@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
@@ -133,7 +134,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $this->verify($identity);
         $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->signIn('password', self::credentials())->reason);
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->signIn('password', self::credentials(), self::requestContext())->reason);
     }
 
     /**
@@ -150,11 +151,11 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $identity = $this->seedIdentity();
         $grant    = $this->grant($identity);
 
-        self::assertTrue($this->sessions()->start($identity, null, 'sso')->isSignedIn());
+        self::assertTrue($this->sessions()->start($identity, null, 'sso', self::requestContext())->isSignedIn());
 
         $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->start($identity, null, 'sso')->reason);
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->start($identity, null, 'sso', self::requestContext())->reason);
     }
 
     /**
@@ -173,13 +174,16 @@ final class ReplicaApplicationPolicyTest extends TestCase
 
         $this->verify($identity);
 
-        $refreshed = $this->sessions()->refresh($this->signIn('api', 'ada@example.test')->tokens->refreshToken?->reveal());
+        $refreshed = $this->sessions()->refresh(PresentedRefreshToken::fromBody($this->signIn('api', 'ada@example.test')->tokens->refreshToken?->reveal()), self::requestClient());
 
         self::assertNotNull($refreshed->session);
 
         $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->refresh($refreshed->session->tokens->refreshToken?->reveal())->reason);
+        self::assertSame(
+            FailureReason::PRINCIPAL_INELIGIBLE,
+            $this->sessions()->refresh(PresentedRefreshToken::fromBody($refreshed->session->tokens->refreshToken?->reveal()), self::requestClient())->reason,
+        );
         self::assertNull(DB::table('authentication_sessions')->useWritePdo()->value('revoked_at'));
     }
 
@@ -204,8 +208,9 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $this->grant($second);
 
         $switched = $this->sessions('members')->switchTo(
-            $this->signIn('members', 'member@example.test', $first)->tokens->refreshToken?->reveal(),
+            PresentedRefreshToken::fromBody($this->signIn('members', 'member@example.test', $first)->tokens->refreshToken?->reveal()),
             SwitchTarget::principal($second),
+            self::requestClient(),
         );
 
         self::assertTrue($switched->isSwitched());
@@ -213,7 +218,11 @@ final class ReplicaApplicationPolicyTest extends TestCase
 
         $this->withdrawOnThePrimary(GrantedApplicationPolicy::VERIFICATIONS, $verification);
 
-        $back = $this->sessions('members')->switchTo($switched->session->tokens->refreshToken?->reveal(), SwitchTarget::principal($first));
+        $back = $this->sessions('members')->switchTo(
+            PresentedRefreshToken::fromBody($switched->session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($first),
+            self::requestClient(),
+        );
 
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $back->reason);
     }

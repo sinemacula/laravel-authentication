@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\BearerForms;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -286,7 +287,13 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->refreshGuard();
 
-        self::assertNull($this->assertQueryBudget(1, 2, static fn (): mixed => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull(
+            $this->assertQueryBudget(
+                1,
+                2,
+                static fn (): mixed => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+            )->session,
+        );
     }
 
     /**
@@ -303,7 +310,13 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
         $token = $this->encode([], TokenType::REFRESH);
         $guard = $this->refreshGuard();
 
-        self::assertNull($this->assertQueryBudget(1, 2, static fn (): mixed => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull(
+            $this->assertQueryBudget(
+                1,
+                2,
+                static fn (): mixed => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+            )->session,
+        );
     }
 
     /**

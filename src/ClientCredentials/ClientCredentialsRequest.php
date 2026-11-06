@@ -5,23 +5,26 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\ClientCredentials;
 
 use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\ClientCredentials\Enums\ClientAuthentication;
 
 /**
- * Reads a client credentials token request as RFC 6749 sections 2.3.1, 3.1, 3.2
- * and 4.4.2 define it: a POST with an `application/x-www-form-urlencoded` body
- * carrying `grant_type=client_credentials`, an optional `scope`, and the client
+ * Extracts a client credentials token request as RFC 6749 sections 2.3.1, 3.1,
+ * 3.2 and 4.4.2 define it, for a controller to hand on to
+ * `ClientCredentialsExchange::exchange()` as a plain value: a POST with an
+ * `application/x-www-form-urlencoded` body carrying
+ * `grant_type=client_credentials`, an optional `scope`, and the client
  * authenticated with HTTP Basic (`client_secret_basic`, the id and secret each
- * form-url-encoded), which every server must accept, or, only where the
- * application allows it, with `client_id` and `client_secret` in the body
- * (`client_secret_post`), never both. Every parameter comes from the body: one
- * in the query string, given more than once, or not a string is refused rather
- * than ignored, so a credential in a URL never authenticates. A parameter sent
- * without a value is treated as omitted.
+ * form-url-encoded), which every server must accept, or with `client_id` and
+ * `client_secret` in the body (`client_secret_post`, which the exchange refuses
+ * unless the application allows it), never both. Every parameter comes from the
+ * body: one in the query string, given more than once, or not a string is
+ * refused rather than ignored, so a credential in a URL never authenticates. A
+ * parameter sent without a value is treated as omitted.
+ *
+ * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
- *
- * @internal
  */
 final class ClientCredentialsRequest
 {
@@ -37,18 +40,17 @@ final class ClientCredentialsRequest
     private function __construct() {}
 
     /**
-     * What the request presented, or the RFC 6749 error it is refused with:
-     * `invalid_request` for a request that is not one in form,
+     * What the request presented, with how it authenticated the client, or the
+     * RFC 6749 error it is refused with: `invalid_request` for a request that
+     * is not one in form or that authenticates the client both ways,
      * `unsupported_grant_type` for another grant, and `invalid_client` for a
-     * request without client authentication, with malformed Basic credentials,
-     * or with credentials in the body when the application does not allow
-     * `client_secret_post`.
+     * request without client authentication or with malformed Basic
+     * credentials. Extracting has no side effects and reads no IP address.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @param  bool  $allowsPost
      * @return \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient|string
      */
-    public static function read(Request $request, bool $allowsPost): PresentedClient|string
+    public static function extract(Request $request): PresentedClient|string
     {
         $parameters = self::parameters($request);
         $grant      = $parameters['grant_type'] ?? null;
@@ -57,7 +59,7 @@ final class ClientCredentialsRequest
             return $grant === null ? ClientCredentialsResult::INVALID_REQUEST : ClientCredentialsResult::UNSUPPORTED_GRANT_TYPE;
         }
 
-        return self::client($request, $parameters, $allowsPost);
+        return self::client($request, $parameters);
     }
 
     /**
@@ -66,10 +68,9 @@ final class ClientCredentialsRequest
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  array<string, string>  $parameters
-     * @param  bool  $allowsPost
      * @return \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient|string
      */
-    private static function client(Request $request, #[\SensitiveParameter] array $parameters, bool $allowsPost): PresentedClient|string
+    private static function client(Request $request, #[\SensitiveParameter] array $parameters): PresentedClient|string
     {
         $basic  = self::basicCredentials($request);
         $inBody = array_key_exists('client_id', $parameters) || array_key_exists('client_secret', $parameters);
@@ -78,15 +79,12 @@ final class ClientCredentialsRequest
             return ClientCredentialsResult::INVALID_REQUEST;
         }
 
-        $credentials = match (true) {
-            $basic !== null => self::basic($basic),
-            $allowsPost     => self::body($parameters),
-            default         => null,
-        };
+        $authentication = $basic === null ? ClientAuthentication::POST : ClientAuthentication::BASIC;
+        $credentials    = $basic === null ? self::body($parameters) : self::basic($basic);
 
         return $credentials === null
             ? ClientCredentialsResult::INVALID_CLIENT
-            : new PresentedClient($credentials[0], $credentials[1], $parameters['scope'] ?? null);
+            : new PresentedClient($credentials[0], $credentials[1], $parameters['scope'] ?? null, $authentication);
     }
 
     /**

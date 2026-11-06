@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
@@ -76,7 +77,7 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
         $identity = self::seedVerifiableIdentity();
         $verifier = app(IdentifierVerifier::class);
 
-        $verify = static fn (string $identifier): \Closure => static fn (): mixed => $verifier->verify(self::GUARD, $identity, 'email', $identifier);
+        $verify = static fn (string $identifier): \Closure => static fn (): mixed => $verifier->verify(self::GUARD, $identity, 'email', $identifier, self::requestClient());
 
         self::assertSame(IdentifierVerification::VERIFIED, $this->assertQueryBudget(1, 1, $verify('ben@example.com')));
         self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $this->assertQueryBudget(2, 0, $verify('ben@example.com')));
@@ -96,12 +97,25 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
         $links    = app(VerificationLinks::class);
         $link     = $links->create(self::GUARD, $identity, 'email', 'verify')->reveal();
 
-        self::assertSame(VerificationLinkOutcome::VERIFIED, $this->assertQueryBudget(2, 1, static fn (): mixed => $links->consume(Request::create($link))));
-        self::assertSame(VerificationLinkOutcome::INVALID, $this->assertQueryBudget(0, 0, static fn (): mixed => $links->consume(Request::create($link . 'x'))));
+        self::assertSame(
+            VerificationLinkOutcome::VERIFIED,
+            $this->assertQueryBudget(2, 1, static fn (): mixed => $links->consume(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))),
+        );
+        self::assertSame(
+            VerificationLinkOutcome::INVALID,
+            $this->assertQueryBudget(
+                0,
+                0,
+                static fn (): mixed => $links->consume(SignedLink::fromRequest(Request::create($link . 'x')), self::requestClient(Request::create($link . 'x'))),
+            ),
+        );
 
         Carbon::setTestNow(Carbon::now()->addHours(2));
 
-        self::assertSame(VerificationLinkOutcome::EXPIRED, $this->assertQueryBudget(0, 0, static fn (): mixed => $links->consume(Request::create($link))));
+        self::assertSame(
+            VerificationLinkOutcome::EXPIRED,
+            $this->assertQueryBudget(0, 0, static fn (): mixed => $links->consume(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))),
+        );
 
         Carbon::setTestNow();
     }

@@ -539,7 +539,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
         $ada   = $this->seedIdentity();
         $grace = $this->seedIdentity('grace@example.test');
 
-        $result = $this->sessions('api')->signIn('password', self::credentials('grace@example.test'));
+        $result = $this->sessions('api')->signIn('password', self::credentials('grace@example.test'), self::requestContext());
         $token  = $result->session?->tokens->accessToken->reveal();
 
         self::assertIsString($token);
@@ -654,7 +654,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
      */
     private function signedInSession(string $guard, string $email): EloquentSession&Model
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session?->record;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session?->record;
 
         self::assertNotNull($session);
 

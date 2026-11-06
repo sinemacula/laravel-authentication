@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SteppedUp;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -101,7 +102,7 @@ final class SessionStepUpTest extends TestCase
                 $session->getSessionIdentifier(),
                 $purpose,
                 methods: [$request->string('method')->toString()],
-            ));
+            ), self::requestClient());
 
             return ['access_token' => $result->accessToken?->reveal(), 'reason' => $result->reason?->value, 'expires_at' => $result->expiresAt?->getTimestamp()];
         });
@@ -157,7 +158,7 @@ final class SessionStepUpTest extends TestCase
         $this->bearer($answer['access_token'])->assertOk()->assertExactJson(['session' => $key]);
         $this->bearer($signedIn->tokens->accessToken->reveal())->assertOk()->assertExactJson(['session' => $key]);
 
-        self::assertTrue($this->sessions()->refresh($signedIn->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue($this->sessions()->refresh(PresentedRefreshToken::fromBody($signedIn->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
     }
 
     /**
@@ -185,7 +186,7 @@ final class SessionStepUpTest extends TestCase
             evaluation: new Evaluation(true, false),
             methods: ['kba'],
         );
-        $result = $this->sessions()->stepUp($proof);
+        $result = $this->sessions()->stepUp($proof, self::requestClient());
 
         self::assertTrue($result->isIssued());
         self::assertSame($signedIn->record->getKey(), $result->session?->getKey());
@@ -219,6 +220,36 @@ final class SessionStepUpTest extends TestCase
     }
 
     /**
+     * A step-up reports with the client given, never the guard's own request:
+     * `SteppedUp` once it commits, and `AuthenticationFailed` for a refusal,
+     * carry it while the guard serves a cross-site request from another
+     * address.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAStepUpReportsTheClientGiven(): void
+    {
+        $signedIn = $this->signedIn();
+        $client   = self::sameSiteClient();
+
+        $this->clockAt($this->now->addMinute());
+
+        $sessions = self::sessionsOf($this->crossSiteGuard());
+
+        $this->recordEvents([SteppedUp::class, AuthenticationFailed::class]);
+
+        self::assertTrue($sessions->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), kind: ProofKind::RECOVERY_CODE), $client)->isIssued());
+        self::assertSame($client, $this->recordedEvent(SteppedUp::class)->context->client);
+
+        $this->recordEvents([SteppedUp::class, AuthenticationFailed::class]);
+
+        self::assertFalse($sessions->stepUp(self::adapterProof($signedIn->identity, 'api', 'not-the-session', kind: ProofKind::RECOVERY_CODE), $client)->isIssued());
+        self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+    }
+
+    /**
      * The new access token's `auth_time` is the step-up's, and its `amr` gains
      * the proof's values, and `mfa` only when the evaluation reports
      * multifactor authentication.
@@ -233,13 +264,16 @@ final class SessionStepUpTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        $single = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), evaluation: new Evaluation(true, false), methods: ['otp']));
+        $single = $this->sessions()->stepUp(
+            self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), evaluation: new Evaluation(true, false), methods: ['otp']),
+            self::requestClient(),
+        );
 
         self::assertSame([$this->now->addMinute()->getTimestamp(), ['pwd', 'otp']], self::authentication((string) $single->accessToken?->reveal()));
 
         $this->clockAt($this->now->addMinutes(2));
 
-        $multi = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), methods: ['hwk']));
+        $multi = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), methods: ['hwk']), self::requestClient());
 
         self::assertSame([$this->now->addMinutes(2)->getTimestamp(), ['pwd', 'otp', 'hwk', 'mfa']], self::authentication((string) $multi->accessToken?->reveal()));
     }
@@ -272,15 +306,19 @@ final class SessionStepUpTest extends TestCase
 
         $this->clockAt($steppedUpAt);
 
-        self::assertTrue($this->sessions('members')->stepUp(self::adapterProof($member, 'members', $signedIn->record->getKey()))->isIssued());
+        self::assertTrue($this->sessions('members')->stepUp(self::adapterProof($member, 'members', $signedIn->record->getKey()), self::requestClient())->isIssued());
 
         $this->clockAt($issuedAt);
 
-        $refreshed = $this->sessions('members')->refresh($signedIn->tokens->refreshToken?->reveal())->session;
+        $refreshed = $this->sessions('members')->refresh(PresentedRefreshToken::fromBody($signedIn->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 
-        $switched = $this->sessions('members')->switchTo($refreshed->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->session;
+        $switched = $this->sessions('members')->switchTo(
+            PresentedRefreshToken::fromBody($refreshed->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+        )->session;
 
         self::assertNotNull($switched);
 
@@ -327,7 +365,7 @@ final class SessionStepUpTest extends TestCase
 
         $this->clockAt($at);
 
-        $result = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), at: $at->setTimezone($zone)));
+        $result = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), at: $at->setTimezone($zone)), self::requestClient());
         $newest = SessionProofs::newestMeeting($signedIn->record, new FreshnessRequirement(60, [ProofKind::ADDITIONAL_FACTOR]), $at);
 
         self::assertTrue($result->isIssued());
@@ -399,7 +437,7 @@ final class SessionStepUpTest extends TestCase
 
         $proof = self::adapterProof($identity, $application, $signedIn->record->getKey(), $purpose, $kind, $now->addSeconds($offset), $evaluation);
 
-        $this->assertRefused($this->sessions()->stepUp($proof), $reason);
+        $this->assertRefused($this->sessions()->stepUp($proof, self::requestClient()), $reason);
     }
 
     /**
@@ -413,13 +451,13 @@ final class SessionStepUpTest extends TestCase
     public function testAProofBoundToAnotherSessionStepsOnlyThatOneUp(): void
     {
         $first  = $this->signedIn();
-        $second = $this->sessions()->signIn('password', self::credentials())->session;
+        $second = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($second);
 
         $this->clockAt($this->now->addMinute());
 
-        $result = $this->sessions()->stepUp(self::adapterProof($first->identity, 'api', $second->record->getKey()));
+        $result = $this->sessions()->stepUp(self::adapterProof($first->identity, 'api', $second->record->getKey()), self::requestClient());
 
         self::assertSame($second->record->getKey(), $result->session?->getKey());
         self::assertSame(1, SessionProof::query()->where('session_id', $second->record->getKey())->where('kind', 'additional_factor')->count());
@@ -473,7 +511,7 @@ final class SessionStepUpTest extends TestCase
 
         $this->recordEvents([SteppedUp::class, AuthenticationFailed::class]);
 
-        $this->assertRefused($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $key)), $reason);
+        $this->assertRefused($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $key), self::requestClient()), $reason);
     }
 
     /**
@@ -508,7 +546,7 @@ final class SessionStepUpTest extends TestCase
 
         $this->recordEvents([SteppedUp::class, AuthenticationFailed::class]);
 
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isFailed());
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()), self::requestClient())->isFailed());
 
         $context = $this->recordedEvent(AuthenticationFailed::class)->context;
 
@@ -531,7 +569,7 @@ final class SessionStepUpTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        $result = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), at: $this->now));
+        $result = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), at: $this->now), self::requestClient());
 
         self::assertTrue($result->isIssued());
         self::assertSame($this->now->getTimestamp(), SessionProof::query()->where('kind', 'additional_factor')->sole()->authenticated_at->getTimestamp());
@@ -552,7 +590,7 @@ final class SessionStepUpTest extends TestCase
 
         DB::table('authentication_sessions')->update(['idle_expires_at' => $ends]);
 
-        $result = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()));
+        $result = $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()), self::requestClient());
         $claims = Auth::manager()->jwt('api')->parse((string) $result->accessToken?->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
@@ -571,11 +609,11 @@ final class SessionStepUpTest extends TestCase
     {
         [$member, , $tenant] = $this->seedMember();
 
-        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 
-        $result = $this->sessions('members')->stepUp(self::adapterProof($member, 'members', $signedIn->record->getKey()));
+        $result = $this->sessions('members')->stepUp(self::adapterProof($member, 'members', $signedIn->record->getKey()), self::requestClient());
         $claims = Auth::manager()->jwt('members')->parse((string) $result->accessToken?->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
@@ -598,7 +636,7 @@ final class SessionStepUpTest extends TestCase
         $this->recordEvents([SteppedUp::class]);
 
         DB::transaction(function () use ($signedIn): void {
-            self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+            self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()), self::requestClient())->isIssued());
             self::assertSame([], $this->recordedClasses());
         });
 
@@ -608,7 +646,7 @@ final class SessionStepUpTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()), self::requestClient())->isIssued());
 
         DB::rollBack();
 
@@ -662,7 +700,7 @@ final class SessionStepUpTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions($guard)->signIn('password', self::credentials())->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

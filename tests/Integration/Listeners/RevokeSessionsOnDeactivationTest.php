@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnDeactivation;
 use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
@@ -82,7 +83,10 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
 
             assert($guard instanceof JwtGuard);
 
-            return ['refreshed' => Auth::sessions($guard->getName())->refresh($request->string('refresh_token')->toString())->isRefreshed()];
+            return ['refreshed' => Auth::sessions($guard->getName())->refresh(
+                PresentedRefreshToken::fromBody($request->string('refresh_token')->toString()),
+                self::requestClient(),
+            )->isRefreshed()];
         });
 
         RecheckedMember::observe(RevokeSessionsOnDeactivation::class);
@@ -165,7 +169,7 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy(static fn (): mixed => $deactivate($member, $membership)));
 
-        $refused = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL));
+        $refused = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL), self::requestContext());
 
         self::assertSame($reason, $refused->reason);
         self::assertNull($refused->session);
@@ -238,7 +242,7 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
 
         DB::beginTransaction();
 
-        $answered = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL))->session;
+        $answered = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL), self::requestContext())->session;
 
         self::assertNotNull($answered);
 
@@ -287,7 +291,7 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL))->session;
+        $session = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL), self::requestContext())->session;
 
         self::assertNotNull($session);
 

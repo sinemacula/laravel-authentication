@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithCallers;
 use Tests\Concerns\InteractsWithMachineClients;
@@ -45,6 +46,9 @@ use Tests\TestCase;
 final class CallerCredentialsTest extends TestCase
 {
     use InteractsWithCallers, InteractsWithMachineClients;
+
+    /** @var string A cookie application over the same members. */
+    private const string BROWSER = 'browser';
 
     /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\AuthenticationFailed> The failures reported since the test began. */
     private \ArrayObject $failures;
@@ -253,6 +257,100 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
+     * On a cookie application the refresh cookie of a request from a page of
+     * the API's own site is its session's caller; the same cookie sent by a
+     * cross-site form is no caller, reported once as `cross_site_request` with
+     * that request's client, however often the caller is asked.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationsRefreshCallerIsOnlyASameSiteRequests(): void
+    {
+        [$member, [$membership]] = $this->seedMember('ada@example.test');
+
+        $sameSite = ['REMOTE_ADDR' => '198.51.100.20', 'HTTP_ORIGIN' => 'http://localhost', 'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest'];
+        $signIn   = Request::create('/auth/sign-in', 'POST', server: $sameSite);
+
+        app()->instance('request', $signIn);
+
+        Auth::forgetGuards();
+
+        $input   = ['email' => 'ada@example.test', 'password' => self::MEMBER_PASSWORD];
+        $session = Auth::sessions(self::BROWSER)->signIn('password', $input, SignInContext::fromRequest($signIn))->session;
+        $cookie  = $session?->tokens->refreshCookie?->cookie();
+
+        self::assertNotNull($session);
+        self::assertNotNull($cookie);
+
+        $this->cookieRequest([$cookie->getName() => (string) $cookie->getValue()], $sameSite);
+
+        $caller = Auth::caller();
+
+        self::assertNotNull($caller);
+        self::assertSame([CallerCredential::REFRESH, self::BROWSER], [$caller->credential, $caller->guard]);
+        self::assertSame($member->getKey(), $caller->identity->getAuthIdentifier());
+        self::assertSame($membership->getKey(), $caller->principal?->getPrincipalIdentifier());
+        self::assertSame($session->record->getKey(), $caller->session?->getSessionIdentifier());
+        self::assertCount(0, $this->failures);
+
+        $this->cookieRequest([$cookie->getName() => (string) $cookie->getValue()], ['REMOTE_ADDR' => '198.51.100.30', 'HTTP_USER_AGENT' => 'CrossSite/1.0']);
+
+        self::assertNull(Auth::caller());
+        self::assertNull(Auth::caller());
+        self::assertCount(1, $this->failures);
+
+        $failure = $this->failure(0);
+
+        self::assertSame([AuthenticationFlow::REFRESH, FailureReason::CROSS_SITE_REQUEST, self::BROWSER], [$failure->flow, $failure->reason, $failure->context->guard]);
+        self::assertSame(['198.51.100.30', 'CrossSite/1.0'], [$failure->context->client->ip, $failure->context->client->userAgent]);
+        self::assertNull($failure->context->client->origin);
+    }
+
+    /**
+     * A request that carries no refresh or pending credential reads no IP
+     * address: from a trusted proxy whose forwarded client addresses conflict,
+     * which a read of the address refuses, its caller is `null` and nothing is
+     * reported; the same request carrying a refused refresh credential is
+     * reported with its client, the address read.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequestWithoutACredentialReadsNoAddress(): void
+    {
+        Request::setTrustedProxies(['10.0.0.1'], Request::HEADER_FORWARDED | Request::HEADER_X_FORWARDED_FOR);
+
+        $conflicting = ['REMOTE_ADDR' => '10.0.0.1', 'HTTP_FORWARDED' => 'for=198.51.100.1', 'HTTP_X_FORWARDED_FOR' => '198.51.100.2'];
+
+        try {
+            $refresh = $this->request('POST', $conflicting);
+
+            DeclaredCredential::refresh(null)->declareOn($refresh);
+
+            self::assertNull(self::callers()->caller($refresh));
+
+            $pending = $this->request('POST', $conflicting);
+
+            DeclaredCredential::pending(PendingAction::CHOOSE_PRINCIPAL->value, null)->declareOn($pending);
+
+            self::assertNull(self::callers()->caller($pending));
+            self::assertCount(0, $this->failures);
+
+            $refused = $this->request('POST', ['REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_FOR' => '198.51.100.2'], ['refresh_token' => 'not-a-refresh-token']);
+
+            DeclaredCredential::refresh(null)->declareOn($refused);
+
+            self::assertNull(self::callers()->caller($refused));
+            self::assertSame('198.51.100.2', $this->failure(0)->context->client->ip);
+        } finally {
+            Request::setTrustedProxies([], 0);
+        }
+    }
+
+    /**
      * The pending credential's caller is the pending session it names, read
      * from the JSON body or the form body, while the session allows the action:
      * its member, no principal while the choice is outstanding, and the pending
@@ -416,7 +514,8 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
-     * Register the members' guards and the machines' API key guard.
+     * Register the members' guards, a cookie application over the same members,
+     * and the machines' API key guard.
      *
      * @param  mixed  $app
      * @return void
@@ -434,6 +533,12 @@ final class CallerCredentialsTest extends TestCase
 
         $config->set('auth.providers.machines', ['driver' => 'model', 'model' => MachineClient::class]);
         $config->set('auth.guards.machine', ['driver' => 'api_key', 'provider' => 'machines', 'application' => ['methods' => ['api_key']]]);
+        $config->set('auth.guards.' . self::BROWSER, [
+            'driver'        => 'jwt',
+            'provider'      => 'caller_members',
+            'application'   => ['methods' => ['password']],
+            'refresh_token' => ['transport' => 'cookie', 'cookie' => ['path' => '/auth']],
+        ]);
     }
 
     /**
@@ -472,6 +577,26 @@ final class CallerCredentialsTest extends TestCase
         Auth::forgetGuards();
 
         return $request;
+    }
+
+    /**
+     * Bind a request to the cookie application with the cookies and server
+     * variables, its route declaring the refresh credential, as the request
+     * being served, on guards resolved afresh.
+     *
+     * @param  array<string, string>  $cookies
+     * @param  array<string, string>  $server
+     * @return void
+     */
+    private function cookieRequest(#[\SensitiveParameter] array $cookies, array $server): void
+    {
+        $request = Request::create('/auth/refresh', 'POST', [], $cookies, [], $server);
+
+        DeclaredCredential::refresh(self::BROWSER)->declareOn($request);
+
+        app()->instance('request', $request);
+
+        Auth::forgetGuards();
     }
 
     /**

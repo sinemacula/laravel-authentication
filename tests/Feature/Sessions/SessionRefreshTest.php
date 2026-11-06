@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -143,7 +144,8 @@ final class SessionRefreshTest extends TestCase
      * A refresh rotates the session's refresh token, reports the rotation with
      * `Refreshed` and then `SignedIn` (a refresh, on no new session), and then
      * binds the guard as a sign-in; the result carries the same session with
-     * the new pair, and no source, reason or wait.
+     * the new pair, the body the token was presented from, and no reason or
+     * wait.
      *
      * @return void
      *
@@ -158,13 +160,13 @@ final class SessionRefreshTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = self::sessionsOf($guard)->refresh($session->tokens->refreshToken?->reveal());
+        $result = self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient());
 
         self::assertTrue($result->isRefreshed());
         self::assertFalse($result->isFailed());
         self::assertNull($result->reason);
         self::assertNull($result->retryAfter);
-        self::assertNull($result->source);
+        self::assertSame(RefreshTokenSource::BODY, $result->source);
 
         $refreshed = $result->session;
 
@@ -216,7 +218,7 @@ final class SessionRefreshTest extends TestCase
 
         self::assertNotNull($token);
 
-        $result = self::sessionsOf($this->freshGuard())->refresh($token);
+        $result = self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient());
 
         self::assertTrue($result->isRefreshed());
         self::assertSame($session->record->getKey(), $result->session?->record->getKey());
@@ -240,7 +242,7 @@ final class SessionRefreshTest extends TestCase
 
         $this->recordEvents([Refreshed::class, PrincipalAssigned::class, SessionAuthenticated::class]);
 
-        self::assertTrue(self::sessionsOf($guard)->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
 
         foreach ($this->recorded as $event) {
 
@@ -274,7 +276,9 @@ final class SessionRefreshTest extends TestCase
         $unknown  = $this->signedIn();
         $revoked  = $this->signedIn();
 
-        self::assertTrue(self::sessionsOf($this->freshGuard())->refresh($replayed->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($replayed->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed(),
+        );
 
         Session::query()->whereKey($unknown->record->getKey())->delete();
         Session::query()->whereKey($revoked->record->getKey())->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'signed_out']);
@@ -294,14 +298,14 @@ final class SessionRefreshTest extends TestCase
 
             $this->recordEvents(self::EVENTS);
 
-            $result = self::sessionsOf($guard)->refresh($token);
+            $result = self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient());
 
             self::assertTrue($result->isFailed(), $reason->value);
             self::assertFalse($result->isRefreshed());
             self::assertNull($result->session);
             self::assertSame($reason, $result->reason);
             self::assertNull($result->retryAfter);
-            self::assertNull($result->source);
+            self::assertSame(RefreshTokenSource::BODY, $result->source);
             self::assertSame(self::REFUSAL, $this->recordedClasses(), $reason->value);
 
             $failed  = $this->recordedEvent(Failed::class);
@@ -326,11 +330,14 @@ final class SessionRefreshTest extends TestCase
     {
         config()->set('authentication.rate_limits.refresh.per_ip.max', 1);
 
-        self::assertSame(FailureReason::TOKEN_INVALID, self::sessionsOf($this->freshGuard())->refresh('not-a-token')->reason);
+        self::assertSame(
+            FailureReason::TOKEN_INVALID,
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody('not-a-token'), self::requestClient())->reason,
+        );
 
         $this->recordEvents(self::EVENTS);
 
-        $result = self::sessionsOf($this->freshGuard())->refresh('not-a-token');
+        $result = self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody('not-a-token'), self::requestClient());
 
         self::assertTrue($result->isFailed());
         self::assertSame(FailureReason::RATE_LIMITED, $result->reason);
@@ -354,9 +361,9 @@ final class SessionRefreshTest extends TestCase
         $fromHeader = $this->signedIn()->tokens->refreshToken?->reveal();
         $fromBody   = $this->signedIn()->tokens->refreshToken?->reveal();
 
-        $header = self::sessionsOf($this->guardServing(['HTTP_X_REFRESH_TOKEN' => $fromHeader]))->refreshFromRequest();
-        $body   = self::sessionsOf($this->guardServing([], ['refresh_token' => $fromBody]))->refreshFromRequest();
-        $refuse = self::sessionsOf($this->guardServing([], ['refresh_token' => 'not-a-token']))->refreshFromRequest();
+        $header = self::sessionsOf($this->guardServing(['HTTP_X_REFRESH_TOKEN' => $fromHeader]))->refresh(self::servedToken(), self::requestClient());
+        $body   = self::sessionsOf($this->guardServing([], ['refresh_token' => $fromBody]))->refresh(self::servedToken(), self::requestClient());
+        $refuse = self::sessionsOf($this->guardServing([], ['refresh_token' => 'not-a-token']))->refresh(self::servedToken(), self::requestClient());
 
         self::assertSame([true, RefreshTokenSource::HEADER], [$header?->isRefreshed(), $header?->source]);
         self::assertSame([true, RefreshTokenSource::BODY], [$body?->isRefreshed(), $body?->source]);
@@ -375,7 +382,7 @@ final class SessionRefreshTest extends TestCase
     {
         $this->recordEvents(self::EVENTS);
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refreshFromRequest());
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh(self::servedToken(), self::requestClient()));
         self::assertSame([], $this->recordedClasses());
     }
 
@@ -399,7 +406,7 @@ final class SessionRefreshTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = self::sessionsOf($guard)->refreshFromRequest();
+        $result = self::sessionsOf($guard)->refresh(self::servedToken(), self::requestClient());
 
         self::assertNotNull($result);
         self::assertSame([FailureReason::REFRESH_TOKEN_CONFLICT, null, null], [$result->reason, $result->retryAfter, $result->source]);
@@ -441,7 +448,7 @@ final class SessionRefreshTest extends TestCase
         });
 
         try {
-            self::sessionsOf($guard)->refresh($session->tokens->refreshToken?->reveal());
+            self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient());
             self::fail('Expected the listener to throw.');
         } catch (\RuntimeException $exception) {
             self::assertSame('listener failed', $exception->getMessage());
@@ -472,7 +479,7 @@ final class SessionRefreshTest extends TestCase
         $this->recordEvents(self::EVENTS);
 
         DB::transaction(function () use ($guard, $committed, &$bound): void {
-            self::assertTrue(self::sessionsOf($guard)->refresh($committed->tokens->refreshToken?->reveal())->isRefreshed());
+            self::assertTrue(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($committed->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
             self::assertSame([Attempting::class], $this->recordedClasses());
 
             $bound = $guard->hasUser();
@@ -488,7 +495,7 @@ final class SessionRefreshTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(self::sessionsOf($guard)->refresh($rolledBack->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($rolledBack->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
 
         DB::rollBack();
 
@@ -533,7 +540,7 @@ final class SessionRefreshTest extends TestCase
         $this->recordEvents([Refreshed::class, Login::class]);
 
         DB::transaction(static function () use ($guard, $session, $change): void {
-            self::assertTrue(self::sessionsOf($guard)->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
+            self::assertTrue(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
 
             DB::table('authentication_sessions')->update($change);
         });
@@ -559,7 +566,7 @@ final class SessionRefreshTest extends TestCase
 
         Event::fake(self::EVENTS);
 
-        self::assertTrue($sessions->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue($sessions->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
 
         foreach (self::REFRESHED as $class) {
             Event::assertDispatched($class);
@@ -590,7 +597,7 @@ final class SessionRefreshTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = self::sessionsOf($guard)->refreshPresented(self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE), self::sameSiteClient());
+        $result = self::sessionsOf($guard)->refresh(self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE), self::sameSiteClient());
 
         self::assertNotNull($result);
         self::assertTrue($result->isRefreshed());
@@ -611,7 +618,7 @@ final class SessionRefreshTest extends TestCase
         self::assertSame($session->record->getKey(), $guard->session()?->getSessionIdentifier());
         $again = self::presentedToken((string) $tokens->refreshCookie->cookie()->getValue(), RefreshTokenSource::COOKIE);
 
-        self::assertTrue($this->sessions(self::BROWSER)->refreshPresented($again, self::sameSiteClient())->isRefreshed());
+        self::assertTrue($this->sessions(self::BROWSER)->refresh($again, self::sameSiteClient())->isRefreshed());
     }
 
     /**
@@ -637,7 +644,7 @@ final class SessionRefreshTest extends TestCase
         $this->moveTo(CarbonImmutable::now()->addSeconds(30));
 
         $presented = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
-        $within    = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($presented, $client);
+        $within    = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refresh($presented, $client);
 
         self::assertTrue($within->isRefreshed());
         self::assertNotNull($within->session);
@@ -654,7 +661,7 @@ final class SessionRefreshTest extends TestCase
 
         $presented = self::presentedToken(self::cookieTokenOf($within->session), RefreshTokenSource::COOKIE);
 
-        self::assertTrue(self::sessionsOf($guard)->refreshPresented($presented, $client)->isRefreshed());
+        self::assertTrue(self::sessionsOf($guard)->refresh($presented, $client)->isRefreshed());
 
         $record = Session::query()->whereKey($key)->sole();
 
@@ -696,7 +703,7 @@ final class SessionRefreshTest extends TestCase
         $this->recordEvents(self::EVENTS);
 
         DB::transaction(function () use ($guard, $presented, $client): void {
-            self::assertTrue(self::sessionsOf($guard)->refreshPresented($presented, $client)->isRefreshed());
+            self::assertTrue(self::sessionsOf($guard)->refresh($presented, $client)->isRefreshed());
             self::assertSame([Attempting::class], $this->recordedClasses());
         });
 
@@ -731,7 +738,7 @@ final class SessionRefreshTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = self::sessionsOf($guard)->refreshPresented(self::presentedToken($token, RefreshTokenSource::COOKIE), $client);
+        $result = self::sessionsOf($guard)->refresh(self::presentedToken($token, RefreshTokenSource::COOKIE), $client);
 
         self::assertNotNull($result);
         self::assertSame([FailureReason::CROSS_SITE_REQUEST, null, RefreshTokenSource::COOKIE], [$result->reason, $result->retryAfter, $result->source]);
@@ -796,7 +803,7 @@ final class SessionRefreshTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = self::sessionsOf($guard)->refreshPresented(self::presentedToken($token, $source, [$source, ...$others]), self::sameSiteClient());
+        $result = self::sessionsOf($guard)->refresh(self::presentedToken($token, $source, [$source, ...$others]), self::sameSiteClient());
 
         self::assertNotNull($result);
         self::assertSame([$reason, $source], [$result->reason, $result->source]);
@@ -822,7 +829,7 @@ final class SessionRefreshTest extends TestCase
         foreach ([RefreshTokenSource::BODY, RefreshTokenSource::HEADER] as $source) {
 
             $token  = $this->signedIn()->tokens->refreshToken?->reveal();
-            $result = self::sessionsOf($this->crossSiteGuard())->refreshPresented(self::presentedToken((string) $token, $source), self::crossSiteClient());
+            $result = self::sessionsOf($this->crossSiteGuard())->refresh(self::presentedToken((string) $token, $source), self::crossSiteClient());
             $tokens = $result->session?->tokens;
 
             self::assertTrue($result->isRefreshed(), $source->value);
@@ -833,22 +840,22 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * Rows of `[the reason]` the transport refuses a request's refresh token
-     * with.
+     * Rows of `[the reason]` the transport's extraction refuses a request's
+     * refresh token with.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
     public static function provideTransportReasons(): iterable
     {
-        foreach ([FailureReason::REFRESH_TOKEN_CONFLICT, FailureReason::REFRESH_TRANSPORT_MISMATCH, FailureReason::CROSS_SITE_REQUEST, FailureReason::TOKEN_INVALID] as $reason) {
+        foreach ([FailureReason::REFRESH_TOKEN_CONFLICT, FailureReason::REFRESH_TRANSPORT_MISMATCH, FailureReason::TOKEN_INVALID] as $reason) {
             yield $reason->value => [$reason];
         }
     }
 
     /**
-     * A reason the extract-only read answered, handed in, is a refused refresh
-     * reported as the request form reports it, with the client given, and with
-     * no source: nothing was presented.
+     * A reason the extraction answered, handed in, is a refused refresh
+     * reported as a refusal of the judgement is, with the client given, and
+     * with no source: nothing was presented.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return void
@@ -863,7 +870,7 @@ final class SessionRefreshTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = self::sessionsOf($guard)->refreshPresented($reason, $client);
+        $result = self::sessionsOf($guard)->refresh($reason, $client);
 
         self::assertNotNull($result);
         self::assertSame([$reason, null, null], [$result->reason, $result->retryAfter, $result->source]);
@@ -877,8 +884,10 @@ final class SessionRefreshTest extends TestCase
     }
 
     /**
-     * A reason the transport never answers, handed in, is the caller's error:
-     * it throws before anything is dispatched, on either application.
+     * A reason the extraction never answers, handed in, is the caller's error:
+     * it throws before anything is dispatched, on either application, the
+     * same-site judgement's `cross_site_request` included, which only the
+     * package makes, on the client.
      *
      * @return void
      *
@@ -889,13 +898,13 @@ final class SessionRefreshTest extends TestCase
         $this->recordEvents(self::EVENTS);
 
         foreach ([self::BROWSER, 'api'] as $guard) {
-            foreach ([FailureReason::RATE_LIMITED, FailureReason::SESSION_REVOKED, FailureReason::ROTATION_REUSE] as $reason) {
+            foreach ([FailureReason::RATE_LIMITED, FailureReason::SESSION_REVOKED, FailureReason::ROTATION_REUSE, FailureReason::CROSS_SITE_REQUEST] as $reason) {
                 try {
-                    self::sessionsOf($this->crossSiteGuard($guard))->refreshPresented($reason, self::sameSiteClient());
+                    self::sessionsOf($this->crossSiteGuard($guard))->refresh($reason, self::sameSiteClient());
 
                     self::fail("A refresh took {$reason->value} as what the transport read.");
                 } catch (\InvalidArgumentException $exception) {
-                    $message = "The transport never refuses a refresh token as `{$reason->value}`: hand in only what `extract()` or `read()` answered.";
+                    $message = "The transport never refuses a refresh token as `{$reason->value}`: hand in only what `extract()` answered.";
 
                     self::assertSame($message, $exception->getMessage());
                 }
@@ -917,8 +926,8 @@ final class SessionRefreshTest extends TestCase
     {
         $this->recordEvents(self::EVENTS);
 
-        self::assertNull(self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented(null, self::sameSiteClient()));
-        self::assertNull(self::sessionsOf($this->crossSiteGuard())->refreshPresented(null, self::crossSiteClient()));
+        self::assertNull(self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refresh(null, self::sameSiteClient()));
+        self::assertNull(self::sessionsOf($this->crossSiteGuard())->refresh(null, self::crossSiteClient()));
         self::assertSame([], $this->recordedClasses());
     }
 
@@ -938,8 +947,8 @@ final class SessionRefreshTest extends TestCase
 
         $session  = $this->signedIn(self::BROWSER);
         $replayed = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
-        $current  = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($replayed, self::sameSiteClient())->session?->tokens->refreshCookie;
-        $retried  = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($replayed, self::sameSiteClient())->session?->tokens->refreshCookie;
+        $current  = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refresh($replayed, self::sameSiteClient())->session?->tokens->refreshCookie;
+        $retried  = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refresh($replayed, self::sameSiteClient())->session?->tokens->refreshCookie;
 
         self::assertNotNull($current);
         self::assertNotNull($retried);
@@ -954,7 +963,7 @@ final class SessionRefreshTest extends TestCase
         $this->recordEvents([SessionRevoked::class]);
 
         $client = self::sameSiteClient();
-        $result = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refreshPresented($replayed, $client);
+        $result = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->refresh($replayed, $client);
 
         self::assertSame(FailureReason::ROTATION_REUSE, $result->reason);
         self::assertSame('rotation_reuse', Session::query()->whereKey($session->record->getKey())->value('revoked_reason'));
@@ -977,7 +986,7 @@ final class SessionRefreshTest extends TestCase
         config()->set('authentication.rate_limits.refresh.per_ip.max', 1);
 
         $invalid = self::presentedToken('not-a-token', RefreshTokenSource::BODY);
-        $refresh = fn (ClientContext $client): RefreshResult => self::sessionsOf($this->freshGuard())->refreshPresented($invalid, $client);
+        $refresh = fn (ClientContext $client): RefreshResult => self::sessionsOf($this->freshGuard())->refresh($invalid, $client);
 
         self::assertSame(FailureReason::TOKEN_INVALID, $refresh(self::crossSiteClient())->reason);
 
@@ -1012,16 +1021,16 @@ final class SessionRefreshTest extends TestCase
         $client   = new ClientContext(null, self::PLAIN_AGENT);
         $other    = self::presentedToken((string) $this->signedIn()->tokens->refreshToken?->reveal(), RefreshTokenSource::BODY);
         $replayed = self::presentedToken((string) $this->signedIn()->tokens->refreshToken?->reveal(), RefreshTokenSource::BODY);
-        $current  = self::sessionsOf($this->crossSiteGuard())->refreshPresented($replayed, $client)->session?->tokens->refreshToken?->reveal();
+        $current  = self::sessionsOf($this->crossSiteGuard())->refresh($replayed, $client)->session?->tokens->refreshToken?->reveal();
 
         $this->moveTo(CarbonImmutable::now()->addMinute());
 
-        self::assertSame(FailureReason::ROTATION_REUSE, self::sessionsOf($this->crossSiteGuard())->refreshPresented($replayed, $client)->reason);
+        self::assertSame(FailureReason::ROTATION_REUSE, self::sessionsOf($this->crossSiteGuard())->refresh($replayed, $client)->reason);
 
-        $limited = self::sessionsOf($this->crossSiteGuard())->refreshPresented(self::presentedToken((string) $current, RefreshTokenSource::BODY), $client);
+        $limited = self::sessionsOf($this->crossSiteGuard())->refresh(self::presentedToken((string) $current, RefreshTokenSource::BODY), $client);
 
         self::assertSame([FailureReason::RATE_LIMITED, 60], [$limited->reason, $limited->retryAfter]);
-        self::assertTrue(self::sessionsOf($this->crossSiteGuard())->refreshPresented($other, $client)->isRefreshed());
+        self::assertTrue(self::sessionsOf($this->crossSiteGuard())->refresh($other, $client)->isRefreshed());
     }
 
     /**
@@ -1047,7 +1056,7 @@ final class SessionRefreshTest extends TestCase
         DB::transaction(function () use ($guard, $committed): void {
             $presented = self::presentedToken(self::cookieTokenOf($committed), RefreshTokenSource::COOKIE);
 
-            self::assertTrue(self::sessionsOf($guard)->refreshPresented($presented, self::sameSiteClient())->isRefreshed());
+            self::assertTrue(self::sessionsOf($guard)->refresh($presented, self::sameSiteClient())->isRefreshed());
             self::assertSame([Attempting::class], $this->recordedClasses());
         });
 
@@ -1063,7 +1072,7 @@ final class SessionRefreshTest extends TestCase
 
         $presented = self::presentedToken(self::cookieTokenOf($rolledBack), RefreshTokenSource::COOKIE);
 
-        self::assertTrue(self::sessionsOf($guard)->refreshPresented($presented, self::sameSiteClient())->isRefreshed());
+        self::assertTrue(self::sessionsOf($guard)->refresh($presented, self::sameSiteClient())->isRefreshed());
 
         DB::rollBack();
 
@@ -1105,7 +1114,7 @@ final class SessionRefreshTest extends TestCase
      */
     private function signedIn(string $guard = 'api', string $email = 'ada@example.test'): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session);
 

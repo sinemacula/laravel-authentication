@@ -480,7 +480,8 @@ seam has a default that works alone.
   holds no accepted provider evidence meeting it: it fails closed (see [Tenant authentication
   policies](#tenant-authentication-policies)).
 - When a requirement is unmet, the sign-in's session waits pending with `mfa` outstanding: `SignInResult::isPending()`,
-  its `PendingSession` and pending credential, then `Auth::sessions()->pending($credential, $action)` to check an
+  its `PendingSession` and pending credential (read from a request with `PendingCredential::extract($request)`), then
+  `Auth::sessions()->pending($credential, $action)` to check an
   `mfa.*` action (`Sessions\Enums\PendingAction`) before the factor package acts, `satisfy()` once the factor is
   verified, or `discard()` (see [Pending sessions](signing-in.md#pending-sessions)). The `PendingSession` tells the
   factor package what it needs: `$requirement` (what its authentication still falls short of: the strictest of the
@@ -546,9 +547,9 @@ seam has a default that works alone.
   the new requirement: the call has read the current session's proofs under shared locks, and the package takes every
   session row before any proof. The identity may live on any connection, since nothing of it is written.
 - Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity, $binding, $credentialIds)` and
-  `verifyFactor($identity, $binding, $challenge, $credential)`, which count and report nothing: the factor's outcome is
-  the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose and allows
-  only the credential ids named; `verifyFactor()` answers a `PasskeyFactorResult` (see [Using
+  `verifyFactor($identity, $binding, $challenge, $credential, $client)`, which count and report nothing: the factor's
+  outcome is the factor package's to limit and report. The ceremony is bound to the `ProofBinding`'s session and purpose
+  and allows only the credential ids named; `verifyFactor()` answers a `PasskeyFactorResult` (see [Using
   passkeys](signing-in.md#using-passkeys)), never `null`, whose `PasskeyFactorAssertion` carries the assertion's own
   observed properties for the factor package's `ProofResult`.
 - Bind a `Contracts\PasskeyFactorGate` to take part in the passkeys' lifecycle: `registering()` is asked inside the
@@ -598,28 +599,30 @@ seam has a default that works alone.
   read the proofs before it in the same transaction unless your transaction already holds those rows: two removals from
   two of the identity's sessions could deadlock (see [Reading a session's
   proofs](sessions.md#reading-a-sessions-proofs)).
-- A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see [Proofs and
-  provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session service as a
-  `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart), method,
+- A factor package's credentials and enrolments are its own; the proofs of a session are this package's (see [Proofs
+  and provenance](sessions.md#proofs-and-provenance)). The adapter hands each factor it verified to the session service
+  as a `Proofs\ProofResult`: its kind (`additional_factor`, or `recovery_code` for the fallback, kept apart), method,
   channel, factor, what it observed (`null` for anything it did not), its `Evaluation` (accepted, and multifactor as it
   judged it: `amr` carries `mfa` only from there, never counted from the values, and a proof's own values may not name
   `mfa`), its `amr` values (at most 8, each 1 to 48 printable ASCII characters other than `"` and `\`; anything else is
   an `InvalidArgumentException`), its time and its `ProofBinding` (identity, application, session, purpose). Satisfy a
-  pending session with `satisfy($credential, $proof)`, bound to `PendingSession::$id` for `sign_in`, or `enrollment` for
-  the factor that confirms a bootstrap enrolment (see [Satisfying a further
-  factor](signing-in.md#satisfying-a-further-factor)). Called inside the factor package's own transaction, on the
-  storage connection, the activation commits with it: the guard is bound, and the sign-in's slots given back, only once
-  that transaction commits, and never when it rolls back. It reads the pending session's proofs current, and locks the
-  session the sign-in proved before them, whenever the sign-in recorded one, whatever it then decides; on MySQL and
-  MariaDB at REPEATABLE READ those reads hold shared locks until you commit, so keep the transaction short and take any
-  session row your transaction needs before the call (a bulk revocation over both sessions, `revokeSessions()` or
-  `factorReset()` among them, locks the older first and can deadlock with it). On a lock wait timeout, a deadlock or a
-  serialisation failure, which reaches you as Laravel's `DeadlockException`, roll your whole transaction back and retry
-  it whole (see [Issuance order](sessions.md#issuance-order)). Nothing a factor package keeps about a session survives a
-  sign-in: every sign-in starts a new session with a new id and its own proofs, and the session the client proved
-  (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it when the new one first activates.
-- Step a signed-in session up with a factor the factor package has just verified: `Auth::sessions()->stepUp($proof)`,
-  with the `ProofResult` bound to the session's key for `step_up`. The session keeps its refresh token and deadlines,
+  pending session with `satisfy($credential, $proof, $client)`, the client the request's `ClientContext`, bound to
+  `PendingSession::$id` for `sign_in`, or `enrollment` for the factor that confirms a bootstrap enrolment (see
+  [Satisfying a further factor](signing-in.md#satisfying-a-further-factor)). Called inside the factor package's own
+  transaction, on the storage connection, the activation commits with it: the guard is bound, and the sign-in's slots
+  given back, only once that transaction commits, and never when it rolls back. It reads the pending session's proofs
+  current, and locks the session the sign-in proved before them, whenever the sign-in recorded one, whatever it then
+  decides; on MySQL and MariaDB at REPEATABLE READ those reads hold shared locks until you commit, so keep the
+  transaction short and take any session row your transaction needs before the call (a bulk revocation over both
+  sessions, `revokeSessions()` or `factorReset()` among them, locks the older first and can deadlock with it). On a lock
+  wait timeout, a deadlock or a serialisation failure, which reaches you as Laravel's `DeadlockException`, roll your
+  whole transaction back and retry it whole (see [Issuance order](sessions.md#issuance-order)). Nothing a factor package
+  keeps about a session survives a sign-in: every sign-in starts a new session with a new id and its own proofs, and the
+  session the client proved (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it when the
+  new one first activates.
+- Step a signed-in session up with a factor the factor package has just verified:
+  `Auth::sessions()->stepUp($proof, $client)`, with the `ProofResult` bound to the session's key for `step_up` and the
+  `ClientContext` of the request it serves. The session keeps its refresh token and deadlines,
   and every access token issued for it from then on carries the factor in `auth_time` and `amr`; the session then
   proves an identifier change, or any operation whose freshness takes a further factor (see [Stepping
   up](sessions.md#stepping-up)). A factor verified outside a session proves nothing on its own.
@@ -645,7 +648,7 @@ seam has a default that works alone.
 `verifyFactor()` answers a result: ask it, never check it for `null` or truthiness:
 
 ```php
-$result = Auth::passkeys()->verifyFactor($identity, $binding, $challenge, $credential);
+$result = Auth::passkeys()->verifyFactor($identity, $binding, $challenge, $credential, $client);
 $passed = $result->isVerified();   // else $result->reason
 ```
 
@@ -794,7 +797,8 @@ binds a fake `AuthenticationContexts`.
   [Tenant authentication policies](#tenant-authentication-policies)): a session established through none of them is
   refused as `sso_required`, at sign-in and at refresh (which also revokes it).
 - Inside the transaction in which it redeems a reauthentication handoff, the adapter hands the identifier of the session
-  the handoff names, and the result, to `Auth::sessions($guard)->reauthenticateExternally($sessionId, $result)` (see [At
+  the handoff names, the result and the request's client, to
+  `Auth::sessions($guard)->reauthenticateExternally($sessionId, $result, $client)` (see [At
   the external provider](sessions.md#at-the-external-provider)): only the very link that established the session
   reauthenticates it (`link_mismatch` otherwise, and for a session no link established), the session's row is locked
   after the adapter's own locks, and `auth_time` becomes the later of the session's and the provider's, under that lock

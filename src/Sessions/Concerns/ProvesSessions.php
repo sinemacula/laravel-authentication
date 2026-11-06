@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\SessionReauthentication;
@@ -47,16 +48,18 @@ trait ProvesSessions
      * than the proof's, and its `amr` gains the proof's values, and `mfa` when
      * the evaluation reports multifactor authentication. Once committed,
      * `SteppedUp` reports it; a refusal reports `AuthenticationFailed` (flow
-     * `step_up`) and is answered, never thrown.
+     * `step_up`) and is answered, never thrown. Every event it dispatches
+     * describes the client given.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      *
      * @throws \Throwable
      */
-    public function stepUp(ProofResult $proof): AccessTokenResult
+    public function stepUp(ProofResult $proof, ClientContext $client): AccessTokenResult
     {
-        return $this->stepUps->stepUp($proof);
+        return $this->stepUps->stepUp($proof, $client);
     }
 
     /**
@@ -73,18 +76,20 @@ trait ProvesSessions
      * owner (`invalid_credentials` otherwise, as for a wrong secret). Once
      * committed, `Reauthenticated` reports it; a refusal reports
      * `AuthenticationFailed` (flow `reauthentication`) and is answered, never
-     * thrown, a concealed reason as `invalid_credentials`.
+     * thrown, a concealed reason as `invalid_credentials`. The attempt limit
+     * counts the client given, and every event describes it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      *
      * @throws \InvalidArgumentException
      * @throws \Throwable
      */
-    public function reauthenticate(Session $session, string $method, #[\SensitiveParameter] array $input): AccessTokenResult
+    public function reauthenticate(Session $session, string $method, #[\SensitiveParameter] array $input, ClientContext $client): AccessTokenResult
     {
-        return $this->reauthentications->reauthenticate($session, $method, $input);
+        return $this->reauthentications->reauthenticate($session, $method, $input, $client);
     }
 }

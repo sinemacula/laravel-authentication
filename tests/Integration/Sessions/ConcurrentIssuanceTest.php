@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -158,8 +159,8 @@ final class ConcurrentIssuanceTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $session  = $issuer === 'external reauthentication'
-            ? $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->signedInAt))->session
-            : $this->sessions()->signIn('password', self::credentials())->session;
+            ? $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->signedInAt), self::requestContext())->session
+            : $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -227,11 +228,23 @@ final class ConcurrentIssuanceTest extends TestCase
         $external = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->steppedUpAt);
 
         $issuers = [
-            'refresh'                   => static fn (): ?Secret => $sessions->refresh($refresh)->session?->tokens->accessToken,
-            'switch'                    => static fn (): ?Secret => $sessions->switchTo($refresh, SwitchTarget::principal($identity))->session?->tokens->accessToken,
-            'step-up'                   => static fn (): ?Secret => $sessions->stepUp($stepUp)->accessToken,
-            'reauthentication'          => static fn (): ?Secret => $sessions->reauthenticate($session->record, 'password', self::credentials())->accessToken,
-            'external reauthentication' => static fn (): ?Secret => $sessions->reauthenticateExternally($key, $external)->accessToken,
+            'refresh' => static fn (): ?Secret => $sessions->refresh(
+                PresentedRefreshToken::fromBody($refresh),
+                self::requestClient(),
+            )->session?->tokens->accessToken,
+            'switch' => static fn (): ?Secret => $sessions->switchTo(
+                PresentedRefreshToken::fromBody($refresh),
+                SwitchTarget::principal($identity),
+                self::requestClient(),
+            )->session?->tokens->accessToken,
+            'step-up'          => static fn (): ?Secret => $sessions->stepUp($stepUp, self::requestClient())->accessToken,
+            'reauthentication' => static fn (): ?Secret => $sessions->reauthenticate(
+                $session->record,
+                'password',
+                self::credentials(),
+                self::requestClient(),
+            )->accessToken,
+            'external reauthentication' => static fn (): ?Secret => $sessions->reauthenticateExternally($key, $external, self::requestClient())->accessToken,
             'direct issue'              => static fn (): Secret => Auth::manager()->jwt('api')->issueAccessToken($identity, $identity, null, $session->record),
         ];
 
@@ -262,7 +275,7 @@ final class ConcurrentIssuanceTest extends TestCase
         try {
             $proof = self::adapterProof($identity, 'api', $session->record->getKey(), methods: ['hwk'], evaluation: new Evaluation(true, true));
 
-            self::assertTrue($this->sessions()->stepUp($proof)->isIssued());
+            self::assertTrue($this->sessions()->stepUp($proof, self::requestClient())->isIssued());
         } finally {
             $manager->setDefaultConnection($default);
         }

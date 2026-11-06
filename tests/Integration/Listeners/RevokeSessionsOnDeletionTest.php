@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnDeletion;
@@ -109,7 +110,10 @@ final class RevokeSessionsOnDeletionTest extends TestCase
 
             assert($guard instanceof JwtGuard);
 
-            return ['refreshed' => Auth::sessions($guard->getName())->refresh($request->string('refresh_token')->toString())->isRefreshed()];
+            return ['refreshed' => Auth::sessions($guard->getName())->refresh(
+                PresentedRefreshToken::fromBody($request->string('refresh_token')->toString()),
+                self::requestClient(),
+            )->isRefreshed()];
         });
 
         SoftDeletingMember::observe(RevokeSessionsOnDeletion::class);
@@ -286,7 +290,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy(static fn (): mixed => $delete($member, $membership)));
 
-        $refused = Auth::sessions('members')->signIn('password', self::credentials());
+        $refused = Auth::sessions('members')->signIn('password', self::credentials(), self::requestContext());
 
         self::assertSame($reason, $refused->reason);
 
@@ -433,7 +437,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = Auth::sessions('members')->signIn('password', self::credentials())->session;
+        $session = Auth::sessions('members')->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

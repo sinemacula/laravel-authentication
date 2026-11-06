@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -243,7 +244,11 @@ final class SignInBenchHarness
      */
     private function passwordSignIn(): SignInResult
     {
-        return $this->sessions(self::PASSWORD_GUARD, IntegrationIdentity::class)->signIn('password', ['email' => self::EMAIL, 'password' => self::PASSWORD]);
+        return $this->sessions(self::PASSWORD_GUARD, IntegrationIdentity::class)->signIn(
+            'password',
+            ['email' => self::EMAIL, 'password' => self::PASSWORD],
+            SignInContext::fromRequest(BenchRequest::client()),
+        );
     }
 
     /**
@@ -255,7 +260,11 @@ final class SignInBenchHarness
      */
     private function codeSignIn(string $phone, string $challenge): SignInResult
     {
-        return $this->sessions(self::CODE_GUARD, CodeIdentity::class)->signIn('phone_code', ['phone' => $phone, 'challenge' => $challenge, 'code' => self::CODE]);
+        return $this->sessions(self::CODE_GUARD, CodeIdentity::class)->signIn(
+            'phone_code',
+            ['phone' => $phone, 'challenge' => $challenge, 'code' => self::CODE],
+            SignInContext::fromRequest(BenchRequest::client()),
+        );
     }
 
     /**

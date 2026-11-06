@@ -135,7 +135,11 @@ final class ExternalReauthenticationTest extends TestCase
         $this->clockAt($this->now->addHour());
         $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class, ExternalResultUnlinked::class]);
 
-        $result = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now->addMinutes(59)));
+        $result = $this->sessions()->reauthenticateExternally(
+            $signedIn->record->getKey(),
+            $this->throughTheLink(authenticatedAt: $this->now->addMinutes(59)),
+            self::requestClient(),
+        );
 
         self::assertTrue($result->isIssued());
         self::assertSame($signedIn->record->getKey(), $result->session?->getKey());
@@ -175,7 +179,7 @@ final class ExternalReauthenticationTest extends TestCase
         $other   = new ProviderContext(['protocol' => 'oidc-9e2a']);
         $through = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->now->addMinutes(59), providerContext: $other);
 
-        self::assertTrue($this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $through)->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $through, self::requestClient())->isIssued());
         self::assertSame($before, self::sessionState());
         self::assertSame(['protocol' => 'saml-6c1f'], SessionProofs::provenance($signedIn->record)?->providerContext?->toArray());
         self::assertSame([Reauthenticated::class, ExternalResultRedeemed::class], $this->recordedClasses());
@@ -207,7 +211,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         $through = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->now->addMinutes(59), requestReference: 'request-5');
 
-        self::assertTrue($this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $through)->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $through, self::requestClient())->isIssued());
         self::assertSame([Reauthenticated::class, ExternalResultRedeemed::class], $this->recordedClasses());
 
         $redeemed = $this->recordedEvent(ExternalResultRedeemed::class);
@@ -221,7 +225,7 @@ final class ExternalReauthenticationTest extends TestCase
         $this->recordEvents([Reauthenticated::class, ExternalResultRedeemed::class, AuthenticationFailed::class]);
 
         $through = new ExternalResult('connection-7', self::ISSUER, 'subject-1', requestReference: 'request-6');
-        $refused = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $through);
+        $refused = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $through, self::requestClient());
 
         self::assertSame(FailureReason::PROOF_INVALID, $refused->reason);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
@@ -229,6 +233,39 @@ final class ExternalReauthenticationTest extends TestCase
             ['connection-7', 'request-6'],
             [$this->recordedEvent(AuthenticationFailed::class)->context->connectionId, $this->recordedEvent(AuthenticationFailed::class)->context->requestReference],
         );
+    }
+
+    /**
+     * An external reauthentication reports with the client given, never the
+     * guard's own request: `Reauthenticated` and `ExternalResultRedeemed` once
+     * it commits, and `AuthenticationFailed` for a refusal, carry it while the
+     * guard serves a cross-site request from another address.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExternalReauthenticationReportsTheClientGiven(): void
+    {
+        $signedIn = $this->signedInExternally();
+        $client   = self::sameSiteClient();
+
+        $this->clockAt($this->now->addHour());
+
+        $sessions = self::sessionsOf($this->crossSiteGuard());
+
+        $this->recordEvents([Reauthenticated::class, ExternalResultRedeemed::class, AuthenticationFailed::class]);
+
+        $through = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->now->addMinutes(59));
+
+        self::assertTrue($sessions->reauthenticateExternally($signedIn->record->getKey(), $through, $client)->isIssued());
+        self::assertSame($client, $this->recordedEvent(Reauthenticated::class)->context->client);
+        self::assertSame($client, $this->recordedEvent(ExternalResultRedeemed::class)->context->client);
+
+        $this->recordEvents([Reauthenticated::class, ExternalResultRedeemed::class, AuthenticationFailed::class]);
+
+        self::assertFalse($sessions->reauthenticateExternally($signedIn->record->getKey(), new ExternalResult('connection-7', self::ISSUER, 'subject-1'), $client)->isIssued());
+        self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
     }
 
     /**
@@ -247,13 +284,21 @@ final class ExternalReauthenticationTest extends TestCase
 
         $this->clockAt($this->now->addHour());
 
-        $later = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now->addMinutes(50)));
-        $older = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now->addMinutes(10)));
+        $later = $this->sessions()->reauthenticateExternally(
+            $signedIn->record->getKey(),
+            $this->throughTheLink(authenticatedAt: $this->now->addMinutes(50)),
+            self::requestClient(),
+        );
+        $older = $this->sessions()->reauthenticateExternally(
+            $signedIn->record->getKey(),
+            $this->throughTheLink(authenticatedAt: $this->now->addMinutes(10)),
+            self::requestClient(),
+        );
 
         self::assertSame($this->now->addMinutes(50)->getTimestamp(), self::authenticationOf($later)[0]);
         self::assertSame($this->now->addMinutes(50)->getTimestamp(), self::authenticationOf($older)[0]);
 
-        $future = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now->addHours(2)));
+        $future = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now->addHours(2)), self::requestClient());
 
         self::assertSame($this->now->addHour()->getTimestamp(), self::authenticationOf($future)[0]);
         self::assertSame(3, SessionProof::query()->where('kind', 'external_reauthentication')->count());
@@ -277,7 +322,11 @@ final class ExternalReauthenticationTest extends TestCase
 
         $this->clockAt($this->now->addHour());
 
-        $unaccepted = $this->sessions()->reauthenticateExternally($key, $this->throughTheLink(authenticatedAt: $this->now->addMinutes(30), evidence: $evidence));
+        $unaccepted = $this->sessions()->reauthenticateExternally(
+            $key,
+            $this->throughTheLink(authenticatedAt: $this->now->addMinutes(30), evidence: $evidence),
+            self::requestClient(),
+        );
 
         self::assertSame([FirstFactor::EXTERNAL_PROVIDER_METHOD], self::authenticationOf($unaccepted)[1]);
         self::assertNull(SessionProof::query()->where('kind', 'external_reauthentication')->sole()->getAttributes()['evidence']);
@@ -286,8 +335,12 @@ final class ExternalReauthenticationTest extends TestCase
 
         $this->app?->instance(ExternalEvidencePolicy::class, $policy);
 
-        $accepted = $this->sessions()->reauthenticateExternally($key, $this->throughTheLink(authenticatedAt: $this->now->addMinutes(40), evidence: $evidence));
-        $proof    = SessionProof::query()->where('kind', 'external_reauthentication')->orderByDesc('authenticated_at')->firstOrFail();
+        $accepted = $this->sessions()->reauthenticateExternally(
+            $key,
+            $this->throughTheLink(authenticatedAt: $this->now->addMinutes(40), evidence: $evidence),
+            self::requestClient(),
+        );
+        $proof = SessionProof::query()->where('kind', 'external_reauthentication')->orderByDesc('authenticated_at')->firstOrFail();
 
         self::assertSame([FirstFactor::EXTERNAL_PROVIDER_METHOD, 'mfa'], self::authenticationOf($accepted)[1]);
         self::assertSame([true, true], [$proof->accepted, $proof->multifactor]);
@@ -323,7 +376,7 @@ final class ExternalReauthenticationTest extends TestCase
         ];
 
         foreach ($results as $result) {
-            self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $result)->reason);
+            self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $result, self::requestClient())->reason);
         }
 
         $this->app?->instance(ExternalEvidencePolicy::class, $policy);
@@ -336,7 +389,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         $graces = $this->linkedResult($grace, 'connection-7', 'link-1', 'grace-subject', authenticatedAt: $this->now, evidence: new ExternalEvidence(['mfa'], null, $this->now));
 
-        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $graces)->reason);
+        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $graces, self::requestClient())->reason);
         self::assertSame([], $policy->asked);
         self::assertSame(0, $locks);
 
@@ -375,11 +428,14 @@ final class ExternalReauthenticationTest extends TestCase
             $locks += (int) (stripos($query->sql, 'for update') !== false);
         });
 
-        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $named('link-1-again'))->reason);
+        self::assertSame(
+            FailureReason::LINK_MISMATCH,
+            $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $named('link-1-again'), self::requestClient())->reason,
+        );
         self::assertSame(0, $locks);
         self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
 
-        self::assertTrue($this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $named('link-1'))->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $named('link-1'), self::requestClient())->isIssued());
     }
 
     /**
@@ -393,13 +449,13 @@ final class ExternalReauthenticationTest extends TestCase
     public function testASessionWithNoLinkIsNeverReauthenticatedThroughOne(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signIn('password', self::credentials())->session;
+        $session  = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
         $result = $this->linkedResult($identity, authenticatedAt: $this->now);
 
-        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($session->record->getKey(), $result)->reason);
+        self::assertSame(FailureReason::LINK_MISMATCH, $this->sessions()->reauthenticateExternally($session->record->getKey(), $result, self::requestClient())->reason);
     }
 
     /**
@@ -416,7 +472,11 @@ final class ExternalReauthenticationTest extends TestCase
 
         $this->recordEvents([ExternalResultUnlinked::class, AuthenticationFailed::class]);
 
-        $result = $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), new ExternalResult('connection-7', self::ISSUER, 'nobody', authenticatedAt: $this->now));
+        $result = $this->sessions()->reauthenticateExternally(
+            $signedIn->record->getKey(),
+            new ExternalResult('connection-7', self::ISSUER, 'nobody', authenticatedAt: $this->now),
+            self::requestClient(),
+        );
 
         self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $result->reason);
         self::assertSame([ExternalResultUnlinked::class, AuthenticationFailed::class], $this->recordedClasses());
@@ -442,7 +502,10 @@ final class ExternalReauthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink())->reason);
+        self::assertSame(
+            FailureReason::PROOF_INVALID,
+            $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $this->throughTheLink(), self::requestClient())->reason,
+        );
 
         config()->set('auth.guards.api.application', ['methods' => ['password']]);
 
@@ -455,7 +518,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         $early = $this->throughTheLink(authenticatedAt: $this->now->subSecond());
 
-        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $early)->reason);
+        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions()->reauthenticateExternally($signedIn->record->getKey(), $early, self::requestClient())->reason);
         self::assertSame(0, SessionProof::query()->where('kind', 'external_reauthentication')->count());
     }
 
@@ -473,7 +536,7 @@ final class ExternalReauthenticationTest extends TestCase
     public function testASessionThatIsNotLiveTakesNoReauthentication(): void
     {
         $signedIn = $this->signedInExternally();
-        $admin    = $this->sessions('admin')->signInExternally($this->throughTheLink())->session;
+        $admin    = $this->sessions('admin')->signInExternally($this->throughTheLink(), self::requestContext())->session;
         $key      = $signedIn->record->getKey();
         $asked    = count($this->externalLinks()->asked);
 
@@ -495,7 +558,10 @@ final class ExternalReauthenticationTest extends TestCase
         }
 
         foreach ([(string) Str::uuid7(), 'not-a-key', null] as $unknown) {
-            self::assertSame(FailureReason::SESSION_UNKNOWN, $this->sessions()->reauthenticateExternally($unknown, $this->throughTheLink(authenticatedAt: $this->now))->reason);
+            self::assertSame(
+                FailureReason::SESSION_UNKNOWN,
+                $this->sessions()->reauthenticateExternally($unknown, $this->throughTheLink(authenticatedAt: $this->now), self::requestClient())->reason,
+            );
         }
 
         self::assertCount($asked, $this->externalLinks()->asked);
@@ -606,7 +672,10 @@ final class ExternalReauthenticationTest extends TestCase
         foreach ($refusals as [$requirement, $reason]) {
             $policy->requirement = $requirement;
 
-            self::assertSame($reason, $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now))->reason);
+            self::assertSame(
+                $reason,
+                $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now), self::requestClient())->reason,
+            );
         }
 
         $principal = IdentifierCoercion::stringify($membership->getKey());
@@ -619,7 +688,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         DB::beginTransaction();
 
-        $refused = $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now));
+        $refused = $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now), self::requestClient());
 
         self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $refused->reason);
         self::assertSame(1, DB::transactionLevel());
@@ -634,7 +703,11 @@ final class ExternalReauthenticationTest extends TestCase
         $this->recordEvents([Reauthenticated::class]);
 
         $evidence = new ExternalEvidence(['mfa'], null, $this->now);
-        $met      = $this->sessions('members')->reauthenticateExternally($session->record->getKey(), $this->throughTheLink(authenticatedAt: $this->now, evidence: $evidence));
+        $met      = $this->sessions('members')->reauthenticateExternally(
+            $session->record->getKey(),
+            $this->throughTheLink(authenticatedAt: $this->now, evidence: $evidence),
+            self::requestClient(),
+        );
 
         self::assertTrue($met->isIssued());
         self::assertSame(1, SessionProof::query()->where('kind', 'external_reauthentication')->count());
@@ -682,7 +755,7 @@ final class ExternalReauthenticationTest extends TestCase
         $reads   = fn (?ExternalEvidence $evidence): array => self::statementsDuring(function () use ($session, $evidence, $results): void {
             $through = $this->throughTheLink(authenticatedAt: $this->now, evidence: $evidence);
 
-            $results->append($this->sessions('members')->reauthenticateExternally($session->record->getKey(), $through));
+            $results->append($this->sessions('members')->reauthenticateExternally($session->record->getKey(), $through, self::requestClient()));
         });
 
         $refused = array_values(array_filter($reads(null), self::readsProofs(...)));
@@ -738,6 +811,7 @@ final class ExternalReauthenticationTest extends TestCase
         $reauthenticated = $this->sessions('members')->reauthenticateExternally(
             $session->getKey(),
             $this->throughTheLink(authenticatedAt: $this->now, evidence: new ExternalEvidence(['hwk'], null, $this->now)),
+            self::requestClient(),
         );
 
         $proof = SessionProof::query()->where('kind', 'external_reauthentication')->sole();
@@ -793,7 +867,7 @@ final class ExternalReauthenticationTest extends TestCase
         $signedIn = $this->signedInExternally();
         $identity = $signedIn->identity;
         $grace    = $this->seedIdentity('grace@example.test');
-        $password = $this->sessions()->signIn('password', self::credentials())->session;
+        $password = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($password);
 
@@ -862,7 +936,7 @@ final class ExternalReauthenticationTest extends TestCase
     public function testASessionThatIsNotLiveHasNoStanding(): void
     {
         $signedIn = $this->signedInExternally();
-        $admin    = $this->sessions('admin')->signInExternally($this->throughTheLink())->session;
+        $admin    = $this->sessions('admin')->signInExternally($this->throughTheLink(), self::requestContext())->session;
         $key      = $signedIn->record->getKey();
         $standing = fn (mixed $sessionId): ?FailureReason => DB::transaction(
             fn (): ?FailureReason => $this->sessions()->externalStanding($sessionId, $signedIn->identity, 'connection-7', 'link-1'),
@@ -976,7 +1050,7 @@ final class ExternalReauthenticationTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $result   = $this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->now, providerContext: $providerContext);
-        $session  = $this->sessions()->signInExternally($result)->session;
+        $session  = $this->sessions()->signInExternally($result, self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -1006,7 +1080,7 @@ final class ExternalReauthenticationTest extends TestCase
      */
     private function reauthenticate(Session $session): AccessTokenResult
     {
-        return $this->sessions()->reauthenticateExternally($session->getKey(), $this->throughTheLink(authenticatedAt: CarbonImmutable::now()));
+        return $this->sessions()->reauthenticateExternally($session->getKey(), $this->throughTheLink(authenticatedAt: CarbonImmutable::now()), self::requestClient());
     }
 
     /**

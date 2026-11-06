@@ -342,7 +342,7 @@ final class PendingTransitionsTest extends TestCase
     public function testASessionInNoTenantReturnsToPendingInNone(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signIn('password', self::credentials())->session?->record;
+        $session  = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $session);
 
@@ -524,7 +524,7 @@ final class PendingTransitionsTest extends TestCase
      */
     private function signedIn(): Session
     {
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session?->record;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $session);
 

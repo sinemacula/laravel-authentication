@@ -322,7 +322,7 @@ final class SessionRevocationsTest extends TestCase
     {
         Auth::forgetGuards();
 
-        $session = Auth::sessions('api')->signIn('password', ['email' => $identity->email, 'password' => self::PASSWORD])->session;
+        $session = Auth::sessions('api')->signIn('password', ['email' => $identity->email, 'password' => self::PASSWORD], self::requestContext())->session;
 
         self::assertNotNull($session);
 

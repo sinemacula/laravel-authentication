@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -121,7 +122,7 @@ final class RefreshProofTest extends TestCase
 
         foreach ([$token, $token->reveal()] as $presented) {
 
-            $proven = $this->proof()->prove($presented, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now());
+            $proven = $this->proof()->prove($presented, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now(), self::requestClient());
 
             self::assertInstanceOf(ProvenRefresh::class, $proven);
             self::assertSame($session->record->getKey(), $proven->session->getKey());
@@ -147,14 +148,14 @@ final class RefreshProofTest extends TestCase
 
         $session   = $this->signedIn();
         $replaced  = (string) $session->tokens->refreshToken?->reveal();
-        $refreshed = $this->sessions()->refresh($replaced);
+        $refreshed = $this->sessions()->refresh(PresentedRefreshToken::fromBody($replaced), self::requestClient());
 
         self::assertTrue($refreshed->isRefreshed());
 
         $this->moveTo(CarbonImmutable::now()->addSeconds(10));
         $this->recordEvents(self::EVENTS);
 
-        $proven = $this->proof()->prove($replaced, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now());
+        $proven = $this->proof()->prove($replaced, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now(), self::requestClient());
 
         self::assertInstanceOf(ProvenRefresh::class, $proven);
         self::assertSame(RotationMatch::PREVIOUS, $proven->match);
@@ -180,14 +181,14 @@ final class RefreshProofTest extends TestCase
 
         $session   = $this->signedIn();
         $replaced  = (string) $session->tokens->refreshToken?->reveal();
-        $refreshed = $this->sessions()->refresh($replaced)->session;
+        $refreshed = $this->sessions()->refresh(PresentedRefreshToken::fromBody($replaced), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 
         $this->moveTo(CarbonImmutable::now()->addMinutes(2));
         $this->recordEvents(self::EVENTS);
 
-        $failed = $this->proof()->prove($replaced, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now());
+        $failed = $this->proof()->prove($replaced, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now(), self::requestClient());
 
         self::assertInstanceOf(AuthenticationFailed::class, $failed);
         self::assertSame([AuthenticationFlow::SIGN_OUT, FailureReason::ROTATION_REUSE], [$failed->flow, $failed->reason]);
@@ -206,7 +207,7 @@ final class RefreshProofTest extends TestCase
         self::assertEquals(CarbonImmutable::now(), CarbonImmutable::parse($revokedAt));
         self::assertSame('rotation_reuse', $this->row($session)['revoked_reason']);
 
-        $current = $this->proof()->prove((string) $refreshed->tokens->refreshToken?->reveal(), AuthenticationFlow::SIGN_OUT, CarbonImmutable::now());
+        $current = $this->proof()->prove((string) $refreshed->tokens->refreshToken?->reveal(), AuthenticationFlow::SIGN_OUT, CarbonImmutable::now(), self::requestClient());
 
         self::assertInstanceOf(AuthenticationFailed::class, $current);
         self::assertSame(FailureReason::SESSION_REVOKED, $current->reason);
@@ -229,7 +230,7 @@ final class RefreshProofTest extends TestCase
         $session  = $this->signedIn();
         $replaced = (string) $session->tokens->refreshToken?->reveal();
 
-        self::assertTrue($this->sessions()->refresh($replaced)->isRefreshed());
+        self::assertTrue($this->sessions()->refresh(PresentedRefreshToken::fromBody($replaced), self::requestClient())->isRefreshed());
 
         $this->moveTo(CarbonImmutable::now()->addMinutes(2));
         $this->recordEvents(self::EVENTS);
@@ -290,7 +291,7 @@ final class RefreshProofTest extends TestCase
 
         foreach ($cases as $case => [$token, $reason, $named]) {
 
-            $failed = $this->proof()->prove((string) $token, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now());
+            $failed = $this->proof()->prove((string) $token, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now(), self::requestClient());
 
             self::assertInstanceOf(AuthenticationFailed::class, $failed, $case);
             self::assertSame([AuthenticationFlow::SIGN_OUT, $reason], [$failed->flow, $failed->reason], $case);
@@ -305,7 +306,7 @@ final class RefreshProofTest extends TestCase
             self::assertSame([$reason, $client], [$given->reason, $given->context->client], $case);
         }
 
-        $refresh = $this->proof()->prove('not-a-token', AuthenticationFlow::REFRESH, CarbonImmutable::now());
+        $refresh = $this->proof()->prove('not-a-token', AuthenticationFlow::REFRESH, CarbonImmutable::now(), self::requestClient());
 
         self::assertInstanceOf(AuthenticationFailed::class, $refresh);
         self::assertSame(AuthenticationFlow::REFRESH, $refresh->flow);
@@ -330,7 +331,7 @@ final class RefreshProofTest extends TestCase
         Session::query()->whereKey($session->record->getKey())->update(['refresh_key' => RefreshTokenHasher::hash(self::KNOWN_ROTATION)]);
 
         $token  = Auth::jwt('api')->issueRefreshToken($session->record, self::KNOWN_ROTATION);
-        $proven = $this->proof()->prove($token, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now());
+        $proven = $this->proof()->prove($token, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now(), self::requestClient());
 
         self::assertInstanceOf(ProvenRefresh::class, $proven);
         self::assertNull($proven->principalHint);
@@ -358,7 +359,7 @@ final class RefreshProofTest extends TestCase
 
         $named  = new PlainPrincipalFixture($identity->getKey());
         $token  = Auth::jwt('api')->issueRefreshToken($session->record, self::KNOWN_ROTATION, $named);
-        $proven = $this->proof()->prove($token, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now());
+        $proven = $this->proof()->prove($token, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now(), self::requestClient());
 
         self::assertTrue(PrincipalReference::isRecordedOn($session->record, $session->principal));
         self::assertFalse(PrincipalReference::isRecordedOn($session->record, $named));
@@ -472,7 +473,7 @@ final class RefreshProofTest extends TestCase
      */
     private function assertReplayRefused(array $replayed): void
     {
-        $failed = $this->proof()->prove($replayed[1], AuthenticationFlow::SIGN_OUT, CarbonImmutable::now());
+        $failed = $this->proof()->prove($replayed[1], AuthenticationFlow::SIGN_OUT, CarbonImmutable::now(), self::requestClient());
 
         self::assertInstanceOf(AuthenticationFailed::class, $failed);
         self::assertSame(FailureReason::ROTATION_REUSE, $failed->reason);
@@ -524,7 +525,7 @@ final class RefreshProofTest extends TestCase
      */
     private function signedIn(string $guard = 'api', string $email = 'ada@example.test'): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session);
 

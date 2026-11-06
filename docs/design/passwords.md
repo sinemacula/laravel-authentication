@@ -119,10 +119,12 @@ only duplicate them.
      skipped when the model has none); a type the identity's verification throws a `LogicException` for has nothing to
      invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a normaliser that
      cannot be built) fails the write closed.
-   - `CHANGE`: `SessionRevocations::passwordChanged($identity, $except)`; `RESET`: `passwordReset($identity)` (every
+   - `CHANGE`: `SessionRevocations::revokeSessions($identity, PASSWORD_CHANGED, $except, client: $client)`;
+     `ESTABLISHMENT`: the same with `PASSWORD_ESTABLISHED`; `RESET`: with `PASSWORD_RESET` and no session kept (every
      guard's sessions, the identity's "tokens valid after" cutoff moved, pending sessions ended with the rest and, for a
      `HasChangeableIdentifiers` identity, its pending identifier changes deleted by key, for every type with a
      registered normaliser, their events after their commit; see the identifier changes note); `REGISTRATION`: nothing.
+     Each `SessionRevoked` and the `SignedOutEverywhere` carry the client given, as `PasswordSet` does.
    - `PasswordSet($context, $flow)` queued on the identity connection's commit; the context names the guard, the client,
      the identity and, for a change, the session kept.
 4. `PasswordResult::set($revoked)`.
@@ -148,8 +150,9 @@ only duplicate them.
   of two establishments, or an establishment and a reset, at most one writes. Every other session ends
   (`password_changed`, `password_established`); `PasswordSet` follows the commit. Refusals are reported on the
   `password_change` flow.
-- Reset tokens and codes reach the API only in a request's body: `resetFromRequest()` and `resetWithCodeFromRequest()`
-  read `Http\RequestBody::fields()` (JSON or form, never the query string). There is no reset status lookup.
+- Reset tokens and codes reach the API only in a request's body: a controller passes `reset()` and `resetWithCode()`
+  what `Http\RequestBody::fields()` reads (JSON or form, never the query string), with the request's `ClientContext`.
+  There is no reset status lookup.
 
 ## Reset requests (`sendResetLink()`, `sendResetCode()`)
 
@@ -201,9 +204,8 @@ code to `OneTimeCodeSender` with the purpose `password_reset`; anyone else gets 
    rolls back (the proof stays unspent), `invalid` (the recipient's reason). Accepted for a found model on another
    connection than the storage connection (a provider whose configuration names no model, which step 1 cannot check):
    roll back and throw the connection rule's `LogicException`, only now, so the refusal never tells someone without a
-   valid proof that the identifier is held.
-   Accepted for an eligible one: `PasswordWriter::write($identity, $password, RESET)` (a savepoint inside), then commit;
-   the timebox ends early and the reservation is released.
+   valid proof that the identifier is held. Accepted for an eligible one: `PasswordWriter::write($identity, $password,
+   RESET, $client)` (a savepoint inside), then commit; the timebox ends early and the reservation is released.
 5. The reset signs no one in and verifies no identifier.
 
 ## Failure / Edge Cases

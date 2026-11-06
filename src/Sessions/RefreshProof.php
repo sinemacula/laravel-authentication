@@ -86,13 +86,12 @@ final readonly class RefreshProof
     /**
      * The session the refresh token proves the client holds now, or the
      * `AuthenticationFailed` event of the flow given that reports why it proves
-     * none, undispatched. Every event it builds carries the client given, or,
-     * without one, the guard's request's.
+     * none, undispatched. Every event it builds carries the client given.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow  $flow
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\ProvenRefresh
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
@@ -101,7 +100,7 @@ final readonly class RefreshProof
         #[\SensitiveParameter] Secret|string $refreshToken,
         AuthenticationFlow $flow,
         CarbonImmutable $now,
-        ?ClientContext $client = null,
+        ClientContext $client,
     ): AuthenticationFailed|ProvenRefresh {
         $named = $this->named($this->tokens->parse($refreshToken, TokenType::REFRESH), $flow, $client);
 
@@ -115,7 +114,7 @@ final readonly class RefreshProof
 
         if ($judged instanceof FailureReason) {
             return new AuthenticationFailed(
-                new EventContext($this->context->name(), $client ?? $this->context->client(), session: $session, method: $session->getSignInMethod(), fromSession: true),
+                new EventContext($this->context->name(), $client, session: $session, method: $session->getSignInMethod(), fromSession: true),
                 $flow,
                 $judged,
             );
@@ -136,7 +135,7 @@ final readonly class RefreshProof
      *
      * @param  ?array<string, mixed>  $claims
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow  $flow
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 1: string, 2: mixed}|\SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -145,7 +144,7 @@ final readonly class RefreshProof
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function named(#[\SensitiveParameter] ?array $claims, AuthenticationFlow $flow, ?ClientContext $client): array|AuthenticationFailed
+    private function named(#[\SensitiveParameter] ?array $claims, AuthenticationFlow $flow, ClientContext $client): array|AuthenticationFailed
     {
         $sessionId  = $claims[Claims::SESSION_ID->value] ?? null;
         $rotationId = $claims[Claims::JWT_ID->value]     ?? null;
@@ -168,12 +167,12 @@ final readonly class RefreshProof
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow  $flow
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?string  $sessionId
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      */
-    private function refused(AuthenticationFlow $flow, FailureReason $reason, ?string $sessionId, ?ClientContext $client): AuthenticationFailed
+    private function refused(AuthenticationFlow $flow, FailureReason $reason, ?string $sessionId, ClientContext $client): AuthenticationFailed
     {
-        return new AuthenticationFailed(new EventContext($this->context->name(), $client ?? $this->context->client(), sessionId: $sessionId), $flow, $reason);
+        return new AuthenticationFailed(new EventContext($this->context->name(), $client, sessionId: $sessionId), $flow, $reason);
     }
 
     /**
@@ -186,7 +185,7 @@ final readonly class RefreshProof
      * @param  string  $rotationId
      * @param  mixed  $principalHint
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch
      */
     private function judged(
@@ -194,7 +193,7 @@ final readonly class RefreshProof
         #[\SensitiveParameter] string $rotationId,
         mixed $principalHint,
         CarbonImmutable $now,
-        ?ClientContext $client,
+        ClientContext $client,
     ): FailureReason|RotationMatch {
         if (WriteConnection::during($session, static fn (): ?string => $session->getGuard()) !== $this->context->name()) {
             return FailureReason::SESSION_GUARD_MISMATCH;
@@ -223,17 +222,17 @@ final readonly class RefreshProof
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
      */
-    private function revoke(EloquentSession&Model $session, CarbonImmutable $now, ?ClientContext $client): void
+    private function revoke(EloquentSession&Model $session, CarbonImmutable $now, ClientContext $client): void
     {
         if (!$this->store->revoke($session, RevocationReason::ROTATION_REUSE, $now)) {
             return;
         }
 
         $event = new SessionRevoked(
-            new EventContext($session->getGuard(), $client ?? $this->context->client(), session: $session, method: $session->getSignInMethod(), fromSession: true),
+            new EventContext($session->getGuard(), $client, session: $session, method: $session->getSignInMethod(), fromSession: true),
             RevocationReason::ROTATION_REUSE,
         );
 

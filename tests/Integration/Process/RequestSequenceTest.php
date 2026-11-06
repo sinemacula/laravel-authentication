@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -85,7 +86,7 @@ final class RequestSequenceTest extends TestCase
         });
 
         Route::post('/sign-in', static function (): array {
-            $session = Auth::sessions('api')->signIn('password', self::credentials(request()->string('email')->value()))->session;
+            $session = Auth::sessions('api')->signIn('password', self::credentials(request()->string('email')->value()), self::requestContext())->session;
 
             return ['signed_in' => $session !== null, 'identity' => Auth::guard('api')->id()];
         });
@@ -107,8 +108,12 @@ final class RequestSequenceTest extends TestCase
 
         Route::post('/members/switch', static function (): array {
             $target = ActivatableTenantMembership::query()->findOrFail(request()->integer('membership'));
-            $result = Auth::sessions('members')->switchTo(request()->string('refresh')->value(), SwitchTarget::principal($target));
-            $guard  = Auth::manager()->guard('members');
+            $result = Auth::sessions('members')->switchTo(
+                PresentedRefreshToken::fromBody(request()->string('refresh')->value()),
+                SwitchTarget::principal($target),
+                self::requestClient(),
+            );
+            $guard = Auth::manager()->guard('members');
 
             assert($guard instanceof JwtGuard);
 
@@ -299,7 +304,7 @@ final class RequestSequenceTest extends TestCase
 
         $guard = $this->apiGuard();
 
-        self::assertNotNull(self::sessionsOf($guard)->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session);
 
         Event::fake([AuthenticationFailed::class, SessionRevoked::class, SignedIn::class]);
 
@@ -310,9 +315,9 @@ final class RequestSequenceTest extends TestCase
 
         JWT::$timestamp = $later->getTimestamp();
 
-        self::assertNull(self::sessionsOf($guard)->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNull(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session);
 
-        self::sessionsOf($guard)->signIn('password', self::credentials('ada@example.test'));
+        self::sessionsOf($guard)->signIn('password', self::credentials('ada@example.test'), self::requestContext());
 
         Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::ROTATION_REUSE);
         Event::assertDispatched(SessionRevoked::class);
@@ -366,7 +371,13 @@ final class RequestSequenceTest extends TestCase
 
         Event::fake([PrincipalSwitched::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
-        self::assertTrue(self::sessionsOf($guard)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue(
+            self::sessionsOf($guard)->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->isSwitched(),
+        );
         self::assertSame(1, self::sessionsOf($guard)->signOutEverywhere());
 
         Event::assertDispatched(PrincipalSwitched::class, static fn (PrincipalSwitched $event): bool => $event->previousPrincipalId === (string) $first->id);
@@ -396,7 +407,11 @@ final class RequestSequenceTest extends TestCase
 
         $this->app?->instance(PrincipalResolver::class, $resolver);
 
-        $result = self::sessionsOf($guard)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+        $result = self::sessionsOf($guard)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+        );
 
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $result->reason);
     }
@@ -430,7 +445,7 @@ final class RequestSequenceTest extends TestCase
     private function signedIn(string $email): array
     {
         $identity = $this->seedIdentity($email);
-        $session  = self::sessionsOf($this->apiGuard())->signIn('password', self::credentials($email))->session;
+        $session  = self::sessionsOf($this->apiGuard())->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session);
 

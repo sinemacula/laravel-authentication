@@ -61,13 +61,13 @@ final readonly class IdentifierVerifier
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
      * @param  string  $identifier
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function verify(string $guard, Identity $identity, string $type, #[\SensitiveParameter] string $identifier, ?ClientContext $client = null): IdentifierVerification
+    public function verify(string $guard, Identity $identity, string $type, #[\SensitiveParameter] string $identifier, ClientContext $client): IdentifierVerification
     {
         $verifiable = self::verifiable($identity);
         $current    = $this->current($verifiable, IdentifierType::assertValid($type));
@@ -78,7 +78,7 @@ final readonly class IdentifierVerifier
 
         if ($verifiable->markIdentifierAsVerified($type, $current)) {
 
-            $this->dispatchAfterCommit($identity, new IdentifierVerified(new EventContext($guard, $client ?? $this->servedClient(), $identity), $type));
+            $this->dispatchAfterCommit($identity, new IdentifierVerified(new EventContext($guard, $client, $identity), $type));
 
             return IdentifierVerification::VERIFIED;
         }
@@ -170,17 +170,6 @@ final readonly class IdentifierVerifier
         }
 
         return WriteConnection::during($fresh, static fn (): bool => $fresh->getIdentifierForVerification($type) === $identifier && $fresh->hasVerifiedIdentifier($type));
-    }
-
-    /**
-     * The client of the request being served, for a verification whose caller
-     * named none.
-     *
-     * @return \SineMacula\Laravel\Authentication\Http\ClientContext
-     */
-    private function servedClient(): ClientContext
-    {
-        return ClientContext::fromRequest($this->container->make('request'));
     }
 
     /**

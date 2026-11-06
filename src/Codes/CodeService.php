@@ -102,7 +102,7 @@ final readonly class CodeService
      *
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -110,11 +110,11 @@ final readonly class CodeService
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    public function send(string $method, #[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
+    public function send(string $method, #[\SensitiveParameter] array $input, ClientContext $client): CodeRequest
     {
         $driver  = $this->codeMethod($method);
         $guard   = $this->context->name();
-        $context = new EventContext($guard, $client ?? $this->context->client(), method: $method);
+        $context = new EventContext($guard, $client, method: $method);
         $given   = $driver->identifier($guard, $input);
 
         if (!$this->collaborator(ApplicationPolicy::class)->allowsMethod($guard, $method)) {
@@ -138,7 +138,7 @@ final readonly class CodeService
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -146,10 +146,10 @@ final readonly class CodeService
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    public function sendVerification(Identity $identity, string $type, ?ClientContext $client = null): CodeRequest
+    public function sendVerification(Identity $identity, string $type, ClientContext $client): CodeRequest
     {
         $binding = $this->verificationBinding($identity, $type);
-        $context = new EventContext($this->context->name(), $client ?? $this->context->client(), $identity);
+        $context = new EventContext($this->context->name(), $client, $identity);
 
         if ($binding === null) {
             return $this->refuse(CodeRequest::identifierInvalid(), FailureReason::INVALID_CREDENTIALS, $context, null);
@@ -180,17 +180,17 @@ final readonly class CodeService
      * @param  string  $type
      * @param  string  $challengeId
      * @param  string  $code
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome<\SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome>
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function verify(Identity $identity, string $type, string $challengeId, #[\SensitiveParameter] string $code, ?ClientContext $client = null): LimitedOutcome
+    public function verify(Identity $identity, string $type, string $challengeId, #[\SensitiveParameter] string $code, ClientContext $client): LimitedOutcome
     {
         $binding   = $this->verificationBinding($identity, $type);
-        $context   = new EventContext($this->context->name(), $client ?? $this->context->client(), $identity);
+        $context   = new EventContext($this->context->name(), $client, $identity);
         $codes     = $this->collaborator(OneTimeCodes::class);
         $challenge = $codes->isWellFormedChallenge($challengeId) ? $challengeId : null;
 
@@ -241,7 +241,7 @@ final readonly class CodeService
      * `AuthenticationFailed` (flow `factor_code`).
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -251,7 +251,7 @@ final readonly class CodeService
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
-    public function sendFactorCode(FactorCodeBinding $binding, ?ClientContext $client = null): CodeRequest
+    public function sendFactorCode(FactorCodeBinding $binding, ClientContext $client): CodeRequest
     {
         return (new FactorCodes($this->context, $this->container))->send($binding, $this->validated(), $client);
     }
@@ -281,14 +281,14 @@ final readonly class CodeService
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
      * @param  string  $challengeId
      * @param  string  $code
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\FactorCodeCheck
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \Throwable
      */
-    public function verifyFactorCode(FactorCodeBinding $binding, string $challengeId, #[\SensitiveParameter] string $code, ?ClientContext $client = null): FactorCodeCheck
+    public function verifyFactorCode(FactorCodeBinding $binding, string $challengeId, #[\SensitiveParameter] string $code, ClientContext $client): FactorCodeCheck
     {
         (new CodeKeys($this->collaborator(Repository::class)))->validate();
 

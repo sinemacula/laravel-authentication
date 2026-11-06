@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -119,7 +120,7 @@ final class PasswordChangesTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class, PasswordSet::class, AuthenticationFailed::class]);
 
-        $result = Auth::passwords('web')->change($kept, self::PASSWORD, self::NEW_PASSWORD);
+        $result = Auth::passwords('web')->change($kept, self::PASSWORD, self::NEW_PASSWORD, self::requestClient());
 
         self::assertSame([true, 2, null], [$result->isSet(), $result->revoked, $result->reason]);
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) $identity->fresh()?->password));
@@ -155,7 +156,7 @@ final class PasswordChangesTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, PasswordSet::class]);
 
-        $wrong = Auth::passwords('web')->change($session, 'not the password', self::NEW_PASSWORD);
+        $wrong = Auth::passwords('web')->change($session, 'not the password', self::NEW_PASSWORD, self::requestClient());
 
         self::assertSame([false, FailureReason::INVALID_CREDENTIALS, null], [$wrong->isSet(), $wrong->reason, $wrong->retryAfter]);
         self::assertSame(1, self::counterHits('sign_in', 'per_account', AccountAttempts::account($identity)));
@@ -168,7 +169,7 @@ final class PasswordChangesTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $limited = Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD);
+        $limited = Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient());
 
         self::assertSame([FailureReason::RATE_LIMITED, 300], [$limited->reason, $limited->retryAfter]);
         self::assertSame(
@@ -194,14 +195,14 @@ final class PasswordChangesTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, PasswordSet::class]);
 
-        $rejected = Auth::passwords('web')->change($session, self::PASSWORD, 'short');
+        $rejected = Auth::passwords('web')->change($session, self::PASSWORD, 'short', self::requestClient());
 
         self::assertSame([false, [PasswordViolation::TOO_SHORT], null], [$rejected->isSet(), $rejected->violations, $rejected->reason]);
         self::assertSame([], $this->recorded);
 
         DB::table('password_identities')->update(['password' => null]);
 
-        $notSet = Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD);
+        $notSet = Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient());
 
         self::assertSame(FailureReason::PASSWORD_NOT_SET, $notSet->reason);
         self::assertSame(FailureReason::PASSWORD_NOT_SET, $this->recordedEvent(AuthenticationFailed::class)->reason);
@@ -218,13 +219,16 @@ final class PasswordChangesTest extends TestCase
     public static function provideUnusableSessions(): iterable
     {
         yield from [
-            'reissued'            => [static fn (Session $session): ?string => self::update($session, ['generation' => self::OTHER_GENERATION]), FailureReason::SESSION_UNKNOWN],
-            'deleted'             => [static fn (Session $session): ?string => self::remove($session), FailureReason::SESSION_UNKNOWN],
-            'revoked'             => [static fn (Session $session): ?string => self::update($session, ['revoked_at' => '2026-10-29 09:00:00']), FailureReason::SESSION_REVOKED],
-            'pending'             => [static fn (Session $session): ?string => self::update($session, ['status' => 'pending']), FailureReason::SESSION_PENDING],
-            'ended'               => [static fn (Session $session): ?string => self::update($session, ['idle_expires_at' => self::NOW]), FailureReason::SESSION_EXPIRED],
-            'another guard\'s'    => [static fn (): string => 'admin', FailureReason::SESSION_GUARD_MISMATCH],
-            'a machine\'s'        => [static fn (Session $session): ?string => self::update($session, ['authenticatable_type' => PasswordMachine::class]), FailureReason::MACHINE_IDENTITY], // phpcs:ignore Generic.Files.LineLength.TooLong
+            'reissued'         => [static fn (Session $session): ?string => self::update($session, ['generation' => self::OTHER_GENERATION]), FailureReason::SESSION_UNKNOWN],
+            'deleted'          => [static fn (Session $session): ?string => self::remove($session), FailureReason::SESSION_UNKNOWN],
+            'revoked'          => [static fn (Session $session): ?string => self::update($session, ['revoked_at' => '2026-10-29 09:00:00']), FailureReason::SESSION_REVOKED],
+            'pending'          => [static fn (Session $session): ?string => self::update($session, ['status' => 'pending']), FailureReason::SESSION_PENDING],
+            'ended'            => [static fn (Session $session): ?string => self::update($session, ['idle_expires_at' => self::NOW]), FailureReason::SESSION_EXPIRED],
+            'another guard\'s' => [static fn (): string => 'admin', FailureReason::SESSION_GUARD_MISMATCH],
+            'a machine\'s'     => [static fn (Session $session): ?string => self::update(
+                $session,
+                ['authenticatable_type' => PasswordMachine::class],
+            ), FailureReason::MACHINE_IDENTITY], // phpcs:ignore Generic.Files.LineLength.TooLong
             'an unknown owner\'s' => [static fn (Session $session): ?string => self::update($session, ['authenticatable_id' => 999]), FailureReason::IDENTITY_UNKNOWN],
         ];
     }
@@ -250,12 +254,12 @@ final class PasswordChangesTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame($reason, Auth::passwords($guard)->change($session, self::PASSWORD, self::NEW_PASSWORD)->reason);
+        self::assertSame($reason, Auth::passwords($guard)->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient())->reason);
         self::assertSame(
             [AuthenticationFlow::PASSWORD_CHANGE, $reason],
             [$this->recordedEvent(AuthenticationFailed::class)->flow, $this->recordedEvent(AuthenticationFailed::class)->reason],
         );
-        self::assertSame($reason, Auth::passwords($guard)->establish($session, self::NEW_PASSWORD)->reason);
+        self::assertSame($reason, Auth::passwords($guard)->establish($session, self::NEW_PASSWORD, self::requestClient())->reason);
         self::assertSame(0, DB::table('rate_limits')->count());
         $stored = DB::table('password_identities')->where('id', $identity->getKey())->value('password');
 
@@ -281,7 +285,7 @@ final class PasswordChangesTest extends TestCase
         $this->signInWithPassword();
         $this->beforeTheIdentityIsLocked(static fn () => DB::table('password_identities')->update(['password' => app(Hasher::class)->make('another passphrase entirely')]));
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient())->reason);
         self::assertTrue(app(Hasher::class)->check('another passphrase entirely', (string) $identity->fresh()?->password));
         self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
     }
@@ -304,7 +308,7 @@ final class PasswordChangesTest extends TestCase
 
         $this->beforeTheIdentityIsLocked($revoke);
 
-        self::assertSame(FailureReason::SESSION_REVOKED, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->reason);
+        self::assertSame(FailureReason::SESSION_REVOKED, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient())->reason);
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->fresh()?->password));
 
         DB::table('authentication_sessions')->update(['revoked_at' => null, 'revoked_reason' => null]);
@@ -315,7 +319,7 @@ final class PasswordChangesTest extends TestCase
             DB::table('password_identities')->update(['password' => app(Hasher::class)->make('another passphrase entirely')]);
         });
 
-        self::assertSame(FailureReason::SESSION_REVOKED, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->reason);
+        self::assertSame(FailureReason::SESSION_REVOKED, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient())->reason);
     }
 
     /**
@@ -359,7 +363,7 @@ final class PasswordChangesTest extends TestCase
         });
         $this->recordEvents([AuthenticationFailed::class, PasswordSet::class]);
 
-        self::assertSame($reason, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->reason);
+        self::assertSame($reason, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient())->reason);
         self::assertSame([AuthenticationFailed::class], array_map(static fn (object $event): string => $event::class, $this->recorded));
         self::assertSame($reason, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
@@ -383,7 +387,7 @@ final class PasswordChangesTest extends TestCase
         $this->started($identity, 'admin');
         $this->recordEvents([PasswordSet::class]);
 
-        $result = Auth::passwords('web')->establish($kept, self::NEW_PASSWORD);
+        $result = Auth::passwords('web')->establish($kept, self::NEW_PASSWORD, self::requestClient());
 
         self::assertSame([true, 1], [$result->isSet(), $result->revoked]);
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) $identity->fresh()?->password));
@@ -415,10 +419,10 @@ final class PasswordChangesTest extends TestCase
 
         $results     = [];
         $established = self::statementsDuring(static function () use ($session, &$results): void {
-            $results[] = Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->isSet();
+            $results[] = Auth::passwords('web')->establish($session, self::NEW_PASSWORD, self::requestClient())->isSet();
         });
         $changed = self::statementsDuring(static function () use ($session, &$results): void {
-            $results[] = Auth::passwords('web')->change($session, self::NEW_PASSWORD, 'another new passphrase')->isSet();
+            $results[] = Auth::passwords('web')->change($session, self::NEW_PASSWORD, 'another new passphrase', self::requestClient())->isSet();
         });
         $readsSession = static fn (string $sql): bool => str_starts_with($sql, 'select') && str_contains($sql, 'authentication_sessions');
         $sessionReads = static fn (array $statements): array => array_filter($statements, $readsSession);
@@ -453,7 +457,7 @@ final class PasswordChangesTest extends TestCase
 
         app()->instance(FreshnessPolicy::class, $stale);
 
-        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->reason);
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, Auth::passwords('web')->establish($session, self::NEW_PASSWORD, self::requestClient())->reason);
         self::assertSame(['freshProof:password_establishment (current)'], $stale->asked);
         self::assertNull(DB::table('password_identities')->value('password'));
         self::assertNull($identity->fresh()?->tokens_valid_after);
@@ -463,7 +467,7 @@ final class PasswordChangesTest extends TestCase
 
         app()->instance(FreshnessPolicy::class, $fresh);
 
-        self::assertTrue(Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->isSet());
+        self::assertTrue(Auth::passwords('web')->establish($session, self::NEW_PASSWORD, self::requestClient())->isSet());
         self::assertSame(['freshProof:password_establishment (current)'], $fresh->asked);
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) $identity->fresh()?->password));
     }
@@ -486,7 +490,7 @@ final class PasswordChangesTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->reason);
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, Auth::passwords('web')->establish($session, self::NEW_PASSWORD, self::requestClient())->reason);
         self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull(DB::table('password_identities')->value('password'));
     }
@@ -510,16 +514,16 @@ final class PasswordChangesTest extends TestCase
 
         $session = $this->signInWithPassword()->record;
 
-        self::assertSame(FailureReason::PASSWORD_ALREADY_SET, Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->reason);
-        self::assertSame(FailureReason::PASSWORD_ALREADY_SET, Auth::passwords('web')->establish($session, 'short')->reason);
+        self::assertSame(FailureReason::PASSWORD_ALREADY_SET, Auth::passwords('web')->establish($session, self::NEW_PASSWORD, self::requestClient())->reason);
+        self::assertSame(FailureReason::PASSWORD_ALREADY_SET, Auth::passwords('web')->establish($session, 'short', self::requestClient())->reason);
 
         DB::table('password_identities')->update(['password' => '']);
 
-        self::assertSame([PasswordViolation::TOO_SHORT], Auth::passwords('web')->establish($session, 'short')->violations);
+        self::assertSame([PasswordViolation::TOO_SHORT], Auth::passwords('web')->establish($session, 'short', self::requestClient())->violations);
 
         $this->beforeTheIdentityIsLocked(static fn () => DB::table('password_identities')->update(['password' => 'written meanwhile']));
 
-        self::assertSame(FailureReason::PASSWORD_ALREADY_SET, Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->reason);
+        self::assertSame(FailureReason::PASSWORD_ALREADY_SET, Auth::passwords('web')->establish($session, self::NEW_PASSWORD, self::requestClient())->reason);
         self::assertSame('written meanwhile', DB::table('password_identities')->value('password'));
 
         DB::table('password_identities')->update(['password' => null]);
@@ -528,7 +532,7 @@ final class PasswordChangesTest extends TestCase
 
         $this->onceBefore($write, static fn () => DB::table('password_identities')->update(['password' => 'raced']));
 
-        self::assertSame(FailureReason::PASSWORD_ALREADY_SET, Auth::passwords('web')->establish($session, self::NEW_PASSWORD)->reason);
+        self::assertSame(FailureReason::PASSWORD_ALREADY_SET, Auth::passwords('web')->establish($session, self::NEW_PASSWORD, self::requestClient())->reason);
         self::assertNull(DB::table('password_identities')->value('password'));
         self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
     }
@@ -565,6 +569,60 @@ final class PasswordChangesTest extends TestCase
             $this->recordedEvent(AuthenticationFailed::class)->context->client->ip,
         ]);
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->fresh()?->password));
+    }
+
+    /**
+     * A change that goes through reports the client handed in on every event,
+     * the session it ends and the `SignedOutEverywhere` as well as
+     * `PasswordSet`, while the guard serves a request from another address.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeReportsTheClientHandedInOnEveryEvent(): void
+    {
+        self::seedPasswordIdentity();
+
+        $kept   = $this->signInWithPassword()->record;
+        $client = new ClientContext('198.51.100.9', 'Other/1.0');
+
+        $this->signInWithPassword('admin');
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
+
+        self::assertSame(1, Auth::passwords('web')->change($kept, self::PASSWORD, self::NEW_PASSWORD, $client)->revoked);
+        self::assertSame([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame([$client, $client, $client], array_map(
+            static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
+            $this->recorded,
+        ));
+    }
+
+    /**
+     * An establishment that goes through reports the client handed in on every
+     * event, the session it ends and the `SignedOutEverywhere` as well as
+     * `PasswordSet`, while the guard serves a request from another address.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnEstablishmentReportsTheClientHandedInOnEveryEvent(): void
+    {
+        $identity = self::seedPasswordIdentity(attributes: ['password' => null]);
+        $kept     = $this->started($identity);
+        $client   = new ClientContext('198.51.100.9', 'Other/1.0');
+
+        $this->started($identity, 'admin');
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
+
+        self::assertNotSame($client->ip, self::requestClient()->ip);
+        self::assertSame(1, Auth::passwords('web')->establish($kept, self::NEW_PASSWORD, $client)->revoked);
+        self::assertSame([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame([$client, $client, $client], array_map(
+            static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
+            $this->recorded,
+        ));
     }
 
     /**
@@ -609,7 +667,7 @@ final class PasswordChangesTest extends TestCase
         config()->set($key, $value);
 
         try {
-            Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD);
+            Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient());
             self::fail('Expected the setting to be refused.');
         } catch (\InvalidArgumentException $exception) {
             self::assertStringContainsString($message, $exception->getMessage());
@@ -641,7 +699,7 @@ final class PasswordChangesTest extends TestCase
         config()->set('auth.providers.password_identities', ['driver' => 'plain-fixture']);
         Auth::forgetGuards();
 
-        self::assertSame(FailureReason::IDENTITY_UNKNOWN, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->reason);
+        self::assertSame(FailureReason::IDENTITY_UNKNOWN, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient())->reason);
     }
 
     /**
@@ -668,8 +726,8 @@ final class PasswordChangesTest extends TestCase
             return microtime(true) - $started;
         };
 
-        self::assertGreaterThanOrEqual(0.4, $timed(static fn (): mixed => Auth::passwords('web')->change($session, 'not the password', self::NEW_PASSWORD)));
-        self::assertLessThan(0.3, $timed(static fn (): mixed => Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)));
+        self::assertGreaterThanOrEqual(0.4, $timed(static fn (): mixed => Auth::passwords('web')->change($session, 'not the password', self::NEW_PASSWORD, self::requestClient())));
+        self::assertLessThan(0.3, $timed(static fn (): mixed => Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient())));
     }
 
     /**
@@ -690,14 +748,14 @@ final class PasswordChangesTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->isSet());
+        self::assertTrue(Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient())->isSet());
 
         DB::rollBack();
 
         self::assertSame([], $this->recorded);
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->fresh()?->password));
         self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
-        self::assertSame(1, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD)->revoked);
+        self::assertSame(1, Auth::passwords('web')->change($session, self::PASSWORD, self::NEW_PASSWORD, self::requestClient())->revoked);
     }
 
     /**
@@ -715,7 +773,7 @@ final class PasswordChangesTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('A first password is established with establish(), which needs a recent authentication on the session.');
 
-        Auth::passwords('web')->set($identity, self::NEW_PASSWORD, PasswordFlow::ESTABLISHMENT);
+        Auth::passwords('web')->set($identity, self::NEW_PASSWORD, PasswordFlow::ESTABLISHMENT, self::requestClient());
     }
 
     /**
@@ -761,7 +819,7 @@ final class PasswordChangesTest extends TestCase
      */
     private function started(PasswordIdentity $identity, string $guard = 'web'): Session
     {
-        $record = $this->sessions($guard)->start($identity, null, 'password')->session?->record;
+        $record = $this->sessions($guard)->start($identity, null, 'password', self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 

@@ -282,7 +282,7 @@ other rotated token as a replay that revokes the session.
 - `src/Admission/ActivationPolicy.php`: the opt-in identity, principal, and tenant activity checks.
 - `src/Events/Enums/FailureReason.php` and `src/Events/Enums/RevocationReason.php`: failure and revocation
   taxonomies; `src/Events/AuthenticationFailed.php`, `src/Events/SessionRevoked.php`.
-- `src/Sessions/SessionRefresh.php`: `refresh()` runs the live refresh exchange with the request's client, `report()`
+- `src/Sessions/SessionRefresh.php`: `refresh()` runs the live refresh exchange with the client it is given, `report()`
   schedules `Refreshed` and `SignedIn`, the binding's `loginVerified()` binds, and `refuse()` reports a refusal and
   returns it with its reason and wait; `src/Sessions/SessionService.php` builds the exchange on the guard's context and
   token service. `src/Sessions/RefreshResult.php`: the outcome.

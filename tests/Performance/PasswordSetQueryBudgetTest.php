@@ -99,7 +99,7 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
 
         $this->assertQueryBudget(0, 0, static function () use ($service, $identity): void {
             $service->check('a long enough passphrase');
-            $service->set($identity, 'short', PasswordFlow::CHANGE);
+            $service->set($identity, 'short', PasswordFlow::CHANGE, self::requestClient());
         });
 
         self::assertSame(0, $this->hashesMade());
@@ -121,7 +121,7 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
 
         $this->hashes = 0;
 
-        $this->assertQueryBudget(1, 2, static fn () => $service->set($identity, 'a brand new passphrase', PasswordFlow::REGISTRATION));
+        $this->assertQueryBudget(1, 2, static fn () => $service->set($identity, 'a brand new passphrase', PasswordFlow::REGISTRATION, self::requestClient()));
 
         self::assertSame(1, $this->hashesMade());
     }
@@ -148,7 +148,7 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
 
         $this->hashes = 0;
 
-        $result = $this->assertQueryBudget(2, 5, static fn () => $service->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept));
+        $result = $this->assertQueryBudget(2, 5, static fn () => $service->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, self::requestClient(), $kept));
 
         self::assertSame(2, $result->revoked);
         self::assertSame(1, $this->hashesMade());

@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
@@ -135,7 +136,10 @@ final class SessionServiceTest extends TestCase
             ->assertOk()
             ->assertJson(['identity' => $identity->getKey(), 'session' => $session->record->getKey()]);
 
-        $refreshed = self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->session?->tokens;
+        $refreshed = self::sessionsOf($this->freshGuard())->refresh(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            self::requestClient(),
+        )->session?->tokens;
 
         self::assertNotNull($refreshed);
         $this->bearer($refreshed->accessToken->reveal())->assertOk();
@@ -160,11 +164,14 @@ final class SessionServiceTest extends TestCase
 
         $first = $this->signIn(clientName: 'Laptop', platform: 'macOS');
 
-        $rotated = self::sessionsOf($this->freshGuard())->refresh(self::revealed($first->tokens->refreshToken))->session?->tokens;
+        $rotated = self::sessionsOf($this->freshGuard())->refresh(
+            PresentedRefreshToken::fromBody(self::revealed($first->tokens->refreshToken)),
+            self::requestClient(),
+        )->session?->tokens;
 
         self::assertNotNull($rotated);
 
-        $current = self::sessionsOf($this->freshGuard())->refresh(self::revealed($rotated->refreshToken))->session?->tokens;
+        $current = self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody(self::revealed($rotated->refreshToken)), self::requestClient())->session?->tokens;
 
         self::assertNotNull($current);
 
@@ -210,7 +217,7 @@ final class SessionServiceTest extends TestCase
 
         $this->bearer($again->tokens->accessToken->reveal())->assertOk()->assertJson(['session' => $record->getKey()]);
 
-        $refused = self::sessionsOf($this->freshGuard())->refresh(self::revealed($current->refreshToken));
+        $refused = self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody(self::revealed($current->refreshToken)), self::requestClient());
 
         self::assertSame(FailureReason::SESSION_REVOKED, $refused->reason);
         self::assertNull(Session::query()->whereKey($record->getKey())->firstOrFail()->getRevokedAt());
@@ -240,12 +247,15 @@ final class SessionServiceTest extends TestCase
         $this->bearer($first->tokens->accessToken->reveal())->assertUnauthorized();
         $this->bearer($again->tokens->accessToken->reveal())->assertOk()->assertJson(['session' => $again->record->getKey()]);
 
-        self::assertSame(FailureReason::SESSION_REVOKED, self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken?->reveal())->reason);
+        self::assertSame(
+            FailureReason::SESSION_REVOKED,
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($first->tokens->refreshToken?->reveal()), self::requestClient())->reason,
+        );
         $listed = Auth::sessions('api')->sessions($identity)->items();
 
         self::assertSame([IdentifierCoercion::stringify($again->record->getKey())], array_map(static fn (SessionSummary $summary): string => $summary->id, $listed));
 
-        $refreshed = self::sessionsOf($this->freshGuard())->refresh($again->tokens->refreshToken?->reveal())->session;
+        $refreshed = self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($again->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertSame($again->record->getKey(), $refreshed?->record->getKey());
     }
@@ -293,7 +303,7 @@ final class SessionServiceTest extends TestCase
 
         $this->advance(200 * 86400);
 
-        self::assertNull(self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken?->reveal())->session);
+        self::assertNull(self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($first->tokens->refreshToken?->reveal()), self::requestClient())->session);
 
         $again = $this->signIn(refreshToken: $first->tokens->refreshToken?->reveal());
 
@@ -316,7 +326,10 @@ final class SessionServiceTest extends TestCase
         $this->seedIdentity();
 
         $first     = $this->signIn();
-        $refreshed = self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken?->reveal())->session?->tokens;
+        $refreshed = self::sessionsOf($this->freshGuard())->refresh(
+            PresentedRefreshToken::fromBody($first->tokens->refreshToken?->reveal()),
+            self::requestClient(),
+        )->session?->tokens;
 
         self::assertNotNull($refreshed);
 
@@ -324,7 +337,7 @@ final class SessionServiceTest extends TestCase
 
         $this->advance(3600);
 
-        self::sessionsOf($this->freshGuard())->refresh($refreshed->refreshToken?->reveal());
+        self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($refreshed->refreshToken?->reveal()), self::requestClient());
 
         $older = $this->signIn(refreshToken: $first->tokens->refreshToken?->reveal());
 
@@ -518,7 +531,7 @@ final class SessionServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
 
         app()->instance('request', Request::create('/elsewhere', 'GET', server: ['REMOTE_ADDR' => '198.51.100.9']));
 
@@ -549,7 +562,7 @@ final class SessionServiceTest extends TestCase
         app()->instance(PrincipalResolver::class, new StubFixedPrincipalResolver($principal));
 
         try {
-            $this->sessions()->signIn('password', self::credentials());
+            $this->sessions()->signIn('password', self::credentials(), self::requestContext());
             self::fail('Expected issuing to fail.');
         } catch (\InvalidArgumentException $exception) {
             self::assertStringContainsString('`principal`', $exception->getMessage());
@@ -595,7 +608,9 @@ final class SessionServiceTest extends TestCase
         self::assertSame($key, $record->getRefreshKey());
         self::assertNull($record->getRevokedAt());
         self::assertSame(1, Session::query()->count());
-        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($first->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($first->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
         self::assertNull(Session::query()->whereKey($first->record->getKey())->firstOrFail()->getRevokedAt());
     }
 
@@ -691,7 +706,9 @@ final class SessionServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed(),
+        );
         self::assertSame([], $this->recordedClasses());
 
         DB::rollBack();
@@ -701,7 +718,9 @@ final class SessionServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed(),
+        );
 
         try {
             DB::commit();
@@ -753,7 +772,7 @@ final class SessionServiceTest extends TestCase
 
         $this->requireAFurtherFactor();
 
-        $pending = self::sessionsOf($this->freshGuard('admin'))->signIn('password', self::credentials());
+        $pending = self::sessionsOf($this->freshGuard('admin'))->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
@@ -910,7 +929,7 @@ final class SessionServiceTest extends TestCase
     private function failedSignIn(): string
     {
         try {
-            $this->sessions()->signIn('password', self::credentials());
+            $this->sessions()->signIn('password', self::credentials(), self::requestContext());
         } catch (\RuntimeException $exception) {
             return $exception->getMessage();
         }

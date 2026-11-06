@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -276,8 +277,8 @@ final class FactorRevocationsTest extends TestCase
         self::assertSame($before, (array) DB::table('authentication_sessions')->where('id', $current->record->getKey())->first());
         self::assertSame([], $recorded->getArrayCopy());
         self::assertSame($current->record->getKey(), $guard->session()?->getSessionIdentifier());
-        self::assertFalse($this->sessions()->satisfy($change->credential, $this->proof($current, 'factor-a'))->isSignedIn());
-        self::assertTrue($this->sessions()->refresh((string) $current->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertFalse($this->sessions()->satisfy($change->credential, $this->proof($current, 'factor-a'), self::requestClient())->isSignedIn());
+        self::assertTrue($this->sessions()->refresh(PresentedRefreshToken::fromBody((string) $current->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
     }
 
     /**
@@ -329,7 +330,7 @@ final class FactorRevocationsTest extends TestCase
         self::assertSame([SessionReturnedToPending::class], $recorded->getArrayCopy());
         self::assertSame([null], $bound->getArrayCopy());
         self::assertNull($guard->session());
-        self::assertTrue($this->sessions()->satisfy($change->credential, $this->proof($current, 'factor-a'))->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($change->credential, $this->proof($current, 'factor-a'), self::requestClient())->isSignedIn());
     }
 
     /**
@@ -362,7 +363,7 @@ final class FactorRevocationsTest extends TestCase
         self::assertSame($before, (array) DB::table('authentication_sessions')->where('id', $current->record->getKey())->first());
         self::assertSame([], $recorded->getArrayCopy());
         self::assertSame($current->record->getKey(), $guard->session()?->getSessionIdentifier());
-        self::assertTrue($this->sessions()->refresh((string) $current->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue($this->sessions()->refresh(PresentedRefreshToken::fromBody((string) $current->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
     }
 
     /**
@@ -439,7 +440,7 @@ final class FactorRevocationsTest extends TestCase
      */
     private function satisfied(string $factor): SignedInSession
     {
-        $pending = $this->sessions()->signIn('password', self::credentials());
+        $pending = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
@@ -456,7 +457,7 @@ final class FactorRevocationsTest extends TestCase
             new ProofBinding($pending->pending->identity, 'api', $pending->pending->id, Purpose::SIGN_IN),
         );
 
-        $session = Auth::sessions('api')->satisfy($pending->credential, $proof)->session;
+        $session = Auth::sessions('api')->satisfy($pending->credential, $proof, self::requestClient())->session;
 
         self::assertNotNull($session);
 
@@ -475,7 +476,7 @@ final class FactorRevocationsTest extends TestCase
     {
         app()->instance(AdditionalFactorPolicy::class, new NeverRequireAdditionalFactor);
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

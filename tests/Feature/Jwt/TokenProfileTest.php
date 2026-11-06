@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenProfile;
@@ -166,7 +167,7 @@ final class TokenProfileTest extends TestCase
     {
         [$member, , $tenant] = $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
         $claims = $this->claims($session->tokens->accessToken->reveal(), TokenType::ACCESS, 'members');
@@ -218,7 +219,7 @@ final class TokenProfileTest extends TestCase
         [$member, $membership, $tenant] = $this->seedMember();
         [, , $other]                    = $this->seedMember('other@example.test');
 
-        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 
@@ -257,19 +258,19 @@ final class TokenProfileTest extends TestCase
     {
         [, , $tenant] = $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
         $this->clockAt(CarbonImmutable::now()->addMinute());
 
-        $refreshed = $this->sessions('members')->refresh($session->tokens->refreshToken?->reveal())->session;
+        $refreshed = $this->sessions('members')->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 
         $this->clockAt(CarbonImmutable::now()->addSeconds(5));
 
-        $retried = $this->sessions('members')->refresh($session->tokens->refreshToken?->reveal())->session;
+        $retried = $this->sessions('members')->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertNotNull($retried);
 
@@ -409,7 +410,7 @@ final class TokenProfileTest extends TestCase
      */
     private function signedIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

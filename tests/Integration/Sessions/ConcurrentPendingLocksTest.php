@@ -179,8 +179,8 @@ final class ConcurrentPendingLocksTest extends TestCase
         $proofs = SessionProof::query()->count();
 
         [$discarded, $second] = $this->race(
-            fn (): bool => $this->sessions(self::GUARD)->discard($credential),
-            fn (): array => ['reason' => $this->sessions(self::GUARD)->satisfy($credential, $proof)->reason?->value],
+            fn (): bool => $this->sessions(self::GUARD)->discard($credential, self::requestClient()),
+            fn (): array => ['reason' => $this->sessions(self::GUARD)->satisfy($credential, $proof, self::requestClient())->reason?->value],
         );
 
         self::assertTrue($discarded);
@@ -205,8 +205,8 @@ final class ConcurrentPendingLocksTest extends TestCase
         [$credential, $proof] = $this->pendingSession();
 
         [$satisfied, $second] = $this->race(
-            fn (): bool => $this->sessions(self::GUARD)->satisfy($credential, $proof)->isSignedIn(),
-            fn (): array => ['discarded' => $this->sessions(self::GUARD)->discard($credential)],
+            fn (): bool => $this->sessions(self::GUARD)->satisfy($credential, $proof, self::requestClient())->isSignedIn(),
+            fn (): array => ['discarded' => $this->sessions(self::GUARD)->discard($credential, self::requestClient())],
         );
 
         self::assertTrue($satisfied);
@@ -238,7 +238,7 @@ final class ConcurrentPendingLocksTest extends TestCase
 
         [$revoked, $second] = $this->race(
             fn (): int => $this->sessions(self::GUARD)->tenantPolicyChanged($tenant),
-            fn (): array => ['reason' => $this->sessions(self::GUARD)->satisfy($credential, $proof)->reason?->value],
+            fn (): array => ['reason' => $this->sessions(self::GUARD)->satisfy($credential, $proof, self::requestClient())->reason?->value],
         );
 
         self::assertSame(1, $revoked);
@@ -266,7 +266,7 @@ final class ConcurrentPendingLocksTest extends TestCase
         $this->policy->requirement = new TenantRequirement('v1');
 
         [$activated, $second] = $this->race(
-            fn (): bool => $this->sessions(self::GUARD)->satisfy($credential, $proof)->isSignedIn(),
+            fn (): bool => $this->sessions(self::GUARD)->satisfy($credential, $proof, self::requestClient())->isSignedIn(),
             function (ActivatableTenant $tenant): array {
 
                 $this->policy->requirement = new TenantRequirement('v2', connections: ['conn-a']);
@@ -307,7 +307,7 @@ final class ConcurrentPendingLocksTest extends TestCase
 
         [$first, $proof] = $this->pendingSession();
 
-        $active = $this->sessions(self::GUARD)->satisfy($first, $proof)->session;
+        $active = $this->sessions(self::GUARD)->satisfy($first, $proof, self::requestClient())->session;
 
         self::assertNotNull($active);
 
@@ -347,7 +347,7 @@ final class ConcurrentPendingLocksTest extends TestCase
         DB::beginTransaction();
 
         try {
-            $thrown = $this->sessions(self::GUARD)->satisfy($credential, $proof());
+            $thrown = $this->sessions(self::GUARD)->satisfy($credential, $proof(), self::requestClient());
         } catch (\Throwable $exception) {
             $thrown = $exception;
         }
@@ -365,7 +365,7 @@ final class ConcurrentPendingLocksTest extends TestCase
         self::assertSame($proofs, SessionProof::query()->count());
         self::assertSame('pending', DB::table('authentication_sessions')->where('id', $pending->id)->value('status'));
 
-        self::assertTrue(DB::transaction(fn (): bool => $this->sessions(self::GUARD)->satisfy($credential, $proof())->isSignedIn()));
+        self::assertTrue(DB::transaction(fn (): bool => $this->sessions(self::GUARD)->satisfy($credential, $proof(), self::requestClient())->isSignedIn()));
         self::assertSame(RevocationReason::SUPERSEDED->value, DB::table('authentication_sessions')->where('id', $proven)->value('revoked_reason'));
     }
 
@@ -397,7 +397,7 @@ final class ConcurrentPendingLocksTest extends TestCase
      */
     private function pendingSession(): array
     {
-        $result = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'));
+        $result = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);

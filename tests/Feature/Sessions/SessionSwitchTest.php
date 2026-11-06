@@ -6,7 +6,9 @@ namespace Tests\Feature\Sessions;
 
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
+use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
@@ -46,6 +48,9 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -116,6 +121,9 @@ final class SessionSwitchTest extends TestCase
     /** @var string Guard over `ActivatableTenantMember`. */
     private const string GUARD = 'members';
 
+    /** @var string Cookie application over `ActivatableTenantMember`. */
+    private const string BROWSER = 'browser_members';
+
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
 
@@ -139,8 +147,12 @@ final class SessionSwitchTest extends TestCase
         Route::post('/switch', static function (Request $request): array {
 
             $target = ActivatableTenantMembership::query()->findOrFail($request->integer('membership'));
-            $result = Auth::sessions(self::GUARD)->switchTo($request->string('refresh')->toString(), SwitchTarget::principal($target));
-            $guard  = app('auth')->guard(self::GUARD);
+            $result = Auth::sessions(self::GUARD)->switchTo(
+                PresentedRefreshToken::fromBody($request->string('refresh')->toString()),
+                SwitchTarget::principal($target),
+                self::requestClient(),
+            );
+            $guard = app('auth')->guard(self::GUARD);
 
             assert($guard instanceof JwtGuard);
 
@@ -153,7 +165,7 @@ final class SessionSwitchTest extends TestCase
             ];
         });
 
-        Route::post('/switch-from-request', static fn (Request $request): array => self::switchFromRequest($request));
+        Route::post('/switch-extracted', static fn (Request $request): array => self::switchRoute($request));
 
         Route::middleware('auth:' . self::GUARD)->get('/me', static fn (): array => ['principal' => Auth::principal()?->getPrincipalIdentifier()]);
         Route::middleware('auth:' . self::GUARD)->get('/tenant', static fn (): array => ['tenant' => IdentifierCoercion::stringify(Auth::tenant()?->getTenantIdentifier())]);
@@ -220,7 +232,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        $body = $this->postJson('/switch-from-request', ['refresh_token' => $session->tokens->refreshToken?->reveal(), 'membership' => $second->getKey()])
+        $body = $this->postJson('/switch-extracted', ['refresh_token' => $session->tokens->refreshToken?->reveal(), 'membership' => $second->getKey()])
             ->assertOk()
             ->assertJson(['outcome' => 'switched', 'reason' => null, 'source' => 'body']);
 
@@ -229,7 +241,7 @@ final class SessionSwitchTest extends TestCase
         Auth::forgetGuards();
 
         $this->withHeaders(['X-Refresh-Token' => $body->json('refresh')])
-            ->postJson('/switch-from-request', ['membership' => $first->getKey()])
+            ->postJson('/switch-extracted', ['membership' => $first->getKey()])
             ->assertOk()
             ->assertJson(['outcome' => 'switched', 'source' => 'header']);
     }
@@ -254,7 +266,7 @@ final class SessionSwitchTest extends TestCase
 
         Auth::forgetGuards();
 
-        $this->postJson('/switch-from-request', ['membership' => $second->getKey()])
+        $this->postJson('/switch-extracted', ['membership' => $second->getKey()])
             ->assertOk()
             ->assertExactJson(['outcome' => 'none', 'reason' => null, 'source' => null, 'refresh' => null]);
 
@@ -263,7 +275,7 @@ final class SessionSwitchTest extends TestCase
         Auth::forgetGuards();
 
         $this->withHeaders(['X-Refresh-Token' => $session->tokens->refreshToken?->reveal()])
-            ->postJson('/switch-from-request', ['refresh_token' => $session->tokens->refreshToken?->reveal(), 'membership' => $second->getKey()])
+            ->postJson('/switch-extracted', ['refresh_token' => $session->tokens->refreshToken?->reveal(), 'membership' => $second->getKey()])
             ->assertOk()
             ->assertJson(['outcome' => 'failed', 'reason' => 'refresh_token_conflict', 'source' => null]);
 
@@ -304,7 +316,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class, PrincipalSwitched::class, Login::class]);
 
-        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+        );
 
         self::assertTrue($result->isSwitched());
         self::assertFalse($result->isFailed());
@@ -364,7 +380,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(60);
 
-        $result = $this->sessions(self::GUARD)->switchTo($token, SwitchTarget::principal($second));
+        $result = $this->sessions(self::GUARD)->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($second), self::requestClient());
 
         self::assertTrue($result->isSwitched());
         self::assertTrue($result->session?->principal->is($second)); // @phpstan-ignore method.notFound
@@ -420,12 +436,16 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class]);
 
-        self::assertNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNull(
+            self::sessionsOf($this->freshGuard(self::GUARD))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(FailureReason::SESSION_PRINCIPAL_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($switched->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(
+            self::sessionsOf($this->freshGuard(self::GUARD))->refresh(PresentedRefreshToken::fromBody($switched->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
     }
 
     /**
@@ -448,7 +468,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class]);
 
-        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($first));
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($first),
+            self::requestClient(),
+        );
 
         self::assertTrue($result->isFailed());
         self::assertSame(FailureReason::ROTATION_REUSE, $result->reason);
@@ -490,7 +514,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class, AuthenticationFailed::class, SessionRevoked::class]);
 
-        $retried = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+        $retried = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+        );
 
         self::assertTrue($retried->isSwitched());
         self::assertTrue($retried->session?->principal->is($second)); // @phpstan-ignore method.notFound
@@ -499,7 +527,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(1);
 
-        $conflict = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($first));
+        $conflict = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($first),
+            self::requestClient(),
+        );
 
         self::assertSame(FailureReason::ROTATION_CONFLICT, $conflict->reason);
 
@@ -507,13 +539,22 @@ final class SessionSwitchTest extends TestCase
 
         self::assertSame(
             FailureReason::ROTATION_CONFLICT,
-            $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->reason,
+            $this->sessions(self::GUARD)->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->reason,
         );
 
         DB::table('authentication_sessions')->update(['switched_at' => $row['switched_at']]);
 
         $this->bearer($retried->session->tokens->accessToken->reveal())->assertOk()->assertExactJson(['principal' => $second->getKey()]);
-        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($retried->session->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(
+            self::sessionsOf($this->freshGuard(self::GUARD))->refresh(
+                PresentedRefreshToken::fromBody($retried->session->tokens->refreshToken?->reveal()),
+                self::requestClient(),
+            )->session,
+        );
         self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
     }
 
@@ -535,7 +576,13 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class]);
 
-        self::assertTrue($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue(
+            $this->sessions(self::GUARD)->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->isSwitched(),
+        );
 
         $event = $this->recordedEvent(PrincipalSwitched::class);
 
@@ -562,7 +609,13 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class]);
 
-        self::assertTrue($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue(
+            $this->sessions(self::GUARD)->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->isSwitched(),
+        );
 
         $event = $this->recordedEvent(PrincipalSwitched::class);
 
@@ -590,7 +643,11 @@ final class SessionSwitchTest extends TestCase
         $this->advance(5);
         $this->recordEvents([PrincipalSwitched::class]);
 
-        $switched = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::tenant(TenantSelection::none()));
+        $switched = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::tenant(TenantSelection::none()),
+            self::requestClient(),
+        );
 
         self::assertTrue($switched->isSwitched());
         self::assertNull(DB::table('authentication_sessions')->value('tenant_id'));
@@ -599,7 +656,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        $retried = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::tenant(TenantSelection::none()));
+        $retried = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::tenant(TenantSelection::none()),
+            self::requestClient(),
+        );
 
         self::assertTrue($retried->isSwitched());
         self::assertNull(DB::table('authentication_sessions')->value('tenant_id'));
@@ -644,16 +705,26 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(
+            self::sessionsOf($this->freshGuard(self::GUARD))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
 
-        $own = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($first));
+        $own = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($first),
+            self::requestClient(),
+        );
 
         self::assertTrue($own->isSwitched());
         self::assertTrue($own->session?->principal->is($first)); // @phpstan-ignore method.notFound
 
         self::assertSame(
             FailureReason::ROTATION_CONFLICT,
-            $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->reason,
+            $this->sessions(self::GUARD)->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->reason,
         );
     }
 
@@ -675,7 +746,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class]);
 
-        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($first));
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($first),
+            self::requestClient(),
+        );
 
         self::assertTrue($result->isSwitched());
         self::assertSame([], $this->recordedClasses());
@@ -797,7 +872,11 @@ final class SessionSwitchTest extends TestCase
         config()->set('authentication.session.model', IdentifierTypeOmittingSession::class);
 
         try {
-            $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+            $this->sessions(self::GUARD)->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            );
 
             self::fail('The switch read a session without its identifier type.');
         } catch (\LogicException $exception) {
@@ -962,7 +1041,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, PrincipalSwitched::class, SessionReturnedToPending::class, SessionRevoked::class]);
 
-        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+        );
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame(FailureReason::TENANT_INACTIVE, $result->reason);
@@ -1228,7 +1311,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class]);
 
-        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+        );
 
         self::assertTrue($ran);
         self::assertTrue($result->isFailed());
@@ -1328,7 +1415,13 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(599);
 
-        self::assertNotNull($this->sessions(self::GUARD)->switchTo($later->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->session);
+        self::assertNotNull(
+            $this->sessions(self::GUARD)->switchTo(
+                PresentedRefreshToken::fromBody($later->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->session,
+        );
 
         $latest = $this->signIn();
 
@@ -1483,7 +1576,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $blocked = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+        $blocked = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+        );
 
         self::assertSame(FailureReason::RATE_LIMITED, $blocked->reason);
         self::assertSame(42, $blocked->retryAfter);
@@ -1503,7 +1600,11 @@ final class SessionSwitchTest extends TestCase
 
         self::assertSame(
             FailureReason::SESSION_REVOKED,
-            $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->reason,
+            $this->sessions(self::GUARD)->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->reason,
         );
     }
 
@@ -1555,7 +1656,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class, Login::class]);
 
-        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::tenant(TenantSelection::of($descendant->getKey())),
+            self::requestClient(),
+        );
 
         self::assertTrue($result->isSwitched());
         self::assertTrue($result->session?->principal->is($first)); // @phpstan-ignore method.notFound
@@ -1605,7 +1710,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class]);
 
-        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second, TenantSelection::of($descendant->getKey())));
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second, TenantSelection::of($descendant->getKey())),
+            self::requestClient(),
+        );
 
         self::assertTrue($result->session?->principal->is($second)); // @phpstan-ignore method.notFound
 
@@ -1691,7 +1800,10 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(1);
 
-        $refreshed = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($back->tokens->refreshToken?->reveal())->session;
+        $refreshed = self::sessionsOf($this->freshGuard(self::GUARD))->refresh(
+            PresentedRefreshToken::fromBody($back->tokens->refreshToken?->reveal()),
+            self::requestClient(),
+        )->session;
 
         self::assertNotNull($refreshed);
 
@@ -1718,7 +1830,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class]);
 
-        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::tenant(TenantSelection::of($own->getKey())));
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::tenant(TenantSelection::of($own->getKey())),
+            self::requestClient(),
+        );
 
         self::assertTrue($result->isSwitched());
         self::assertSame([], $this->recordedClasses());
@@ -1881,7 +1997,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([SessionReturnedToPending::class, PrincipalSwitched::class, Authenticated::class]);
 
-        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+        );
 
         self::assertTrue($result->isPending());
         self::assertFalse($result->isSwitched());
@@ -1906,14 +2026,21 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::SESSION_PENDING, self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken?->reveal())->reason);
+        self::assertSame(
+            FailureReason::SESSION_PENDING,
+            self::sessionsOf($this->freshGuard(self::GUARD))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->reason,
+        );
         self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
 
         $this->advance(1);
 
         $this->recordEvents([SessionActivated::class]);
 
-        $active = $this->sessions(self::GUARD)->satisfy($result->credential->reveal(), self::adapterProof($member, self::GUARD, $result->pending->id, Purpose::SIGN_IN));
+        $active = $this->sessions(self::GUARD)->satisfy(
+            $result->credential->reveal(),
+            self::adapterProof($member, self::GUARD, $result->pending->id, Purpose::SIGN_IN),
+            self::requestClient(),
+        );
 
         self::assertTrue($active->isSignedIn());
         self::assertNotNull($active->session);
@@ -1952,7 +2079,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+        );
 
         self::assertNotNull($result->credential);
         self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $result->pending?->requirement->kinds());
@@ -1966,7 +2097,9 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($retried->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(
+            self::sessionsOf($this->freshGuard(self::GUARD))->refresh(PresentedRefreshToken::fromBody($retried->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
 
         $this->advance(1);
 
@@ -1974,7 +2107,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->scriptPolicy([IdentifierCoercion::stringify($own->getKey()) ?? '' => new TenantRequirement('v2', new Requirement(phishingResistance: new RequirementPart))]);
 
-        $returned = $this->sessions(self::GUARD)->switchTo($retried->tokens->refreshToken?->reveal(), SwitchTarget::tenant(TenantSelection::principalDefault()));
+        $returned = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($retried->tokens->refreshToken?->reveal()),
+            SwitchTarget::tenant(TenantSelection::principalDefault()),
+            self::requestClient(),
+        );
 
         self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::PHISHING_RESISTANCE], $returned->pending?->requirement->kinds());
     }
@@ -2003,7 +2140,9 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        self::assertTrue($service->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isPending());
+        self::assertTrue(
+            $service->switchTo(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), SwitchTarget::principal($second), self::requestClient())->isPending(),
+        );
         self::assertFalse($guard->hasUser());
         self::assertNull($guard->user());
         self::assertNull($guard->principal());
@@ -2037,7 +2176,9 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        self::assertTrue($service->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue(
+            $service->switchTo(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), SwitchTarget::principal($second), self::requestClient())->isSwitched(),
+        );
 
         DB::commit();
 
@@ -2071,7 +2212,13 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        self::assertTrue($service->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::tenant(TenantSelection::none()))->isSwitched());
+        self::assertTrue(
+            $service->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::tenant(TenantSelection::none()),
+                self::requestClient(),
+            )->isSwitched(),
+        );
 
         DB::commit();
 
@@ -2161,7 +2308,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([PrincipalSwitched::class, AuthenticationFailed::class]);
 
-        $retried = $this->sessions(self::GUARD)->switchTo($away->tokens->refreshToken?->reveal(), SwitchTarget::principal($first));
+        $retried = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($away->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($first),
+            self::requestClient(),
+        );
 
         self::assertTrue($retried->isSwitched());
         self::assertTrue($first->is($retried->session?->principal));
@@ -2190,7 +2341,9 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(
+            self::sessionsOf($this->freshGuard(self::GUARD))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
 
         $this->advance(1);
 
@@ -2209,7 +2362,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->recordEvents([SessionReturnedToPending::class, PrincipalSwitched::class]);
 
-        $returned = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), $target);
+        $returned = $this->sessions(self::GUARD)->switchTo(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), $target, self::requestClient());
 
         self::assertTrue($returned->isPending());
         self::assertSame([RequirementKind::PHISHING_RESISTANCE], $returned->pending?->requirement->kinds());
@@ -2248,7 +2401,13 @@ final class SessionSwitchTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(self::sessionsOf($guard)->switchTo((string) $session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue(
+            self::sessionsOf($guard)->switchTo(
+                PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->isSwitched(),
+        );
         self::assertSame([], $this->recordedClasses());
 
         DB::rollBack();
@@ -2285,7 +2444,13 @@ final class SessionSwitchTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->sessions(self::GUARD)->switchTo((string) $session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue(
+            $this->sessions(self::GUARD)->switchTo(
+                PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->isSwitched(),
+        );
         self::assertSame([], $this->recordedClasses());
 
         try {
@@ -2297,6 +2462,339 @@ final class SessionSwitchTest extends TestCase
 
         self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
         self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('authentication_sessions')->value('principal_id')));
+    }
+
+    /**
+     * A cookie application switches from plain values: the token presented from
+     * its cookie and a same-site client, on a guard whose own request is
+     * cross-site, from another address and carries no cookie. The result
+     * carries the cookie that sets the new refresh token, never the token, and
+     * that cookie switches again; the switch, the guard's bind and so the
+     * session's last use describe the client given, not the guard's request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationSwitchesFromPlainValues(): void
+    {
+        config()->set('authentication.session.last_used_throttle_seconds', 0);
+
+        [$first, $second] = $this->seedMemberships();
+
+        $session = $this->signInWithCookie();
+        $client  = self::sameSiteClient();
+
+        $this->advance(5);
+
+        $guard = $this->crossSiteGuard(self::BROWSER);
+
+        $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class, PrincipalSwitched::class, PrincipalAssigned::class, SessionAuthenticated::class]);
+
+        $result = self::sessionsOf($guard)->switchTo(self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE), SwitchTarget::principal($second), $client);
+
+        self::assertNotNull($result);
+        self::assertTrue($result->isSwitched());
+        self::assertSame(RefreshTokenSource::COOKIE, $result->source);
+
+        $switched = $result->session;
+
+        self::assertNotNull($switched);
+        self::assertNull($switched->tokens->refreshToken);
+        self::assertSame(['__Host-' . self::BROWSER . '_refresh_token', '/'], [$switched->tokens->refreshCookie?->name, $switched->tokens->refreshCookie?->path]);
+        self::assertEqualsCanonicalizing([PrincipalSwitched::class, PrincipalAssigned::class, SessionAuthenticated::class], $this->recordedClasses());
+        self::assertSame($client, $this->recordedEvent(PrincipalSwitched::class)->context->client);
+        self::assertSame($client, $this->recordedEvent(PrincipalAssigned::class)->context->client);
+        self::assertSame($client, $this->recordedEvent(SessionAuthenticated::class)->context->client);
+        self::assertSame($second->getKey(), $guard->principal()?->getPrincipalIdentifier());
+
+        $record = DB::table('authentication_sessions')->sole();
+
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], [$record->last_used_ip, $record->last_used_user_agent]);
+
+        $this->advance(5);
+
+        $again = self::presentedToken(self::cookieTokenOf($switched), RefreshTokenSource::COOKIE);
+
+        self::assertTrue($this->sessions(self::BROWSER)->switchTo($again, SwitchTarget::principal($first), $client)->isSwitched());
+    }
+
+    /**
+     * Rows of `[what is presented, built from the session's cookie token; the
+     * client; the reason; the source]` a cookie application's switch refuses
+     * before any session is read.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(string): (\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken), 1: \SineMacula\Laravel\Authentication\Http\ClientContext, 2: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason, 3: ?\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideRefusedPlainSwitches(): iterable
+    {
+        $cookie = RefreshTokenSource::COOKIE;
+
+        yield 'the cookie from a cross-site client' => [static fn (string $token): PresentedRefreshToken => self::presentedToken(
+            $token,
+            $cookie,
+        ), self::crossSiteClient(), FailureReason::CROSS_SITE_REQUEST, $cookie];
+        yield 'the cookie twice' => [static fn (string $token): PresentedRefreshToken => self::presentedToken(
+            $token,
+            $cookie,
+            [$cookie, $cookie],
+        ), self::sameSiteClient(), FailureReason::REFRESH_TOKEN_CONFLICT, $cookie];
+        yield 'the cookie and the body' => [static fn (string $token): PresentedRefreshToken => self::presentedToken(
+            $token,
+            $cookie,
+            [$cookie, RefreshTokenSource::BODY],
+        ), self::sameSiteClient(), FailureReason::REFRESH_TOKEN_CONFLICT, $cookie];
+        yield 'a token from the body' => [static fn (string $token): PresentedRefreshToken => PresentedRefreshToken::fromBody(
+            $token,
+        ), self::sameSiteClient(), FailureReason::REFRESH_TRANSPORT_MISMATCH, RefreshTokenSource::BODY];
+        yield 'a conflict handed in' => [static fn (): FailureReason => FailureReason::REFRESH_TOKEN_CONFLICT, self::sameSiteClient(), FailureReason::REFRESH_TOKEN_CONFLICT, null];
+        yield 'an invalid token handed in' => [static fn (): FailureReason => FailureReason::TOKEN_INVALID, self::sameSiteClient(), FailureReason::TOKEN_INVALID, null];
+    }
+
+    /**
+     * A cookie application's switch from plain values refuses, before any
+     * session is read, a cookie from a client the same-site check refuses (the
+     * guard's own request being same-site and carrying the cookie), a token in
+     * more than one carrier, one from another carrier, and a reason the
+     * extraction answered: `AuthenticationFailed` (flow `switch`) reports it
+     * with the client given, and neither `Attempting` nor `Failed`, as no
+     * switch ever has; the session is left as it was.
+     *
+     * @param  \Closure(string): (\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken)  $presented
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  ?\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideRefusedPlainSwitches')]
+    public function testACookieApplicationsPlainSwitchIsJudgedBeforeTheSession(\Closure $presented, ClientContext $client, FailureReason $reason, ?RefreshTokenSource $source): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signInWithCookie();
+        $token   = self::cookieTokenOf($session);
+        $before  = (array) DB::table('authentication_sessions')->sole();
+
+        app()->instance('request', Request::create('/auth/switch', 'POST', [], ['__Host-' . self::BROWSER . '_refresh_token' => $token], [], [
+            'HTTP_ORIGIN'           => 'http://localhost',
+            'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest',
+        ]));
+
+        Auth::forgetGuards();
+
+        $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class]);
+
+        $result = Auth::sessions(self::BROWSER)->switchTo($presented($token), SwitchTarget::principal($second), $client);
+
+        self::assertNotNull($result);
+        self::assertSame([$reason, null, $source], [$result->reason, $result->retryAfter, $result->source]);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+
+        $failure = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([AuthenticationFlow::SWITCH, $reason, self::BROWSER], [$failure->flow, $failure->reason, $failure->context->guard]);
+        self::assertSame($client, $failure->context->client);
+        self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
+    }
+
+    /**
+     * Nothing presented switches nothing and reports nothing, on either
+     * application; a reason the extraction never answers, handed in, is the
+     * caller's error, `cross_site_request` included, and throws before anything
+     * is dispatched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainSwitchOfNothingOrOfAForeignReason(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class, PrincipalSwitched::class]);
+
+        foreach ([self::BROWSER, self::GUARD] as $guard) {
+
+            self::assertNull($this->sessions($guard)->switchTo(null, SwitchTarget::principal($second), self::sameSiteClient()));
+
+            foreach ([FailureReason::CROSS_SITE_REQUEST, FailureReason::RATE_LIMITED, FailureReason::ROTATION_REUSE] as $reason) {
+                try {
+                    $this->sessions($guard)->switchTo($reason, SwitchTarget::principal($second), self::sameSiteClient());
+
+                    self::fail("A switch took {$reason->value} as what the transport extracted.");
+                } catch (\InvalidArgumentException $exception) {
+                    self::assertStringContainsString("`{$reason->value}`", $exception->getMessage());
+                }
+            }
+        }
+
+        self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * A replayed cookie token after the grace window revokes the session as
+     * `rotation_reuse`, and the revocation and the refusal are reported with
+     * the client given, not the guard's cross-site request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainSwitchReplayIsReportedWithTheClientGiven(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $session = $this->signInWithCookie();
+        $old     = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
+        $client  = self::sameSiteClient();
+
+        $this->advance(5);
+
+        self::assertTrue($this->sessions(self::BROWSER)->switchTo($old, SwitchTarget::principal($second), $client)->isSwitched());
+
+        $this->advance(31);
+
+        $guard = $this->crossSiteGuard(self::BROWSER);
+
+        $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class]);
+
+        $result = self::sessionsOf($guard)->switchTo($old, SwitchTarget::principal($first), $client);
+
+        self::assertSame([FailureReason::ROTATION_REUSE, RefreshTokenSource::COOKIE], [$result->reason, $result->source]);
+        self::assertSame([SessionRevoked::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame($client, $this->recordedEvent(SessionRevoked::class)->context->client);
+        self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+        self::assertSame('rotation_reuse', DB::table('authentication_sessions')->value('revoked_reason'));
+    }
+
+    /**
+     * A plain switch to a destination asking for a further factor returns the
+     * session to pending, and `SessionReturnedToPending` describes the client
+     * given; nothing is bound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainSwitchReturnedToPendingIsReportedWithTheClientGiven(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $this->scriptPolicy([IdentifierCoercion::stringify($second->tenant_id) => new TenantRequirement('v1', new Requirement(multifactor: new RequirementPart))]);
+
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $session = $this->signInWithCookie();
+        $client  = self::sameSiteClient();
+
+        $this->advance(5);
+
+        $guard = $this->crossSiteGuard(self::BROWSER);
+
+        $this->recordEvents([SessionReturnedToPending::class, PrincipalAssigned::class]);
+
+        $result = self::sessionsOf($guard)->switchTo(self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE), SwitchTarget::principal($second), $client);
+
+        self::assertTrue($result->isPending());
+        self::assertNotNull($result->credential);
+        self::assertSame([SessionReturnedToPending::class], $this->recordedClasses());
+        self::assertSame($client, $this->recordedEvent(SessionReturnedToPending::class)->context->client);
+        self::assertSame(AuthenticationFlow::SWITCH, $this->recordedEvent(SessionReturnedToPending::class)->flow);
+        self::assertFalse($guard->hasUser());
+    }
+
+    /**
+     * A plain switch is limited by the client's IP address, not the guard's
+     * request's, and by the token's session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainSwitchIsLimitedByTheClientsAddress(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session   = $this->signInWithCookie();
+        $sessionId = IdentifierCoercion::stringify($session->record->getSessionIdentifier());
+        $client    = self::sameSiteClient();
+        $limiter   = \Mockery::mock(AttemptLimiter::class);
+
+        $limiter->shouldReceive('blocked')
+            ->once()
+            ->with(
+                \Mockery::on(
+                    static fn (AttemptSubject $subject): bool => $subject->flow === AttemptFlow::REFRESH && $subject->ip === self::PLAIN_IP && $subject->identifier === $sessionId,
+                ),
+            )
+            ->andReturn(42);
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $result = self::sessionsOf($this->crossSiteGuard(self::BROWSER))->switchTo(
+            self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE),
+            SwitchTarget::principal($second),
+            $client,
+        );
+
+        self::assertSame([FailureReason::RATE_LIMITED, 42], [$result->reason, $result->retryAfter]);
+        self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+    }
+
+    /**
+     * Inside a caller's transaction a plain switch reports and binds only once
+     * it commits, with the client given; one that rolls back reports and binds
+     * nothing, and leaves the session as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPlainSwitchWaitsForTheCallersCommit(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signInWithCookie();
+        $token   = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
+        $client  = self::sameSiteClient();
+        $before  = (array) DB::table('authentication_sessions')->sole();
+
+        $this->advance(5);
+
+        $guard = $this->crossSiteGuard(self::BROWSER);
+
+        $this->recordEvents([PrincipalSwitched::class, PrincipalAssigned::class]);
+
+        DB::beginTransaction();
+
+        self::assertTrue(self::sessionsOf($guard)->switchTo($token, SwitchTarget::principal($second), $client)->isSwitched());
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertFalse($guard->hasUser());
+        self::assertEquals($before, (array) DB::table('authentication_sessions')->sole());
+
+        DB::transaction(function () use ($guard, $token, $second, $client): void {
+            self::assertTrue(self::sessionsOf($guard)->switchTo($token, SwitchTarget::principal($second), $client)->isSwitched());
+            self::assertSame([], $this->recordedClasses());
+        });
+
+        self::assertEqualsCanonicalizing([PrincipalSwitched::class, PrincipalAssigned::class], $this->recordedClasses());
+        self::assertSame($client, $this->recordedEvent(PrincipalAssigned::class)->context->client);
+        self::assertSame($second->getKey(), $guard->principal()?->getPrincipalIdentifier());
     }
 
     /**
@@ -2312,22 +2810,53 @@ final class SessionSwitchTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('auth.guards.' . self::BROWSER, [
+            'driver'        => 'jwt',
+            'provider'      => 'members',
+            'application'   => ['methods' => ['password']],
+            'refresh_token' => ['transport' => 'cookie', 'cookie' => ['path' => '/']],
+        ]);
+    }
+
+    /**
+     * Sign the member in as its default membership on the cookie application,
+     * from a page of its own site.
+     *
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
+     *
+     * @throws \Throwable
+     */
+    private function signInWithCookie(): SignedInSession
+    {
+        $member   = ActivatableTenantMember::query()->where('email', 'member@example.test')->firstOrFail();
+        $sessions = $this->sessions(self::BROWSER);
+        $context  = SignInContext::fromRequest(request(), principal: $member->resolveDefaultPrincipal());
+        $session  = $sessions->signIn('password', self::credentials('member@example.test'), $context)->session;
+
+        self::assertNotNull($session);
+
+        return $session;
     }
 
     /**
      * Switch to the membership named with the refresh token the request
-     * carries, and answer with the outcome, its reason and source, and the new
-     * refresh token.
+     * carries, as a controller does: the token the transport extracts and the
+     * request's client, handed on as plain values; and answer with the outcome,
+     * its reason and source, and the new refresh token.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return array<string, ?string>
      *
      * @throws \Throwable
      */
-    private static function switchFromRequest(Request $request): array
+    private static function switchRoute(Request $request): array
     {
-        $result = Auth::sessions(self::GUARD)->switchFromRequest(SwitchTarget::principal(ActivatableTenantMembership::query()->findOrFail($request->integer('membership'))));
+        $target = SwitchTarget::principal(ActivatableTenantMembership::query()->findOrFail($request->integer('membership')));
+        $result = Auth::sessions(self::GUARD)->switchTo(Auth::refreshTransport(self::GUARD)->extract($request), $target, ClientContext::fromRequest($request));
 
         return [
             'outcome' => $result === null ? 'none' : ($result->isSwitched() ? 'switched' : 'failed'),
@@ -2392,7 +2921,11 @@ final class SessionSwitchTest extends TestCase
      */
     private function switched(SignedInSession $session, ActivatableTenantMembership $target): SignedInSession
     {
-        $switched = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target))->session;
+        $switched = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($target),
+            self::requestClient(),
+        )->session;
 
         self::assertNotNull($switched);
 
@@ -2415,7 +2948,11 @@ final class SessionSwitchTest extends TestCase
     {
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $result = $this->sessions(self::GUARD)->switchTo($token ?? $session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target));
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($token ?? $session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($target),
+            self::requestClient(),
+        );
 
         self::assertTrue($result->isFailed());
         self::assertFalse($result->isSwitched());
@@ -2543,7 +3080,7 @@ final class SessionSwitchTest extends TestCase
     private function failedSwitch(#[\SensitiveParameter] string $refreshToken, Principal $principal): string
     {
         try {
-            $this->sessions(self::GUARD)->switchTo($refreshToken, SwitchTarget::principal($principal));
+            $this->sessions(self::GUARD)->switchTo(PresentedRefreshToken::fromBody($refreshToken), SwitchTarget::principal($principal), self::requestClient());
         } catch (\RuntimeException $exception) {
             return $exception->getMessage();
         }
@@ -2637,7 +3174,7 @@ final class SessionSwitchTest extends TestCase
      */
     private function switchedTo(string $refreshToken, SwitchTarget $target): SignedInSession
     {
-        $switched = $this->sessions(self::GUARD)->switchTo($refreshToken, $target)->session;
+        $switched = $this->sessions(self::GUARD)->switchTo(PresentedRefreshToken::fromBody($refreshToken), $target, self::requestClient())->session;
 
         self::assertNotNull($switched);
 
@@ -2659,7 +3196,7 @@ final class SessionSwitchTest extends TestCase
     {
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), $target);
+        $result = $this->sessions(self::GUARD)->switchTo(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), $target, self::requestClient());
 
         self::assertTrue($result->isFailed());
         self::assertSame($reason, $result->reason);

@@ -12,18 +12,19 @@ to these events, so the shape and the timing are a contract.
   (`context()` returns it), so one listener on the contract receives them all. Laravel's own auth events (`Attempting`,
   `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) do not.
 - A context holds the guard (`null` only for a session that records none, or a verification link refused before its
-  guard could be trusted), the client of the request being served (`ClientContext`: the IP address and user agent,
-  cleaned, and the same-site facts a cookie application's checks judge: the `Origin` presented, the request's own scheme
-  and host, and the names of the headers it carried with a value, never their values), and, as far as the flow
-  established them, the identity, the principal, the tenant it acts within and the session, each by morph class and
-  identifier only, and the sign-in method (for a session's events, the method it records). Where a credential is
-  involved it also holds the credential's id (`credentialId`: an API key's or a passkey's id) and the scopes it grants
-  (`scopes`: the granted list for an API key or a client credentials token, `[]` for a machine bound without one, `null`
-  for a human identity's session). A redeemed external result's own events (`ExternalResultRedeemed`, and a refused
-  redemption's `AuthenticationFailed` and `ExternalResultUnlinked`) also hold the connection (`connectionId`) and the
-  authorisation request's public reference (`requestReference`, when the result had one), so a listener correlates them
-  with the provider-side completion; the session events a redemption causes do not, and correlate with
-  `ExternalResultRedeemed` by the session's identifier. A part that was not established is `null`.
+  guard could be trusted), the client given (`ClientContext`, the one a flow was given as a plain value, or the guard's
+  request's for the flows that take none: the IP address and user agent, cleaned, and the same-site facts a cookie
+  application's checks judge: the `Origin` presented, the request's own scheme and host, and the names of the headers it
+  carried with a value, never their values), and, as far as the flow established them, the identity, the principal, the
+  tenant it acts within and the session, each by morph class and identifier only, and the sign-in method (for a
+  session's events, the method it records). Where a credential is involved it also holds the credential's id
+  (`credentialId`: an API key's or a passkey's id) and the scopes it grants (`scopes`: the granted list for an API key
+  or a client credentials token, `[]` for a machine bound without one, `null` for a human identity's session). A
+  redeemed external result's own events (`ExternalResultRedeemed`, and a refused redemption's `AuthenticationFailed` and
+  `ExternalResultUnlinked`) also hold the connection (`connectionId`) and the authorisation request's public reference
+  (`requestReference`, when the result had one), so a listener correlates them with the provider-side completion; the
+  session events a redemption causes do not, and correlate with `ExternalResultRedeemed` by the session's identifier. A
+  part that was not established is `null`.
 - A context snapshots, when it is built, when (`occurredAt`, a `CarbonImmutable` to the microsecond), and, as strings,
   the identity's morph class (an Eloquent model's morph class, else its class name; the class name too for a model an
   enforced morph map leaves out, so building a context never throws `ClassMorphViolationException` for a tenant that
@@ -135,11 +136,10 @@ to these events, so the shape and the timing are a contract.
   scope's identity (for a principal's scope, its owner read afresh, or none when that cannot be read), the principal
   scope or none, the kept session, the reason, the count and the cutoff it set (none when an access-only token kept the
   identity's cutoff), all after the session transaction commits (see `session-lifecycle.md`).
-- Verification: `IdentifierVerified` carries the identity, the guard it was made for, and the client the caller passed,
-  or the client of the request being served. A refused verification link's `AuthenticationFailed` carries the guard only
-  once the link's signature is correct and it names a configured JWT guard, and the identity only once it was loaded to
-  check the link's digest: an unsigned claim is never taken as context, and no identity is read only to report a
-  refusal.
+- Verification: `IdentifierVerified` carries the identity, the guard it was made for, and the client given. A refused
+  verification link's `AuthenticationFailed` carries the guard only once the link's signature is correct and it names a
+  configured JWT guard, and the identity only once it was loaded to check the link's digest: an unsigned claim is never
+  taken as context, and no identity is read only to report a refusal.
 - Credentials: `PasskeyAdded`, `PasskeyUsed` and `PasskeyRemoved` carry the owner, the method `passkey` and the
   passkey's id, after the passkey row's connection commits (see `passkeys.md`); `ApiKeyIssued`, `ApiKeyRotated` (with
   the replaced key's id) and `ApiKeyRevoked` carry the key's owner, principal, tenant, id and scopes, after the key's

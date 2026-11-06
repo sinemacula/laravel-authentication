@@ -107,7 +107,7 @@ final class ContextForgettingTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        self::assertTrue(Auth::sessions('api')->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+        self::assertTrue(Auth::sessions('api')->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()), self::requestClient())->isIssued());
 
         $after = Auth::context();
 
@@ -135,7 +135,7 @@ final class ContextForgettingTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(Auth::sessions('api')->stepUp($proof)->isIssued());
+        self::assertTrue(Auth::sessions('api')->stepUp($proof, self::requestClient())->isIssued());
         self::assertSame($before, $guard->authenticationContext());
 
         DB::rollBack();
@@ -147,7 +147,7 @@ final class ContextForgettingTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(Auth::sessions('api')->stepUp($proof)->isIssued());
+        self::assertTrue(Auth::sessions('api')->stepUp($proof, self::requestClient())->isIssued());
         self::assertSame($rolledBack, $guard->authenticationContext());
 
         DB::commit();
@@ -173,7 +173,7 @@ final class ContextForgettingTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(Auth::sessions('api')->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+        self::assertTrue(Auth::sessions('api')->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()), self::requestClient())->isIssued());
 
         $inside = Auth::context();
 
@@ -205,7 +205,7 @@ final class ContextForgettingTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(Auth::sessions('api')->reauthenticate($signedIn->record, 'password', self::credentials())->isIssued());
+        self::assertTrue(Auth::sessions('api')->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient())->isIssued());
         self::assertSame($this->now->addMinutes(5)->getTimestamp(), self::authTimeOf($guard));
 
         DB::rollBack();
@@ -231,7 +231,7 @@ final class ContextForgettingTest extends TestCase
         DB::beginTransaction();
         DB::beginTransaction();
 
-        self::assertTrue(Auth::sessions('api')->stepUp($proof)->isIssued());
+        self::assertTrue(Auth::sessions('api')->stepUp($proof, self::requestClient())->isIssued());
         self::assertTrue($guard->authenticationContext()?->mfa);
 
         DB::commit();
@@ -244,7 +244,7 @@ final class ContextForgettingTest extends TestCase
         DB::beginTransaction();
         DB::beginTransaction();
 
-        self::assertTrue(Auth::sessions('api')->stepUp($proof)->isIssued());
+        self::assertTrue(Auth::sessions('api')->stepUp($proof, self::requestClient())->isIssued());
         self::assertTrue($guard->authenticationContext()?->mfa);
 
         DB::rollBack();
@@ -269,7 +269,7 @@ final class ContextForgettingTest extends TestCase
     public function testEveryResolvedGuardBoundToTheSessionForgetsItsContext(): void
     {
         $signedIn = $this->signedIn();
-        $another  = $this->sessions()->signIn('password', self::credentials())->session;
+        $another  = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($another);
 
@@ -285,7 +285,7 @@ final class ContextForgettingTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(Auth::sessions('api')->stepUp($proof)->isIssued());
+        self::assertTrue(Auth::sessions('api')->stepUp($proof, self::requestClient())->isIssued());
         self::assertSame($held, [$api->authenticationContext(), $admin->authenticationContext(), $elsewhere->authenticationContext()]);
 
         DB::rollBack();
@@ -297,7 +297,7 @@ final class ContextForgettingTest extends TestCase
         self::assertEquals([$held[0], $held[1]], $rolledBack);
         self::assertSame($held[2], $elsewhere->authenticationContext());
 
-        self::assertTrue(Auth::sessions('api')->stepUp($proof)->isIssued());
+        self::assertTrue(Auth::sessions('api')->stepUp($proof, self::requestClient())->isIssued());
         self::assertSame([true, true], [$api->authenticationContext()?->mfa, $admin->authenticationContext()?->mfa]);
         self::assertSame(['api', 'admin'], [$api->authenticationContext()?->application, $admin->authenticationContext()?->application]);
         self::assertSame($held[2], $elsewhere->authenticationContext());
@@ -338,7 +338,7 @@ final class ContextForgettingTest extends TestCase
         $this->clockAt($this->now->addMinutes(5));
 
         $through        = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->now->addMinutes(5));
-        $reauthenticate = static fn (): AccessTokenResult => Auth::sessions('members')->reauthenticateExternally($signedIn->record->getKey(), $through);
+        $reauthenticate = static fn (): AccessTokenResult => Auth::sessions('members')->reauthenticateExternally($signedIn->record->getKey(), $through, self::requestClient());
         $thrown         = static function () use ($reauthenticate): string {
             try {
                 $reauthenticate();
@@ -406,7 +406,7 @@ final class ContextForgettingTest extends TestCase
         config()->set('auth.guards.7', config('auth.guards.api'));
 
         self::assertArrayHasKey(7, config('auth.guards'));
-        self::assertTrue(Auth::sessions('api')->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()))->isIssued());
+        self::assertTrue(Auth::sessions('api')->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()), self::requestClient())->isIssued());
         self::assertTrue($guard->authenticationContext()->mfa);
     }
 
@@ -453,7 +453,7 @@ final class ContextForgettingTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(5));
 
-        self::assertTrue(Auth::sessions('api')->reauthenticate($signedIn->record, 'password', self::credentials())->isIssued());
+        self::assertTrue(Auth::sessions('api')->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient())->isIssued());
         self::assertSame($this->now->addMinutes(5)->getTimestamp(), self::authTimeOf($guard));
     }
 
@@ -468,7 +468,7 @@ final class ContextForgettingTest extends TestCase
     public function testAnExternalReauthenticationMovesTheContextsAuthenticationTime(): void
     {
         $identity = $this->seedIdentity();
-        $signedIn = $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->now))->session;
+        $signedIn = $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->now), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 
@@ -479,7 +479,7 @@ final class ContextForgettingTest extends TestCase
         $this->clockAt($this->now->addMinutes(5));
 
         $through = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->now->addMinutes(5));
-        $result  = Auth::sessions('api')->reauthenticateExternally($signedIn->record->getKey(), $through);
+        $result  = Auth::sessions('api')->reauthenticateExternally($signedIn->record->getKey(), $through, self::requestClient());
 
         self::assertTrue($result->isIssued());
         self::assertSame($this->now->addMinutes(5)->getTimestamp(), self::authTimeOf($guard));
@@ -512,7 +512,7 @@ final class ContextForgettingTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

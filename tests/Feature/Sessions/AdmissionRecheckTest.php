@@ -330,7 +330,7 @@ final class AdmissionRecheckTest extends TestCase
     public function testAnIdentityThatIsItsOwnPrincipalIsReadOnce(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signIn('password', self::credentials())->session;
+        $session  = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -1416,7 +1416,7 @@ final class AdmissionRecheckTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = $this->sessions(self::GUARD)->signIn('password', self::credentials('rechecked@example.test'))->session;
+        $session = $this->sessions(self::GUARD)->signIn('password', self::credentials('rechecked@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 

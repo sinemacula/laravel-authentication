@@ -312,15 +312,16 @@ return [
     | `require_verified_identifier` refuses a sign-in with an identifier (an
     | email address, say) the identity has not verified; sign-ins that use no
     | identifier, such as SSO, are not affected. `client_secret_post` lets a
-    | client credentials exchange read the client's id and secret from the
-    | request body; off, only HTTP Basic is accepted (RFC 6749 requires every
-    | server to accept it) and body credentials are refused as
-    | `invalid_client`. A malformed value, or an unknown key, fails closed with
-    | an `InvalidArgumentException` naming the guard and the key when the
-    | guard's policy is first used. Which principals may use an application,
-    | and which tenants they may act in, are not settings here but the
-    | `ApplicationAccess` and `TenantAccess` contracts: by default any
-    | principal may use any application, in its own tenant only.
+    | client credentials exchange accept a client authenticated in the form
+    | body (`client_secret_post`); off, only HTTP Basic is accepted (RFC 6749
+    | requires every server to accept it) and a client authenticated in the
+    | body is refused as `invalid_client`, however its `PresentedClient` was
+    | built. A malformed value, or an unknown key, fails closed with an
+    | `InvalidArgumentException` naming the guard and the key when the guard's
+    | policy is first used. Which principals may use an application, and which
+    | tenants they may act in, are not settings here but the `ApplicationAccess`
+    | and `TenantAccess` contracts: by default any principal may use any
+    | application, in its own tenant only.
     |
     */
 

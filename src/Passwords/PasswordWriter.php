@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -22,7 +23,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 /**
  * Writes a password the policy accepted: hashes it with Laravel's hasher, then,
  * in one transaction on the identity's connection, stores the hash and ends the
- * sessions the flow ends, and reports `PasswordSet` once that commits.
+ * sessions the flow ends, and reports `PasswordSet` once that commits. Every
+ * report, the revocations' among them, carries the client given.
  *
  * An identity already stored gets one query-builder update of its password
  * column (and `updated_at`, when the model keeps timestamps) on its own row,
@@ -83,8 +85,8 @@ final readonly class PasswordWriter
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
      * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return int
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -95,13 +97,12 @@ final readonly class PasswordWriter
      *
      * @imperative
      */
-    public function write(Identity&Model $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ?Session $except = null, ?ClientContext $client = null): int
+    public function write(Identity&Model $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ClientContext $client, ?Session $except = null): int
     {
         // `#[\SensitiveParameter]` does not cover what a closure captures,
         // which a dump of the trace shows.
         $hash      = new \SensitiveParameterValue($this->container->make(Hasher::class)->make($password));
         $container = $this->container;
-        $client ??= $this->context->client();
 
         return $identity->getConnection()->transaction(function () use ($identity, $hash, $flow, $except, $container, $client): int {
 
@@ -112,9 +113,9 @@ final readonly class PasswordWriter
             $event = new PasswordSet(new EventContext($this->context->name(), $client, $identity, session: $except), $flow);
 
             $revoked = match ($flow) {
-                PasswordFlow::CHANGE        => $this->revocations->passwordChanged($identity, $except),
-                PasswordFlow::ESTABLISHMENT => $this->revocations->passwordEstablished($identity, $except),
-                PasswordFlow::RESET         => $this->revocations->passwordReset($identity),
+                PasswordFlow::CHANGE        => $this->revocations->revokeSessions($identity, RevocationReason::PASSWORD_CHANGED, $except, client: $client),
+                PasswordFlow::ESTABLISHMENT => $this->revocations->revokeSessions($identity, RevocationReason::PASSWORD_ESTABLISHED, $except, client: $client),
+                PasswordFlow::RESET         => $this->revocations->revokeSessions($identity, RevocationReason::PASSWORD_RESET, client: $client),
                 PasswordFlow::REGISTRATION  => 0,
             };
 

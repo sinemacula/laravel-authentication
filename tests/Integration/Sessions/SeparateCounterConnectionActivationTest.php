@@ -133,7 +133,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->sessions()->satisfy($credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($credential, $proof, self::requestClient())->isSignedIn());
         self::assertSame([2, 2, 2], $this->hits($identity));
 
         DB::rollBack();
@@ -141,10 +141,10 @@ final class SeparateCounterConnectionActivationTest extends TestCase
         self::assertSame([2, 2, 2], $this->hits($identity));
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
 
-        self::assertTrue($this->sessions()->satisfy($credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($credential, $proof, self::requestClient())->isSignedIn());
         self::assertSame([1, 1, 1], $this->hits($identity));
 
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, $proof)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, $proof, self::requestClient())->reason);
         self::assertSame([1, 1, 1], $this->hits($identity));
         self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
     }
@@ -164,7 +164,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
 
         DB::transaction(function () use ($identity, $credential, $proof): void {
 
-            self::assertTrue($this->sessions()->satisfy($credential, $proof)->isSignedIn());
+            self::assertTrue($this->sessions()->satisfy($credential, $proof, self::requestClient())->isSignedIn());
             self::assertSame([2, 2, 2], $this->hits($identity));
         });
 
@@ -190,7 +190,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
         $this->recordEvents([SessionCreated::class, SignedIn::class]);
         $this->makeCountersUnreachable();
 
-        $result = DB::transaction(fn (): SignInResult => $this->sessions()->satisfy($credential, $proof));
+        $result = DB::transaction(fn (): SignInResult => $this->sessions()->satisfy($credential, $proof, self::requestClient()));
 
         $this->restoreCounters();
 
@@ -238,8 +238,8 @@ final class SeparateCounterConnectionActivationTest extends TestCase
 
         DB::transaction(static function () use ($sessions, $first, $second, &$callerRan): void {
 
-            self::assertTrue($sessions->satisfy(...$first)->isSignedIn());
-            self::assertTrue($sessions->satisfy(...$second)->isSignedIn());
+            self::assertTrue($sessions->satisfy(...$first, client: self::requestClient())->isSignedIn());
+            self::assertTrue($sessions->satisfy(...$second, client: self::requestClient())->isSignedIn());
 
             DB::afterCommit(static function () use (&$callerRan): void {
                 $callerRan = true;
@@ -278,10 +278,10 @@ final class SeparateCounterConnectionActivationTest extends TestCase
 
         DB::transaction(function () use ($outer, $inner, &$callerRan): void {
 
-            self::assertTrue($this->sessions()->satisfy(...$outer)->isSignedIn());
+            self::assertTrue($this->sessions()->satisfy(...$outer, client: self::requestClient())->isSignedIn());
 
             DB::transaction(function () use ($inner): void {
-                self::assertTrue($this->sessions()->satisfy(...$inner)->isSignedIn());
+                self::assertTrue($this->sessions()->satisfy(...$inner, client: self::requestClient())->isSignedIn());
             });
 
             DB::afterCommit(static function () use (&$callerRan): void {
@@ -336,7 +336,10 @@ final class SeparateCounterConnectionActivationTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->reason);
+        self::assertSame(
+            FailureReason::INVALID_CREDENTIALS,
+            $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'], self::requestContext())->reason,
+        );
         self::assertSame([1, 1, 1], $this->hits($identity));
 
         return $identity;
@@ -355,7 +358,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
      */
     private function pendingSession(IntegrationIdentity $identity, int $held = 2): array
     {
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);

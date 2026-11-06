@@ -7,7 +7,9 @@ namespace Tests\Unit\Sessions;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
@@ -18,14 +20,16 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\Enums\Transport;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 /**
  * Unit tests for the checks the session service makes of what a caller hands
  * it: the principal a session for an externally verified identity is pinned to,
- * whether a reloaded identity is the one that was verified, and whether a
- * cookie application's request came from its own site.
+ * whether a reloaded identity is the one that was verified, whether a cookie
+ * application's request came from its own site, and the pending credential a
+ * pending-session action was handed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -220,6 +224,64 @@ final class SessionPreconditionsTest extends TestCase
 
         self::assertNull(SessionPreconditions::crossSite($cookie, $sameSite));
         self::assertNull(SessionPreconditions::crossSite($body, $sameSite));
+    }
+
+    /**
+     * A pending credential handed in is let through as given, a secret or a
+     * string alike, and `pending_invalid`, the reason
+     * `PendingCredential::extract()` answers, is refused with that reason and
+     * nothing else.
+     *
+     * @return void
+     */
+    public function testAPendingCredentialPassesAndPendingInvalidIsRefused(): void
+    {
+        $secret = new Secret('pending-credential');
+
+        self::assertSame($secret, SessionPreconditions::pendingCredential($secret));
+        self::assertSame('pending-credential', SessionPreconditions::pendingCredential('pending-credential'));
+
+        $refused = SessionPreconditions::pendingCredential(FailureReason::PENDING_INVALID);
+
+        self::assertInstanceOf(Refused::class, $refused);
+        self::assertSame(FailureReason::PENDING_INVALID, $refused->reason);
+        self::assertNull($refused->identity);
+        self::assertNull($refused->principal);
+        self::assertNull($refused->tenant);
+        self::assertNull($refused->session);
+    }
+
+    /**
+     * Rows of `[a reason PendingCredential::extract() never answers]`.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     */
+    public static function provideForeignPendingReasons(): iterable
+    {
+        foreach (FailureReason::cases() as $reason) {
+
+            if ($reason === FailureReason::PENDING_INVALID) {
+                continue;
+            }
+
+            yield $reason->value => [$reason];
+        }
+    }
+
+    /**
+     * Any other reason handed in as a pending credential is the caller's error,
+     * naming the reason and what to hand in instead.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return void
+     */
+    #[DataProvider('provideForeignPendingReasons')]
+    public function testAnyOtherReasonHandedInAsAPendingCredentialIsTheCallersError(FailureReason $reason): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("A pending credential is never refused as `{$reason->value}`: hand in only what `PendingCredential::extract()` answered.");
+
+        SessionPreconditions::pendingCredential($reason);
     }
 
     /**

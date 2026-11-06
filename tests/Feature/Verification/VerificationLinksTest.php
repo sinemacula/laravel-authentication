@@ -16,6 +16,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
@@ -30,7 +31,9 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
 use Tests\Integration\Fixtures\VerifiableIdentity;
@@ -87,7 +90,7 @@ final class VerificationLinksTest extends TestCase
         });
 
         Route::get('/verify/{channel}', fn (Request $request): array => [
-            'outcome' => $this->links()->consume($request)->value,
+            'outcome' => $this->links()->consume(SignedLink::fromRequest($request), self::requestClient($request))->value,
             'user'    => Auth::guard(self::GUARD)->hasUser(),
         ])->name(self::ROUTE);
 
@@ -156,6 +159,60 @@ final class VerificationLinksTest extends TestCase
         self::assertCount(1, $this->events);
         self::assertInstanceOf(IdentifierVerified::class, $this->events[0]);
         self::assertSame(['Mail/1.0', self::GUARD, 'email'], [$this->events[0]->context->client->userAgent, $this->events[0]->context->guard, $this->events[0]->type]);
+    }
+
+    /**
+     * A link followed behind a trusted proxy that ends TLS verifies: the
+     * address it is checked against is the one the client used, as the proxy
+     * forwarded it, and the request the proxy made to the internal address
+     * would not have passed.
+     *
+     * @return void
+     */
+    public function testALinkFollowedBehindAProxyVerifies(): void
+    {
+        $identity = self::seedVerifiableIdentity();
+        $link     = $this->link($identity, ['channel' => 'mail']);
+        $query    = (string) parse_url($link, PHP_URL_QUERY);
+
+        Request::setTrustedProxies(['10.0.0.1'], Request::HEADER_X_FORWARDED_PROTO | Request::HEADER_X_FORWARDED_HOST | Request::HEADER_X_FORWARDED_PORT);
+
+        try {
+            $internal  = Request::create("http://internal:8080/verify/mail?{$query}", server: ['REMOTE_ADDR' => '10.0.0.1']);
+            $forwarded = Request::create("http://internal:8080/verify/mail?{$query}", server: [
+                'REMOTE_ADDR'            => '10.0.0.1',
+                'HTTP_X_FORWARDED_PROTO' => 'http',
+                'HTTP_X_FORWARDED_HOST'  => 'localhost',
+                'HTTP_X_FORWARDED_PORT'  => '80',
+            ]);
+
+            self::assertSame(VerificationLinkOutcome::INVALID, $this->links()->consume(SignedLink::fromRequest($internal), self::requestClient($internal)));
+            self::assertSame(VerificationLinkOutcome::VERIFIED, $this->links()->consume(SignedLink::fromRequest($forwarded), self::requestClient($forwarded)));
+        } finally {
+            Request::setTrustedProxies([], 0);
+        }
+    }
+
+    /**
+     * A link signed before the application's key was rotated verifies while the
+     * old key is one of `app.previous_keys`, and is `invalid` once it is not.
+     *
+     * @return void
+     */
+    public function testALinkSignedWithARotatedKeyVerifiesWhileTheKeyIsAPreviousOne(): void
+    {
+        $identity = self::seedVerifiableIdentity();
+        $link     = $this->link($identity, ['channel' => 'mail']);
+        $old      = Config::string('app.key');
+
+        config()->set('app.key', 'base64:' . base64_encode(str_repeat('r', 32)));
+        config()->set('app.previous_keys', []);
+
+        $this->getJson($link)->assertOk()->assertExactJson(['outcome' => 'invalid', 'user' => false]);
+
+        config()->set('app.previous_keys', [$old]);
+
+        $this->getJson($link)->assertOk()->assertExactJson(['outcome' => 'verified', 'user' => false]);
     }
 
     /**
@@ -446,7 +503,10 @@ final class VerificationLinksTest extends TestCase
      */
     public function testRefusesARouteThatTakesReservedNamesAsPlaceholders(): void
     {
-        Route::get('/verify/{type}/{hash}', fn (Request $request): array => ['outcome' => $this->links()->consume($request)->value])->name('verification.placeholders');
+        Route::get(
+            '/verify/{type}/{hash}',
+            fn (Request $request): array => ['outcome' => $this->links()->consume(SignedLink::fromRequest($request), self::requestClient($request))->value],
+        )->name('verification.placeholders');
 
         $identity = self::seedVerifiableIdentity();
 

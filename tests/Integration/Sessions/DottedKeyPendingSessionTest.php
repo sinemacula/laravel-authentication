@@ -123,7 +123,7 @@ final class DottedKeyPendingSessionTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertTrue($result->isPending());
         self::assertNotNull($result->pending);
@@ -136,7 +136,7 @@ final class DottedKeyPendingSessionTest extends TestCase
         self::assertStringStartsWith($key . '.', $result->credential->reveal());
         self::assertSame($key, IdentifierCoercion::stringify($this->sessions()->pending($result->credential->reveal(), PendingAction::SEND_CODE)?->id));
 
-        $satisfied = $this->sessions()->satisfy($result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN));
+        $satisfied = $this->sessions()->satisfy($result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN), self::requestClient());
 
         self::assertTrue($satisfied->isSignedIn());
         self::assertSame($key, IdentifierCoercion::stringify($satisfied->session?->record->getKey()));
@@ -155,10 +155,10 @@ final class DottedKeyPendingSessionTest extends TestCase
     {
         $this->seedIdentity();
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->credential);
-        self::assertTrue($this->sessions()->discard($result->credential->reveal()));
+        self::assertTrue($this->sessions()->discard($result->credential->reveal(), self::requestClient()));
         self::assertNotNull(DB::table(self::TABLE)->value('revoked_at'));
     }
 

@@ -6,12 +6,12 @@ namespace SineMacula\Laravel\Authentication\ClientCredentials;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Container\Container;
-use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyAuthentication;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome;
+use SineMacula\Laravel\Authentication\ClientCredentials\Enums\ClientAuthentication;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
@@ -41,32 +41,32 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  * authentication, so `invalid_grant` is never answered: a client that fails to
  * authenticate is `invalid_client`, always 401 with a Basic challenge.
  *
- * A token request read by `fromRequest()` is first refused for its own form,
- * before anything else is checked: `invalid_request` for one not in form or
- * authenticating the client both ways, `unsupported_grant_type` for another
- * grant, and `invalid_client` for client authentication that is missing,
- * malformed, or in the body where the application does not set
- * `client_secret_post`. Then, for that request as for `exchange()`, in order:
- * the guard's application must list `client_credentials`
- * (`unauthorized_client`); the IP address must not have used up its failures
- * for now, nor the client id when the guard limits it, which it does not by
- * default, as a client id is no secret (`slow_down`, 429 with `Retry-After`);
- * the key must be this guard's, live, its secret right, and its owner and
- * principal admitted as on an `api_key` guard (`invalid_client`, or
- * `unauthorized_client` for a principal `ApplicationAccess` refuses, which is
- * `principal_ineligible`); the requested scope, space-separated, must be
- * granted to the key (none asks for every granted scope; else `invalid_scope`).
- * The token then carries the key's id in `cid` and the scopes in `scope`, lives
- * the guard's access lifetime and never past the key's expiry, and is checked
- * against its key on every request, so revoking the key, or the end of its
- * rotation's overlap, ends it at once. Only failures to authenticate the client
- * are counted. Every failure dispatches `AuthenticationFailed` (flow
- * `client_credentials`) with the client id when it is a key's public part in
- * form, and none otherwise, so a secret sent as the id is never reported; a
- * grant dispatches `ClientCredentialsGranted`.
+ * A token request `ClientCredentialsRequest::extract()` read is first refused
+ * for its own form, before anything else is checked: `invalid_request` for one
+ * not in form or authenticating the client both ways, `unsupported_grant_type`
+ * for another grant, and `invalid_client` for client authentication that is
+ * missing, malformed, or in the body where the application does not set
+ * `client_secret_post`. Then, in order: the guard's application must list
+ * `client_credentials` (`unauthorized_client`); the IP address must not have
+ * used up its failures for now, nor the client id when the guard limits it,
+ * which it does not by default, as a client id is no secret (`slow_down`, 429
+ * with `Retry-After`); the key must be this guard's, live, its secret right,
+ * and its owner and principal admitted as on an `api_key` guard
+ * (`invalid_client`, or `unauthorized_client` for a principal
+ * `ApplicationAccess` refuses, which is `principal_ineligible`); the requested
+ * scope, space-separated, must be granted to the key (none asks for every
+ * granted scope; else `invalid_scope`). The token then carries the key's id in
+ * `cid` and the scopes in `scope`, lives the guard's access lifetime and never
+ * past the key's expiry, and is checked against its key on every request, so
+ * revoking the key, or the end of its rotation's overlap, ends it at once. Only
+ * failures to authenticate the client are counted. Every failure dispatches
+ * `AuthenticationFailed` (flow `client_credentials`) with the client id when it
+ * is a key's public part in form, and none otherwise, so a secret sent as the
+ * id is never reported; a grant dispatches `ClientCredentialsGranted`.
  *
- * Reads the provider, resolver, dispatcher and request from the guard's context
- * each time it runs, so it keeps nothing between calls.
+ * Reads the provider, resolver and dispatcher from the guard's context each
+ * time it runs, so it keeps nothing between calls; the client is the one each
+ * call is given.
  *
  * @api
  *
@@ -97,14 +97,26 @@ final readonly class ClientCredentialsExchange
     ) {}
 
     /**
-     * Exchange the client id and secret for an access token granting the
-     * requested scope (every granted scope for none), for a request from the
-     * client (the guard's request's by default).
+     * Exchange what a token request presented for an access token granting the
+     * requested scope (every granted scope for none), for the client given:
+     * what `ClientCredentialsRequest::extract()` answered (a `PresentedClient`
+     * recording how the request authenticated the client, or the RFC 6749 error
+     * it refused the request with), or a `PresentedClient` the application
+     * built as its trusted description of a request it read itself, with the
+     * request's `ClientContext`. Nothing is read from the guard's request.
      *
-     * @param  string  $clientId
-     * @param  string  $clientSecret
-     * @param  ?string  $scope
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * An error handed in is refused with it (`invalid_request`,
+     * `unsupported_grant_type`, `invalid_client`), reported as
+     * `invalid_credentials`, before any query and without counting it; any
+     * other string is the caller's error (`InvalidArgumentException`, whose
+     * message never repeats it, as it may be a credential), nothing dispatched.
+     * A client authenticated in the body (`client_secret_post`) is refused as
+     * `invalid_client` the same way unless the application allows it. Then the
+     * exchange runs in the order the class describes, its limits counting the
+     * client's IP address and its events carrying the client.
+     *
+     * @param  \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient|string  $presented
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsResult
      *
      * @throws \InvalidArgumentException
@@ -113,41 +125,53 @@ final readonly class ClientCredentialsExchange
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function exchange(string $clientId, #[\SensitiveParameter] string $clientSecret, ?string $scope = null, ?ClientContext $client = null): ClientCredentialsResult
+    public function exchange(#[\SensitiveParameter] PresentedClient|string $presented, ClientContext $client): ClientCredentialsResult
     {
-        return $this->exchangeFor(new PresentedClient($clientId, $clientSecret, $scope), $client ?? $this->context->client());
+        $context = new EventContext($this->context->name(), $client, method: self::METHOD);
+
+        if (is_string($presented)) {
+            return $this->refuse($context, FailureReason::INVALID_CREDENTIALS, self::extractedError($presented), null);
+        }
+
+        $refusal = $this->authenticationRefusal($presented);
+
+        return $refusal === null ? $this->exchangeFor($presented, $client) : $this->refuse($context, FailureReason::INVALID_CREDENTIALS, $refusal, null);
     }
 
     /**
-     * Read a token request (the guard's request by default) and exchange the
-     * client it authenticates: `grant_type`, the client's authentication (HTTP
-     * Basic, or `client_id` and `client_secret` in the body when the
-     * application allows `client_secret_post`, never both) and `scope`, all
-     * from a form-encoded POST body. A request not in form is refused
-     * (`invalid_request`, `unsupported_grant_type`, `invalid_client`) and
-     * reported as `invalid_credentials`, before any query and without counting
-     * it.
+     * The error an error `extract()` answered is refused with: the error itself
+     * when it is one `extract()` answers, else a caller's error.
      *
-     * @param  ?\Illuminate\Http\Request  $request
-     * @return \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsResult
+     * @param  string  $error
+     * @return string
      *
      * @throws \InvalidArgumentException
-     * @throws \LogicException
-     * @throws \Random\RandomException
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function fromRequest(?Request $request = null): ClientCredentialsResult
+    private static function extractedError(#[\SensitiveParameter] string $error): string
     {
-        $request ??= $this->context->request();
-        $client    = ClientContext::fromRequest($request);
-        $presented = ClientCredentialsRequest::read($request, $this->applicationPolicy()->allowsClientSecretPost($this->context->name()));
+        if (!in_array($error, [ClientCredentialsResult::INVALID_REQUEST, ClientCredentialsResult::UNSUPPORTED_GRANT_TYPE, ClientCredentialsResult::INVALID_CLIENT], true)) {
 
-        if ($presented instanceof PresentedClient) {
-            return $this->exchangeFor($presented, $client);
+            $message = 'A token request is refused only as `invalid_request`, `unsupported_grant_type` or `invalid_client`:'
+                . ' hand in only what `ClientCredentialsRequest::extract()` answered.';
+
+            throw new \InvalidArgumentException($message);
         }
 
-        return $this->refuse(new EventContext($this->context->name(), $client, method: self::METHOD), FailureReason::INVALID_CREDENTIALS, $presented, null);
+        return $error;
+    }
+
+    /**
+     * Why the way the client authenticated is refused, or `null` when it may:
+     * in the body (`client_secret_post`) only where the application allows it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient  $presented
+     * @return ?string
+     */
+    private function authenticationRefusal(#[\SensitiveParameter] PresentedClient $presented): ?string
+    {
+        $allowed = $presented->authentication === ClientAuthentication::BASIC || $this->applicationPolicy()->allowsClientSecretPost($this->context->name());
+
+        return $allowed ? null : ClientCredentialsResult::INVALID_CLIENT;
     }
 
     /**

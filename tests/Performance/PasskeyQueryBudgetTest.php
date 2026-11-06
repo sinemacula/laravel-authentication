@@ -87,7 +87,9 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
         $options = $this->assertQueryBudget(1, 1, static fn (): CeremonyOptions => $passkeys->registrationOptions($identity, self::USER_NAME));
         $answer  = $this->authenticator()->create($options->options);
 
-        self::assertTrue($this->assertQueryBudget(2, 2, static fn (): mixed => $passkeys->register($identity, $options->challengeId, $answer))->isRegistered());
+        self::assertTrue(
+            $this->assertQueryBudget(2, 2, static fn (): mixed => $passkeys->register($identity, $options->challengeId, $answer, self::requestClient()))->isRegistered(),
+        );
     }
 
     /**
@@ -104,8 +106,8 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
 
         $passkeys = Auth::passkeys('api');
 
-        $this->assertQueryBudget(0, 3, static fn (): CeremonyOptions => $passkeys->signInOptions());
-        $this->assertQueryBudget(0, 2, static fn (): CeremonyOptions => $passkeys->signInOptions());
+        $this->assertQueryBudget(0, 3, static fn (): CeremonyOptions => $passkeys->signInOptions(self::requestClient()));
+        $this->assertQueryBudget(0, 2, static fn (): CeremonyOptions => $passkeys->signInOptions(self::requestClient()));
     }
 
     /**
@@ -128,7 +130,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
         $input    = ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)];
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(7, 10, static fn (): SignInResult => $sessions->signIn('passkey', $input))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(7, 10, static fn (): SignInResult => $sessions->signIn('passkey', $input, self::requestContext()))->isSignedIn());
     }
 
     /**
@@ -158,7 +160,13 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
 
         $binding = self::factorBinding($identity);
 
-        self::assertTrue($this->assertQueryBudget(2, 2, static fn (): mixed => $passkeys->verifyFactor($identity, $binding, $options->challengeId, $answer))->isVerified());
+        self::assertTrue(
+            $this->assertQueryBudget(
+                2,
+                2,
+                static fn (): mixed => $passkeys->verifyFactor($identity, $binding, $options->challengeId, $answer, self::requestClient()),
+            )->isVerified(),
+        );
     }
 
     /**
@@ -176,7 +184,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
         $passkeys = Auth::passkeys('api');
 
         self::assertCount(1, $this->assertQueryBudget(1, 0, static fn (): array => $passkeys->passkeys($identity)));
-        self::assertTrue($this->assertQueryBudget(1, 1, static fn (): bool => $passkeys->remove($identity, $passkey->id)->isRemoved()));
+        self::assertTrue($this->assertQueryBudget(1, 1, static fn (): bool => $passkeys->remove($identity, $passkey->id, self::requestClient())->isRemoved()));
     }
 
     /**
@@ -207,7 +215,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
             $sessions = $this->sessions();
             $started  = hrtime(true);
 
-            self::assertTrue($sessions->signIn('passkey', $input)->isFailed());
+            self::assertTrue($sessions->signIn('passkey', $input, self::requestContext())->isFailed());
             self::assertGreaterThanOrEqual(self::TIMEBOX_MICROSECONDS * 1000, hrtime(true) - $started);
         }
     }
@@ -234,7 +242,7 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
             $sessions = $this->sessions();
             $started  = hrtime(true);
 
-            self::assertTrue($sessions->signIn('passkey', $input)->isSignedIn());
+            self::assertTrue($sessions->signIn('passkey', $input, self::requestContext())->isSignedIn());
 
             $fastest = min($fastest, hrtime(true) - $started);
         }

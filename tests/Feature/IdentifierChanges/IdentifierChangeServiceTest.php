@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeLinks;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
@@ -156,9 +157,9 @@ final class IdentifierChangeServiceTest extends TestCase
         $proof   = self::freshSession($identity instanceof Model ? $identity : self::seedChangeable());
         $changes = $this->changes();
         $calls   = [
-            static fn (): mixed => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof),
-            static fn (): mixed => $changes->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm'),
-            static fn (): mixed => $changes->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome,
+            static fn (): mixed => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient()),
+            static fn (): mixed => $changes->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm', self::requestClient()),
+            static fn (): mixed => $changes->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE, self::requestClient())->outcome,
             static fn (): mixed => $changes->pending($identity, 'email'),
             static fn (): mixed => $changes->cancel($identity, 'email'),
         ];
@@ -199,7 +200,7 @@ final class IdentifierChangeServiceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('is a machine identity: it has no identifiers to change.');
 
-        $this->changes('machines')->confirmByLink(Request::create($link));
+        $this->changes('machines')->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)));
     }
 
     /**
@@ -239,7 +240,7 @@ final class IdentifierChangeServiceTest extends TestCase
         $changes  = $this->changes();
 
         try {
-            $changes->requestByCode($identity, $type, 'ada', self::freshSession($identity));
+            $changes->requestByCode($identity, $type, 'ada', self::freshSession($identity), self::requestClient());
             self::fail('Expected the type to be refused.');
         } catch (\Throwable $e) {
             self::assertInstanceOf($exception, $e);
@@ -248,7 +249,7 @@ final class IdentifierChangeServiceTest extends TestCase
 
         $this->expectException($exception);
 
-        $changes->confirmByCode($identity, $type, self::changeChallenge($identity, $type), self::CODE);
+        $changes->confirmByCode($identity, $type, self::changeChallenge($identity, $type), self::CODE, self::requestClient());
     }
 
     /**
@@ -308,7 +309,7 @@ final class IdentifierChangeServiceTest extends TestCase
         config()->set($key, $value);
 
         try {
-            $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'email.confirm');
+            $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'email.confirm', self::requestClient());
             self::fail('Expected the setting to be refused.');
         } catch (\InvalidArgumentException $e) {
             self::assertStringContainsString($message, $e->getMessage());
@@ -335,7 +336,7 @@ final class IdentifierChangeServiceTest extends TestCase
         config()->set('authentication.codes.length', 4);
 
         try {
-            $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof);
+            $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient());
             self::fail('Expected the code settings to be refused.');
         } catch (\InvalidArgumentException $e) {
             self::assertSame('authentication.codes.length must be an integer from 6 to 10.', $e->getMessage());
@@ -383,8 +384,8 @@ final class IdentifierChangeServiceTest extends TestCase
 
         foreach (
             [
-                fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity)),
-                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome,
+                fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient()),
+                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE, self::requestClient())->outcome,
             ] as $call
         ) {
             try {
@@ -413,7 +414,7 @@ final class IdentifierChangeServiceTest extends TestCase
         app()->offsetUnset(OneTimeCodeSender::class);
 
         try {
-            $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
+            $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient());
             self::fail('A change by code was requested with no sender bound.');
         } catch (\LogicException $exception) {
             self::assertSame(
@@ -423,7 +424,7 @@ final class IdentifierChangeServiceTest extends TestCase
         }
 
         self::assertSame([0, 0, 0], [DB::table('rate_limits')->count(), DB::table('one_time_codes')->count(), DB::table('identifier_changes')->count()]);
-        self::assertTrue($this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm')->isSent());
+        self::assertTrue($this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm', self::requestClient())->isSent());
     }
 
     /**
@@ -470,7 +471,7 @@ final class IdentifierChangeServiceTest extends TestCase
         $identity = self::seedChangeable();
 
         try {
-            $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), $route, $parameters);
+            $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), $route, self::requestClient(), $parameters);
             self::fail('Expected the route to be refused.');
         } catch (\Throwable $e) {
             self::assertInstanceOf($exception, $e);
@@ -503,8 +504,8 @@ final class IdentifierChangeServiceTest extends TestCase
 
         foreach (
             [
-                fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity)),
-                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome,
+                fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient()),
+                fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE, self::requestClient())->outcome,
             ] as $call
         ) {
             try {
@@ -531,13 +532,13 @@ final class IdentifierChangeServiceTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient());
 
         $challenge  = self::changeChallenge($identity, 'email');
         $statements = self::recordStatements();
         $lock       = $identity->newModelQuery()->whereKey($identity->getKey())->lockForUpdate()->limit(1)->toSql();
 
-        $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE);
+        $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE, self::requestClient());
 
         $recorded = $statements();
         $begin    = array_search('begin', $recorded, true);
@@ -566,17 +567,17 @@ final class IdentifierChangeServiceTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient());
 
         $challenge = self::changeChallenge($identity, 'email');
         $hits      = static fn (): int => (int) DB::table('rate_limits')->sum('hits');
         $before    = $hits();
 
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', $challenge, '000000')->outcome);
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', $challenge, '000000', self::requestClient())->outcome);
         self::assertSame($before + 2, $hits());
 
         $statements = self::recordStatements();
-        $confirmed  = $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE);
+        $confirmed  = $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE, self::requestClient());
         $released   = array_filter($statements(), static fn (string $sql): bool => str_contains($sql, 'rate_limits') && preg_match('/hits\W* - 1/', $sql) === 1);
 
         self::assertSame([IdentifierChangeOutcome::CHANGED, null], [$confirmed->outcome, $confirmed->retryAfter]);
@@ -587,7 +588,7 @@ final class IdentifierChangeServiceTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $limited = $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE);
+        $limited = $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE, self::requestClient());
         $failed  = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame(IdentifierChangeOutcome::RATE_LIMITED, $limited->outcome);
@@ -613,7 +614,7 @@ final class IdentifierChangeServiceTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient());
 
         $challenge = self::changeChallenge($identity, 'email');
         $hits      = static fn (): int => (int) DB::table('rate_limits')->sum('hits');
@@ -621,7 +622,7 @@ final class IdentifierChangeServiceTest extends TestCase
         $confirm   = function (string $challenge) use ($identity): IdentifierChangeOutcome {
             $this->recordEvents([AuthenticationFailed::class]);
 
-            return $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE)->outcome;
+            return $this->changes()->confirmByCode($identity, 'email', $challenge, self::CODE, self::requestClient())->outcome;
         };
         $reported = function (): array {
             $failed = $this->recordedEvent(AuthenticationFailed::class);
@@ -665,7 +666,7 @@ final class IdentifierChangeServiceTest extends TestCase
         $statements = self::recordStatements();
         $lock       = $identity->newModelQuery()->whereKey($identity->getKey())->lockForUpdate()->limit(1)->toSql();
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), self::requestClient())->isSent());
 
         $begin  = array_search('begin', $statements(), true);
         $before = array_slice($statements(), 0, (int) $begin);

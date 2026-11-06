@@ -1,0 +1,200 @@
+<?php
+
+declare(strict_types = 1);
+
+namespace Tests\Unit\Architecture;
+
+use Illuminate\Http\Request;
+use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
+use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
+use SineMacula\Laravel\Authentication\Codes\CodeService;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
+use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
+use SineMacula\Laravel\Authentication\Passwords\PasswordService;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
+
+/**
+ * Holds the package's services to the shape their actions take: one public
+ * method per action, taking plain values and never an
+ * `Illuminate\Http\Request`, with no request-reading or token-only twin, and
+ * the client (or the sign-in context that carries it) a required value wherever
+ * a method takes one, never read from a guard's request. Reading a request is
+ * the helpers' alone (`RefreshTokenTransport::extract()`,
+ * `ClientContext::fromRequest()`, `SignInContext::fromRequest()`,
+ * `PendingCredential::extract()`, `SignedLink::fromRequest()`,
+ * `ClientCredentialsRequest::extract()`, `RequestBody::fields()`).
+ *
+ * The test checks shape only: the behavioural tests of each action, with a
+ * guard request that differs from the client given, prove that nothing is read
+ * from the guard's request.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited
+ *
+ * @internal
+ */
+#[CoversNothing]
+final class PlainValueActionsTest extends TestCase
+{
+    /** @var list<class-string> The package's services. */
+    private const array SERVICES = [
+        SessionService::class,
+        CodeService::class,
+        PasskeyService::class,
+        PasswordService::class,
+        IdentifierChangeService::class,
+        ClientCredentialsExchange::class,
+        VerificationLinks::class,
+        ApiKeyService::class,
+        JwtTokenService::class,
+    ];
+
+    /**
+     * Rows of `[the service]`.
+     *
+     * @return iterable<string, array{0: class-string}>
+     */
+    public static function provideServices(): iterable
+    {
+        foreach (self::SERVICES as $service) {
+            yield $service => [$service];
+        }
+    }
+
+    /**
+     * No public method of a service takes a request, and none is a
+     * request-reading or plain-value twin of another.
+     *
+     * @param  class-string  $service
+     * @return void
+     */
+    #[DataProvider('provideServices')]
+    public function testNoServiceMethodTakesARequestOrHasATwin(string $service): void
+    {
+        foreach (self::publicMethods($service) as $method) {
+
+            self::assertDoesNotMatchRegularExpression('/(FromRequest|Presented)$/', $method->getName(), "{$service}::{$method->getName()}() is a twin of another action.");
+
+            foreach ($method->getParameters() as $parameter) {
+                foreach (self::typeNames($parameter) as $type) {
+                    self::assertFalse(is_a($type, Request::class, true), "{$service}::{$method->getName()}() takes a request as \${$parameter->getName()}.");
+                }
+            }
+        }
+    }
+
+    /**
+     * Rows of `[the service]` for the services whose actions limit or report
+     * for a client.
+     *
+     * @return iterable<string, array{0: class-string}>
+     */
+    public static function provideClientServices(): iterable
+    {
+        foreach (array_diff(self::SERVICES, [ApiKeyService::class, JwtTokenService::class]) as $service) {
+            yield $service => [$service];
+        }
+    }
+
+    /**
+     * Every public method of a service that takes the client, or the sign-in
+     * context that carries it, takes it as a required, non-nullable value.
+     *
+     * @param  class-string  $service
+     * @return void
+     */
+    #[DataProvider('provideClientServices')]
+    public function testEveryClientIsARequiredPlainValue(string $service): void
+    {
+        $clients = 0;
+
+        foreach (self::publicMethods($service) as $method) {
+            foreach ($method->getParameters() as $parameter) {
+
+                $types = self::typeNames($parameter);
+
+                if (!in_array(ClientContext::class, $types, true) && !in_array(SignInContext::class, $types, true)) {
+                    continue;
+                }
+
+                $type = $parameter->getType();
+
+                self::assertNotNull($type);
+                self::assertFalse($parameter->isOptional(), "{$service}::{$method->getName()}() takes \${$parameter->getName()} as optional.");
+                self::assertFalse($type->allowsNull(), "{$service}::{$method->getName()}() takes \${$parameter->getName()} as nullable.");
+
+                $clients++;
+            }
+        }
+
+        self::assertGreaterThan(0, $clients, "{$service} takes no client.");
+    }
+
+    /**
+     * Rows of `[the session action, its parameters in order]`.
+     *
+     * @return iterable<string, array{0: string, 1: list<string>}>
+     */
+    public static function provideSessionActions(): iterable
+    {
+        yield 'refresh' => ['refresh', ['presented', 'client']];
+        yield 'switch' => ['switchTo', ['presented', 'target', 'client']];
+        yield 'sign out by refresh credential' => ['signOutWith', ['presented', 'client']];
+        yield 'satisfy' => ['satisfy', ['credential', 'proof', 'client']];
+        yield 'choose' => ['choose', ['credential', 'principal', 'client', 'tenant']];
+    }
+
+    /**
+     * Each of the five session actions is one method, taking what was presented
+     * first, its own values, and then the client.
+     *
+     * @param  string  $action
+     * @param  list<string>  $parameters
+     * @return void
+     */
+    #[DataProvider('provideSessionActions')]
+    public function testEachSessionActionTakesWhatWasPresentedAndTheClient(string $action, array $parameters): void
+    {
+        $method = new \ReflectionMethod(SessionService::class, $action);
+
+        self::assertSame($parameters, array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $method->getParameters()));
+    }
+
+    /**
+     * The public methods of the service, its traits' included.
+     *
+     * @param  class-string  $service
+     * @return list<\ReflectionMethod>
+     */
+    private static function publicMethods(string $service): array
+    {
+        return array_values(array_filter(
+            (new \ReflectionClass($service))->getMethods(\ReflectionMethod::IS_PUBLIC),
+            static fn (\ReflectionMethod $method): bool => !$method->isConstructor(),
+        ));
+    }
+
+    /**
+     * The class names the parameter's type names.
+     *
+     * @param  \ReflectionParameter  $parameter
+     * @return list<string>
+     */
+    private static function typeNames(\ReflectionParameter $parameter): array
+    {
+        $type  = $parameter->getType();
+        $types = $type instanceof \ReflectionUnionType || $type instanceof \ReflectionIntersectionType ? $type->getTypes() : [$type];
+
+        return array_values(array_map(
+            static fn (\ReflectionNamedType $named): string => $named->getName(),
+            array_filter($types, static fn (?\ReflectionType $named): bool => $named instanceof \ReflectionNamedType),
+        ));
+    }
+}

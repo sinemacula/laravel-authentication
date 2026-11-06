@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRequestStatus;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
@@ -346,20 +347,22 @@ final class RecentAuthenticationTest extends TestCase
     public function testARefreshDoesNotRenewTheSignIn(): void
     {
         $identity = self::seedChangeable();
-        $session  = $this->sessions('web')->signIn('password', self::credentials(self::EMAIL))->session;
+        $session  = $this->sessions('web')->signIn('password', self::credentials(self::EMAIL), self::requestContext())->session;
 
         self::assertNotNull($session);
 
         $this->moveTo($this->now->addSeconds(1000));
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard('web'))->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(
+            self::sessionsOf($this->freshGuard('web'))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
 
         $refreshed = Session::query()->findOrFail($session->record->getKey());
         $check     = new RecentAuthentication($this->guardContext(), $this->app);
 
         self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($refreshed), null));
 
-        $again = $this->sessions('web')->signIn('password', self::credentials(self::EMAIL))->session;
+        $again = $this->sessions('web')->signIn('password', self::credentials(self::EMAIL), self::requestContext())->session;
 
         self::assertNotNull($again);
         self::assertNull($check->refusal($identity, Reauthentication::session($again->record), null));
@@ -404,7 +407,7 @@ final class RecentAuthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD));
+        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
         self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::REAUTHENTICATION_REQUIRED], [$this->failures()[0]->flow, $this->failures()[0]->reason]);
@@ -490,7 +493,10 @@ final class RecentAuthenticationTest extends TestCase
             }
         });
 
-        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
+        $exception = self::withArgumentsInTraces(
+            \RuntimeException::class,
+            fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient()),
+        );
 
         self::assertSame('the limiter failed', $exception->getMessage());
         self::assertContains(Timebox::class, array_column($exception->getTrace(), 'class'));
@@ -540,7 +546,7 @@ final class RecentAuthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'email.confirm');
+        $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'email.confirm', self::requestClient());
 
         self::assertSame([IdentifierChangeRequestStatus::RATE_LIMITED, 300], [$request->status, $request->retryAfter]);
         $failure = $this->failures()[0];
@@ -563,7 +569,13 @@ final class RecentAuthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity, 'web', $this->now->subHour())));
+        $request = $this->changes()->requestByCode(
+            $identity,
+            'email',
+            self::NEW_EMAIL,
+            Reauthentication::session(self::seedSession($identity, 'web', $this->now->subHour())),
+            self::requestClient(),
+        );
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
         $failure = $this->failures()[0];

@@ -375,7 +375,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
         for ($member = 0; $member < $count; $member++) {
             [, $principals[]] = $this->seedMember('member' . $member . '@example.test', $tenant);
 
-            self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member' . $member . '@example.test'))->isSignedIn());
+            self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member' . $member . '@example.test'), self::requestContext())->isSignedIn());
         }
 
         $sessions = $this->sessions('members');
@@ -609,7 +609,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
      */
     private function cutoffSignIn(): void
     {
-        self::assertTrue($this->sessions('cutoff')->signIn('password', self::credentials('cutoff@example.test'))->isSignedIn());
+        self::assertTrue($this->sessions('cutoff')->signIn('password', self::credentials('cutoff@example.test'), self::requestContext())->isSignedIn());
     }
 
     /**
@@ -621,7 +621,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
      */
     private function memberSignIn(): void
     {
-        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->isSignedIn());
     }
 
     /**
@@ -633,7 +633,7 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

@@ -63,23 +63,19 @@ a cookie application's results hand back the cookie instead of the token.
   the browser out; `SessionSignOut` attaches it on those terms, and the guides tell a route of the application's own to
   do the same. It throws a `LogicException` for a body application, and `deliver()` an `InvalidArgumentException` for a
   session that has ended.
-- A cookie application's token is read only from its cookie, through the transport: `refresh(string)`,
-  `switchTo(string, SwitchTarget)` and `signOutWith(string)` throw a `LogicException` on a cookie application
-  (`SessionRefresh::refuseHandedIn()`, the one place it is thrown); `refreshFromRequest()`, `switchFromRequest()`,
-  `signOutFromRequest()` and `refreshCredentialFromRequest()` (the read behind `Auth::caller()`) take a private path,
-  and `refreshPresented()` and `signOutPresented()` judge a token handed in as plain values again (`judge()`, below). A
-  body application's `refresh(string)` is for a token the caller reads itself.
-- A service layer that keeps HTTP out refreshes and signs out by refresh credential from plain values, on either
-  transport: `extract()` is `read()` without the cookie's same-site judgement (the private `carrier()` step, conflict,
-  mismatch or the one source, then the value), and `refreshPresented()` and `signOutPresented()` take what it answered
-  and a `ClientContext`. A `PresentedRefreshToken` carries `carriers`, every carrier the request carried a token in
-  (required by its constructor, `[$source]` from `extract()` and `read()`), so a value the application built is judged
-  on conflicts too: `judge()` refuses carriers that are not the source alone (`refresh_token_conflict`), then a source
-  that is not one of the application's carriers, a header included when `header` is `null`
-  (`refresh_transport_mismatch`), then a cookie whose client fails `isSameSiteClient()` (`cross_site_request`), in
-  `read()`'s order, and is pure. A reason handed in must be one `read()` answers (`SessionRefresh::assertHandedIn()`,
-  `InvalidArgumentException` before anything is dispatched). A token `read()` accepted always passes `judge()` with the
-  same request's facts, so the request forms answer the plain forms' core with `read()`'s result and are unchanged.
+- Every action that takes a refresh token takes it as a plain value, on either transport: `refresh()`, `switchTo()`,
+  `signOutWith()` and the `@internal` `refreshCredential()` behind `Auth::caller()` take what `extract()` answered (the
+  private `carrier()` step, conflict, mismatch or the one source, then the value; never a same-site judgement), or a
+  `PresentedRefreshToken` the application built (`fromBody()` for a body application's own read), and a
+  `ClientContext`. Nothing reads the guard's request. A `PresentedRefreshToken` carries `carriers`, every carrier the
+  request carried a token in (required by its constructor, `[$source]` from `extract()` and `fromBody()`), so a value
+  the application built is judged on conflicts too: `judge()` refuses carriers that are not the source alone
+  (`refresh_token_conflict`), then a source that is not one of the application's carriers, a header included when
+  `header` is `null`, and a body token on a cookie application (`refresh_transport_mismatch`), then a cookie whose
+  client fails `isSameSiteClient()` (`cross_site_request`), and is pure. A reason handed in must be one `extract()`
+  answers (`SessionRefresh::handedIn()`: conflict, mismatch, `token_invalid`; `InvalidArgumentException` before
+  anything is dispatched). A token `extract()` answered from a request of the API's own site passes `judge()` with that
+  request's `ClientContext`.
 - The cookie, the application and the session agree on every refresh and switch: the cookie read is the application's
   own and unique; the carrier is its transport; the token's `client_id` is the application (`token_invalid`); the
   session it names is the application's (`session_guard_mismatch`); and the cookie a result sets is that
@@ -88,12 +84,12 @@ a cookie application's results hand back the cookie instead of the token.
   rule by the package: `signIn()`, `start()`, `satisfy()` and `choose()` refuse as `cross_site_request`
   (`SessionPreconditions::crossSite()`) after the transport is built and before the package's first read or write (only
   the driver's resolution, the identifier's extraction and `Attempting` listeners, the application's code, run before it
-  on `signIn()`), and refresh and switch read the token only through `read()`, and a refresh or sign-out from plain
-  values through `judge()`, which makes the same checks on the client given. Without it a cross-site page could
+  on `signIn()`), and refresh, switch and sign-out judge the token through `judge()`, which makes the same checks on the
+  client given. Without it a cross-site page could
   auto-submit a form with an attacker's credentials and leave the attacker's refresh cookie in the victim's browser (a
   browser keeps a `SameSite=Strict` cookie set by the response to a top-level navigation), where the victim's own
   scripts would then pass every refresh check. `signIn()` and `start()` judge the `SignInContext`'s client, `satisfy()`
-  and `choose()` the `ClientContext` they are given (each the guard's request without one). The check is pure (no query,
+  and `choose()` the `ClientContext` they are given, each a required plain value. The check is pure (no query,
   no lock, no event of its own) and fails closed. A body application is never refused. `signInExternally()` is exempt:
   an external provider's callback is a cross-site top-level navigation by design, so the defence is the adapter's to
   keep, and the guides require it of an adapter that calls `signInExternally()`: it binds its `state` and nonce to the
@@ -104,19 +100,20 @@ a cookie application's results hand back the cookie instead of the token.
 
 ## Success Path
 
-- `SessionService::refreshFromRequest()` reads the request with the application's transport, built from the
-  configuration (`RefreshTokenTransport::forGuard()`) as the switch builds it.
-- No carrier carries a token: it returns `null` and dispatches nothing, as a bearer request without a token.
-- The application's carrier carries one: the token goes through the same exchange, binding and events as `refresh()`,
-  and the `RefreshResult` carries the `RefreshTokenSource` it was read from (`source`); a cookie application's
-  refreshed pair carries the `RefreshCookie` to attach.
-- `Auth::refreshTransport($guard)->read($request)` reads the same way without refreshing.
-- `refreshPresented($presented, $client)` and `signOutPresented($presented, $client)` judge the token with `judge()` and
-  then go through the same exchange, or proof and revocation, as the request forms, with the client in place of the
-  request's: the attempt limit, `Refreshed`, `SignedIn`, `AuthenticationFailed`, `SessionRevoked` and
-  `SessionReturnedToPending` carry it (`PendingTransitions` built with it), and so does the guard's bind:
-  `SessionRefresh` hands it to `GuardBinding::loginVerified()`, so `PrincipalAssigned` and `SessionAuthenticated`, and
-  the last use `SessionAuthenticated` records, are that client's, as they are for `signIn()`, `start()` and
+- A controller extracts the request's token (`Auth::refreshTransport($guard)->extract($request)`) and builds its
+  `ClientContext`; `SessionService::refresh($presented, $client)` builds the transport from the configuration
+  (`RefreshTokenTransport::forGuard()`), as the switch and the sign-out build it.
+- Nothing presented: it returns `null` and dispatches nothing, as a bearer request without a token.
+- A token the judgement accepts goes through the exchange, binding and events, and the `RefreshResult` carries the
+  `RefreshTokenSource` it was presented from (`source`); a cookie application's refreshed pair carries the
+  `RefreshCookie` to attach.
+- `refresh()`, `switchTo()` and `signOutWith()` judge the token with `judge()` and then go through the exchange, the
+  switch, or proof and revocation, with the client given: the attempt limit, `Refreshed`, `SignedIn`,
+  `PrincipalSwitched`, `AuthenticationFailed`, `SessionRevoked` and `SessionReturnedToPending` carry it
+  (`PendingTransitions` built with it, `forClient()` for a switch), and so does the guard's bind: `SessionRefresh` hands
+  it to `GuardBinding::loginVerified()` and the switch to `authenticateAs()`, so `PrincipalAssigned` and
+  `SessionAuthenticated`, and the last use `SessionAuthenticated` records, are that client's, as they are for
+  `signIn()`, `start()` and
   `signInExternally()` given a `SignInContext`. The client is a parameter of that one bind, never guard state, so the
   guard's later events (and the next request on a long-lived worker) describe its own request. A cookie application's
   refreshed pair carries the `RefreshCookie`; a sign-out's result the expired cookie only for a same-site client whose
@@ -124,12 +121,14 @@ a cookie application's results hand back the cookie instead of the token.
 
 ## Failure / Edge Cases
 
-- A refusal by the transport dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`, the reason,
-  the guard and the request's client, no identity) and returns a failed `RefreshResult` with the reason and no `source`.
+- A refusal by the judgement dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`, the reason,
+  the guard and the client given, no identity) and returns a failed `RefreshResult` with the reason and the `source` it
+  was presented from; a reason handed in, the same with no `source`. A switch's refusal dispatches only
+  `AuthenticationFailed` (flow `switch`), a sign-out's only `AuthenticationFailed` (flow `sign_out`).
   It reaches no session and no limit.
-- A plain refusal (a reason handed in, or `judge()`'s) is reported as the request form reports it, with the client
-  given, and costs no query; a refused token's result carries its `source`, a reason handed in none. `null` answers
-  `null` (refresh) or nothing signed out, dispatching nothing.
+- A plain refusal (a reason handed in, or `judge()`'s) is reported with the client given and costs no query; a refused
+  token's result carries its `source`, a reason handed in none. `null` answers `null` (refresh) or nothing signed out,
+  dispatching nothing.
 - A cookie the routes' `EncryptCookies` cannot decrypt arrives as `null` and is `token_invalid`; leave the cookie out
   of encryption, or set and read it on routes that both encrypt.
 - A refusal by the exchange returns the exchange's reason after the same events as `refresh()`, `rate_limited` with its
@@ -145,17 +144,16 @@ a cookie application's results hand back the cookie instead of the token.
 
 ## Implementation Anchors
 
-- `src/Http/RefreshTokenTransport.php`: `read()`, `extract()`, `judge()`, `usesCookie()`, `deliver()`,
+- `src/Http/RefreshTokenTransport.php`: `extract()`, `judge()`, `usesCookie()`, `deliver()`,
   `isSameSiteRequest()`, `isSameSiteClient()`, `forgetCookie()`; `src/Http/PresentedRefreshToken.php`;
   `src/Http/ClientContext.php`: `fromRequest()`, `sameSiteFactsOf()`, `carriesHeader()`;
   `src/Sessions/SessionPreconditions.php`: `crossSite()`; `src/Http/RefreshCookie.php`; `src/Http/Enums/Transport.php`;
   `src/Jwt/TokenPair.php`; `src/Http/RequestBody.php` (the body fields and the field names, shared with the pending
   credential's field).
 - `src/Sessions/SessionService.php`: `signIn()`, `start()`, `satisfy()`, `choose()`, `bound()`;
-  `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`, `switchFromRequest()`, `switched()`;
-  `src/Sessions/SessionRefresh.php`: `refresh()`, `refreshFromRequest()`, `refreshPresented()`,
-  `credentialFromRequest()`, `refuseHandedIn()`, `assertHandedIn()`; and `src/Sessions/SessionSignOut.php`:
-  `fromRequest()`, `presented()`, `with()`; which build the application's transport from the
+  `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`, `refuseSwitch()`, `switched()`;
+  `src/Sessions/SessionRefresh.php`: `refresh()`, `credential()`, `handedIn()`; and `src/Sessions/SessionSignOut.php`:
+  `signOutWith()`; which build the application's transport from the
   configuration (`RefreshTokenTransport::forGuard()`), as the guard's own factory does.
 - `src/Http/RefreshTokenSettings.php`: `forGuard()`.
 - `src/Guards/JwtGuard.php`: `refreshTransport()`.
