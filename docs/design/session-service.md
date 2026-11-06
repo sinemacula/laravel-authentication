@@ -184,7 +184,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   the second it began, before verification): its identity, principal and tenant are read again, and one deactivated or
   deleted after admission revokes the session, which `signIn()`, `start()` and `signInExternally()` (after its own
   transaction) answer as a refusal through `refusal()`; inside a caller's transaction the check runs at the commit,
-  ahead of the reports and the bind (see `session-lifecycle.md`).
+  ahead of the reports and the bind; with the caller's transaction on the identity's, principal's or tenant's
+  connection and not the session's, the session commits and binds at once and the check and the reports wait for that
+  transaction to end, committed or rolled back (see `session-lifecycle.md`).
 - The slots a pending session keeps stay taken until it first activates, the one the method's check took on the
   account (`SignInRequest::reserveAccountAttempt()`) among them, and a discard or expiry leaves them counted, so each
   guess at a factor costs a sign-in attempt. For the password method the

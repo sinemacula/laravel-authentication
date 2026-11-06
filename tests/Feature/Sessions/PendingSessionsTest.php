@@ -964,8 +964,8 @@ final class PendingSessionsTest extends TestCase
      * the choice commits, ends the pending session once checked: it is revoked
      * as `tenant_deactivated`, reported as revoked (its client holds its
      * pending credential), the choice is refused as `tenant_inactive` with
-     * `Failed` and `AuthenticationFailed`, nothing reports an activation, and
-     * the guard is not bound.
+     * `Failed` and `AuthenticationFailed` naming the session and the method it
+     * records, nothing reports an activation, and the guard is not bound.
      *
      * @return void
      *
@@ -991,6 +991,8 @@ final class PendingSessionsTest extends TestCase
         self::assertSame([SessionRevoked::class, Failed::class, AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(RevocationReason::TENANT_DEACTIVATED, $this->recordedEvent(SessionRevoked::class)->reason);
         self::assertSame(RevocationReason::TENANT_DEACTIVATED->value, Session::query()->sole()->getRawOriginal('revoked_reason'));
+        self::assertSame(IdentifierCoercion::stringify(Session::query()->sole()->getKey()), $this->recordedEvent(AuthenticationFailed::class)->context->sessionId);
+        self::assertSame('password', $this->recordedEvent(AuthenticationFailed::class)->context->method);
         self::assertTrue(app('auth')->guard(self::CHOOSERS)->guest());
     }
 

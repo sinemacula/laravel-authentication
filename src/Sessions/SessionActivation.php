@@ -12,7 +12,6 @@ use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionActivated;
@@ -52,9 +51,9 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * and `SignedIn`). The activation of a session that returned to pending moves
  * the floor for its access tokens' issue time (`SwitchFloor`), so no token from
  * before its return is accepted, and is reported as `SessionActivated`. Every
- * report waits for the commit on the session's connection, and all but a
- * superseded session's for the check of the call it is made for
- * (`AdmissionRecheck`), which never lets them run once it ended the session.
+ * report waits for the commit on the session's connection and for the check of
+ * the call it is made for (`AdmissionRecheck`), which lets none but a
+ * superseded session's run once it ended the session.
  *
  * The activation's write of the locked pending row, made before the pair is
  * issued, is the session's issuance guard, and the pair's proofs are read
@@ -77,7 +76,6 @@ final readonly class SessionActivation
      *
      * @param  \SineMacula\Laravel\Authentication\Runtime\GuardContext  $context
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
-     * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
@@ -87,9 +85,6 @@ final readonly class SessionActivation
 
         /** The guard's token service, which issues the pair. */
         private JwtTokenService $tokens,
-
-        /** Defers the reports until the activation commits. */
-        private AfterCommit $afterCommit,
 
         /** Container the application policy is resolved from. */
         private Container $container,
@@ -307,10 +302,10 @@ final readonly class SessionActivation
 
     /**
      * Schedule the reports of a sign-in's first activation, once committed on
-     * the session's connection: `SessionRevoked` (`superseded`) for the session
-     * it superseded, if any, then, once the call's check passed,
-     * `SessionCreated` and `SignedIn`, in turn, so a listener that throws stops
-     * the reports after its own.
+     * the session's connection and after the call's check: `SessionRevoked`
+     * (`superseded`) for the session it superseded, if any, whatever the check
+     * found, then, when it passed, `SessionCreated` and `SignedIn`, in turn, so
+     * a listener that throws stops the reports after its own.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
@@ -334,7 +329,7 @@ final readonly class SessionActivation
         );
 
         if ($revoked !== null) {
-            $this->afterCommit->run($session, fn () => $this->context->dispatch($revoked));
+            $call->afterCheck($session, fn () => $this->context->dispatch($revoked));
         }
 
         $call->then($session, function () use ($context): void {

@@ -469,7 +469,7 @@ final class SessionActivationTest extends TestCase
     {
         $guard = $this->freshGuard(self::GUARD);
 
-        return new SessionActivation($guard->context(), $guard->tokens(), new AfterCommit(static fn (): mixed => app('db.transactions')), app());
+        return new SessionActivation($guard->context(), $guard->tokens(), app());
     }
 
     /**

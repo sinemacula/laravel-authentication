@@ -18,6 +18,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -31,11 +34,14 @@ use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithRecheckedMembers;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\PlainPrincipalResolver;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\RecheckedMember;
 use Tests\Integration\Fixtures\RecheckedMembership;
 use Tests\TestCase;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * Feature tests for the check a session written by a sign-in, a choice or a
@@ -155,8 +161,9 @@ final class AdmissionRecheckTest extends TestCase
      * A sign-in's session whose identity, principal or tenant stopped standing
      * after the sign-in admitted it is revoked with the matching reason once
      * checked, the call is left the refusal to answer with (naming what the
-     * session acted as), the reports it scheduled never run, and no
-     * `SessionRevoked` is reported for a session the call never handed out.
+     * session acted as, never the session), the reports it scheduled never run
+     * but one that stands whatever the check finds, and no `SessionRevoked` is
+     * reported for a session the call never handed out.
      *
      * @formatter:off
      *
@@ -181,6 +188,7 @@ final class AdmissionRecheckTest extends TestCase
         $session = $this->signIn();
         $recheck = $this->recheck();
         $ran     = false;
+        $stood   = false;
 
         $change($member, $membership, $tenant);
 
@@ -190,14 +198,18 @@ final class AdmissionRecheckTest extends TestCase
         $recheck->then($session->record, static function () use (&$ran): void {
             $ran = true;
         });
+        $recheck->afterCheck($session->record, static function () use (&$stood): void {
+            $stood = true;
+        });
 
         $refused = $recheck->refusal();
 
         self::assertNotNull($refused);
         self::assertSame($refusal, $refused->reason);
-        self::assertSame([$member, $membership, $tenant], [$refused->identity, $refused->principal, $refused->tenant]);
+        self::assertSame([$member, $membership, $tenant, null], [$refused->identity, $refused->principal, $refused->tenant, $refused->session]);
         self::assertSame($revoked->value, self::revokedReasonOf($session));
         self::assertFalse($ran);
+        self::assertTrue($stood);
         self::assertSame([], $this->recordedClasses());
     }
 
@@ -334,8 +346,8 @@ final class AdmissionRecheckTest extends TestCase
      * A choice is checked for the principal chosen and the tenant it acts in,
      * never for the identity, which the pending session already records; a
      * failed choice ends a session the client holds, so its revocation is
-     * reported, though the call has not answered, and a guard bound to it
-     * forgets it.
+     * reported, though the call has not answered, the refusal names it, and a
+     * guard bound to it forgets it.
      *
      * @return void
      *
@@ -365,7 +377,11 @@ final class AdmissionRecheckTest extends TestCase
 
         $failing->choice($session->record, new Admitted($member, $membership, $tenant));
 
-        self::assertSame(FailureReason::PRINCIPAL_INACTIVE, $failing->refusal()?->reason);
+        $refused = $failing->refusal();
+
+        self::assertNotNull($refused);
+        self::assertSame(FailureReason::PRINCIPAL_INACTIVE, $refused->reason);
+        self::assertSame($session->record, $refused->session);
         self::assertSame([SessionRevoked::class], $this->recordedClasses());
         self::assertSame(RevocationReason::PRINCIPAL_DEACTIVATED, $this->recordedEvent(SessionRevoked::class)->reason);
         self::assertSame(self::client(), $this->recordedEvent(SessionRevoked::class)->context->client);
@@ -544,6 +560,265 @@ final class AdmissionRecheckTest extends TestCase
 
         self::assertCount(1, $ran);
         self::assertNull($recheck->refusal());
+    }
+
+    /**
+     * A transaction on a subject's connection that rolls back lets the check
+     * run as one that commits does, since the session is committed on its own
+     * connection either way: a session that still stands runs its reports, and
+     * one whose identity was deactivated meanwhile is revoked, its revocation
+     * reported (the call had answered), its reports dropped, and a guard bound
+     * to it forgets it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATransactionOnASubjectsConnectionThatRollsBackStillLetsTheCheckRun(): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $session   = $this->signIn();
+        $guard     = $this->guard();
+        $elsewhere = (new RecheckedMember)->newFromBuilder($member->getAttributes())->setConnection(self::ELSEWHERE);
+        /** @var \ArrayObject<int, string> $ran */
+        $ran = new \ArrayObject;
+
+        DB::connection(self::ELSEWHERE)->beginTransaction();
+
+        $passing = $this->recheck();
+
+        $passing->signIn($session->record, $elsewhere, $membership, $tenant);
+        $passing->then($session->record, static function () use ($ran): void {
+            $ran->append('passed');
+        });
+
+        self::assertNull($passing->refusal());
+        self::assertCount(0, $ran);
+
+        DB::connection(self::ELSEWHERE)->rollBack();
+
+        self::assertSame(['passed'], $ran->getArrayCopy());
+
+        DB::connection(self::ELSEWHERE)->beginTransaction();
+
+        $failing = $this->recheck();
+
+        $failing->signIn($session->record, $elsewhere, $membership, $tenant);
+        $failing->then($session->record, static function () use ($ran): void {
+            $ran->append('failed');
+        });
+
+        self::assertNull($failing->refusal());
+
+        $guard->login($member, $membership, $session->record);
+
+        RecheckedMember::query()->whereKey($member->getKey())->update(['is_active' => false]);
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        DB::connection(self::ELSEWHERE)->rollBack();
+
+        self::assertSame(['passed'], $ran->getArrayCopy());
+        self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, self::revokedReasonOf($session));
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
+        self::assertNull($guard->session());
+    }
+
+    /**
+     * A report that stands whatever the check finds (a revocation of another
+     * session the call made) runs after the check, in order with the reports
+     * waiting for it, and a listener that throws on it cannot keep the check
+     * from running, since the check runs first.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReportThatStandsWhateverTheCheckFindsRunsAfterIt(): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $session = $this->signIn();
+        /** @var \ArrayObject<int, string> $order */
+        $order = new \ArrayObject;
+
+        DB::beginTransaction();
+
+        $passing = $this->recheck();
+
+        $passing->signIn($session->record, $member, $membership, $tenant);
+        $passing->afterCheck($session->record, static function () use ($order): void {
+            $order->append('superseded');
+        });
+        $passing->then($session->record, static function () use ($order): void {
+            $order->append('created');
+        });
+
+        DB::commit();
+
+        self::assertSame(['superseded', 'created'], $order->getArrayCopy());
+
+        DB::beginTransaction();
+
+        $failing = $this->recheck();
+
+        $failing->signIn($session->record, $member, $membership, $tenant);
+        $failing->afterCheck($session->record, static function (): void {
+            throw new \RuntimeException('listener');
+        });
+        $failing->then($session->record, static function () use ($order): void {
+            $order->append('never');
+        });
+
+        self::assertNull($failing->refusal());
+
+        RecheckedMember::query()->whereKey($member->getKey())->update(['is_active' => false]);
+
+        try {
+            DB::commit();
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener', $exception->getMessage());
+        }
+
+        self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, self::revokedReasonOf($session));
+        self::assertSame(['superseded', 'created'], $order->getArrayCopy());
+    }
+
+    /**
+     * The principal recorded must be the very one the resolver answers again:
+     * when it was soft-deleted and the resolver falls back to the identity's
+     * other principal, the session acted as a principal that is gone, and a
+     * sign-in and a choice are refused as `principal_unresolved` and revoked as
+     * `principal_deleted`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnotherPrincipalAnsweredInPlaceOfTheOneRecordedIsNoneAtAll(): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $session = $this->signIn();
+        $other   = RecheckedMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey(), 'is_active' => true]);
+
+        $membership->delete();
+
+        $answered = $this->guard()->context()->resolver()->resolve($member, $membership->getKey());
+
+        self::assertInstanceOf(RecheckedMembership::class, $answered);
+        self::assertSame($other->getKey(), $answered->getKey());
+
+        $signIn = $this->recheck();
+
+        $signIn->signIn($session->record, $member, $membership, $tenant);
+
+        self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $signIn->refusal()?->reason);
+        self::assertSame(RevocationReason::PRINCIPAL_DELETED->value, self::revokedReasonOf($session));
+
+        $choice = $this->recheck();
+
+        $choice->choice($session->record, new Admitted($member, $membership, $tenant));
+
+        self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $choice->refusal()?->reason);
+    }
+
+    /**
+     * Rows of `[what the guard's resolver answers for the principal, the
+     * refusal, or `null` when the session passes]`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Contracts\Identity): ?\SineMacula\Laravel\Authentication\Contracts\Principal, 1: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function providePlainPrincipals(): iterable
+    {
+        yield 'the same principal, active' => [static fn (Identity $identity): Principal => new PlainPrincipalFixture(7, $identity), null];
+        yield 'the same principal, inactive' => [
+            static fn (Identity $identity): Principal => new PlainPrincipalFixture(7, $identity, active: false),
+            FailureReason::PRINCIPAL_INACTIVE,
+        ];
+        yield 'another principal' => [static fn (Identity $identity): Principal => new PlainPrincipalFixture(8, $identity), FailureReason::PRINCIPAL_UNRESOLVED];
+        yield 'a principal of another type' => [static fn (): Principal => (new StubPrincipal)->forceFill(['id' => 7]), FailureReason::PRINCIPAL_UNRESOLVED];
+        yield 'no principal' => [static fn (): ?Principal => null, FailureReason::PRINCIPAL_UNRESOLVED];
+    }
+
+    /**
+     * A principal that is no Eloquent model is resolved again through the
+     * guard's resolver, with the identifier recorded as the hint, and judged on
+     * what it answers: still that principal and active, or the session ends.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Contracts\Identity): ?\SineMacula\Laravel\Authentication\Contracts\Principal  $answer
+     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $refusal
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('providePlainPrincipals')]
+    public function testAPrincipalThatIsNoModelIsResolvedAgainThroughTheGuardsResolver(\Closure $answer, ?FailureReason $refusal): void
+    {
+        [$member] = $this->seedRechecked();
+
+        $session  = $this->signIn();
+        $resolver = new PlainPrincipalResolver($answer($member));
+
+        app()->instance(PrincipalResolver::class, $resolver);
+
+        $recheck = $this->recheck();
+
+        self::assertSame($resolver, $this->guard()->context()->resolver());
+
+        $recheck->signIn($session->record, $member, new PlainPrincipalFixture(7, $member), null);
+
+        self::assertSame($refusal, $recheck->refusal()?->reason);
+        self::assertSame(['7'], $resolver->hints);
+    }
+
+    /**
+     * A switch of tenant alone reads the principal again, though it does not
+     * judge the principal's own standing: the active tenant is resolved through
+     * it, and the instance the switch admitted holds its tenant as it was
+     * loaded before the tenant was deactivated. A switch to no tenant leaves
+     * nothing to check, reads nothing and runs its reports at once.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantSwitchReadsThePrincipalAgainForItsTenant(): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $session = $this->signIn();
+
+        self::assertNotNull($membership->getTenant());
+
+        $tenant->update(['is_active' => false]);
+
+        $tenantOnly = $this->recheck();
+
+        $tenantOnly->switch($session->record, new Admitted($member, $membership, $tenant), false, true);
+
+        self::assertSame(FailureReason::TENANT_INACTIVE, $tenantOnly->refusal()?->reason);
+
+        $noTenant = $this->recheck();
+        $ran      = false;
+
+        self::assertSame(0, self::readsOf(static fn () => $noTenant->switch($session->record, new Admitted($member, $membership, null), false, true)));
+
+        $noTenant->then($session->record, static function () use (&$ran): void {
+            $ran = true;
+        });
+
+        self::assertTrue($ran);
+        self::assertNull($noTenant->refusal());
     }
 
     /**

@@ -187,8 +187,8 @@ final readonly class SessionService
         $this->rotations         = new RefreshRotationStore($connections);
         $this->evaluation        = new PendingEvaluation($context, $container);
         $this->externalSignIns   = new ExternalSignIn($externalResults, $this->evaluation);
-        $this->establishment     = new SessionEstablishment($context, $writer, $proof, $this->evaluation, $this->afterCommit, $container);
-        $activation              = new SessionActivation($context, $tokens, $this->afterCommit, $container);
+        $this->establishment     = new SessionEstablishment($context, $writer, $proof, $this->evaluation, $container);
+        $activation              = new SessionActivation($context, $tokens, $container);
         $this->pendings          = new PendingSessions($context, $this->evaluation, $activation, $sessions, $this->afterCommit);
         $this->revocations       = new SessionRevocations($context, $sessions, $container);
         $this->policyChanges     = new TenantPolicyChanges($context, $this->afterCommit);

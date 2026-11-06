@@ -167,7 +167,15 @@ trait SwitchesSessions
 
         if ($refusal !== null) {
             $outcome = new AuthenticationFailed(
-                new EventContext($this->context->name(), $client, $refusal->identity, $refusal->principal, $refusal->tenant),
+                new EventContext(
+                    $this->context->name(),
+                    $client,
+                    $refusal->identity,
+                    $refusal->principal,
+                    $refusal->tenant,
+                    $refusal->session,
+                    $refusal->session?->getSignInMethod(),
+                ),
                 AuthenticationFlow::SWITCH,
                 $refusal->reason,
             );

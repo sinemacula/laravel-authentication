@@ -167,6 +167,116 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
+     * Work run once transactions have ended runs, on each model's connection in
+     * the order the models are given, once the outermost transaction open on it
+     * ends, whether it commits or rolls back, never when a transaction nested
+     * in it does, and not again for a second model on a connection whose
+     * transaction just ended; at once with none open, and with no model at all.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRunsOnceTheTransactionsOnEveryModelsConnectionHaveEnded(): void
+    {
+        $session  = $this->record();
+        $separate = new SeparateConnectionSession;
+        $calls    = new \ArrayObject;
+        $count    = self::counter($calls);
+        $other    = DB::connection(SeparateConnectionSession::CONNECTION);
+
+        $this->afterCommit()->runOnceEnded([$session, $separate], $count);
+        $this->afterCommit()->runOnceEnded([], $count);
+
+        self::assertCount(2, $calls);
+
+        $other->beginTransaction();
+        $other->beginTransaction();
+
+        $this->afterCommit()->runOnceEnded([$separate], $count);
+
+        $other->rollBack();
+        $other->beginTransaction();
+        $other->commit();
+
+        self::assertCount(2, $calls);
+
+        $other->commit();
+
+        self::assertCount(3, $calls);
+
+        $other->beginTransaction();
+
+        $this->afterCommit()->runOnceEnded([$separate, $separate], $count);
+
+        $other->rollBack();
+
+        self::assertCount(4, $calls);
+
+        DB::beginTransaction();
+        $other->beginTransaction();
+
+        $this->afterCommit()->runOnceEnded([$session, $separate], $count);
+
+        DB::rollBack();
+
+        self::assertCount(4, $calls);
+
+        $other->rollBack();
+
+        self::assertCount(5, $calls);
+    }
+
+    /**
+     * Under the transactions manager of Laravel's testing traits, work run once
+     * transactions have ended does not wait for the transaction that wraps each
+     * test, only for one opened inside it, and runs when that one ends.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRunsOnceEndedIgnoringTheTransactionWrappingATest(): void
+    {
+        $session     = $this->record();
+        $calls       = new \ArrayObject;
+        $count       = self::counter($calls);
+        $manager     = new TestingTransactionsManager([null]);
+        $afterCommit = new AfterCommit(static fn (): TestingTransactionsManager => $manager);
+        $connection  = DB::connection();
+
+        $connection->setTransactionManager($manager);
+        $connection->beginTransaction();
+
+        try {
+            $afterCommit->runOnceEnded([$session], $count);
+
+            self::assertCount(1, $calls);
+
+            DB::beginTransaction();
+
+            $afterCommit->runOnceEnded([$session], $count);
+
+            self::assertCount(1, $calls);
+
+            DB::rollBack();
+
+            self::assertCount(2, $calls);
+
+            DB::beginTransaction();
+
+            $afterCommit->runOnceEnded([$session], $count);
+
+            DB::commit();
+
+            self::assertCount(3, $calls);
+        } finally {
+            $connection->rollBack();
+            $connection->setTransactionManager(app('db.transactions'));
+        }
+    }
+
+    /**
      * Work deferred inside a nested transaction on the session's connection is
      * dropped when that nested transaction is rolled back, even though the
      * outer transaction it was nested in later commits.

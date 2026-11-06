@@ -13,7 +13,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
+use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -31,9 +33,11 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
+use Tests\Fixtures\Tenancy\DescendantTenants;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -123,6 +127,41 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions('members');
         $result   = $this->assertQueryBudget(10, 2, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
+
+        self::assertTrue($result->isSwitched());
+    }
+
+    /**
+     * A switch of tenant alone, which keeps the membership the session acts as,
+     * reads the refresh counters, the session (twice, as every switch does),
+     * its owner, the membership, its tenant and its owner, and the tenant
+     * switched to, writes the issuance guard and the switch, reads the
+     * session's proofs for the new access token, and, once the switch is
+     * committed, reads the membership again, through which the tenant switched
+     * to is judged, its own tenant and the tenant switched to, though it does
+     * not judge the membership's own standing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchOfTenantAloneReadsThePrincipalAgainForItsTenant(): void
+    {
+        [, $first, $tenant] = $this->seedMember();
+
+        $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
+        $tree       = (new DescendantTenants)->place($descendant->getKey(), $tenant->getKey());
+
+        app()->instance(TenantAccess::class, $tree);
+        app()->instance(TenantResolver::class, $tree);
+
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), SignInContext::fromRequest(request(), principal: $first))->session;
+
+        self::assertNotNull($session);
+
+        $sessions = $this->sessions('members');
+        $target   = SwitchTarget::tenant(TenantSelection::of($descendant->getKey()));
+        $result   = $this->assertQueryBudget(12, 2, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), $target));
 
         self::assertTrue($result->isSwitched());
     }

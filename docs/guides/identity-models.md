@@ -541,4 +541,5 @@ A principal deleted by a database cascade from its identity fires no model event
 already ends every session acting as its principals, since an identity's sessions are all those it holds: register the
 observer on the identity model and do not rely on the principal's observer for cascades. A principal a cascade removes
 with its tenant is covered by no identity's revocation, so call `tenantDeactivated()` with the tenant's principals
-before deleting it.
+inside the transaction that deletes the tenant, before the delete: it ends their sessions again once the delete commits,
+so a sign-in racing the delete keeps none, which a call made before the delete outside a transaction does not ensure.

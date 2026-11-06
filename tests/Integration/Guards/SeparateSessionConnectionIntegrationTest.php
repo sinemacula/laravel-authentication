@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -18,13 +19,17 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
@@ -52,6 +57,7 @@ use Tests\TestCase;
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(RefreshRotationStore::class)]
 #[CoversClass(SessionSwitch::class)]
+#[CoversClass(AdmissionRecheck::class)]
 final class SeparateSessionConnectionIntegrationTest extends TestCase
 {
     use InteractsWithSessionRecords;
@@ -345,6 +351,67 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * A sign-in made inside a transaction on the identity's connection, with
+     * the sessions on their own, commits its session at once and binds the
+     * guard to it, while the check of what it acts as waits for that
+     * transaction to end, and the events that report the session with it:
+     * when it rolls back, the check still runs and the session is reported;
+     * when it commits the identity's deletion made in it, the check ends the
+     * session, which the caller holds, and reports that instead.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInInsideATransactionOnTheIdentitysConnectionIsCheckedWhenThatTransactionEnds(): void
+    {
+        $identity            = new SeparateConnectionSessionIdentity;
+        $identity->email     = 'checked@example.test';
+        $identity->password  = app(Hasher::class)->make('correct horse battery staple');
+        $identity->is_active = true;
+        $identity->save();
+
+        $credentials = ['email' => 'checked@example.test', 'password' => 'correct horse battery staple'];
+        /** @var \ArrayObject<int, string> $reported */
+        $reported = new \ArrayObject;
+
+        Event::listen([SessionAuthenticated::class, SessionCreated::class, SignedIn::class, SessionRevoked::class], static function (object $event) use ($reported): void {
+            $reported->append(class_basename($event));
+        });
+
+        DB::beginTransaction();
+
+        $kept = Auth::sessions()->signIn('password', $credentials)->session;
+
+        self::assertNotNull($kept);
+        self::assertSame(['SessionAuthenticated'], $reported->getArrayCopy());
+
+        DB::rollBack();
+
+        self::assertSame(['SessionAuthenticated', 'SessionCreated', 'SignedIn'], $reported->getArrayCopy());
+        self::assertNull(self::revokedReasonOf($kept->record->getKey()));
+
+        $reported->exchangeArray([]);
+
+        DB::beginTransaction();
+
+        $ended = Auth::sessions()->signIn('password', $credentials)->session;
+
+        self::assertNotNull($ended);
+
+        SeparateConnectionSessionIdentity::query()->whereKey($identity->getKey())->delete();
+
+        DB::commit();
+
+        self::assertSame(['SessionAuthenticated', 'SessionRevoked'], $reported->getArrayCopy());
+        self::assertSame('identity_deleted', self::revokedReasonOf($ended->record->getKey()));
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+        self::assertNull($guard->session());
+    }
+
+    /**
      * Keep the sessions on their own connection, a separate database, as the
      * storage connection, the counters on the default one, and configure the
      * `api` guard.
@@ -367,6 +434,17 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => SeparateConnectionSessionIdentity::class]);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']], 'jwt' => ['refresh_grace_seconds' => 30]]);
+    }
+
+    /**
+     * Why the session's row records it was revoked, if it was.
+     *
+     * @param  mixed  $id
+     * @return mixed
+     */
+    private static function revokedReasonOf(mixed $id): mixed
+    {
+        return DB::connection(SeparateConnectionSession::CONNECTION)->table('authentication_sessions')->where('id', $id)->value('revoked_reason');
     }
 
     /**

@@ -8,7 +8,10 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -162,9 +165,12 @@ final readonly class RevocationWriter
      * through a snapshot taken before a sign-in, a choice or a switch that
      * admitted the model committed one, which a read after the change's commit
      * finds. Every cutoff stays where the first pass left it, each session this
-     * pass revokes is reported, and no scope is. With no transaction open on
-     * either connection, the first pass already read past every commit and
-     * nothing is done; a rollback runs nothing.
+     * pass revokes is reported, and no scope is; the pending identifier changes
+     * an identity's scope names are deleted again, so a change requested since
+     * the first pass (from a session it could not see) is dropped with that
+     * session. With no transaction open on either connection, the first pass
+     * already read past every commit and nothing is done; a rollback runs
+     * nothing.
      *
      * @formatter:off
      *
@@ -172,7 +178,7 @@ final readonly class RevocationWriter
      *
      * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\RevocationScope>  $scopes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
-     * @param  object  $changed
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Contracts\Principal|\SineMacula\Laravel\Authentication\Contracts\Tenant  $changed
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \SineMacula\Laravel\Authentication\Sessions\RevocationScope): void  $sessionRevoked
      * @return void
      *
@@ -182,7 +188,7 @@ final readonly class RevocationWriter
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    public function revokeAgain(array $scopes, RevocationReason $reason, object $changed, \Closure $sessionRevoked): void
+    public function revokeAgain(array $scopes, RevocationReason $reason, Identity|Principal|Tenant $changed, \Closure $sessionRevoked): void
     {
         $models = $changed instanceof Model ? [SessionLookup::model(), $changed] : [SessionLookup::model()];
 

@@ -8,11 +8,13 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
@@ -36,7 +38,8 @@ use Tests\Integration\Fixtures\CutoffIdentity;
  * and writes one `UPDATE` per session, pending ones included, a principal's
  * after one read of its owner, a tenant's for each principal after reading its
  * tenant, and an identity's that keeps a cutoff after the one conditional
- * `UPDATE` that moves it.
+ * `UPDATE` that moves it; a deactivation or deletion made inside a transaction
+ * reads its scopes' sessions once more when it commits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -378,6 +381,119 @@ final class SessionRevocationQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions('members');
 
         self::assertSame($count, $this->assertQueryBudget($reads, $writes, static fn (): int => $sessions->tenantDeactivated($tenant, $principals)));
+    }
+
+    /**
+     * Rows of `[the deactivation or deletion of an identity]`.
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int}>
+     */
+    public static function provideIdentityDeactivationsAndDeletions(): iterable
+    {
+        yield 'a deactivated identity' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->identityDeactivated($identity)];
+        yield 'a deleted identity' => [static fn (SessionService $sessions, Identity $identity): int => $sessions->identityDeleted($identity)];
+    }
+
+    /**
+     * An identity's deactivation or deletion made inside a transaction costs
+     * its bulk revocation and, once the transaction commits, one more chunk
+     * read of its sessions, which finds every one revoked and writes nothing:
+     * the cutoff is not moved again.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Identity): int  $change
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIdentityDeactivationsAndDeletions')]
+    public function testAnIdentitysDeactivationOrDeletionInsideATransactionReadsItsSessionsOnceMore(\Closure $change): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->signIn();
+        $this->signIn();
+        $this->signIn();
+
+        $sessions = $this->sessions();
+
+        self::assertSame(3, $this->assertQueryBudget(2, 3, static fn (): int => DB::transaction(static fn (): int => $change($sessions, $identity))));
+    }
+
+    /**
+     * Rows of `[the deactivation or deletion of a principal]`.
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Principal): int}>
+     */
+    public static function providePrincipalDeactivationsAndDeletions(): iterable
+    {
+        yield 'a deactivated principal' => [static fn (SessionService $sessions, Principal $principal): int => $sessions->principalDeactivated($principal)];
+        yield 'a deleted principal' => [static fn (SessionService $sessions, Principal $principal): int => $sessions->principalDeleted($principal)];
+    }
+
+    /**
+     * A principal's deactivation or deletion made inside a transaction costs
+     * its revocation and, once the transaction commits, one more chunk read of
+     * its sessions, which writes nothing: its owner is not read again.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Sessions\SessionService, \SineMacula\Laravel\Authentication\Contracts\Principal): int  $change
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('providePrincipalDeactivationsAndDeletions')]
+    public function testAPrincipalsDeactivationOrDeletionInsideATransactionReadsItsSessionsOnceMore(\Closure $change): void
+    {
+        [, $membership] = $this->seedMember();
+
+        $this->memberSignIn();
+        $this->memberSignIn();
+
+        $sessions = $this->sessions('members');
+
+        self::assertSame(2, $this->assertQueryBudget(3, 2, static fn (): int => DB::transaction(static fn (): int => $change($sessions, $membership))));
+    }
+
+    /**
+     * A tenant's deactivation made inside a transaction costs its revocation
+     * and, once the transaction commits, one more chunk read for each principal
+     * listed and one for the sessions acting in the tenant, which write
+     * nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantsDeactivationInsideATransactionReadsItsScopesOnceMore(): void
+    {
+        [, $membership, $tenant] = $this->seedMember();
+
+        $this->memberSignIn();
+
+        $sessions = $this->sessions('members');
+
+        self::assertSame(1, $this->assertQueryBudget(6, 1, static fn (): int => DB::transaction(static fn (): int => $sessions->tenantDeactivated($tenant, [$membership]))));
+    }
+
+    /**
+     * Any other bulk revocation, a reset password among them, costs the same
+     * inside a transaction as outside: only a deactivation or a deletion reads
+     * its scopes again at the commit.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnotherBulkRevocationCostsTheSameInsideATransaction(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->signIn();
+        $this->signIn();
+        $this->signIn();
+
+        $sessions = $this->sessions();
+
+        self::assertSame(3, $this->assertQueryBudget(1, 3, static fn (): int => DB::transaction(static fn (): int => $sessions->passwordReset($identity))));
     }
 
     /**

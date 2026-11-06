@@ -40,15 +40,19 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * the two is followed by a revocation that finds no session to end, and the
  * session it then writes would work again once the subject is reactivated or
  * restored. The check closes that window: it runs once the write is committed
- * and no transaction is open on the session's connection or on any connection
- * the identity, principal or tenant lives on, so it reads each as committed,
- * never through a snapshot taken before. An identity is reloaded through the
- * guard's provider and must still be that identity (`identity_deleted`) and
- * active (`identity_deactivated`); a principal is resolved again through the
- * guard's resolver, with its identifier as the hint, and must still be that
- * principal (`principal_deleted`), active (`principal_deactivated`) and in an
- * active tenant of its own (`tenant_deactivated`); the active tenant the
- * session records must still resolve for the principal and be active
+ * on the session's connection and the transaction open on each connection the
+ * identity, principal or tenant model lives on has ended, committed or rolled
+ * back, so it reads each such model as committed, never through a snapshot
+ * taken before. What it reads on another connection (a principal or tenant that
+ * is no Eloquent model, through its resolver; a principal's own tenant loaded
+ * from elsewhere; activity derived from other rows) is read as that connection
+ * gives it. An identity is reloaded through the guard's provider and must still
+ * be that identity (`identity_deleted`) and active (`identity_deactivated`); a
+ * principal the session newly acts as is resolved again through the guard's
+ * resolver, with its identifier as the hint, and must still be that principal
+ * (`principal_deleted`), active (`principal_deactivated`) and in an active
+ * tenant of its own (`tenant_deactivated`); the active tenant the session newly
+ * records must still resolve for the principal and be active
  * (`tenant_deactivated`). An identity or principal that records a "tokens valid
  * after" cutoff (`HasTokensValidAfter`) is also held to it: a cutoff moved
  * strictly after the second the call began is the trace of a bulk revocation
@@ -61,15 +65,18 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * A session that fails the check is revoked with the reason, by the conditional
  * revocation every other one uses, so one already revoked keeps its first
  * reason. The reports the call scheduled through `then()` run only once the
- * check passed, after it, in order, and never once it failed. A check that
- * failed before the call answered makes the call answer the refusal instead
- * (`refusal()`), and a new session the call never handed out is revoked without
- * a `SessionRevoked`; one that failed after (the call ran inside a caller's
- * transaction, so the check waited for its commit), or a session that existed
- * before the call (a choice's, a switch's), is reported as revoked, and a guard
- * bound to it forgets it. A call that wrote nothing to check (`satisfy()`, a
- * switch that changed neither principal nor tenant) schedules its reports as
- * `AfterCommit` would.
+ * check passed, after it, in order, and never once it failed; those scheduled
+ * through `afterCheck()` (a revocation the call made of another session) run
+ * after it in the same order whatever it found, so a listener that throws on
+ * one cannot keep the check from running. A check that failed before the call
+ * answered makes the call answer the refusal instead (`refusal()`), and a new
+ * session the call never handed out is revoked without a `SessionRevoked`; one
+ * that failed after (the call ran inside a caller's transaction, so the check
+ * waited for its commit), or a session that existed before the call (a
+ * choice's, a switch's), is reported as revoked, and a guard bound to it
+ * forgets it; the refusal a choice or a switch answers names that session. A
+ * call that wrote nothing to check (`satisfy()`, a switch that changed neither
+ * principal nor tenant) schedules its reports as `AfterCommit` would.
  *
  * One instance is one call: it holds the client the call is for and the second
  * it began, taken before anything was verified.
@@ -93,7 +100,7 @@ final class AdmissionRecheck
     /** @var ?bool Whether the check passed; `null` while it has not run. */
     private ?bool $passed = null;
 
-    /** @var list<\Closure(): void> The reports waiting for the check to pass. */
+    /** @var list<array{0: \Closure(): void, 1: bool}> The reports waiting for the check, each with whether it runs only once the check passed. */
     private array $waiting = [];
 
     /** @var bool Whether the call has answered. */
@@ -168,8 +175,9 @@ final class AdmissionRecheck
     /**
      * Check a switch once its write commits, for what it changed: the
      * destination principal when the session acted as another, and the
-     * destination tenant when it acted in another. A switch that changes
-     * neither is checked for nothing.
+     * destination tenant when it acted in another (not a switch to no tenant,
+     * which leaves nothing to deactivate). A switch left with nothing to check
+     * is checked for nothing.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
@@ -179,13 +187,13 @@ final class AdmissionRecheck
      */
     public function switch(EloquentSession&Model $session, Admitted $destination, bool $principal, bool $tenant): void
     {
+        $tenant = $tenant && $destination->tenant !== null;
+
         if (!$principal && !$tenant) {
             return;
         }
 
-        $checks = ['identity' => false, 'principal' => $principal, 'tenant' => $tenant && $destination->tenant !== null];
-
-        $this->watch($session, $destination->identity, $destination->principal, $destination->tenant, $checks);
+        $this->watch($session, $destination->identity, $destination->principal, $destination->tenant, ['identity' => false, 'principal' => $principal, 'tenant' => $tenant]);
     }
 
     /**
@@ -200,18 +208,22 @@ final class AdmissionRecheck
      */
     public function then(Model $session, \Closure $report): void
     {
-        if ($this->watched && $this->passed === null) {
+        $this->schedule($session, $report, true);
+    }
 
-            $this->waiting[] = $report;
-
-            return;
-        }
-
-        if ($this->passed === false) {
-            return;
-        }
-
-        $this->afterCommit->run($session, $report);
+    /**
+     * Run a report that stands whatever the check finds (a revocation the call
+     * made of another session) after the check, in order with the reports
+     * waiting for it: at its end while it waits, otherwise once the writes on
+     * the session's connection commit, as `AfterCommit` runs it.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $session
+     * @param  \Closure(): void  $report
+     * @return void
+     */
+    public function afterCheck(Model $session, \Closure $report): void
+    {
+        $this->schedule($session, $report, false);
     }
 
     /**
@@ -229,10 +241,39 @@ final class AdmissionRecheck
     }
 
     /**
+     * Hold the report until the check has run while it waits, or schedule it
+     * for the session's commit, unless it runs only once the check passed and
+     * the check failed.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $session
+     * @param  \Closure(): void  $report
+     * @param  bool  $gated
+     * @return void
+     */
+    private function schedule(Model $session, \Closure $report, bool $gated): void
+    {
+        if ($this->watched && $this->passed === null) {
+
+            $this->waiting[] = [$report, $gated];
+
+            return;
+        }
+
+        if ($gated && $this->passed === false) {
+            return;
+        }
+
+        $this->afterCommit->run($session, $report);
+    }
+
+    /**
      * Watch the session for the checks: run them once the writes on the
-     * session's connection, and then on each connection the subjects live on,
-     * have committed (at once on one with no transaction open), and the reports
-     * waiting after them when they pass.
+     * session's connection have committed, and then once the transaction open
+     * on each connection the subjects live on has ended, committed or rolled
+     * back (at once on one with no transaction open), and the reports waiting
+     * after them when they pass. Only the session's own connection decides
+     * whether the session is durable; the subjects' are waited for only so they
+     * are not read through a snapshot taken before.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -246,14 +287,14 @@ final class AdmissionRecheck
         $this->watched = true;
         $this->checks  = $checks;
 
-        $subjects = array_filter([$session, $identity, $principal, $tenant], static fn (?object $subject): bool => $subject instanceof Model);
+        $subjects = array_values(array_filter([$identity, $principal, $tenant], static fn (?object $subject): bool => $subject instanceof Model));
 
-        $this->afterCommit->runAcross(array_values($subjects), fn () => $this->settle($session, $identity, $principal, $tenant));
+        $this->afterCommit->run($session, fn () => $this->afterCommit->runOnceEnded($subjects, fn () => $this->settle($session, $identity, $principal, $tenant)));
     }
 
     /**
-     * Judge the committed session, then run the reports waiting for it, or end
-     * it.
+     * Judge the committed session, ending it when it no longer stands, then run
+     * the reports waiting for the check that its verdict lets run.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -272,13 +313,15 @@ final class AdmissionRecheck
         $this->waiting = [];
 
         if ($reason !== null) {
-
             $this->end($reason, $session, $identity, $principal, $tenant);
-
-            return;
         }
 
-        foreach ($waiting as $report) {
+        foreach ($waiting as [$report, $gated]) {
+
+            if ($gated && $reason !== null) {
+                continue;
+            }
+
             $report();
         }
     }
@@ -309,7 +352,12 @@ final class AdmissionRecheck
 
     /**
      * Why the principal, or the active tenant, the session acts as and in no
-     * longer stands, read afresh, or `null` when it does.
+     * longer stands, read afresh, or `null` when it does. The principal is read
+     * again for a check of the active tenant alone (a switch of tenant) too,
+     * though its own standing is not judged then: the active tenant is resolved
+     * through it (its own tenant, when that is the one named), and the instance
+     * the call admitted may hold that tenant as it was loaded before the
+     * change.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -443,7 +491,7 @@ final class AdmissionRecheck
         $handedOut = $this->answered || !$this->created;
 
         if (!$this->answered) {
-            $this->refused = new Refused($reason, $identity, $principal, $tenant);
+            $this->refused = new Refused($reason, $identity, $principal, $tenant, $this->created ? null : $session);
         }
 
         $this->revocations->revoke(

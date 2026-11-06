@@ -935,8 +935,9 @@ final class SessionSwitchTest extends TestCase
      * admitted it, before the switch commits, ends the session once checked,
      * whether the switch rotated it or returned it to pending: it is revoked as
      * `tenant_deactivated` and reported as revoked (its client holds it), the
-     * switch is refused as `tenant_inactive` (flow `switch`), and nothing
-     * reports a switch.
+     * switch is refused as `tenant_inactive` (flow `switch`) with the session
+     * and the method it records, and nothing reports a switch or a return to
+     * pending.
      *
      * @param  bool  $pending
      * @return void
@@ -959,13 +960,16 @@ final class SessionSwitchTest extends TestCase
 
         app()->instance(TenantAuthenticationPolicy::class, $policy);
 
-        $this->recordEvents([AuthenticationFailed::class, PrincipalSwitched::class, SessionRevoked::class]);
+        $this->recordEvents([AuthenticationFailed::class, PrincipalSwitched::class, SessionReturnedToPending::class, SessionRevoked::class]);
 
         $result = $this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second));
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame(FailureReason::TENANT_INACTIVE, $result->reason);
         self::assertSame([SessionRevoked::class, AuthenticationFailed::class], $this->recordedClasses());
-        self::assertSame(AuthenticationFlow::SWITCH, $this->recordedEvent(AuthenticationFailed::class)->flow);
+        self::assertSame(AuthenticationFlow::SWITCH, $failed->flow);
+        self::assertSame(IdentifierCoercion::stringify($session->record->getKey()), $failed->context->sessionId);
+        self::assertSame('password', $failed->context->method);
         self::assertSame(RevocationReason::TENANT_DEACTIVATED->value, Session::query()->whereKey($session->record->getKey())->value('revoked_reason'));
     }
 

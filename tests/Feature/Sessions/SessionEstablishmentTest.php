@@ -571,6 +571,62 @@ final class SessionEstablishmentTest extends TestCase
     }
 
     /**
+     * Inside a caller's transaction, a listener on the replaced session's
+     * revocation that throws at the commit cannot keep the new session from
+     * being checked: the check is registered first, so a session whose identity
+     * was deactivated before the commit is still ended.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARevocationListenerThatThrowsAtTheCommitCannotSkipTheCheck(): void
+    {
+        $identity     = $this->seedIdentity();
+        $establishing = $this->establishment($this->freshGuard());
+        $first        = self::outcome($establishing->proceed(
+            $identity,
+            self::selected($identity),
+            'email',
+            $this->context(),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
+        ))->session;
+
+        self::assertNotNull($first);
+
+        Event::listen(SessionRevoked::class, static function (SessionRevoked $event): void {
+            if ($event->reason === RevocationReason::SUPERSEDED) {
+                throw new \RuntimeException('revocation listener failed');
+            }
+        });
+
+        DB::beginTransaction();
+
+        $replaced = self::outcome($establishing->proceed(
+            $identity,
+            self::selected($identity),
+            'email',
+            $this->context($first->tokens->refreshToken?->reveal()),
+            SignInProof::unattested('password', CarbonImmutable::now()),
+            $this->recheck(),
+        ))->session;
+
+        self::assertNotNull($replaced);
+
+        IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
+
+        try {
+            DB::commit();
+            self::fail('Expected the revocation listener to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('revocation listener failed', $exception->getMessage());
+        }
+
+        self::assertSame('identity_deactivated', DB::table('authentication_sessions')->where('id', $replaced->record->getKey())->value('revoked_reason'));
+    }
+
+    /**
      * When the additional-factor policy asks for a further factor the default
      * check never finds met, the sign-in is written as a pending session
      * waiting on it, naming the requirement and the first factor it recorded,
@@ -1027,7 +1083,6 @@ final class SessionEstablishmentTest extends TestCase
             new SessionWriter($guard->getName(), $guard->tokens(), $connections),
             new ProvenSessions($guard->tokens()),
             new PendingEvaluation($guard->context(), app()),
-            new AfterCommit(static fn (): mixed => app('db.transactions')),
             app(),
         );
     }

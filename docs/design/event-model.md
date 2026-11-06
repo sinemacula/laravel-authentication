@@ -153,7 +153,9 @@ to these events, so the shape and the timing are a contract.
 ## Failure / Edge Cases
 
 - A sign-in, choice or switch whose session fails its check once committed (`AdmissionRecheck`) dispatches none of
-  the events that report the session or the switch; a sign-in answered with the refusal dispatches no `SessionRevoked`
+  the events that report the session or the switch (`SessionReturnedToPending` for a switch's return included; a
+  superseded session's `SessionRevoked` still follows the check, since that revocation stands); a sign-in answered with
+  the refusal dispatches no `SessionRevoked`
   (it never handed the session out), while one inside a caller's transaction (already answered), a choice and a switch
   report `SessionRevoked` with the reason. A deactivation's or deletion's second pass reports `SessionRevoked` only.
 - A refresh failure carries the session once the token's `sid` loaded one, the identity once the owner reloaded, the

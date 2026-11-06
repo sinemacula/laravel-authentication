@@ -17,7 +17,9 @@ use Illuminate\Support\Collection;
  * open transaction, otherwise when that transaction commits, and never when it
  * is rolled back. Work that must undo what was done in the meantime can be run
  * on the rollback instead. A transaction open on another connection neither
- * delays nor cancels the work, since the session's writes were not made in it.
+ * delays nor cancels the work, since the session's writes were not made in it,
+ * unless the work names that connection's model as well (`runAcross()`,
+ * `runOnceEnded()`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,6 +91,49 @@ final readonly class AfterCommit
         }
 
         $this->run($model, fn () => $this->runAcross($models, $callback));
+    }
+
+    /**
+     * Run the callback once the transactions open now on each model's
+     * connection have ended, the models' connections in the order given: on
+     * each, at once when no transaction is open on it then, otherwise when the
+     * outermost one open ends, whether it commits or rolls back (one or the
+     * other, so it runs once). It is for work that must read past those
+     * transactions (not through a snapshot one of them took), not for work that
+     * depends on what was written in them. A connection whose level is back to
+     * none has no transaction open, though Laravel runs a rollback's callbacks
+     * before it forgets the transaction rolled back, so the next model on that
+     * connection does not wait for it again.
+     *
+     * @param  list<\Illuminate\Database\Eloquent\Model>  $models
+     * @param  \Closure(): void  $callback
+     * @return void
+     *
+     * @imperative
+     */
+    public function runOnceEnded(array $models, \Closure $callback): void
+    {
+        $model = array_shift($models);
+
+        if ($model === null) {
+
+            $callback();
+
+            return;
+        }
+
+        $next      = fn () => $this->runOnceEnded($models, $callback);
+        $outermost = $model->getConnection()->transactionLevel() === 0 ? null : $this->open($model)->first();
+
+        if ($outermost === null) {
+
+            $next();
+
+            return;
+        }
+
+        $outermost->addCallback($next);
+        $outermost->addCallbackForRollback($next);
     }
 
     /**

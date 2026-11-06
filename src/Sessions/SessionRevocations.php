@@ -56,7 +56,14 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * transaction may have read the sessions before the call's commit. Either the
  * revocation reads the session, or the call's check, made after its commit,
  * reads the change; no session established before or concurrently with the
- * change survives its reactivation or restore. The one exception is a change
+ * change survives its reactivation or restore. That holds for these calls made
+ * inside the change's transaction or after it (not before it, outside a
+ * transaction), and for Eloquent identities, principals and tenants whose
+ * standing is read on their own connection: the check waits only for those
+ * connections, so what it reads elsewhere (a principal or tenant that is no
+ * model, through its resolver; a principal's own tenant on another connection;
+ * activity derived from other rows) it reads as that connection gives it, a
+ * caller's open transaction there included. The one exception is a change
  * undone (reactivated, restored) before a call in flight checks its session:
  * only a "tokens valid after" cutoff the revocation moved after the call began
  * records that, so a subject without one (a tenant, or an identity or principal
@@ -480,17 +487,25 @@ final readonly class SessionRevocations
      * model's own has committed (see `RevocationWriter::revokeAgain()`),
      * reporting each session that pass revokes.
      *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\RevocationScope>  $scopes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
      * @param  ?\Closure(): void  $committed
-     * @param  ?object  $changed
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Contracts\Principal|\SineMacula\Laravel\Authentication\Contracts\Tenant|null  $changed
      * @return int
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
-    private function endSessions(array $scopes, RevocationReason $reason, ?Session $except, ?\Closure $committed = null, ?object $changed = null): int
+    private function endSessions(array $scopes, RevocationReason $reason, ?Session $except, ?\Closure $committed = null, Identity|Principal|Tenant|null $changed = null): int
     {
         $client = $this->context->client();
         $guard  = $this->context->name();

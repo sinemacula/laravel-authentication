@@ -33,7 +33,9 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * choice of principal or a switch that admitted the model before the delete
  * committed, and wrote its session after this revocation read the sessions,
  * ends that session itself once it checks it (`AdmissionRecheck`), so no
- * session survives the restore.
+ * session survives the restore, unless the restore came before that check: then
+ * only a "tokens valid after" cutoff (`HasTokensValidAfter`) this revocation
+ * moved after the call began ends it (see `SessionRevocations`).
  *
  * @api
  *

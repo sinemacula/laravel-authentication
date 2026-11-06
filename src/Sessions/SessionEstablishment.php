@@ -15,7 +15,6 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -78,7 +77,6 @@ final readonly class SessionEstablishment
      * @param  \SineMacula\Laravel\Authentication\Sessions\SessionWriter  $writer
      * @param  \SineMacula\Laravel\Authentication\Sessions\ProvenSessions  $proof
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingEvaluation  $evaluation
-     * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
@@ -94,9 +92,6 @@ final readonly class SessionEstablishment
 
         /** The checks a sign-in passes in order. */
         private PendingEvaluation $evaluation,
-
-        /** Defers the lifecycle events until the writes commit. */
-        private AfterCommit $afterCommit,
 
         /** Container the application policy and the configuration are resolved from. */
         private Container $container,
@@ -374,11 +369,13 @@ final readonly class SessionEstablishment
 
     /**
      * Schedule the reports of a written active session, and answer it, once the
-     * session is committed on the session's own connection: `SessionRevoked`
-     * (`superseded`) for the session it replaced, if any, then, once its
-     * identity, principal and tenant are checked again (`AdmissionRecheck`),
-     * `SessionCreated` and `SignedIn`, in turn, so a listener that throws stops
-     * the reports after its own.
+     * session is committed on the session's own connection and its identity,
+     * principal and tenant are checked again (`AdmissionRecheck`), the check
+     * registered first so no listener can keep it from running:
+     * `SessionRevoked` (`superseded`) for the session it replaced, if any,
+     * whatever the check found, then, when it passed, `SessionCreated` and
+     * `SignedIn`, in turn, so a listener that throws stops the reports after
+     * its own.
      *
      * The replaced session's revocation is reported with its guard (the
      * sign-in's own) and the method it records, the sign-in's client, and the
@@ -410,11 +407,11 @@ final readonly class SessionEstablishment
         $signedIn = new SignedIn($event, false);
         $redeemed = $this->redeemed($proof, $context->client, $session->identity, $session->principal, $tenant, $session->record);
 
-        if ($revoked !== null) {
-            $this->afterCommit->run($session->record, fn () => $this->context->dispatch($revoked));
-        }
-
         $recheck->signIn($session->record, $session->identity, $session->principal, $tenant);
+
+        if ($revoked !== null) {
+            $recheck->afterCheck($session->record, fn () => $this->context->dispatch($revoked));
+        }
 
         $recheck->then($session->record, function () use ($created, $signedIn, $redeemed): void {
 

@@ -97,7 +97,8 @@ revoked, and when a session that ended is deleted. Starting a session is in
   set does not decide and Eloquent's strict mode does not stop the read; same class and identifier; for a `CanBeActive`
   tenant that can no longer be loaded, the class and key the `TenantUnavailableException` carries, so a deleted or
   soft-deleted one still ends its principals' sessions; a tenant without `CanBeActive` reads as no tenant once it cannot
-  be loaded, so the application calls it before deleting one) before anything is written, de-duplicates by recorded type
+  be loaded, so the application calls it inside the transaction that deletes one, before the delete, which the second
+  pass below needs to cover a racing sign-in) before anything is written, de-duplicates by recorded type
   and id, and ends all of them in one transaction on the session connection, with one `SignedOutEverywhere` each.
   `factorRemoved()` and `factorReset()` are mandatory: no setting turns them off, and the factor package calls them
   synchronously inside the transaction that makes its change (a savepoint here, reported after the outermost commit),
@@ -189,18 +190,22 @@ revoked, and when a session that ended is deleted. Starting a session is in
   deactivation or deletion committing in between is followed by a revocation that finds nothing. Closed without a lock
   (the sign-in path takes none on the identity, principal or tenant rows, and the lock order is unchanged), by two
   parts. (A) `Sessions\AdmissionRecheck`, one per call, built by the session service with the call's client and the
-  second the call began (before verification): once the call's write is committed and no transaction is open on the
-  session's connection or on any connection the identity, principal or tenant lives on (`AfterCommit::runAcross()`),
+  second the call began (before verification): once the call's write is committed on the session's connection and the
+  transaction open on any connection the identity, principal or tenant model lives on has ended, committed or rolled
+  back (`AfterCommit::runOnceEnded()`: only the session's connection decides whether the session is durable),
   it reads again what the session newly acts as (a sign-in: the identity through the provider, the principal through
   the resolver by its identifier and that principal's own tenant, the active tenant through
   `TenantAdmission::recorded(..., false)`; a choice: the principal and tenant; a switch: what it changed) and judges
   standing only (exists, active, and for an identity or principal with `HasTokensValidAfter` a cutoff not strictly
   after the call began). No access contract, application policy or tenant authentication policy is asked. A failure
   revokes the session (`RevocationWriter::revoke()`, conditional) with the matching reason; reports the call routes
-  through `AdmissionRecheck::then()` run only after a pass; a failure before the call answers becomes the call's
-  refusal (`refusal()`), with no `SessionRevoked` for a sign-in's own new session, while a failure after it (a
-  caller's transaction) or of a session that existed before the call (choice, switch) reports `SessionRevoked` and
-  forgets a guard binding to it. (B) The five deactivation and deletion revocations (`identityDeactivated()`,
+  through `AdmissionRecheck::then()` (a switch's `SessionReturnedToPending` among them, through
+  `PendingTransitions::reportingThrough()`) run only after a pass, and those through `afterCheck()` (a superseded
+  session's `SessionRevoked`) after the check whatever it found, the check being registered before either so no
+  listener can keep it from running; a failure before the call answers becomes the call's refusal (`refusal()`, naming
+  the session for a choice or a switch), with no `SessionRevoked` for a sign-in's own new session, while a failure
+  after it (a caller's transaction) or of a session that existed before the call (choice, switch) reports
+  `SessionRevoked` and forgets a guard binding to it. (B) The five deactivation and deletion revocations (`identityDeactivated()`,
   `identityDeleted()`, `principalDeactivated()`, `principalDeleted()`, `tenantDeactivated()`) run their scopes again
   (`RevocationWriter::revokeAgain()`, `keepingCutoff()`, only `SessionRevoked` reported, not counted) once the
   transactions open, when they ran, on the session model's connection and the changed model's own have committed.
@@ -215,8 +220,12 @@ revoked, and when a session that ended is deleted. Starting a session is in
   by the sign-in and waited on by the revocation was withdrawn: it adds a lock order (identity, principal, tenants
   before session rows) with a deadlock against a switch's replacement, gap locks on MySQL, and partial commits across
   connections. Costs: a sign-in reads the identity again (a 2D identity, its own principal, once) and in 3D its
-  principal and that principal's tenant; a choice and a switch to another principal its principal and tenant; the five
-  revocations scan their scopes once more only inside a transaction.
+  principal and that principal's tenant; a choice and a switch to another principal its principal and tenant; a switch
+  of tenant alone its principal (the instance it admitted may hold its own tenant as loaded before the change), that
+  principal's tenant and the tenant switched to; the five revocations scan their scopes once more only inside a
+  transaction. The guarantee holds for Eloquent identity, principal and tenant models whose standing is read on their
+  own connection: what the check reads elsewhere (a non-Eloquent principal or tenant through its resolver, a principal's
+  own tenant on another connection, derived activity) is read as that connection gives it.
 - The password-change observer ignores a save of the user the container's scoped `Sessions\Methods\Rehashing` marks, and
   a save is a rehash only when it re-encodes the password signed in with: both the previous hash (the model's original,
   which Eloquent has not yet synced in `updated`) and the saved hash verify it (the hasher's `check()`; a hash it
@@ -329,7 +338,7 @@ revoked, and when a session that ended is deleted. Starting a session is in
   (`logout()`), `src/Contracts/GuardBinding.php`, `src/Guards/AbstractGuard.php` (`forgetUser()`)
 - `src/Sessions/AdmissionRecheck.php` (the check after commit of a sign-in, choice or switch),
   `src/Sessions/RevocationWriter.php` (`revokeAgain()`, the second pass), `src/Database/AfterCommit.php`
-  (`runAcross()`)
+  (`runOnceEnded()` for the check, `runAcross()` for the second pass)
 
 ## Authoritative Tests
 

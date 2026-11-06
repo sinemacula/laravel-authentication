@@ -911,7 +911,10 @@ mode does not stop the read), or an `InvalidArgumentException` is thrown before 
 tenant already deleted or soft-deleted still works, since a principal whose `TenantUnavailableException` names that very
 tenant (its class and key, as `ActsAsPrincipal` reports it) acts within it, so restoring the tenant later revives no
 session; a tenant that does not implement `CanBeActive` reads as no tenant once it cannot be loaded, so call
-`tenantDeactivated()` before deleting it; a principal listed twice counts once, and every principal's sessions end in
+`tenantDeactivated()` inside the transaction that deletes it, before the delete (it then ends the tenant's sessions again
+once the delete commits, so a sign-in racing the delete keeps no session; called before the delete outside a
+transaction, such a sign-in can keep its session past a restore); a principal listed twice counts once, and every
+principal's sessions end in
 one transaction on the storage connection, with one `SignedOutEverywhere` per principal. Deactivation already stops
 every token at once through the live activity checks (see [Active-state
 enforcement](identity-models.md#active-state-enforcement)); revoking makes the end outlast a reactivation and records
@@ -982,7 +985,8 @@ Membership::observe(RevokeSessionsOnDeletion::class);
   but the identity's own revocation already ends every session acting as its principals, since an identity's sessions
   are all those it holds: register the observer on the identity model and do not rely on the principal's observer for
   cascades. A principal a cascade removes with its tenant is covered by no identity's revocation, so call
-  `tenantDeactivated()` with the tenant's principals before deleting it. Registering the observer on a model that is
+  `tenantDeactivated()` with the tenant's principals inside the transaction that deletes the tenant, before the delete.
+  Registering the observer on a model that is
   neither an identity nor a principal throws a `LogicException` when that model is deleted. In access-only mode (no
   `authentication_sessions` table), a principal whose owner cannot be read when the revocation runs (for the observer,
   when the transaction commits, so whichever of the two was deleted first in it) has its sessions looked for in that
@@ -1026,14 +1030,16 @@ A sign-in, a pending session's choice of principal and a switch each admit what 
 identity, the principal, the active tenant) before they write it. A deactivation or deletion that commits in between is
 followed by a revocation that finds no session to end, and the session written afterwards would be refused only while
 the change lasts. So each of these calls checks its session once it is committed: what the session newly acts as is
-read again, afresh, once no transaction is open on the session's connection or on the connection the identity,
-principal or tenant lives on. A sign-in's identity is reloaded through the guard's provider, and must still be that
-identity (`identity_unknown`, revoked as `identity_deleted`) and active (`identity_inactive`, `identity_deactivated`);
-its principal, and the principal a choice or a switch moves the session to, is resolved again through the guard's
-resolver and must still be that principal (`principal_unresolved`, `principal_deleted`), active (`principal_inactive`,
-`principal_deactivated`) and in an active tenant of its own (`tenant_inactive`, `tenant_deactivated`); the active tenant
-the session records must still resolve and be active (`tenant_inactive`, `tenant_deactivated`). A switch is checked
-for what it changed only, and `satisfy()` for nothing (its session already records what it acts as, so every
+read again, afresh, once the session's write has committed and any transaction open on the connection the identity,
+principal or tenant model lives on has ended (committed or rolled back: only the session's own connection decides
+whether the session stands, and the others are waited for only so they are not read through a snapshot taken before). A
+sign-in's identity is reloaded through the guard's provider, and must still be that identity (`identity_unknown`,
+revoked as `identity_deleted`) and active (`identity_inactive`, `identity_deactivated`); its principal, and the principal
+a choice or a switch moves the session to, is resolved again through the guard's resolver and must still be that
+principal (`principal_unresolved`, `principal_deleted`), active (`principal_inactive`, `principal_deactivated`) and in an
+active tenant of its own (`tenant_inactive`, `tenant_deactivated`); the active tenant the session records must still
+resolve and be active (`tenant_inactive`, `tenant_deactivated`). A switch is checked for what it changed only (a switch
+to no tenant for nothing), and `satisfy()` for nothing (its session already records what it acts as, so every
 revocation of those finds it). Nothing an access contract (`ApplicationAccess`, `TenantAccess`), the application policy
 or a tenant's authentication policy says is asked again: those are not what a deactivation or deletion changes, and
 their own triggers end sessions.
@@ -1043,27 +1049,41 @@ transaction of yours the check runs before the call returns, and the call answer
 sign-in fails as any refused sign-in does (Laravel's `Failed`, `AuthenticationFailed` with the flow `sign_in`, the
 attempt counted), with no `SessionCreated`, `SignedIn`, `SessionPending` or `ExternalResultRedeemed` and no bind, and no
 `SessionRevoked` for a session it never handed out; a choice fails as a refused choice does, and a switch with
-`AuthenticationFailed` (flow `switch`), and since the client holds that session their `SessionRevoked` is reported.
+`AuthenticationFailed` (flow `switch`), each naming the session, and since the client holds that session their
+`SessionRevoked` is reported (a switch that returned the session to pending reports no `SessionReturnedToPending`).
 Inside your transaction the call has already answered with the session when the check runs at your commit, ahead of what
 reports the session and of the bind: a failed check reports `SessionRevoked` and nothing else, and the bind binds
-nothing. The check reads each subject once more: a sign-in its identity (a 2D identity, its own principal, once) and, in
-3D, its principal and that principal's tenant; a choice and a switch to another principal its principal and tenant.
+nothing. When your transaction is on the identity's, principal's or tenant's connection and not the session's, the
+session is committed and bound at once, and the check, with the events that report the session, waits for your
+transaction to end, whether it commits or rolls back; a failed check then also forgets the guard's binding to it. The
+check reads each subject once more: a sign-in its identity (a 2D identity, its own principal, once) and, in 3D, its
+principal and that principal's tenant; a choice and a switch to another principal its principal and tenant; a switch of
+tenant alone its principal (through which the tenant is resolved, though its own standing is not judged then), that
+principal's tenant and the tenant switched to.
 
 The deactivation and deletion revocations (`identityDeactivated()`, `identityDeleted()`, `principalDeactivated()`,
 `principalDeleted()`, `tenantDeactivated()`, the observers among their callers) end their scopes again once the
 transaction open when they ran commits, on the session model's connection or the changed model's own, keeping every
 cutoff where the first pass left it and reporting only `SessionRevoked` for each session that pass revokes (the count
-the call returns is the first pass's): a revocation called inside the transaction that made the change may read the
-sessions through a snapshot taken before such a call committed. The observers run after the change commits, so they
-never need it.
+the call returns is the first pass's; the pending identifier changes of an identity's scope are deleted again with it):
+a revocation called inside the transaction that made the change may read the sessions through a snapshot taken before
+such a call committed. A rollback runs no second pass. The observers run after the change commits, so they never need
+it.
 
 Either the revocation reads the session, or the call's check, made after its commit, reads the change. So no session
 established before or concurrently with a deactivation or deletion works after the reactivation or restore, with the
-observers or with direct calls (inside the change's transaction or after it), on MySQL and PostgreSQL at READ COMMITTED
-and REPEATABLE READ (the levels the package's race tests run; MariaDB follows MySQL), with the models on any connection,
-for any principal and tenant the guard's resolvers resolve. The one exception is a change undone (reactivated, restored)
-before a call in flight checks its session: the check sees the subject standing again, and only the "tokens valid after"
-cutoff the revocation moved after the call began records the change, so a call in flight is ended when its identity's or
+observers or with direct calls (inside the change's transaction or after it; a call made before the change and outside
+a transaction, such as `tenantDeactivated()` before deleting a tenant, is not covered), on MySQL and PostgreSQL at READ
+COMMITTED and REPEATABLE READ (the levels the package's race tests run; MariaDB follows MySQL), for identity, principal
+and tenant models that are Eloquent models and whose standing is read on their own connection. The check waits only for
+the connections of those models: what it reads on another connection (a principal or tenant that is no Eloquent model,
+through your resolver; a principal's own tenant loaded from another connection when the session records no active
+tenant; activity your `isActive()` derives from rows elsewhere) is read as that connection gives it, so a sign-in,
+choice or switch made inside a transaction of yours on such a connection, at REPEATABLE READ, judges it through that
+transaction's snapshot and can miss a change committed after it: do not make one inside a transaction on a connection
+the check reads but does not wait for. The one exception is a change undone (reactivated, restored) before a call in
+flight checks its session: the check sees the subject standing again, and only the "tokens valid after" cutoff the
+revocation moved after the call began records the change, so a call in flight is ended when its identity's or
 principal's cutoff moved strictly after the second it began (as `issued_before_cutoff`, revoked as
 `signed_out_everywhere`). A subject that records no cutoff (a tenant always; an identity or principal without
 `HasTokensValidAfter`), or an undo within the second the call began, leaves that call's session standing: give
@@ -1073,8 +1093,8 @@ is ended too: it proved itself before that revocation.
 
 The check and the second pass run after durable commits. Outside your transaction a database error in either is
 thrown from the call with the session (or the change) committed, and the call is not answered with the session: call
-the revocation again to end it. Inside your transaction the exception reaches the code that commits, as the observers'
-do. Nothing is retried by the package.
+the revocation again to end it. Inside your transaction the exception reaches the code that commits (or rolls back, for
+a transaction on another connection than the session's), as the observers' do. Nothing is retried by the package.
 
 ### Sign-in factors
 

@@ -410,7 +410,10 @@ final readonly class SessionSwitch
      * requires, instead of re-issuing its pair, or, when the compare-and-swap
      * missed, answer as the caller has it answered: a switch judges the
      * presented rotation id again as after a lost switch, while a retry is a
-     * conflict and is never judged again.
+     * conflict and is never judged again. The return's
+     * `SessionReturnedToPending` waits for the switch's check, registered once
+     * the return applied, and is never reported once the check ends the
+     * session.
      *
      * @formatter:off
      *
@@ -439,15 +442,13 @@ final readonly class SessionSwitch
         $firstFactor = PendingTransitions::firstFactorOf($session, $verdict, current: true);
         $outstanding = $this->transitions->outstanding($session, $destination->identity, $verdict->factor, $firstFactor, $now, current: true);
         $changes     = RefreshRotationStore::contextChanges($session, $destination);
-        $returned    = $this->transitions->returnToPending($session, $destination, $verdict->version, $outstanding, $firstFactor, AuthenticationFlow::SWITCH, $now);
+        $transition  = $this->transitions->reportingThrough(function (\Closure $report) use ($session, $destination, $changes): void {
 
-        if ($returned === null) {
-            return $missed();
-        }
+            $this->recheck->switch($session, $destination, ...$changes);
+            $this->recheck->then($session, $report);
+        });
 
-        $this->recheck->switch($session, $destination, ...$changes);
-
-        return $returned;
+        return $transition->returnToPending($session, $destination, $verdict->version, $outstanding, $firstFactor, AuthenticationFlow::SWITCH, $now) ?? $missed();
     }
 
     /**

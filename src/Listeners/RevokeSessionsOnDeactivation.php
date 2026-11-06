@@ -35,7 +35,9 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * switch that admitted the model before the update committed, and wrote its
  * session after this revocation read the sessions, ends that session itself
  * once it checks it (`AdmissionRecheck`), so no session survives the
- * reactivation.
+ * reactivation, unless the reactivation came before that check: then only a
+ * "tokens valid after" cutoff (`HasTokensValidAfter`) this revocation moved
+ * after the call began ends it (see `SessionRevocations`).
  *
  * @api
  *

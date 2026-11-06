@@ -66,6 +66,7 @@ final readonly class PendingTransitions
      * @param  \SineMacula\Laravel\Authentication\Database\AfterCommit  $afterCommit
      * @param  \Illuminate\Contracts\Config\Repository  $config
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  ?\Closure(\Closure(): void): void  $schedule
      */
     public function __construct(
 
@@ -80,7 +81,24 @@ final readonly class PendingTransitions
 
         /** The client a return is reported with, or `null` for the guard's request's. */
         private ?ClientContext $client = null,
+
+        /** Given a return's report once the return applied, to schedule in place of the commit; `null` to schedule it for the commit. */
+        private ?\Closure $schedule = null,
     ) {}
+
+    /**
+     * These transitions with each return's report handed to `$schedule` once
+     * the return applied, in place of being scheduled for the commit, so a
+     * caller that holds its reports to a check of its own (a switch) holds this
+     * one too.
+     *
+     * @param  \Closure(\Closure(): void): void  $schedule
+     * @return self
+     */
+    public function reportingThrough(\Closure $schedule): self
+    {
+        return new self($this->context, $this->afterCommit, $this->config, $this->client, $schedule);
+    }
 
     /**
      * The first factor the session signed in with, as its tenant's verdict was
@@ -147,8 +165,9 @@ final readonly class PendingTransitions
      * principal, active tenant, policy version and both deadlines it was loaded
      * with. Returns `null` when the row changed since it was loaded, so the
      * caller judges it again, as after a lost rotation.
-     * `SessionReturnedToPending`, scheduled for the commit, carries the client
-     * this was built with, or, without one, the guard's request's.
+     * `SessionReturnedToPending`, scheduled for the commit (or handed to the
+     * schedule these transitions report through), carries the client this was
+     * built with, or, without one, the guard's request's.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
@@ -256,8 +275,9 @@ final readonly class PendingTransitions
     }
 
     /**
-     * Schedule `SessionReturnedToPending` for the return's commit, naming the
-     * principal and tenant the session left when the destination changed them.
+     * Schedule `SessionReturnedToPending` for the return's commit, or hand it
+     * to the schedule these transitions report through, naming the principal
+     * and tenant the session left when the destination changed them.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
@@ -285,6 +305,15 @@ final readonly class PendingTransitions
             $moved ? IdentifierCoercion::stringify($loaded[$tenant]) : null,
         );
 
-        $this->afterCommit->run($session, fn () => $this->context->dispatch($event));
+        $report = fn () => $this->context->dispatch($event);
+
+        if ($this->schedule !== null) {
+
+            ($this->schedule)($report);
+
+            return;
+        }
+
+        $this->afterCommit->run($session, $report);
     }
 }

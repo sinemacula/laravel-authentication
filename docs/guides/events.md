@@ -157,8 +157,10 @@ dispatches `SessionCreated` and `SignedIn` (with the superseded session's `Sessi
 `SessionRevoked` with `signed_out`. A sign-in, choice or switch whose session fails the check it is held to once
 committed (its identity, principal or tenant deactivated or deleted meanwhile, see [Sign-ins racing a deactivation or
 deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion)) dispatches none of the events that would report the
-session or the switch: a sign-in answered with the refusal dispatches no `SessionRevoked` either, while one inside a
-caller's transaction, a choice and a switch report the session's `SessionRevoked`. An external result redeemed into a
+session or the switch (a switch's `SessionReturnedToPending` among them; a superseded session's `SessionRevoked` is
+still reported, after the check): a sign-in answered with the refusal dispatches no `SessionRevoked` either, while one
+inside a caller's transaction, a choice and a switch report the session's `SessionRevoked`, and the refused choice's or
+switch's `AuthenticationFailed` names the session. An external result redeemed into a
 session dispatches `ExternalResultRedeemed` once committed, after the session's own events: flow `sign_in` for a
 `signInExternally()` that wrote a session, active or pending (after its `SessionCreated` and `SignedIn`, or its
 `SessionPending`), and flow `reauthentication` for a `reauthenticateExternally()` that issued a token (after its
@@ -185,7 +187,12 @@ factors](sessions.md#sign-in-factors)). The event that reports a session's write
 (its exception still reaches the caller). Outside a transaction it is therefore dispatched before those bind events:
 read the event's context in its listener, not the guard, which may not be bound to the new session yet. The bind of a
 sign-in, a refresh or a switch itself waits for the session's commit, so inside your transaction its bind events follow
-the commit, after the events that report the session, and a rollback withdraws both.
+the commit, after the events that report the session, and a rollback withdraws both. The one exception is a sign-in,
+choice or switch inside a transaction of yours on the identity's, principal's or tenant's connection when the sessions
+are kept on another: the session commits and is bound at once, while the events that report it wait for the check it
+is held to, and so for your transaction to end, whether it commits or rolls back (see [Sign-ins racing a deactivation or
+deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion)); a bind listener that throws still cannot keep them
+from being reported.
 
 Every refusal is reported once: a guard settles and reports its request's credential at most once (asking
 `Auth::user()`, `Auth::context()`, `Auth::caller()` or `check()` again reports nothing more), each service call reports
