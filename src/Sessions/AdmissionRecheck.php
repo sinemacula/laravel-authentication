@@ -62,9 +62,13 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * (`signed_out_everywhere`), unless a revocation that kept the session (as a
  * password change keeps the current one) moved it there: that one saw the
  * session (`KeptSessions`). A switch of the active tenant alone still needs its
- * principal to resolve, since the tenant is resolved through it. Nothing an
- * access contract, the application policy or a tenant's authentication policy
- * says is asked again: those are not what a deactivation or deletion changes.
+ * principal to resolve, since the tenant is resolved through it. A check judges
+ * only the principal and tenant the session still acts as and in: a later
+ * switch or choice of the same session, while the check still waits, takes
+ * those it changed out of it (`WatchedSessions`), and judges an active tenant
+ * the session keeps under another principal in its place. Nothing an access
+ * contract, the application policy or a tenant's authentication policy says is
+ * asked again: those are not what a deactivation or deletion changes.
  *
  * A session that fails the check is revoked with the reason, by the conditional
  * revocation every other one uses, so one already revoked keeps its first
@@ -175,15 +179,15 @@ final class AdmissionRecheck
      */
     public function choice(EloquentSession&Model $session, Admitted $chosen): void
     {
-        $this->watch($session, $chosen->identity, $chosen->principal, $chosen->tenant, ['identity' => false, 'principal' => true, 'tenant' => $chosen->tenant !== null]);
+        $this->watch($session, $chosen->identity, $chosen->principal, $chosen->tenant, $this->moveOn($session, true, true, $chosen->tenant));
     }
 
     /**
      * Check a switch once its write commits, for what it changed: the
      * destination principal when the session acted as another, and the
      * destination tenant when it acted in another (not a switch to no tenant,
-     * which leaves nothing to deactivate). A switch left with nothing to check
-     * is checked for nothing.
+     * which leaves nothing to deactivate), or when a check still waiting on the
+     * session was to judge it through the principal the session left.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
      * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $destination
@@ -193,13 +197,13 @@ final class AdmissionRecheck
      */
     public function switch(EloquentSession&Model $session, Admitted $destination, bool $principal, bool $tenant): void
     {
-        $tenant = $tenant && $destination->tenant !== null;
+        $checks = $this->moveOn($session, $principal, $tenant, $destination->tenant);
 
-        if (!$principal && !$tenant) {
+        if (!$checks['principal'] && !$checks['tenant']) {
             return;
         }
 
-        $this->watch($session, $destination->identity, $destination->principal, $destination->tenant, ['identity' => false, 'principal' => $principal, 'tenant' => $tenant]);
+        $this->watch($session, $destination->identity, $destination->principal, $destination->tenant, $checks);
     }
 
     /**
@@ -294,9 +298,53 @@ final class AdmissionRecheck
         $this->watched = true;
         $this->checks  = $checks;
 
+        $watching = self::watching();
+
+        $watching->watch($session, $this);
+
+        $this->afterCommit->runIfRolledBack($session, fn () => $watching->forget($session, $this));
+
         $subjects = array_values(array_filter([$identity, $principal, $tenant], static fn (?object $subject): bool => $subject instanceof Model));
 
         $this->afterCommit->runAcross([$session], fn () => $this->afterCommit->runOnceEnded($subjects, fn () => $this->settle($session, $identity, $principal, $tenant)));
+    }
+
+    /**
+     * Tell the checks still waiting to judge the session that it no longer acts
+     * as the principal they were written for (when `$principal`), or in the
+     * tenant (when `$tenant`), so they leave those out, unless this call's
+     * write rolls back, and return what this call's check judges: the principal
+     * when it changed, and the tenant moved to (none leaves nothing to
+     * deactivate) when it changed, or when a check still waiting was to judge
+     * it as the principal the session left.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $session
+     * @param  bool  $principal
+     * @param  bool  $tenant
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $to
+     * @return array{identity: bool, principal: bool, tenant: bool}
+     */
+    private function moveOn(Model $session, bool $principal, bool $tenant, ?Tenant $to): array
+    {
+        $handedOver = false;
+
+        foreach (self::watching()->of($session) as $earlier) {
+
+            $checks     = $earlier->checks;
+            $handedOver = $handedOver || ($checks['tenant'] && $principal && !$tenant);
+
+            $earlier->checks = [
+                'identity'  => $checks['identity'],
+                'principal' => $checks['principal'] && !$principal,
+                'tenant'    => $checks['tenant']    && !$principal && !$tenant,
+            ];
+
+            $this->afterCommit->runIfRolledBack($session, static function () use ($earlier, $checks): void {
+                $earlier->checks = $checks;
+            });
+        }
+
+        return ['identity' => false, 'principal' => $principal, 'tenant' => $to !== null && ($tenant || $handedOver)];
     }
 
     /**
@@ -313,6 +361,8 @@ final class AdmissionRecheck
      */
     private function settle(EloquentSession&Model $session, Identity $identity, ?Principal $principal, ?Tenant $tenant): void
     {
+        self::watching()->forget($session, $this);
+
         $reason  = $this->judge($session, $identity, $principal, $tenant);
         $waiting = $this->waiting;
 
@@ -354,8 +404,9 @@ final class AdmissionRecheck
         }
 
         $refusal = $this->checks['identity'] ? $this->standing($session, $current, FailureReason::IDENTITY_INACTIVE) : null;
+        $judged  = $this->checks['principal'] || $this->checks['tenant'] ? $principal : null;
 
-        return $refusal ?? ($principal === null ? null : $this->judgePrincipal($session, $current, $principal, $tenant));
+        return $refusal ?? ($judged === null ? null : $this->judgePrincipal($session, $current, $judged, $tenant));
     }
 
     /**
@@ -541,5 +592,15 @@ final class AdmissionRecheck
             FailureReason::TENANT_INACTIVE      => RevocationReason::TENANT_DEACTIVATED,
             default                             => RevocationReason::SIGNED_OUT_EVERYWHERE,
         };
+    }
+
+    /**
+     * The checks of the request or job still waiting, per session.
+     *
+     * @return \SineMacula\Laravel\Authentication\Sessions\WatchedSessions
+     */
+    private static function watching(): WatchedSessions
+    {
+        return Container::getInstance()->make(WatchedSessions::class);
     }
 }

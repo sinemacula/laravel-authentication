@@ -1041,9 +1041,12 @@ tenant of its own (`tenant_inactive`, `tenant_deactivated`); the active tenant t
 and be active (`tenant_inactive`, `tenant_deactivated`). A switch is checked for what it changed only (a switch to no
 tenant for nothing; a switch of tenant alone also needs its principal to resolve, since the tenant is resolved through
 it, and ends as `principal_unresolved`, `principal_deleted`, when it no longer does), and `satisfy()` for nothing (its
-session already records what it acts as, so every revocation of those finds it). Nothing an access contract
-(`ApplicationAccess`, `TenantAccess`), the application policy or a tenant's authentication policy says is asked again:
-those are not what a deactivation or deletion changes, and their own triggers end sessions.
+session already records what it acts as, so every revocation of those finds it). A check still waiting (for your
+commit) when a later switch or choice in the same request or job moves the same session on judges only what the session
+still acts as: the principal or tenant it left is not judged, and an active tenant it keeps under another principal is
+judged by the later call's check, through that principal. Nothing an access contract (`ApplicationAccess`,
+`TenantAccess`), the application policy or a tenant's authentication policy says is asked again: those are not what a
+deactivation or deletion changes, and their own triggers end sessions.
 
 A session that fails the check is revoked with the reason, by the conditional revocation every other one uses. Outside a
 transaction of yours the check runs before the call returns, and the call answers the refusal instead of the session: a

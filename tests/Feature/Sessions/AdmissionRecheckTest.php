@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\ConnectionResolverInterface;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -33,6 +34,7 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\WatchedSessions;
 use Tests\Concerns\InteractsWithRecheckedMembers;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\PlainPrincipalResolver;
@@ -59,6 +61,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * @internal
  */
 #[CoversClass(AdmissionRecheck::class)]
+#[CoversClass(WatchedSessions::class)]
 final class AdmissionRecheckTest extends TestCase
 {
     use InteractsWithRecheckedMembers, InteractsWithSessions;
@@ -1053,6 +1056,199 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
+     * Rows of `[what changes once a later switch moved the session on to
+     * another principal in the same active tenant, the reason the session is
+     * revoked with, or `null` when it stands]`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\Tests\Integration\Fixtures\RecheckedMember, \Tests\Integration\Fixtures\RecheckedMembership, \Tests\Integration\Fixtures\ActivatableTenant): mixed, 1: ?\SineMacula\Laravel\Authentication\Events\Enums\RevocationReason}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideChangesAfterAPrincipalSwitch(): iterable
+    {
+        yield 'the principal left, deactivated' => [
+            static fn (RecheckedMember $member, RecheckedMembership $left): int => self::updateRow($left, ['is_active' => false]),
+            null,
+        ];
+        yield 'the principal left, soft-deleted' => [
+            static fn (RecheckedMember $member, RecheckedMembership $left): int => self::updateRow($left, ['deleted_at' => CarbonImmutable::now()]),
+            null,
+        ];
+        yield 'the active tenant kept, deactivated' => [
+            static fn (RecheckedMember $member, RecheckedMembership $left, ActivatableTenant $kept): int => self::updateRow($kept, ['is_active' => false]),
+            RevocationReason::TENANT_DEACTIVATED,
+        ];
+        yield 'the identity, deactivated' => [
+            static fn (RecheckedMember $member): mixed => RecheckedMember::query()->whereKey($member->getKey())->update(['is_active' => false]),
+            RevocationReason::IDENTITY_DEACTIVATED,
+        ];
+    }
+
+    /**
+     * A check still waiting for the commit judges only what the session acts as
+     * then: once a later switch moved the session to another principal in the
+     * same active tenant, the principal it left no longer ends it, while its
+     * identity still does, and the active tenant it kept is judged by the
+     * switch's check, through the principal it now acts as.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Closure(\Tests\Integration\Fixtures\RecheckedMember, \Tests\Integration\Fixtures\RecheckedMembership, \Tests\Integration\Fixtures\ActivatableTenant): mixed  $change
+     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $revoked
+     * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideChangesAfterAPrincipalSwitch')]
+    public function testACheckJudgesOnlyThePrincipalTheSessionStillActsAs(\Closure $change, ?RevocationReason $revoked): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $active  = ActivatableTenant::query()->create(['name' => 'Active', 'is_active' => true]);
+        $second  = RecheckedMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey(), 'is_active' => true]);
+        $session = $this->signIn();
+
+        app()->instance(TenantResolver::class, new DescendantTenants);
+
+        DB::beginTransaction();
+
+        $signIn = $this->recheck();
+
+        $signIn->signIn($session->record, $member, $membership, $active);
+
+        $switch = $this->recheck();
+
+        $switch->switch($session->record, new Admitted($member, $second, $active), true, false);
+
+        $change($member, $membership, $active);
+
+        DB::commit();
+
+        self::assertSame($revoked?->value, self::revokedReasonOf($session));
+    }
+
+    /**
+     * Rows of `[what changes once a later switch moved the session on to
+     * another active tenant as the same principal, the reason the session is
+     * revoked with, or `null` when it stands]`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\Tests\Integration\Fixtures\RecheckedMembership, \Tests\Integration\Fixtures\ActivatableTenant): mixed, 1: ?\SineMacula\Laravel\Authentication\Events\Enums\RevocationReason}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideChangesAfterATenantSwitch(): iterable
+    {
+        yield 'the tenant left, deactivated' => [
+            static fn (RecheckedMembership $kept, ActivatableTenant $left): mixed => ActivatableTenant::query()->whereKey($left->getKey())->update(['is_active' => false]),
+            null,
+        ];
+        yield 'the principal kept, deactivated' => [
+            static fn (RecheckedMembership $kept): mixed => RecheckedMembership::query()->whereKey($kept->getKey())->update(['is_active' => false]),
+            RevocationReason::PRINCIPAL_DEACTIVATED,
+        ];
+    }
+
+    /**
+     * Once a later switch moved the session to another active tenant as the
+     * same principal, a check still waiting no longer judges the tenant the
+     * session left, and still judges the principal it kept.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Closure(\Tests\Integration\Fixtures\RecheckedMembership, \Tests\Integration\Fixtures\ActivatableTenant): mixed  $change
+     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $revoked
+     * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideChangesAfterATenantSwitch')]
+    public function testACheckJudgesOnlyTheTenantTheSessionStillActsIn(\Closure $change, ?RevocationReason $revoked): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $left    = ActivatableTenant::query()->create(['name' => 'Left', 'is_active' => true]);
+        $session = $this->signIn();
+
+        app()->instance(TenantResolver::class, new DescendantTenants);
+
+        DB::beginTransaction();
+
+        $signIn = $this->recheck();
+
+        $signIn->signIn($session->record, $member, $membership, $left);
+
+        $switch = $this->recheck();
+
+        $switch->switch($session->record, new Admitted($member, $membership, $tenant), false, true);
+
+        $change($membership, $left);
+
+        DB::commit();
+
+        self::assertSame($revoked?->value, self::revokedReasonOf($session));
+    }
+
+    /**
+     * A later switch whose write rolls back gives a check still waiting back
+     * what it took out of it: the principal the session acts as again ends it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchRolledBackLeavesTheWaitingCheckAsItWas(): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $second  = RecheckedMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey(), 'is_active' => true]);
+        $session = $this->signIn();
+
+        DB::beginTransaction();
+
+        $signIn = $this->recheck();
+
+        $signIn->signIn($session->record, $member, $membership, $tenant);
+
+        DB::beginTransaction();
+
+        $switch = $this->recheck();
+
+        $switch->switch($session->record, new Admitted($member, $second, $tenant), true, false);
+
+        DB::rollBack();
+
+        RecheckedMembership::query()->whereKey($membership->getKey())->update(['is_active' => false]);
+
+        DB::commit();
+
+        self::assertSame(RevocationReason::PRINCIPAL_DEACTIVATED->value, self::revokedReasonOf($session));
+    }
+
+    /**
      * A report of one call that throws at the commit cannot keep the check of
      * another call committed with it from running: the check still ends its
      * session, reports the revocation, and the report's exception is thrown.
@@ -1272,6 +1468,19 @@ final class AdmissionRecheckTest extends TestCase
     private static function revokedReasonOf(SignedInSession $session): mixed
     {
         return Session::query()->whereKey($session->record->getKey())->value('revoked_reason');
+    }
+
+    /**
+     * Update the model's row without the model's events, so no observer ends a
+     * session the check is to judge.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $model
+     * @param  array<string, mixed>  $values
+     * @return int
+     */
+    private static function updateRow(Model $model, array $values): int
+    {
+        return $model->newQuery()->whereKey($model->getKey())->update($values);
     }
 
     /**

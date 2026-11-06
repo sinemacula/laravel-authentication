@@ -974,6 +974,85 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
+     * Two switches of one session inside one transaction, to the second
+     * membership and back to the first, are checked at its commit for what the
+     * session acts as then: the tenant of the membership it left, deactivated
+     * after the second switch, does not end it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionSwitchedOnInsideATransactionIsNotEndedByWhatItLeft(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        DB::beginTransaction();
+
+        $toSecond = $this->switched($session, $second);
+
+        $this->advance(5);
+
+        $back = $this->switchedTo((string) $toSecond->tokens->refreshToken?->reveal(), SwitchTarget::principal($first));
+
+        ActivatableTenant::query()->whereKey($second->tenant_id)->update(['is_active' => false]);
+
+        DB::commit();
+
+        self::assertTrue($back->principal->is($first)); // @phpstan-ignore method.notFound
+        self::assertNull(Session::query()->whereKey($session->record->getKey())->value('revoked_reason'));
+    }
+
+    /**
+     * A sign-in and then a switch of its session inside one transaction are
+     * checked at its commit for what the session acts as then: the tenant of
+     * the membership it signed in as, deactivated after the switch, does not
+     * end it, while the tenant it switched to, deactivated, does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionSignedInAndSwitchedInsideATransactionIsJudgedOnWhereItActs(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        DB::beginTransaction();
+
+        $left = $this->signIn();
+
+        $this->advance(5);
+
+        $this->switched($left, $second);
+
+        ActivatableTenant::query()->whereKey($first->tenant_id)->update(['is_active' => false]);
+
+        DB::commit();
+
+        self::assertNull(Session::query()->whereKey($left->record->getKey())->value('revoked_reason'));
+
+        ActivatableTenant::query()->whereKey($first->tenant_id)->update(['is_active' => true]);
+
+        DB::beginTransaction();
+
+        $ended = $this->signIn();
+
+        $this->advance(5);
+
+        $this->switched($ended, $second);
+
+        ActivatableTenant::query()->whereKey($second->tenant_id)->update(['is_active' => false]);
+
+        DB::commit();
+
+        self::assertSame(RevocationReason::TENANT_DEACTIVATED->value, Session::query()->whereKey($ended->record->getKey())->value('revoked_reason'));
+    }
+
+    /**
      * A switch runs in one transaction whose first statement is the session's
      * issuance guard, written after the session is looked up: the owner's and
      * the target's reads, the read of the session's proofs for the access token

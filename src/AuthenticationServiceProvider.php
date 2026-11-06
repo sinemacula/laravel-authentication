@@ -89,6 +89,7 @@ use SineMacula\Laravel\Authentication\Sessions\KeptSessions;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Sessions\WatchedSessions;
 use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
 use SineMacula\Laravel\Authentication\Tenancy\RequireNothingOfTenants;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
@@ -146,6 +147,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->scopedIf(Rehashing::class);
         $this->app->scopedIf(KeptSessions::class);
         $this->app->scopedIf(RequiredWork::class);
+        $this->app->scopedIf(WatchedSessions::class);
         $this->app->singletonIf(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
         $this->app->singletonIf(PasskeyFactorGate::class, NoPasskeyFactors::class);
         $this->app->singletonIf(TenantAuthenticationPolicy::class, RequireNothingOfTenants::class);
