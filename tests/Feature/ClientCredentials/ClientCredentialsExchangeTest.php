@@ -786,7 +786,8 @@ final class ClientCredentialsExchangeTest extends TestCase
      * as invalid credentials with the client given; a client authenticated in
      * the body, built as plain values, is refused as `invalid_client` where the
      * application does not allow `client_secret_post`, and granted where it
-     * does; any other string is the caller's error, nothing dispatched.
+     * does; any other string is the caller's error, nothing dispatched, and its
+     * message never repeats what was handed in, which may be a secret.
      *
      * @return void
      *
@@ -823,12 +824,19 @@ final class ClientCredentialsExchangeTest extends TestCase
             self::assertSame([FailureReason::INVALID_CREDENTIALS, null, $client], [$failure->reason, $failure->identifier, $failure->context->client]);
         }
 
+        $raw = 'Basic ' . base64_encode('id:secret');
+
         try {
-            Auth::clientCredentials('m2m_accounts')->exchange('invalid_grant', $client);
+            Auth::clientCredentials('m2m_accounts')->exchange($raw, $client);
 
             self::fail('The exchange took an error extract() never answers.');
         } catch (\InvalidArgumentException $exception) {
-            self::assertStringContainsString('`invalid_grant`', $exception->getMessage());
+            $expected = 'A token request is refused only as `invalid_request`, `unsupported_grant_type` or `invalid_client`:'
+                . ' hand in only what `ClientCredentialsRequest::extract()` answered.';
+
+            self::assertSame($expected, $exception->getMessage());
+            self::assertStringNotContainsString($raw, $exception->getMessage());
+            self::assertStringNotContainsString(base64_encode('id:secret'), $exception->getMessage());
         }
 
         self::assertCount(4, $this->machineEventsOf(AuthenticationFailed::class));

@@ -108,11 +108,12 @@ final readonly class ClientCredentialsExchange
      * An error handed in is refused with it (`invalid_request`,
      * `unsupported_grant_type`, `invalid_client`), reported as
      * `invalid_credentials`, before any query and without counting it; any
-     * other string is the caller's error (`InvalidArgumentException`), nothing
-     * dispatched. A client authenticated in the body (`client_secret_post`) is
-     * refused as `invalid_client` the same way unless the application allows
-     * it. Then the exchange runs in the order the class describes, its limits
-     * counting the client's IP address and its events carrying the client.
+     * other string is the caller's error (`InvalidArgumentException`, whose
+     * message never repeats it, as it may be a credential), nothing dispatched.
+     * A client authenticated in the body (`client_secret_post`) is refused as
+     * `invalid_client` the same way unless the application allows it. Then the
+     * exchange runs in the order the class describes, its limits counting the
+     * client's IP address and its events carrying the client.
      *
      * @param  \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient|string  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -149,7 +150,11 @@ final readonly class ClientCredentialsExchange
     private static function extractedError(string $error): string
     {
         if (!in_array($error, [ClientCredentialsResult::INVALID_REQUEST, ClientCredentialsResult::UNSUPPORTED_GRANT_TYPE, ClientCredentialsResult::INVALID_CLIENT], true)) {
-            throw new \InvalidArgumentException("A token request is never refused as `{$error}`: hand in only what `ClientCredentialsRequest::extract()` answered.");
+
+            $message = 'A token request is refused only as `invalid_request`, `unsupported_grant_type` or `invalid_client`:'
+                . ' hand in only what `ClientCredentialsRequest::extract()` answered.';
+
+            throw new \InvalidArgumentException($message);
         }
 
         return $error;
