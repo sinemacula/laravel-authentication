@@ -147,7 +147,7 @@ final readonly class ClientCredentialsExchange
      *
      * @throws \InvalidArgumentException
      */
-    private static function extractedError(string $error): string
+    private static function extractedError(#[\SensitiveParameter] string $error): string
     {
         if (!in_array($error, [ClientCredentialsResult::INVALID_REQUEST, ClientCredentialsResult::UNSUPPORTED_GRANT_TYPE, ClientCredentialsResult::INVALID_CLIENT], true)) {
 

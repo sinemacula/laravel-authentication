@@ -848,6 +848,37 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
+     * A string handed in that is not an error `extract()` answers may be a
+     * credential, so the exception it is refused with records it in no frame of
+     * its trace, even where arguments are kept in traces.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAStringHandedInLeavesNoTraceOfItself(): void
+    {
+        $raw     = 'Basic ' . base64_encode('id:secret');
+        $ignored = ini_set('zend.exception_ignore_args', '0');
+        $trace   = null;
+
+        try {
+            Auth::clientCredentials('m2m_accounts')->exchange($raw, new ClientContext('192.0.2.5', 'Agent'));
+        } catch (\InvalidArgumentException $exception) {
+            $trace = $exception->getTrace();
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $ignored);
+        }
+
+        self::assertIsArray($trace);
+        self::assertInstanceOf(\SensitiveParameterValue::class, $trace[0]['args'][0] ?? null);
+
+        $strings = array_filter(array_merge(...array_map(static fn (array $frame): array => $frame['args'] ?? [], $trace)), is_string(...));
+
+        self::assertSame([], array_filter($strings, static fn (string $argument): bool => str_contains($argument, base64_encode('id:secret'))));
+    }
+
+    /**
      * A controller extracts the request it is given and hands its client on,
      * whatever request the guard serves.
      *
