@@ -1441,6 +1441,48 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
+     * `authenticateAs()` given a client binds as it does without one, with
+     * `Authenticated` unchanged, but its `PrincipalAssigned` and
+     * `SessionAuthenticated` describe that client rather than the guard's
+     * request; the guard keeps no client, so the next `authenticateAs()`
+     * without one describes the request again.
+     *
+     * @return void
+     */
+    public function testAuthenticateAsWithAClientDescribesThatClientForThatBindOnly(): void
+    {
+        $this->request->shouldReceive('userAgent')->andReturn('Request/1.0');
+
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockPrincipal();
+        $session   = $this->mockSession();
+        $client    = new ClientContext('198.51.100.4', 'Worker/3.1');
+
+        $session->shouldReceive('getSignInMethod')->andReturn('password');
+
+        $events = $this->recordEvents();
+        $guard  = $this->makeGuard();
+
+        $guard->authenticateAs($identity, $principal, $session, client: $client);
+
+        self::assertSame(
+            [Authenticated::class, PrincipalAssigned::class, SessionAuthenticated::class],
+            array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()),
+        );
+        self::assertSame($identity, $events[0]->user ?? null);
+        self::assertSame($client, $events[1]->context->client ?? null);
+        self::assertSame($client, $events[2]->context->client ?? null);
+        self::assertSame([$identity, $principal, $session], [$guard->user(), $guard->principal(), $guard->session()]);
+
+        $events->exchangeArray([]);
+
+        $guard->authenticateAs($identity, $principal, $session);
+
+        self::assertSame([self::IP, 'Request/1.0'], [$events[1]->context->client->ip ?? null, $events[1]->context->client->userAgent ?? null]);
+        self::assertSame([self::IP, 'Request/1.0'], [$events[2]->context->client->ip ?? null, $events[2]->context->client->userAgent ?? null]);
+    }
+
+    /**
      * Expect the provider to find the identity and accept its password, each
      * once, recording both calls.
      *

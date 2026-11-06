@@ -66,6 +66,9 @@ final class RefreshCredentialTest extends TestCase
     /** @var list<class-string> Every event a refresh or a sign-out could dispatch. */
     private const array EVENTS = [Attempting::class, Failed::class, AuthenticationFailed::class, SessionRevoked::class, Logout::class];
 
+    /** @var string The cookie application, over the same identities as the body one. */
+    private const string COOKIE = 'admin';
+
     /** @var string A rotation id the tests store the digest of, so they can issue tokens that carry it. */
     private const string KNOWN_ROTATION = 'known-rotation-id';
 
@@ -322,6 +325,54 @@ final class RefreshCredentialTest extends TestCase
     }
 
     /**
+     * A cookie application's token is judged on the client given before
+     * anything is read: a same-site client's cookie is its session's credential
+     * while the guard serves a cross-site request, and the cookie twice, a body
+     * token, or the cookie with a client that is not same-site while the guard
+     * serves a same-site request, are refused as a conflict, a mismatch and a
+     * cross-site request, with no query and nothing dispatched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationsTokenIsJudgedOnTheClientBeforeAnythingIsRead(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signedIn(self::COOKIE);
+        $token    = self::cookieTokenOf($session);
+
+        $cookie     = self::presentedToken($token, RefreshTokenSource::COOKIE);
+        $credential = self::sessionsOf($this->crossSiteGuard(self::COOKIE))->refreshCredential($cookie, self::sameSiteClient());
+
+        self::assertInstanceOf(RefreshCredential::class, $credential);
+        self::assertTrue($identity->is($credential->identity));
+        self::assertSame(RefreshTokenSource::COOKIE, $credential->source);
+
+        $service = $this->sessions(self::COOKIE);
+        $twice   = self::presentedToken($token, RefreshTokenSource::COOKIE, [RefreshTokenSource::COOKIE, RefreshTokenSource::COOKIE]);
+        $cases   = [
+            'the cookie twice'    => [$twice, self::sameSiteClient(), FailureReason::REFRESH_TOKEN_CONFLICT],
+            'a body token'        => [PresentedRefreshToken::fromBody($token), self::sameSiteClient(), FailureReason::REFRESH_TRANSPORT_MISMATCH],
+            'a cross-site client' => [$cookie, self::crossSiteClient(), FailureReason::CROSS_SITE_REQUEST],
+        ];
+        $queries = 0;
+
+        $this->recordEvents(self::EVENTS);
+
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        foreach ($cases as $case => [$presented, $client, $reason]) {
+            self::assertSame($reason, $service->refreshCredential($presented, $client), $case);
+        }
+
+        self::assertSame(0, $queries);
+        self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
      * A replayed token is refused as `rotation_reuse` and revokes its session,
      * as a refresh does: the revocation's `SessionRevoked` is the one event
      * dispatched.
@@ -349,7 +400,7 @@ final class RefreshCredentialTest extends TestCase
     }
 
     /**
-     * Configure the session guards.
+     * Configure the session guards, `admin` a cookie application.
      *
      * @param  mixed  $app
      * @return void
@@ -363,7 +414,11 @@ final class RefreshCredentialTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('auth.guards.' . self::COOKIE . '.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
     }
 
     /**
