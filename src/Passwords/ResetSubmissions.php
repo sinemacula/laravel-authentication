@@ -100,12 +100,12 @@ final readonly class ResetSubmissions
      * guard's password identifier, the `token` and the new `password`.
      *
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
      *
      * @throws \Throwable
      */
-    public function link(#[\SensitiveParameter] array $input, ?ClientContext $client): ResetResult
+    public function link(#[\SensitiveParameter] array $input, ClientContext $client): ResetResult
     {
         $type = $this->container->make(PasswordSignIn::class)->identifierType($this->context->name());
 
@@ -119,12 +119,12 @@ final readonly class ResetSubmissions
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
      *
      * @throws \Throwable
      */
-    public function code(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client): ResetResult
+    public function code(string $type, #[\SensitiveParameter] array $input, ClientContext $client): ResetResult
     {
         ResetInput::assertCodeType($this->container->make(IdentifierNormalizers::class), $type);
 
@@ -139,16 +139,16 @@ final readonly class ResetSubmissions
      * @param  string  $type
      * @param  string  $proofKey
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
      *
      * @throws \Throwable
      */
-    private function reset(CodePurpose $purpose, string $type, string $proofKey, #[\SensitiveParameter] array $input, ?ClientContext $client): ResetResult
+    private function reset(CodePurpose $purpose, string $type, string $proofKey, #[\SensitiveParameter] array $input, ClientContext $client): ResetResult
     {
         $this->validate();
 
-        $context     = new EventContext($this->context->name(), $client ?? $this->context->client());
+        $context     = new EventContext($this->context->name(), $client);
         $given       = ResetInput::identifier($input, $type);
         $challenge   = $purpose === CodePurpose::PASSWORD_RESET ? ResetInput::secret($input, ResetInput::CHALLENGE_KEY) : '';
         $challengeId = $this->challengeIdOf($challenge);
@@ -302,7 +302,7 @@ final readonly class ResetSubmissions
 
                 SharedConnection::assert($eligible, self::FLOW, $this->container->make(Repository::class));
 
-                return (new PasswordWriter($this->context, $this->revocations, $this->container))->write($eligible, $heldPassword->getValue(), PasswordFlow::RESET, null, $client);
+                return (new PasswordWriter($this->context, $this->revocations, $this->container))->write($eligible, $heldPassword->getValue(), PasswordFlow::RESET, $client);
             });
         } catch (ResetRefused $refused) {
             return [ResetResult::invalid(), $refused->reason];

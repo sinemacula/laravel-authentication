@@ -119,7 +119,7 @@ final readonly class IdentifierChangeService
      * @param  string  $type
      * @param  string  $identifier
      * @param  \SineMacula\Laravel\Authentication\Sessions\Reauthentication  $proof
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeRequest
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -136,7 +136,7 @@ final readonly class IdentifierChangeService
         string $type,
         #[\SensitiveParameter] string $identifier,
         Reauthentication $proof,
-        ?ClientContext $client = null,
+        ClientContext $client,
     ): IdentifierChangeRequest {
         $changeable = $this->changeable($identity, $type);
 
@@ -159,8 +159,8 @@ final readonly class IdentifierChangeService
      * @param  string  $identifier
      * @param  \SineMacula\Laravel\Authentication\Sessions\Reauthentication  $proof
      * @param  string  $route
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  array<string, mixed>  $parameters
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeRequest
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -178,8 +178,8 @@ final readonly class IdentifierChangeService
         #[\SensitiveParameter] string $identifier,
         Reauthentication $proof,
         string $route,
+        ClientContext $client,
         array $parameters = [],
-        ?ClientContext $client = null,
     ): IdentifierChangeRequest {
         $changeable = $this->changeable($identity, $type);
 
@@ -202,7 +202,7 @@ final readonly class IdentifierChangeService
      * @param  string  $type
      * @param  string  $challengeId
      * @param  string  $code
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome<\SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome>
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -213,7 +213,7 @@ final readonly class IdentifierChangeService
      *
      * @phpstan-impure
      */
-    public function confirmByCode(Identity $identity, string $type, string $challengeId, #[\SensitiveParameter] string $code, ?ClientContext $client = null): LimitedOutcome
+    public function confirmByCode(Identity $identity, string $type, string $challengeId, #[\SensitiveParameter] string $code, ClientContext $client): LimitedOutcome
     {
         $changeable = $this->changeable($identity, $type);
         $context    = $this->eventContext($changeable, $client);
@@ -614,16 +614,16 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * The context of the identity's change through this guard, from the client
-     * given, or the client of the request the guard is serving.
+     * The context of the identity's change through this guard, for the client
+     * given.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
-    private function eventContext(Identity $identity, ?ClientContext $client): EventContext
+    private function eventContext(Identity $identity, ClientContext $client): EventContext
     {
-        return new EventContext($this->context->name(), $client ?? $this->context->client(), $identity);
+        return new EventContext($this->context->name(), $client, $identity);
     }
 
     /**

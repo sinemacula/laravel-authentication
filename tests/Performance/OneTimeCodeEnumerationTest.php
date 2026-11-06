@@ -267,7 +267,7 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions('slow');
         $started  = hrtime(true);
-        $result   = $sessions->signIn($method, $input);
+        $result   = $sessions->signIn($method, $input, self::requestContext());
         $elapsed  = hrtime(true) - $started;
 
         self::assertEquals(SignInResult::failed(FailureReason::INVALID_CREDENTIALS), $result);
@@ -314,12 +314,12 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
 
             self::issueCodes([self::CODE]);
 
-            $challenge = $this->codeService('slow')->send($method, [$field => $knownIdentifier])->challengeId;
+            $challenge = $this->codeService('slow')->send($method, [$field => $knownIdentifier], self::requestClient())->challengeId;
 
             $sessions = $this->sessions('slow');
             $started  = hrtime(true);
 
-            self::assertTrue($sessions->signIn($method, [$field => $knownIdentifier, 'challenge' => $challenge, 'code' => self::CODE])->isSignedIn());
+            self::assertTrue($sessions->signIn($method, [$field => $knownIdentifier, 'challenge' => $challenge, 'code' => self::CODE], self::requestContext())->isSignedIn());
 
             $fastest = min($fastest, hrtime(true) - $started);
         }
@@ -368,7 +368,7 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     {
         self::issueCodes([self::CODE]);
 
-        $challenge = (string) $this->codeService('slow')->send($method, $identifier)->challengeId;
+        $challenge = (string) $this->codeService('slow')->send($method, $identifier, self::requestClient())->challengeId;
 
         match ($failure) {
             'expired'   => CarbonImmutable::setTestNow(CarbonImmutable::instance($this->now)->addSeconds(600)),
@@ -445,7 +445,7 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
             $codes   = $this->codeService('slow');
             $started = hrtime(true);
 
-            self::assertTrue($codes->send($method, $identifier)->isSent());
+            self::assertTrue($codes->send($method, $identifier, self::requestClient())->isSent());
 
             $fastest = min($fastest, hrtime(true) - $started);
         }

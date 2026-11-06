@@ -336,7 +336,10 @@ final class SeparateCounterConnectionActivationTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->reason);
+        self::assertSame(
+            FailureReason::INVALID_CREDENTIALS,
+            $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'], self::requestContext())->reason,
+        );
         self::assertSame([1, 1, 1], $this->hits($identity));
 
         return $identity;
@@ -355,7 +358,7 @@ final class SeparateCounterConnectionActivationTest extends TestCase
      */
     private function pendingSession(IntegrationIdentity $identity, int $held = 2): array
     {
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);

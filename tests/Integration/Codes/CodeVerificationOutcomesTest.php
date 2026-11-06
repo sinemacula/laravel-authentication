@@ -118,16 +118,16 @@ final class CodeVerificationOutcomesTest extends TestCase
 
         $identity = self::seedCodeIdentity(verified: $verified);
 
-        $this->codeService()->sendVerification($identity, 'phone');
+        $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
 
         match ($before) {
             'change'  => DB::table('code_identities')->where('id', $identity->getKey())->update(['phone' => '+447700900124']),
             'expire'  => CarbonImmutable::setTestNow($this->now->addSeconds(600)),
-            'exhaust' => $this->codeService()->verify($identity, 'phone', self::challenge(), '000000')->outcome,
+            'exhaust' => $this->codeService()->verify($identity, 'phone', self::challenge(), '000000', self::requestClient())->outcome,
             default   => null,
         };
 
-        self::assertSame($outcome, $this->codeService()->verify($identity, 'phone', self::challenge(), $code)->outcome);
+        self::assertSame($outcome, $this->codeService()->verify($identity, 'phone', self::challenge(), $code, self::requestClient())->outcome);
 
         self::assertSame($verifiedAt, $identity->fresh()?->phone_verified_at?->format('Y-m-d H:i:s'));
         self::assertSame($consumed, DB::table('one_time_codes')->value('consumed_at') !== null);

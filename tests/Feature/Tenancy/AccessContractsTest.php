@@ -79,7 +79,7 @@ final class AccessContractsTest extends TestCase
     {
         [$member, $membership] = $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertTrue($membership->is($session->principal)); // @phpstan-ignore method.notFound
@@ -106,7 +106,10 @@ final class AccessContractsTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->reason);
+        self::assertSame(
+            FailureReason::PRINCIPAL_INELIGIBLE,
+            $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->reason,
+        );
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertFalse($this->freshGuard('members')->attempt(self::credentials('member@example.test')));
         self::assertSame([], $this->sessions('members')->principals($member));
@@ -114,7 +117,7 @@ final class AccessContractsTest extends TestCase
 
         $this->seedIdentity();
 
-        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
     }
 
     /**
@@ -130,7 +133,7 @@ final class AccessContractsTest extends TestCase
     {
         $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -187,7 +190,7 @@ final class AccessContractsTest extends TestCase
 
         app()->instance(TenantAccess::class, $access);
 
-        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'));
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $result->reason);
         self::assertSame([[$membership->getKey(), $tenant->getKey()]], $access->asked);

@@ -108,7 +108,7 @@ final class ReplicaExternalSessionsTest extends TestCase
 
         self::assertNull($this->sessions()->externalStanding($record->getKey(), $this->identity, 'connection-7'));
         self::assertNull(DB::transaction(fn (): mixed => $this->sessions()->externalStanding($record->getKey(), $this->identity, 'connection-7', 'link-1')));
-        self::assertTrue($this->sessions()->reauthenticateExternally($record->getKey(), $result)->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($record->getKey(), $result, self::requestClient())->isIssued());
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('authentication_proofs')->count());
     }
 
@@ -197,7 +197,10 @@ final class ReplicaExternalSessionsTest extends TestCase
      */
     private function signedIn(?ExternalEvidence $evidence = null, string $linkId = 'link-1', string $subject = 'subject-1'): Session
     {
-        $record = $this->sessions()->signInExternally($this->linkedResult($this->identity, linkId: $linkId, subject: $subject, evidence: $evidence))->session?->record;
+        $record = $this->sessions()->signInExternally(
+            $this->linkedResult($this->identity, linkId: $linkId, subject: $subject, evidence: $evidence),
+            self::requestContext(),
+        )->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 

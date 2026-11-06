@@ -87,7 +87,7 @@ final class PasswordWriterTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame(2, Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::RESET)->revoked);
+        self::assertSame(2, Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::RESET, self::requestClient())->revoked);
         self::assertSame([], $this->recordedClasses());
 
         DB::rollBack();
@@ -118,7 +118,7 @@ final class PasswordWriterTest extends TestCase
         $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         DB::transaction(function () use ($identity, $kept): void {
-            Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept);
+            Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, self::requestClient(), $kept);
 
             self::assertSame([], $this->recordedClasses());
         });
@@ -144,8 +144,8 @@ final class PasswordWriterTest extends TestCase
 
         $this->recordEvents([PasswordSet::class]);
 
-        $writer->write($identity, 'a brand new passphrase', PasswordFlow::CHANGE, null, $client);
-        $writer->write($identity, 'another new passphrase', PasswordFlow::CHANGE);
+        $writer->write($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $client);
+        $writer->write($identity, 'another new passphrase', PasswordFlow::CHANGE, self::requestClient());
 
         [$named, $served] = $this->recorded;
 
@@ -184,7 +184,7 @@ final class PasswordWriterTest extends TestCase
         $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         DB::transaction(static function () use ($identity, $kept, $guard, $swapped): void {
-            self::assertSame(1, Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept)->revoked);
+            self::assertSame(1, Auth::passwords('web')->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, self::requestClient(), $kept)->revoked);
 
             $guard->setDispatcher($swapped);
         });

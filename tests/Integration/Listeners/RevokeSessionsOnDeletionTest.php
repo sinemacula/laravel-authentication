@@ -290,7 +290,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy(static fn (): mixed => $delete($member, $membership)));
 
-        $refused = Auth::sessions('members')->signIn('password', self::credentials());
+        $refused = Auth::sessions('members')->signIn('password', self::credentials(), self::requestContext());
 
         self::assertSame($reason, $refused->reason);
 
@@ -437,7 +437,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = Auth::sessions('members')->signIn('password', self::credentials())->session;
+        $session = Auth::sessions('members')->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

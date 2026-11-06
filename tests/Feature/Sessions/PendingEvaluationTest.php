@@ -541,7 +541,7 @@ final class PendingEvaluationTest extends TestCase
             self::assertTrue($first->is($selection[0]));
 
             $destination = $this->evaluation(self::CHOOSERS)->destination($selection[0], null);
-            $signedIn    = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
+            $signedIn    = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext());
         } finally {
             Model::preventLazyLoading(false);
         }
@@ -589,7 +589,7 @@ final class PendingEvaluationTest extends TestCase
             Model::preventLazyLoading();
 
             try {
-                $signedIn = $this->sessions(self::KEYED)->signIn('password', self::credentials('keyed@example.test'));
+                $signedIn = $this->sessions(self::KEYED)->signIn('password', self::credentials('keyed@example.test'), self::requestContext());
             } finally {
                 Model::preventLazyLoading(false);
             }
@@ -626,14 +626,14 @@ final class PendingEvaluationTest extends TestCase
 
         $third    = $this->seedMembership($member, false);
         $sessions = $this->sessions(self::CHOOSERS);
-        $token    = $sessions->start($member, $first, 'password')->session?->tokens->refreshToken?->reveal();
+        $token    = $sessions->start($member, $first, 'password', self::requestContext())->session?->tokens->refreshToken?->reveal();
 
         self::assertIsString($token);
 
         Model::preventLazyLoading();
 
         try {
-            $pending  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'))->pending;
+            $pending  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext())->pending;
             $listed   = $this->sessions(self::CHOOSERS)->principals($member);
             $found    = $this->sessions(self::CHOOSERS)->principal($member, $second->getKey());
             $refused  = $this->sessions(self::CHOOSERS)->principal($member, $third->getKey());
@@ -1107,7 +1107,7 @@ final class PendingEvaluationTest extends TestCase
      */
     private function signedIn(): Session
     {
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session?->record;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $session);
 

@@ -112,7 +112,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         Event::fake([IdentifierChangeRequested::class, AuthenticationFailed::class]);
 
-        $request = $this->changes()->requestByCode($identity, 'email', ' ADA@New.Example.Test ', Reauthentication::session(self::seedSession($identity)));
+        $request = $this->changes()->requestByCode($identity, 'email', ' ADA@New.Example.Test ', Reauthentication::session(self::seedSession($identity)), self::requestClient());
         $row     = (array) DB::table('identifier_changes')->first();
 
         self::assertSame([IdentifierChangeRequestStatus::SENT, null, null], [$request->status, $request->retryAfter, $request->link()]);
@@ -163,7 +163,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         config()->set('authentication.identifier_changes.ttl_seconds', 300);
 
         $identity = self::seedChangeable();
-        $request  = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD));
+        $request  = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), self::requestClient());
 
         self::assertTrue($this->now->addSeconds(300)->equalTo($request->expiresAt));
         self::assertSame('2026-04-06 12:05:00', DB::table('identifier_changes')->value('expires_at'));
@@ -188,6 +188,7 @@ final class IdentifierChangeRequestsTest extends TestCase
             self::NEW_EMAIL,
             self::freshSession($identity),
             'tenant.email.confirm',
+            self::requestClient(),
             ['tenant' => 'acme', 'locale' => 'en'],
         );
         $link = (string) $request->link()?->reveal();
@@ -227,15 +228,15 @@ final class IdentifierChangeRequestsTest extends TestCase
         $identity = self::seedChangeable(self::EMAIL, self::PHONE);
         $proof    = self::freshSession($identity);
 
-        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof);
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient());
 
         $first   = self::stored('identifier_changes', 'request_id');
         $binding = CodeBinding::identifierChange('web', 'email', self::NEW_EMAIL, $identity, $first);
 
         $this->moveTo($this->now->addMinute());
 
-        $this->changes('admin')->requestByLink($identity, 'email', 'ada@third.example.test', self::freshSession($identity, 'admin'), 'email.confirm');
-        $this->changes()->requestByCode($identity, 'phone', self::NEW_PHONE, $proof);
+        $this->changes('admin')->requestByLink($identity, 'email', 'ada@third.example.test', self::freshSession($identity, 'admin'), 'email.confirm', self::requestClient());
+        $this->changes()->requestByCode($identity, 'phone', self::NEW_PHONE, $proof, self::requestClient());
 
         $email = (array) DB::table('identifier_changes')->where('type', 'email')->first();
 
@@ -281,7 +282,7 @@ final class IdentifierChangeRequestsTest extends TestCase
             ]);
         });
 
-        $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm');
+        $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm', self::requestClient());
 
         self::assertTrue($raced);
         self::assertSame(1, self::rows('identifier_changes'));
@@ -312,8 +313,8 @@ final class IdentifierChangeRequestsTest extends TestCase
             $writes[] = strtok($query->sql, ' ');
         });
 
-        $this->changes()->requestByLink($identity, 'email', 'ada@first.example.test', $proof, 'email.confirm');
-        $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm');
+        $this->changes()->requestByLink($identity, 'email', 'ada@first.example.test', $proof, 'email.confirm', self::requestClient());
+        $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm', self::requestClient());
 
         self::assertSame(['insert', 'update'], $writes);
         self::assertSame(self::NEW_EMAIL, self::stored('identifier_changes', 'identifier'));
@@ -334,7 +335,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         $proof    = self::freshSession($identity);
         $raced    = false;
 
-        $this->changes()->requestByLink($identity, 'email', 'ada@first.example.test', $proof, 'email.confirm');
+        $this->changes()->requestByLink($identity, 'email', 'ada@first.example.test', $proof, 'email.confirm', self::requestClient());
 
         DB::listen(static function (QueryExecuted $query) use (&$raced): void {
             if ($raced || !str_starts_with($query->sql, 'select') || !str_contains($query->sql, 'identifier_changes')) {
@@ -346,7 +347,7 @@ final class IdentifierChangeRequestsTest extends TestCase
             DB::table('identifier_changes')->delete();
         });
 
-        self::assertTrue($this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm')->isSent());
+        self::assertTrue($this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm', self::requestClient())->isSent());
         self::assertTrue($raced);
         self::assertSame(1, self::rows('identifier_changes'));
         self::assertSame(self::NEW_EMAIL, self::stored('identifier_changes', 'identifier'));
@@ -372,7 +373,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
             Event::fake([AuthenticationFailed::class]);
 
-            $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
+            $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient());
         } finally {
             Str::createUuidsNormally();
         }
@@ -402,8 +403,8 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $invalid   = $this->changes()->requestByCode($identity, 'phone', '07700 900456', $proof);
-        $unchanged = $this->changes()->requestByCode($identity, 'email', ' Ada@Example.Test', $proof);
+        $invalid   = $this->changes()->requestByCode($identity, 'phone', '07700 900456', $proof, self::requestClient());
+        $unchanged = $this->changes()->requestByCode($identity, 'email', ' Ada@Example.Test', $proof, self::requestClient());
 
         self::assertSame([IdentifierChangeRequestStatus::IDENTIFIER_INVALID, IdentifierChangeRequestStatus::IDENTIFIER_UNCHANGED], [$invalid->status, $unchanged->status]);
         self::assertSame(
@@ -430,7 +431,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     {
         $identity = self::seedChangeable();
         $stale    = Reauthentication::session(self::seedSession($identity, signedInAt: $this->now->subHour()));
-        $request  = $this->changes()->requestByCode($identity, 'email', self::EMAIL, $stale);
+        $request  = $this->changes()->requestByCode($identity, 'email', self::EMAIL, $stale, self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
     }
@@ -452,12 +453,12 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         DB::table('changeable_identities')->update(['email' => 'moved@example.test', 'email_verified_at' => null]);
 
-        $unchanged = $this->changes()->requestByLink($identity, 'email', 'moved@example.test', $proof, 'email.confirm');
+        $unchanged = $this->changes()->requestByLink($identity, 'email', 'moved@example.test', $proof, 'email.confirm', self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::IDENTIFIER_UNCHANGED, $unchanged->status);
         self::assertSame(0, self::rows('rate_limits'));
 
-        self::assertTrue($this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm')->isSent());
+        self::assertTrue($this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm', self::requestClient())->isSent());
         self::assertSame(['moved@example.test', false], [self::stored('identifier_changes', 'previous'), (bool) DB::table('identifier_changes')->value('previous_verified')]);
         self::assertSame(self::EMAIL, $identity->email);
     }
@@ -477,7 +478,14 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         DB::table('changeable_identities')->update(['password' => app(Hasher::class)->make('another long passphrase')]);
 
-        $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password('another long passphrase'), 'email.confirm');
+        $request = $this->changes()->requestByLink(
+            $identity,
+            'email',
+            self::NEW_EMAIL,
+            Reauthentication::password('another long passphrase'),
+            'email.confirm',
+            self::requestClient(),
+        );
 
         self::assertTrue($request->isSent());
         self::assertSame(1, self::rows('identifier_changes'));
@@ -500,7 +508,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
         self::beforeTheLock(static fn (): int => DB::table('changeable_identities')->update(['password' => app(Hasher::class)->make('another long passphrase')]));
 
-        $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'email.confirm');
+        $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'email.confirm', self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
         self::assertSame([FailureReason::REAUTHENTICATION_REQUIRED], array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->failures()));
@@ -524,7 +532,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         self::beforeTheLock(static fn (): int => DB::table('authentication_sessions')->update(['revoked_at' => '2026-04-06 12:00:00']));
 
-        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session));
+        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session), self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
         self::assertSame(0, self::rows('identifier_changes'));
@@ -547,7 +555,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         self::beforeTheLock(static fn (): int => DB::table('changeable_identities')->update(['email' => self::NEW_EMAIL]));
 
-        $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm');
+        $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm', self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::IDENTIFIER_UNCHANGED, $request->status);
         self::assertSame(0, self::rows('identifier_changes'));
@@ -568,7 +576,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         DB::table('changeable_identities')->update(['phone' => '07700 900123']);
 
-        $request = $this->changes()->requestByCode($identity->fresh() ?? $identity, 'phone', self::NEW_PHONE, self::freshSession($identity));
+        $request = $this->changes()->requestByCode($identity->fresh() ?? $identity, 'phone', self::NEW_PHONE, self::freshSession($identity), self::requestClient());
 
         self::assertTrue($request->isSent());
         self::assertSame('07700 900123', DB::table('identifier_changes')->value('previous'));
@@ -591,7 +599,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         DB::table('changeable_identities')->update(['email' => 'Ada@Example.test']);
 
         $identity = ChangeableIdentity::query()->sole();
-        $request  = $this->changes()->requestByCode($identity, 'email', self::EMAIL, self::freshSession($identity));
+        $request  = $this->changes()->requestByCode($identity, 'email', self::EMAIL, self::freshSession($identity), self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::IDENTIFIER_UNCHANGED, $request->status);
         self::assertSame(0, self::rows('identifier_changes'));
@@ -613,12 +621,12 @@ final class IdentifierChangeRequestsTest extends TestCase
         $proof    = self::freshSession($identity);
 
         foreach (range(1, 5) as $attempt) {
-            self::assertTrue($this->changes()->requestByLink($identity, 'email', "ada+{$attempt}@example.test", $proof, 'email.confirm')->isSent());
+            self::assertTrue($this->changes()->requestByLink($identity, 'email', "ada+{$attempt}@example.test", $proof, 'email.confirm', self::requestClient())->isSent());
         }
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $refused = $this->changes()->requestByLink($identity, 'email', 'ada+6@example.test', $proof, 'email.confirm');
+        $refused = $this->changes()->requestByLink($identity, 'email', 'ada+6@example.test', $proof, 'email.confirm', self::requestClient());
 
         self::assertSame([IdentifierChangeRequestStatus::RATE_LIMITED, 3600], [$refused->status, $refused->retryAfter]);
         $failure = $this->failures()[0];
@@ -670,7 +678,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         DB::beginTransaction();
 
-        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof);
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient());
 
         self::assertSame([], $this->recorded);
         Queue::assertNothingPushed();
@@ -681,7 +689,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         Queue::assertNothingPushed();
         self::assertSame(0, self::rows('identifier_changes'));
 
-        DB::transaction(fn (): IdentifierChangeRequest => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
+        DB::transaction(fn (): IdentifierChangeRequest => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient()));
 
         self::assertSame([IdentifierChangeRequested::class], $this->recordedClasses());
         Queue::assertPushed(SendIdentifierChangeCode::class, 1);
@@ -702,7 +710,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         self::assertNull($this->changes()->pending($identity, 'email'));
 
-        $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm');
+        $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), 'email.confirm', self::requestClient());
 
         $pending = $this->changes()->pending($identity, 'email');
 
@@ -731,7 +739,7 @@ final class IdentifierChangeRequestsTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient());
 
         self::assertFalse($this->changes('admin')->cancel($identity, 'email'));
         self::assertSame(1, self::rows('identifier_changes'));

@@ -429,7 +429,7 @@ final class TenantPolicyChangesTest extends TestCase
      */
     private function signedIn(): SignedInSession
     {
-        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'));
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         self::assertNotNull($result->session, 'Expected the sign-in to start a session; it failed with ' . $result->reason?->value);
 
@@ -451,7 +451,7 @@ final class TenantPolicyChangesTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart));
 
-        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'));
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         self::assertTrue($result->isPending());
 

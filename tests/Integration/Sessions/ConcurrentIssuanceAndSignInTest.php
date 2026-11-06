@@ -185,7 +185,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
         $grace = $this->seedIdentity('grace@example.test');
 
         $reported = $this->race($this->holderFor($holder, $ada), $level, function () use ($grace): string {
-            $session = $this->sessions()->signInExternally($this->linkedResult($grace, linkId: 'link-grace'))->session;
+            $session = $this->sessions()->signInExternally($this->linkedResult($grace, linkId: 'link-grace'), self::requestContext())->session;
 
             self::assertNotNull($session);
 
@@ -258,7 +258,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
         $first = $this->neighbourHolderFor($holder, $ada, $session);
 
         $reported = $this->race($first, $level, function () use ($proof, $their): string {
-            self::assertNotNull($this->sessions()->stepUp($proof)->accessToken);
+            self::assertNotNull($this->sessions()->stepUp($proof, self::requestClient())->accessToken);
 
             return $their;
         });
@@ -306,7 +306,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
         if ($holder === 'activation') {
             $this->askForAFurtherFactorOf($identity);
 
-            $result = $sessions->signIn('password', self::credentials());
+            $result = $sessions->signIn('password', self::credentials(), self::requestContext());
 
             self::assertNotNull($result->pending);
             self::assertNotNull($result->credential);
@@ -317,7 +317,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
             return static fn (): ?Secret => $sessions->satisfy($credential, $proof, self::requestClient())->session?->tokens->accessToken;
         }
 
-        $session = $sessions->signIn('password', self::credentials())->session;
+        $session = $sessions->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -337,7 +337,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
 
         $proof = self::adapterProof($identity, 'api', $session->record->getKey(), methods: ['hwk'], evaluation: new Evaluation(true, true));
 
-        return static fn (): ?Secret => $sessions->stepUp($proof)->accessToken;
+        return static fn (): ?Secret => $sessions->stepUp($proof, self::requestClient())->accessToken;
     }
 
     /**
@@ -356,7 +356,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     {
         $sessions = $this->sessions();
 
-        self::assertTrue($sessions->stepUp(self::adapterProof($identity, 'api', $session->record->getKey()))->isIssued());
+        self::assertTrue($sessions->stepUp(self::adapterProof($identity, 'api', $session->record->getKey()), self::requestClient())->isIssued());
 
         $this->askForAFurtherFactorOf($identity);
 
@@ -408,7 +408,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
     {
         $sessions = $this->sessions();
 
-        self::assertTrue($sessions->stepUp(self::adapterProof($identity, 'api', $session->record->getKey()))->isIssued());
+        self::assertTrue($sessions->stepUp(self::adapterProof($identity, 'api', $session->record->getKey()), self::requestClient())->isIssued());
 
         return static function () use ($sessions, $session): FactorChangeVerdict {
             $verdict = $sessions->factorChange($session->record, FactorChange::ADD);
@@ -465,7 +465,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
      */
     private function signedIn(IntegrationIdentity $identity): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials($identity->email))->session;
+        $session = $this->sessions()->signIn('password', self::credentials($identity->email), self::requestContext())->session;
 
         self::assertNotNull($session);
 

@@ -68,13 +68,22 @@ final class OutdatedProofsTest extends TestCase
         [$challenge, $code] = self::issueCode('web', 'phone', self::PHONE);
         $grace              = self::issue(CodeBinding::passwordResetLink('web', 'email', 'grace@example.test'), true);
 
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $web, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $web, 'password' => self::NEW_PASSWORD], self::requestClient())->status);
 
-        self::assertSame(ResetStatus::INVALID, $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $admin, 'password' => self::TAKEOVER_PASSWORD])->status);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge))->status);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $admin, 'password' => self::TAKEOVER_PASSWORD], self::requestClient())->status,
+        );
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge), self::requestClient())->status,
+        );
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, self::storedPassword(PasswordIdentity::query()->where('email', self::EMAIL)->value('password'))));
 
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => 'grace@example.test', 'token' => $grace, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => 'grace@example.test', 'token' => $grace, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -94,12 +103,21 @@ final class OutdatedProofsTest extends TestCase
         $admin              = self::issueToken('admin');
         [$challenge, $code] = self::issueCode('admin', 'phone', self::PHONE);
 
-        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
         self::assertSame(0, DB::table('one_time_codes')->whereNull('consumed_at')->count());
 
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $web, 'password' => self::TAKEOVER_PASSWORD])->status);
-        self::assertSame(ResetStatus::INVALID, $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $admin, 'password' => self::TAKEOVER_PASSWORD])->status);
-        self::assertSame(ResetStatus::INVALID, $this->passwords('admin')->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge))->status);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $web, 'password' => self::TAKEOVER_PASSWORD], self::requestClient())->status,
+        );
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $admin, 'password' => self::TAKEOVER_PASSWORD], self::requestClient())->status,
+        );
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords('admin')->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge), self::requestClient())->status,
+        );
     }
 
     /**
@@ -122,13 +140,16 @@ final class OutdatedProofsTest extends TestCase
         $phone = self::issue(CodeBinding::signIn('web', 'phone', self::PHONE), false);
         $grace = self::issue(CodeBinding::signIn('web', 'email', 'grace@example.test'), false);
 
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => self::issueToken('web'), 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => self::issueToken('web'), 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
         self::assertSame(CodeCheck::INVALID, self::check(CodeBinding::signIn('admin', 'email', self::EMAIL), $email));
         self::assertSame(CodeCheck::INVALID, self::check(CodeBinding::signIn('web', 'phone', self::PHONE), $phone));
 
         $email = self::issue(CodeBinding::signIn('web', 'email', self::EMAIL), false);
 
-        self::assertTrue($this->passwords()->set($identity->fresh() ?? $identity, self::TAKEOVER_PASSWORD, PasswordFlow::CHANGE)->set);
+        self::assertTrue($this->passwords()->set($identity->fresh() ?? $identity, self::TAKEOVER_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
         self::assertSame(CodeCheck::INVALID, self::check(CodeBinding::signIn('web', 'email', self::EMAIL), $email));
         self::assertSame(CodeCheck::ACCEPTED, self::check(CodeBinding::signIn('web', 'email', 'grace@example.test'), $grace));
     }
@@ -154,7 +175,7 @@ final class OutdatedProofsTest extends TestCase
             self::assertInstanceOf(IssuedCode::class, $codes->issue($binding, $now->addSeconds($second)));
         }
 
-        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
 
         $soon = $codes->issue($binding, $now->addSeconds(130));
         $late = $codes->issue($binding, $now->addSeconds(180));
@@ -182,9 +203,15 @@ final class OutdatedProofsTest extends TestCase
         $web      = self::issueToken('web');
         $admin    = self::issueToken('admin');
 
-        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION)->set);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $web, 'password' => self::TAKEOVER_PASSWORD])->status);
-        self::assertSame(ResetStatus::INVALID, $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $admin, 'password' => self::TAKEOVER_PASSWORD])->status);
+        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION, self::requestClient())->set);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $web, 'password' => self::TAKEOVER_PASSWORD], self::requestClient())->status,
+        );
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $admin, 'password' => self::TAKEOVER_PASSWORD], self::requestClient())->status,
+        );
         self::assertSame(CodeCheck::ACCEPTED, self::check(CodeBinding::signIn('web', 'email', self::EMAIL), $code));
     }
 
@@ -206,8 +233,11 @@ final class OutdatedProofsTest extends TestCase
             $identity = self::seedResettable();
             $token    = self::issueToken('plain');
 
-            self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
-            self::assertSame(ResetStatus::RESET, $this->passwords('plain')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::TAKEOVER_PASSWORD])->status);
+            self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
+            self::assertSame(
+                ResetStatus::RESET,
+                $this->passwords('plain')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::TAKEOVER_PASSWORD], self::requestClient())->status,
+            );
             self::assertTrue(app(Hasher::class)->check(self::TAKEOVER_PASSWORD, self::storedPassword($other->fresh()?->password)));
         } finally {
             $this->dropSessionTables();
@@ -230,10 +260,16 @@ final class OutdatedProofsTest extends TestCase
         [$challenge, $code] = self::issueCode('web', 'phone', self::PHONE);
         $partial            = PasswordIdentity::query()->select(['id', 'password'])->findOrFail($seeded->getKey());
 
-        self::assertTrue($this->passwords()->set($partial, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+        self::assertTrue($this->passwords()->set($partial, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
         self::assertSame(0, DB::table('one_time_codes')->whereNull('consumed_at')->count());
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::TAKEOVER_PASSWORD])->status);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge))->status);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::TAKEOVER_PASSWORD], self::requestClient())->status,
+        );
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge), self::requestClient())->status,
+        );
     }
 
     /**
@@ -252,8 +288,11 @@ final class OutdatedProofsTest extends TestCase
 
         $token = self::issue(CodeBinding::passwordResetLink('web', 'email', 'ada@moved.example.test'), true);
 
-        self::assertTrue($this->passwords()->set($stale, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => 'ada@moved.example.test', 'token' => $token, 'password' => self::TAKEOVER_PASSWORD])->status);
+        self::assertTrue($this->passwords()->set($stale, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->reset(['email' => 'ada@moved.example.test', 'token' => $token, 'password' => self::TAKEOVER_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -269,8 +308,11 @@ final class OutdatedProofsTest extends TestCase
         $identity           = self::seedResettable(['email' => null]);
         [$challenge, $code] = self::issueCode('web', 'phone', self::PHONE);
 
-        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge))->status);
+        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code, challenge: $challenge), self::requestClient())->status,
+        );
     }
 
     /**
@@ -293,8 +335,11 @@ final class OutdatedProofsTest extends TestCase
         $identity = self::seedResettable(['nickname' => 'ada']);
         $token    = self::issue(CodeBinding::passwordResetLink('nicknames', 'nickname', 'ada'), true);
 
-        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
-        self::assertSame(ResetStatus::INVALID, $this->passwords('nicknames')->reset(['nickname' => 'ada', 'token' => $token, 'password' => self::TAKEOVER_PASSWORD])->status);
+        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords('nicknames')->reset(['nickname' => 'ada', 'token' => $token, 'password' => self::TAKEOVER_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -312,11 +357,14 @@ final class OutdatedProofsTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
 
         DB::rollBack();
 
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -340,8 +388,11 @@ final class OutdatedProofsTest extends TestCase
             $token    = self::issueToken('plain');
             $identity = IntegrationIdentity::query()->where('email', self::EMAIL)->sole();
 
-            self::assertTrue($this->passwords('plain')->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
-            self::assertSame(ResetStatus::INVALID, $this->passwords('plain')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::TAKEOVER_PASSWORD])->status);
+            self::assertTrue($this->passwords('plain')->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
+            self::assertSame(
+                ResetStatus::INVALID,
+                $this->passwords('plain')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::TAKEOVER_PASSWORD], self::requestClient())->status,
+            );
         } finally {
             Model::preventAccessingMissingAttributes(false);
 
@@ -365,9 +416,12 @@ final class OutdatedProofsTest extends TestCase
             $identity = $this->seedIdentity('Ada@Example.test');
             $token    = self::issueToken('lookalike_plain');
 
-            self::assertTrue($this->passwords('lookalike_plain')->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+            self::assertTrue($this->passwords('lookalike_plain')->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
             self::assertSame(0, DB::table('one_time_codes')->whereNull('consumed_at')->count());
-            self::assertSame(ResetStatus::INVALID, $this->passwords('lookalike_plain')->reset(self::takeover('email', self::EMAIL, $token, 'token'))->status);
+            self::assertSame(
+                ResetStatus::INVALID,
+                $this->passwords('lookalike_plain')->reset(self::takeover('email', self::EMAIL, $token, 'token'), self::requestClient())->status,
+            );
         } finally {
             $this->dropSessionTables();
         }
@@ -389,8 +443,11 @@ final class OutdatedProofsTest extends TestCase
         try {
             $token = self::issueToken('mapped');
 
-            self::assertTrue($this->passwords('mapped')->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
-            self::assertSame(ResetStatus::INVALID, $this->passwords('mapped')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::TAKEOVER_PASSWORD])->status);
+            self::assertTrue($this->passwords('mapped')->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
+            self::assertSame(
+                ResetStatus::INVALID,
+                $this->passwords('mapped')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::TAKEOVER_PASSWORD], self::requestClient())->status,
+            );
             self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, self::storedPassword(MappedEmailIdentity::query()->sole()->password)));
         } finally {
             self::dropMappedIdentities();
@@ -413,7 +470,7 @@ final class OutdatedProofsTest extends TestCase
         config()->set('authentication.identifiers.normalizers.phone', \stdClass::class);
 
         try {
-            $this->passwords()->set($identity->fresh() ?? $identity, self::NEW_PASSWORD, PasswordFlow::CHANGE);
+            $this->passwords()->set($identity->fresh() ?? $identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient());
             self::fail('A change with a misconfigured normaliser was made.');
         } catch (\InvalidArgumentException $exception) {
             self::assertStringContainsString('The identifier normaliser for [phone]', $exception->getMessage());

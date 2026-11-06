@@ -508,7 +508,7 @@ final class SessionActivationTest extends TestCase
     {
         $this->factorRequired = true;
 
-        $result = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context);
+        $result = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context ?? self::requestContext());
 
         self::assertTrue($result->isPending());
 
@@ -530,7 +530,7 @@ final class SessionActivationTest extends TestCase
     {
         $this->factorRequired = true;
 
-        $result = $this->sessions(self::GUARD)->start($member, $membership, 'sso');
+        $result = $this->sessions(self::GUARD)->start($member, $membership, 'sso', self::requestContext());
 
         self::assertTrue($result->isPending());
 
@@ -568,7 +568,7 @@ final class SessionActivationTest extends TestCase
     {
         $this->factorRequired = false;
 
-        $active = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'))->session;
+        $active = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertInstanceOf(SignedInSession::class, $active);
 
@@ -592,7 +592,7 @@ final class SessionActivationTest extends TestCase
     {
         $this->factorRequired = false;
 
-        $active = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'))->session;
+        $active = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertInstanceOf(SignedInSession::class, $active);
 

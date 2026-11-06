@@ -142,11 +142,12 @@ final class EndedSessionsCancelChangesTest extends TestCase
             self::NEW_EMAIL,
             Reauthentication::session(self::seedSession($identity)),
             'email.confirm',
+            self::requestClient(),
         )->link()?->reveal();
 
         self::assertIsString($link);
-        self::assertTrue($this->changes('admin')->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity, 'admin'))->isSent());
-        self::assertTrue($this->changes()->requestByCode($other, 'email', 'grace@new.example.test', self::freshSession($other))->isSent());
+        self::assertTrue($this->changes('admin')->requestByCode($identity, 'phone', self::NEW_PHONE, self::freshSession($identity, 'admin'), self::requestClient())->isSent());
+        self::assertTrue($this->changes()->requestByCode($other, 'email', 'grace@new.example.test', self::freshSession($other), self::requestClient())->isSent());
 
         $revoke(Auth::sessions('web'), $identity);
 
@@ -155,10 +156,13 @@ final class EndedSessionsCancelChangesTest extends TestCase
         self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($link))->outcome);
         self::assertSame(
             IdentifierChangeOutcome::INVALID,
-            $this->changes('admin')->confirmByCode($identity, 'phone', self::changeChallenge($identity, 'phone'), self::CODE)->outcome,
+            $this->changes('admin')->confirmByCode($identity, 'phone', self::changeChallenge($identity, 'phone'), self::CODE, self::requestClient())->outcome,
         );
         self::assertSame([self::EMAIL, self::PHONE], [$identity->fresh()?->email, $identity->fresh()?->phone]);
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($other, 'email', self::changeChallenge($other, 'email'), '246802')->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::CHANGED,
+            $this->changes()->confirmByCode($other, 'email', self::changeChallenge($other, 'email'), '246802', self::requestClient())->outcome,
+        );
     }
 
     /**
@@ -174,8 +178,8 @@ final class EndedSessionsCancelChangesTest extends TestCase
         $identity = self::seedChangeable(self::EMAIL, self::PHONE);
         $other    = self::seedChangeable('grace@example.test');
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
-        self::assertTrue($this->changes()->requestByCode($other, 'email', 'grace@new.example.test', self::freshSession($other))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient())->isSent());
+        self::assertTrue($this->changes()->requestByCode($other, 'email', 'grace@new.example.test', self::freshSession($other), self::requestClient())->isSent());
 
         $identity->delete();
 
@@ -215,7 +219,14 @@ final class EndedSessionsCancelChangesTest extends TestCase
     {
         $identity = self::seedChangeable();
         $session  = self::seedSession($identity);
-        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session), 'email.confirm')->link()?->reveal();
+        $link     = $this->changes()->requestByLink(
+            $identity,
+            'email',
+            self::NEW_EMAIL,
+            Reauthentication::session($session),
+            'email.confirm',
+            self::requestClient(),
+        )->link()?->reveal();
 
         self::assertIsString($link);
 

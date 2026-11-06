@@ -158,7 +158,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
 
                 $proof = self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), methods: ['hwk'], evaluation: new Evaluation(true, true));
 
-                self::assertTrue($this->sessions()->stepUp($proof)->isIssued());
+                self::assertTrue($this->sessions()->stepUp($proof, self::requestClient())->isIssued());
             },
             $signedIn,
             $steppedUpAt,
@@ -190,7 +190,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
         $signedIn = $this->signedIn();
         $proof    = self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), methods: ['hwk'], evaluation: new Evaluation(true, true));
 
-        self::assertTrue($this->sessions()->stepUp($proof)->isIssued());
+        self::assertTrue($this->sessions()->stepUp($proof, self::requestClient())->isIssued());
 
         $reported = $this->race(
             $level,
@@ -236,7 +236,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
     {
         $this->seedIdentity();
 
-        $signedIn = $this->sessions()->signIn('password', self::credentials())->session;
+        $signedIn = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 

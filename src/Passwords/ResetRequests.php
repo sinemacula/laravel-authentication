@@ -79,7 +79,7 @@ final readonly class ResetRequests
      * bound, that identifier must be `email`.
      *
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -87,7 +87,7 @@ final readonly class ResetRequests
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    public function link(#[\SensitiveParameter] array $input, ?ClientContext $client): CodeRequest
+    public function link(#[\SensitiveParameter] array $input, ClientContext $client): CodeRequest
     {
         $type = $this->container->make(PasswordSignIn::class)->identifierType($this->context->name());
 
@@ -103,7 +103,7 @@ final readonly class ResetRequests
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -111,7 +111,7 @@ final readonly class ResetRequests
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    public function code(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client): CodeRequest
+    public function code(string $type, #[\SensitiveParameter] array $input, ClientContext $client): CodeRequest
     {
         ResetInput::assertCodeType($this->container->make(IdentifierNormalizers::class), $type);
 
@@ -128,7 +128,7 @@ final readonly class ResetRequests
      * @param  \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose  $purpose
      * @param  string  $type
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -136,12 +136,12 @@ final readonly class ResetRequests
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    private function send(CodePurpose $purpose, string $type, #[\SensitiveParameter] array $input, ?ClientContext $client): CodeRequest
+    private function send(CodePurpose $purpose, string $type, #[\SensitiveParameter] array $input, ClientContext $client): CodeRequest
     {
         $delivery   = new QueuedDelivery($this->container);
         $ttl        = $this->validated($delivery);
         $guard      = $this->context->name();
-        $context    = new EventContext($guard, $client ?? $this->context->client());
+        $context    = new EventContext($guard, $client);
         $given      = ResetInput::identifier($input, $type);
         $identifier = $this->admit($type, $given, $context);
 

@@ -96,7 +96,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
 
         $identity = (new VerifiableIdentity)->newFromBuilder((array) $stale);
 
-        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, app(IdentifierVerifier::class)->verify('api', $identity, 'email', 'ben@example.com'));
+        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, app(IdentifierVerifier::class)->verify('api', $identity, 'email', 'ben@example.com', self::requestClient()));
     }
 
     /**
@@ -132,7 +132,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
 
         $identity = (new QueryingVerifiableIdentity)->newFromBuilder(['id' => 1]);
 
-        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, app(IdentifierVerifier::class)->verify('api', $identity, 'email', 'ben@example.com'));
+        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, app(IdentifierVerifier::class)->verify('api', $identity, 'email', 'ben@example.com', self::requestClient()));
     }
 
     /**

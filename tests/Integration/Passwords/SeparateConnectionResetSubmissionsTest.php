@@ -113,8 +113,11 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
     public function testARequestAndAResetAreRefusedBeforeAnythingIsCounted(): void
     {
         $attempts = [
-            'request' => static fn (): mixed => Auth::passwords('api')->sendResetLink(['email' => 'ada@example.test']),
-            'reset'   => static fn (): mixed => Auth::passwords('api')->reset(['email' => 'ada@example.test', 'token' => str_repeat('a', 43), 'password' => 'a passphrase']),
+            'request' => static fn (): mixed => Auth::passwords('api')->sendResetLink(['email' => 'ada@example.test'], self::requestClient()),
+            'reset'   => static fn (): mixed => Auth::passwords('api')->reset(
+                ['email' => 'ada@example.test', 'token' => str_repeat('a', 43), 'password' => 'a passphrase'],
+                self::requestClient(),
+            ),
         ];
 
         foreach ($attempts as $name => $attempt) {
@@ -146,7 +149,7 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
         config()->set('auth.providers.identities', ['driver' => 'unnamed-model']);
 
         foreach (['ada@example.test', 'nobody@example.test'] as $email) {
-            $result = Auth::passwords('api')->reset(['email' => $email, 'token' => str_repeat('a', 43), 'password' => 'a brand new passphrase']);
+            $result = Auth::passwords('api')->reset(['email' => $email, 'token' => str_repeat('a', 43), 'password' => 'a brand new passphrase'], self::requestClient());
 
             self::assertSame(ResetStatus::INVALID, $result->status, $email);
         }
@@ -156,7 +159,7 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
         self::assertInstanceOf(IssuedCode::class, $issued);
 
         try {
-            Auth::passwords('api')->reset(['email' => 'ada@example.test', 'token' => $issued->code(), 'password' => 'a brand new passphrase']);
+            Auth::passwords('api')->reset(['email' => 'ada@example.test', 'token' => $issued->code(), 'password' => 'a brand new passphrase'], self::requestClient());
             self::fail('A reset spanning two connections was made.');
         } catch (\LogicException $exception) {
             self::assertSame(self::REFUSAL, $exception->getMessage());

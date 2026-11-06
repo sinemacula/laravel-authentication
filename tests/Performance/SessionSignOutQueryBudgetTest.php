@@ -130,7 +130,7 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
         $this->seedIdentity();
 
         $body   = self::presentedToken($this->signedIn(), RefreshTokenSource::BODY);
-        $cookie = $this->sessions('admin')->signIn('password', self::credentials())->session?->tokens->refreshCookie?->cookie()->getValue();
+        $cookie = $this->sessions('admin')->signIn('password', self::credentials(), self::requestContext())->session?->tokens->refreshCookie?->cookie()->getValue();
 
         self::assertIsString($cookie);
 
@@ -185,7 +185,7 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
     {
         $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertNotNull($session->record->getRawOriginal('tenant_id'));
@@ -232,7 +232,7 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
      */
     private function signedIn(): string
     {
-        $token = $this->sessions()->signIn('password', self::credentials())->session?->tokens->refreshToken?->reveal();
+        $token = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->tokens->refreshToken?->reveal();
 
         self::assertIsString($token);
 

@@ -64,7 +64,7 @@ final class PasskeyRoutesTest extends TestCase
             });
         });
 
-        Route::post('/sign-in/passkey/options', static fn (): JsonResponse => response()->json(Auth::passkeys('api')->signInOptions()));
+        Route::post('/sign-in/passkey/options', static fn (): JsonResponse => response()->json(Auth::passkeys('api')->signInOptions(self::requestClient())));
         Route::post('/sign-in/passkey', self::signIn(...));
     }
 
@@ -94,7 +94,7 @@ final class PasskeyRoutesTest extends TestCase
     {
         $this->seedIdentity();
 
-        $access = $this->sessions()->signIn('password', self::credentials())->session?->tokens->accessToken->reveal();
+        $access = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->tokens->accessToken->reveal();
 
         self::assertIsString($access);
 
@@ -149,7 +149,7 @@ final class PasskeyRoutesTest extends TestCase
     {
         $this->seedIdentity();
 
-        $access = $this->sessions()->signIn('password', self::credentials())->session?->tokens->accessToken->reveal();
+        $access = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->tokens->accessToken->reveal();
 
         self::assertIsString($access);
 
@@ -240,7 +240,7 @@ final class PasskeyRoutesTest extends TestCase
 
         assert($identity instanceof IntegrationIdentity && (is_array($input['credential']) || is_string($input['credential'])));
 
-        $result = Auth::passkeys('api')->register($identity, $input['challenge'], $input['credential'], $input['name'] ?? null);
+        $result = Auth::passkeys('api')->register($identity, $input['challenge'], $input['credential'], self::requestClient(), $input['name'] ?? null);
 
         return $result->isRegistered()
             ? response()->json($result->passkey, 201)
@@ -278,7 +278,7 @@ final class PasskeyRoutesTest extends TestCase
 
         assert($identity instanceof IntegrationIdentity);
 
-        abort_unless(Auth::passkeys('api')->remove($identity, $passkey)->isRemoved(), 404);
+        abort_unless(Auth::passkeys('api')->remove($identity, $passkey, self::requestClient())->isRemoved(), 404);
 
         return response()->noContent();
     }

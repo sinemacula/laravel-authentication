@@ -400,13 +400,13 @@ final class PasskeyCredentialsTest extends TestCase
         self::assertSame([], $passkeys->passkeys($other));
         self::assertSame([], $passkeys->registrationOptions($other, self::USER_NAME)->options['excludeCredentials']);
         self::assertNull($passkeys->factorOptions($other, self::factorBinding($other), Passkey::query()->pluck('credential_id')->all()));
-        self::assertFalse($passkeys->remove($other, $passkey->id)->isRemoved());
+        self::assertFalse($passkeys->remove($other, $passkey->id, self::requestClient())->isRemoved());
         self::assertSame(1, DB::table('passkeys')->where('id', $passkey->id)->count());
 
         Event::assertNotDispatched(PasskeyRemoved::class);
 
         self::assertSame([$passkey->id], array_map(static fn (PasskeySummary $summary): string => $summary->id, $passkeys->passkeys($owner)));
-        self::assertTrue($passkeys->remove($owner, $passkey->id)->isRemoved());
+        self::assertTrue($passkeys->remove($owner, $passkey->id, self::requestClient())->isRemoved());
         self::assertSame(0, DB::table('passkeys')->count());
     }
 
@@ -442,7 +442,7 @@ final class PasskeyCredentialsTest extends TestCase
         self::assertSame([], $passkeys->passkeys($identity));
         self::assertSame([], $passkeys->registrationOptions($identity, self::USER_NAME)->options['excludeCredentials']);
         self::assertNull($passkeys->factorOptions($identity, self::factorBinding($identity), Passkey::query()->pluck('credential_id')->all()));
-        self::assertFalse($passkeys->remove($identity, $passkey->id)->isRemoved());
+        self::assertFalse($passkeys->remove($identity, $passkey->id, self::requestClient())->isRemoved());
         self::assertSame(1, DB::table('passkeys')->count());
 
         Event::assertNotDispatched(PasskeyRemoved::class);
@@ -450,7 +450,7 @@ final class PasskeyCredentialsTest extends TestCase
         DB::table('passkeys')->update(['rp_id' => self::RP_ID]);
 
         self::assertSame($passkey->id, PasskeyCredentials::find($this->rp(), $raw)?->id);
-        self::assertTrue($passkeys->remove($identity, $passkey->id)->isRemoved());
+        self::assertTrue($passkeys->remove($identity, $passkey->id, self::requestClient())->isRemoved());
     }
 
     /**

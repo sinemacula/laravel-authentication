@@ -92,7 +92,7 @@ final class AuthenticationClaimsTest extends TestCase
     {
         $this->seedIdentity();
 
-        $record = $this->sessions()->signIn('password', self::credentials())->session?->record;
+        $record = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->record;
 
         self::assertNotNull($record);
 
@@ -116,7 +116,7 @@ final class AuthenticationClaimsTest extends TestCase
     {
         $this->seedIdentity();
 
-        $record = $this->sessions()->signIn('password', self::credentials())->session?->record;
+        $record = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->record;
 
         self::assertNotNull($record);
 

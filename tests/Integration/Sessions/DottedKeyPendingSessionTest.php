@@ -123,7 +123,7 @@ final class DottedKeyPendingSessionTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertTrue($result->isPending());
         self::assertNotNull($result->pending);
@@ -155,10 +155,10 @@ final class DottedKeyPendingSessionTest extends TestCase
     {
         $this->seedIdentity();
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->credential);
-        self::assertTrue($this->sessions()->discard($result->credential->reveal()));
+        self::assertTrue($this->sessions()->discard($result->credential->reveal(), self::requestClient()));
         self::assertNotNull(DB::table(self::TABLE)->value('revoked_at'));
     }
 

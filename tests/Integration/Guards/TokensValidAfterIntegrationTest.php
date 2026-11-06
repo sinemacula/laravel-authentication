@@ -143,7 +143,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
     public function testASessionsTokenIsNotHeldToTheTime(): void
     {
         $identity = $this->seedIdentity();
-        $session  = Auth::sessions('api')->signIn('password', ['email' => $identity->email, 'password' => self::PASSWORD])->session;
+        $session  = Auth::sessions('api')->signIn('password', ['email' => $identity->email, 'password' => self::PASSWORD], self::requestContext())->session;
 
         self::assertNotNull($session);
 

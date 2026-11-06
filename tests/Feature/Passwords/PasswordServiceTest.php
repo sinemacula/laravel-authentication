@@ -133,7 +133,7 @@ final class PasswordServiceTest extends TestCase
             $statements->append(strtok(strtolower($query->sql), ' '));
         });
 
-        $result = $passwords->set($identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION);
+        $result = $passwords->set($identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION, self::requestClient());
 
         self::assertSame([true, [], 0], [$result->set, $result->violations, $result->revoked]);
         self::assertSame(['insert', 'select', 'update'], $statements->getArrayCopy());
@@ -187,7 +187,7 @@ final class PasswordServiceTest extends TestCase
         DB::table('password_identities')->update(['password' => $none, 'updated_at' => '2026-01-01 00:00:00']);
 
         $identity = $identity->fresh() ?? $identity;
-        $result   = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION);
+        $result   = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION, self::requestClient());
 
         self::assertSame([true, 0], [$result->set, $result->revoked]);
         $stored = DB::table('password_identities')->value('password');
@@ -217,7 +217,7 @@ final class PasswordServiceTest extends TestCase
         $this->recordEvents([PasswordSet::class, SessionRevoked::class]);
 
         try {
-            $this->passwords()->set($identity->fresh() ?? $identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION);
+            $this->passwords()->set($identity->fresh() ?? $identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION, self::requestClient());
             self::fail('A registration replaced a password.');
         } catch (\LogicException $exception) {
             $message = PasswordIdentity::class . " {$identity->id} already has a password, or is no longer stored: a registration sets only a first password.";
@@ -268,7 +268,7 @@ final class PasswordServiceTest extends TestCase
         $this->signInWithPassword('admin');
         $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
 
-        $result = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, $kept);
+        $result = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient(), $kept);
 
         self::assertSame([true, 2], [$result->set, $result->revoked]);
         self::assertSame([$kept->getKey()], DB::table('authentication_sessions')->whereNull('revoked_at')->pluck('id')->all());
@@ -297,7 +297,7 @@ final class PasswordServiceTest extends TestCase
         $this->signInWithPassword('web');
         $this->signInWithPassword('admin');
 
-        $result = $this->passwords('admin')->set($identity, self::NEW_PASSWORD, PasswordFlow::RESET);
+        $result = $this->passwords('admin')->set($identity, self::NEW_PASSWORD, PasswordFlow::RESET, self::requestClient());
 
         self::assertSame([true, 2], [$result->set, $result->revoked]);
         self::assertSame(['password_reset', 'password_reset'], DB::table('authentication_sessions')->pluck('revoked_reason')->all());
@@ -323,7 +323,7 @@ final class PasswordServiceTest extends TestCase
         $this->signInWithPassword();
         $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
-        $result = $this->passwords()->set($identity, 'too short', PasswordFlow::RESET);
+        $result = $this->passwords()->set($identity, 'too short', PasswordFlow::RESET, self::requestClient());
 
         self::assertSame([false, [PasswordViolation::TOO_SHORT, PasswordViolation::NUMBERS], 0], [$result->set, $result->violations, $result->revoked]);
         self::assertSame($before, $identity->fresh()?->password);
@@ -349,7 +349,7 @@ final class PasswordServiceTest extends TestCase
 
         $calls = [
             fn (): mixed => $this->passwords()->check(self::NEW_PASSWORD),
-            fn (): mixed => $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE),
+            fn (): mixed => $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient()),
         ];
 
         foreach ($calls as $call) {
@@ -376,8 +376,11 @@ final class PasswordServiceTest extends TestCase
 
         DB::table('password_identities')->delete();
 
-        $exception = self::withArgumentsInTraces(\LogicException::class, fn (): mixed => $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE));
-        $isSecret  = static fn (string $value): bool => $value === self::NEW_PASSWORD || password_verify(self::NEW_PASSWORD, $value);
+        $exception = self::withArgumentsInTraces(
+            \LogicException::class,
+            fn (): mixed => $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient()),
+        );
+        $isSecret = static fn (string $value): bool => $value === self::NEW_PASSWORD || password_verify(self::NEW_PASSWORD, $value);
 
         self::assertStringContainsString('is no longer stored', $exception->getMessage());
         $stored = (string) $identity->password;
@@ -405,7 +408,10 @@ final class PasswordServiceTest extends TestCase
             $blueprint->dropColumn('updated_at');
         });
 
-        $exception = self::withArgumentsInTraces(QueryException::class, fn (): mixed => $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE));
+        $exception = self::withArgumentsInTraces(
+            QueryException::class,
+            fn (): mixed => $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient()),
+        );
 
         $hash = array_values(array_filter($exception->getBindings(), static fn (mixed $binding): bool => is_string($binding) && $isHash($binding)));
 
@@ -435,7 +441,7 @@ final class PasswordServiceTest extends TestCase
 
         foreach (self::SET_FLOWS as $flow) {
 
-            $result = $this->passwords()->set($identity, "correct horse battery\0staple", $flow);
+            $result = $this->passwords()->set($identity, "correct horse battery\0staple", $flow, self::requestClient());
 
             self::assertSame([false, [PasswordViolation::NULL_CHARACTER]], [$result->set, $result->violations]);
         }
@@ -465,7 +471,7 @@ final class PasswordServiceTest extends TestCase
         $this->recordEvents([PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class]);
 
         $for = static fn (PasswordFlow $flow): PasswordIdentity => $flow === PasswordFlow::REGISTRATION ? $registered : $identity;
-        $set = fn (PasswordFlow $flow, string $password): PasswordResult => $this->passwords()->set($for($flow), $password, $flow);
+        $set = fn (PasswordFlow $flow, string $password): PasswordResult => $this->passwords()->set($for($flow), $password, $flow, self::requestClient());
 
         foreach (self::SET_FLOWS as $flow) {
 
@@ -506,7 +512,7 @@ final class PasswordServiceTest extends TestCase
         FakeBreachedPasswordChecker::fake(container: $this->app)->unavailable();
 
         $identity = self::seedPasswordIdentity();
-        $result   = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE);
+        $result   = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient());
 
         self::assertSame([true, []], [$result->set, $result->violations]);
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) $identity->fresh()?->password));
@@ -533,7 +539,7 @@ final class PasswordServiceTest extends TestCase
 
         $identity->nickname = 'Countess';
 
-        $result = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, $kept);
+        $result = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient(), $kept);
 
         self::assertSame([true, 0], [$result->set, $result->revoked]);
         self::assertNull(DB::table('password_identities')->value('nickname'));
@@ -552,32 +558,49 @@ final class PasswordServiceTest extends TestCase
     {
         yield from [
             'a machine identity' => [
-                static fn (PasswordService $passwords): PasswordResult => $passwords->set(self::seedMachine(), self::NEW_PASSWORD, PasswordFlow::RESET),
+                static fn (PasswordService $passwords): PasswordResult => $passwords->set(self::seedMachine(), self::NEW_PASSWORD, PasswordFlow::RESET, self::requestClient()),
                 \InvalidArgumentException::class,
                 PasswordMachine::class . ' is a machine identity: it has no password to set.',
             ],
             'an identity that is not a model' => [
-                static fn (PasswordService $passwords): PasswordResult => $passwords->set(new PlainIdentityFixture(1), self::NEW_PASSWORD, PasswordFlow::CHANGE),
+                static fn (PasswordService $passwords): PasswordResult => $passwords->set(
+                    new PlainIdentityFixture(1),
+                    self::NEW_PASSWORD,
+                    PasswordFlow::CHANGE,
+                    self::requestClient(),
+                ),
                 \LogicException::class,
                 PlainIdentityFixture::class . ' is not an Eloquent model, so its password cannot be set.',
             ],
             'a change of an identity not stored' => [
-                static fn (PasswordService $passwords): PasswordResult => $passwords->set(new PasswordIdentity, self::NEW_PASSWORD, PasswordFlow::CHANGE),
+                static fn (PasswordService $passwords): PasswordResult => $passwords->set(new PasswordIdentity, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient()),
                 \LogicException::class,
                 PasswordIdentity::class . ' is not stored yet: only a registration may set the password of a new identity.',
             ],
             'a reset of an identity not stored' => [
-                static fn (PasswordService $passwords): PasswordResult => $passwords->set(new PasswordIdentity, self::NEW_PASSWORD, PasswordFlow::RESET),
+                static fn (PasswordService $passwords): PasswordResult => $passwords->set(new PasswordIdentity, self::NEW_PASSWORD, PasswordFlow::RESET, self::requestClient()),
                 \LogicException::class,
                 PasswordIdentity::class . ' is not stored yet: only a registration may set the password of a new identity.',
             ],
             'a session kept by a reset' => [
-                static fn (PasswordService $passwords): PasswordResult => $passwords->set(self::seedPasswordIdentity(), self::NEW_PASSWORD, PasswordFlow::RESET, new Session),
+                static fn (PasswordService $passwords): PasswordResult => $passwords->set(
+                    self::seedPasswordIdentity(),
+                    self::NEW_PASSWORD,
+                    PasswordFlow::RESET,
+                    self::requestClient(),
+                    new Session,
+                ),
                 \InvalidArgumentException::class,
                 'A session to keep signed in is for a change of password, not a reset.',
             ],
             'a session kept by a registration' => [
-                static fn (PasswordService $passwords): PasswordResult => $passwords->set(new PasswordIdentity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION, new Session),
+                static fn (PasswordService $passwords): PasswordResult => $passwords->set(
+                    new PasswordIdentity,
+                    self::NEW_PASSWORD,
+                    PasswordFlow::REGISTRATION,
+                    self::requestClient(),
+                    new Session,
+                ),
                 \InvalidArgumentException::class,
                 'A session to keep signed in is for a change of password, not a registration.',
             ],
@@ -635,7 +658,7 @@ final class PasswordServiceTest extends TestCase
         $this->recordEvents([PasswordSet::class]);
 
         try {
-            $this->passwords()->set((new PasswordIdentity)->forceFill(['email' => 'grace@example.test']), self::NEW_PASSWORD, PasswordFlow::REGISTRATION);
+            $this->passwords()->set((new PasswordIdentity)->forceFill(['email' => 'grace@example.test']), self::NEW_PASSWORD, PasswordFlow::REGISTRATION, self::requestClient());
             self::fail('A cancelled registration was reported as set.');
         } catch (\LogicException $exception) {
             self::assertSame(PasswordIdentity::class . ' was not saved: a model event cancelled the registration, so no password was set.', $exception->getMessage());
@@ -663,7 +686,7 @@ final class PasswordServiceTest extends TestCase
         DB::table('password_identities')->delete();
 
         try {
-            $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::RESET);
+            $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::RESET, self::requestClient());
             self::fail('A password was set on a row that is gone.');
         } catch (\LogicException $exception) {
             self::assertSame(PasswordIdentity::class . " {$identity->id} is no longer stored, so no password was set.", $exception->getMessage());
@@ -693,7 +716,7 @@ final class PasswordServiceTest extends TestCase
 
         $this->recordEvents([PasswordSet::class, SessionRevoked::class]);
 
-        $session = $this->sessions('web')->signIn('password', ['email' => 'ada@example.test', 'password' => $legacy])->session;
+        $session = $this->sessions('web')->signIn('password', ['email' => 'ada@example.test', 'password' => $legacy], self::requestContext())->session;
         $stored  = (string) PasswordIdentity::query()->sole()->password;
 
         self::assertNotNull($session);
@@ -726,7 +749,7 @@ final class PasswordServiceTest extends TestCase
 
             assert($identity !== null);
 
-            $result     = Auth::passwords('web')->set($identity, $request->string('password')->value(), PasswordFlow::CHANGE, Auth::session());
+            $result     = Auth::passwords('web')->set($identity, $request->string('password')->value(), PasswordFlow::CHANGE, self::requestClient(), Auth::session());
             $violations = array_map(static fn (PasswordViolation $violation): string => $violation->value, $result->violations);
 
             return ['set' => $result->set, 'violations' => $violations, 'revoked' => $result->revoked];

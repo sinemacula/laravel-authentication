@@ -107,7 +107,7 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
         $this->seedSession($identity);
         $this->seedSession($identity);
 
-        self::assertSame(2, Auth::passwords('api')->set($identity, 'a brand new passphrase', PasswordFlow::RESET)->revoked);
+        self::assertSame(2, Auth::passwords('api')->set($identity, 'a brand new passphrase', PasswordFlow::RESET, self::requestClient())->revoked);
 
         $stored = $identity->fresh();
 
@@ -142,7 +142,7 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
         });
 
         try {
-            Auth::passwords('api')->set($identity, 'a brand new passphrase', PasswordFlow::RESET);
+            Auth::passwords('api')->set($identity, 'a brand new passphrase', PasswordFlow::RESET, self::requestClient());
             self::fail('The listener failure was swallowed.');
         } catch (\RuntimeException $exception) {
             self::assertSame('a listener failed', $exception->getMessage());
@@ -175,8 +175,8 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
 
         $session = SeparateConnectionSession::query()->sole();
         $calls   = [
-            static fn (): mixed => Auth::passwords('api')->change($session, self::OLD_PASSWORD, 'a brand new passphrase'),
-            static fn (): mixed => Auth::passwords('api')->establish($session, 'a brand new passphrase'),
+            static fn (): mixed => Auth::passwords('api')->change($session, self::OLD_PASSWORD, 'a brand new passphrase', self::requestClient()),
+            static fn (): mixed => Auth::passwords('api')->establish($session, 'a brand new passphrase', self::requestClient()),
         ];
 
         foreach ($calls as $call) {

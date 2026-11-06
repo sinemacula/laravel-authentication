@@ -584,7 +584,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
      */
     private function signIn(CutoffIdentity $identity): SignedInSession
     {
-        $session = $this->sessions()->start($identity, null, 'sso')->session;
+        $session = $this->sessions()->start($identity, null, 'sso', self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -601,6 +601,6 @@ final class RevokesOnSecurityChangesTest extends TestCase
      */
     private function memberSignIn(string $email): void
     {
-        self::assertTrue($this->sessions('members')->signIn('password', self::credentials($email))->isSignedIn());
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials($email), self::requestContext())->isSignedIn());
     }
 }

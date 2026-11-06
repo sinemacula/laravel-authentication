@@ -614,7 +614,7 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     private function signIn(string $guard = self::GUARD): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 

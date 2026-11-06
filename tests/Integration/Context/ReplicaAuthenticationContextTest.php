@@ -88,7 +88,7 @@ final class ReplicaAuthenticationContextTest extends TestCase
      */
     public function testAStepUpTheReplicaHasNotSeenCounts(): void
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -98,7 +98,7 @@ final class ReplicaAuthenticationContextTest extends TestCase
 
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinute());
 
-        self::assertTrue(Auth::sessions('api')->stepUp(self::adapterProof($session->identity, 'api', $session->record->getKey()))->isIssued());
+        self::assertTrue(Auth::sessions('api')->stepUp(self::adapterProof($session->identity, 'api', $session->record->getKey()), self::requestClient())->isIssued());
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('authentication_proofs')->count());
         $context = Auth::context();
 
@@ -117,7 +117,7 @@ final class ReplicaAuthenticationContextTest extends TestCase
     public function testAProvenanceTheReplicaHasNotSeenIsRead(): void
     {
         $identity = $this->seedIdentity('external@example.test');
-        $session  = $this->sessions()->signInExternally($this->linkedResult($identity))->session;
+        $session  = $this->sessions()->signInExternally($this->linkedResult($identity), self::requestContext())->session;
 
         self::assertNotNull($session);
 

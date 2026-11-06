@@ -264,7 +264,7 @@ final class ConfiguredFreshnessTest extends TestCase
 
         $identity  = $this->seedIdentity();
         $evidence  = new ExternalEvidence(['mfa'], null, $this->now->subDays(3));
-        $record    = $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', evidence: $evidence))->session?->record;
+        $record    = $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', evidence: $evidence), self::requestContext())->session?->record;
         $policy    = self::policy();
         $proofs    = [ProofKind::FIRST_FACTOR, ProofKind::EXTERNAL_REAUTHENTICATION];
         $mfa       = new FreshnessRequirement(300, $proofs, true);
@@ -280,7 +280,7 @@ final class ConfiguredFreshnessTest extends TestCase
 
         $result = new ExternalResult('connection-7', self::ISSUER, 'subject-1', authenticatedAt: $this->now->addMinute(), evidence: $evidence);
 
-        self::assertTrue($this->sessions()->reauthenticateExternally($record->getKey(), $result)->isIssued());
+        self::assertTrue($this->sessions()->reauthenticateExternally($record->getKey(), $result, self::requestClient())->isIssued());
         self::assertSame(2, DB::table('authentication_proofs')->where('multifactor', true)->whereNotNull('evidence')->count());
         self::assertNull($policy->freshProof($record, $operation, $mfa));
         self::assertSame(ProofKind::EXTERNAL_REAUTHENTICATION, $policy->freshProof($record, $operation, new FreshnessRequirement(300, $proofs))?->kind);
@@ -766,7 +766,7 @@ final class ConfiguredFreshnessTest extends TestCase
     {
         $this->seedIdentity();
 
-        $record = $this->sessions()->signIn('password', self::credentials())->session?->record;
+        $record = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 

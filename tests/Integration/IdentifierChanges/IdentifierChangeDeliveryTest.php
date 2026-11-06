@@ -84,7 +84,7 @@ final class IdentifierChangeDeliveryTest extends TestCase
 
         $identity = $this->requestedByCode();
 
-        $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE);
+        $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE, self::requestClient());
 
         foreach ([SendIdentifierChangeCode::class, SendIdentifierChangeNotice::class] as $class) {
             self::assertContains(ShouldBeEncrypted::class, class_implements($class));
@@ -107,12 +107,12 @@ final class IdentifierChangeDeliveryTest extends TestCase
         $identity = $this->requestedByCode();
         $job      = self::job();
 
-        $this->changes('admin')->requestByLink($identity, 'email', 'ada@third.example.test', self::freshSession($identity, 'admin'), 'email.confirm');
+        $this->changes('admin')->requestByLink($identity, 'email', 'ada@third.example.test', self::freshSession($identity, 'admin'), 'email.confirm', self::requestClient());
 
         $job->handle(app());
 
         DB::table('identifier_changes')->delete();
-        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity));
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient());
 
         $live = self::job();
 
@@ -204,7 +204,7 @@ final class IdentifierChangeDeliveryTest extends TestCase
         $identity = $this->requestedByCode();
 
         $this->recordEvents([IdentifierChanged::class]);
-        $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE);
+        $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE, self::requestClient());
 
         $payload = serialize(Queue::pushed(SendIdentifierChangeNotice::class)[0]);
 
@@ -249,7 +249,7 @@ final class IdentifierChangeDeliveryTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient())->isSent());
 
         return $identity;
     }

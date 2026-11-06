@@ -166,7 +166,7 @@ final class LifecycleEventsContractTest extends TestCase
             ChoosingMembership::query()->create(['identity_id' => $chooser->getKey(), 'tenant_id' => $choosable->getKey()]);
         }
 
-        self::assertTrue($this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->isPending());
+        self::assertTrue($this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'), self::requestContext())->isPending());
 
         $identity = $this->seedIdentity();
 
@@ -184,11 +184,11 @@ final class LifecycleEventsContractTest extends TestCase
             }
         });
 
-        self::assertNotNull($this->sessions()->signIn('password', self::credentials())->pending);
+        self::assertNotNull($this->sessions()->signIn('password', self::credentials(), self::requestContext())->pending);
 
         $verifiable = self::seedVerifiableIdentity();
 
-        self::assertSame(IdentifierVerification::VERIFIED, app(IdentifierVerifier::class)->verify('api', $verifiable, 'email', 'ben@example.com'));
+        self::assertSame(IdentifierVerification::VERIFIED, app(IdentifierVerifier::class)->verify('api', $verifiable, 'email', 'ben@example.com', self::requestClient()));
 
         $memberId   = IdentifierCoercion::stringify($member->getKey());
         $secondId   = IdentifierCoercion::stringify($second->getKey());

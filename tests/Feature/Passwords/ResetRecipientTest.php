@@ -73,7 +73,7 @@ final class ResetRecipientTest extends TestCase
     {
         $seed();
 
-        $this->passwords($guard)->sendResetLink(['email' => self::EMAIL]);
+        $this->passwords($guard)->sendResetLink(['email' => self::EMAIL], self::requestClient());
         app()->terminate();
 
         self::assertSame(0, $this->links->count());
@@ -84,7 +84,10 @@ final class ResetRecipientTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, PasswordSet::class]);
 
-        self::assertSame(ResetStatus::INVALID, $this->passwords($guard)->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords($guard)->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame($reason, $this->recordedEvent(AuthenticationFailed::class)->reason->value);
         self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
@@ -132,7 +135,7 @@ final class ResetRecipientTest extends TestCase
 
             foreach (['plain', 'plain_verified'] as $guard) {
 
-                $this->passwords($guard)->sendResetLink(['email' => ' Ada@Example.test']);
+                $this->passwords($guard)->sendResetLink(['email' => ' Ada@Example.test'], self::requestClient());
                 app()->terminate();
 
                 $link = $this->links->sent()[0] ?? null;
@@ -140,7 +143,7 @@ final class ResetRecipientTest extends TestCase
                 self::assertNotNull($link);
                 self::assertTrue($identity->is($link->identity));
 
-                $result = $this->passwords($guard)->reset(['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD]);
+                $result = $this->passwords($guard)->reset(['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD], self::requestClient());
 
                 self::assertSame(ResetStatus::RESET, $result->status, $guard);
 
@@ -169,7 +172,7 @@ final class ResetRecipientTest extends TestCase
         try {
             $identity = $this->seedIdentity('Ada@Example.test');
 
-            $this->passwords('lookalike_plain')->sendResetLink(['email' => self::EMAIL]);
+            $this->passwords('lookalike_plain')->sendResetLink(['email' => self::EMAIL], self::requestClient());
             app()->terminate();
 
             $link = $this->links->sent()[0] ?? null;
@@ -177,7 +180,10 @@ final class ResetRecipientTest extends TestCase
             self::assertNotNull($link);
             self::assertTrue($identity->is($link->identity));
 
-            $result = $this->passwords('lookalike_plain')->reset(['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD]);
+            $result = $this->passwords('lookalike_plain')->reset(
+                ['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD],
+                self::requestClient(),
+            );
 
             self::assertSame(ResetStatus::RESET, $result->status);
         } finally {
@@ -199,7 +205,7 @@ final class ResetRecipientTest extends TestCase
         $identity = self::seedMappedIdentity();
 
         try {
-            $this->passwords('mapped')->sendResetLink(['email' => ' Ada@Example.test']);
+            $this->passwords('mapped')->sendResetLink(['email' => ' Ada@Example.test'], self::requestClient());
             app()->terminate();
 
             $link = $this->links->sent()[0] ?? null;
@@ -207,7 +213,7 @@ final class ResetRecipientTest extends TestCase
             self::assertNotNull($link);
             self::assertTrue($identity->is($link->identity));
 
-            $result = $this->passwords('mapped')->reset(['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD]);
+            $result = $this->passwords('mapped')->reset(['email' => self::EMAIL, 'token' => $link->token()->reveal(), 'password' => self::NEW_PASSWORD], self::requestClient());
 
             self::assertSame(ResetStatus::RESET, $result->status);
         } finally {
@@ -231,7 +237,7 @@ final class ResetRecipientTest extends TestCase
         try {
             $this->seedIdentity('ada@examplé.test');
 
-            $this->passwords('lookalike_plain')->sendResetLink(['email' => self::EMAIL]);
+            $this->passwords('lookalike_plain')->sendResetLink(['email' => self::EMAIL], self::requestClient());
             app()->terminate();
 
             self::assertSame(0, $this->links->count());
@@ -242,7 +248,7 @@ final class ResetRecipientTest extends TestCase
 
             $this->recordEvents([AuthenticationFailed::class]);
 
-            $result = $this->passwords('lookalike_plain')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+            $result = $this->passwords('lookalike_plain')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
 
             self::assertSame(ResetStatus::INVALID, $result->status);
             self::assertSame('invalid_credentials', $this->recordedEvent(AuthenticationFailed::class)->reason->value);
@@ -270,7 +276,7 @@ final class ResetRecipientTest extends TestCase
         config()->set('auth.providers.plain_fixture', ['driver' => 'plain-fixture']);
         config()->set('auth.guards.plain_fixture', ['driver' => 'jwt', 'provider' => 'plain_fixture', 'application' => ['methods' => ['password']]]);
 
-        $this->passwords('plain_fixture')->sendResetLink(['email' => self::EMAIL]);
+        $this->passwords('plain_fixture')->sendResetLink(['email' => self::EMAIL], self::requestClient());
         app()->terminate();
 
         self::assertSame(0, $this->links->count());
@@ -279,7 +285,10 @@ final class ResetRecipientTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $result = $this->passwords('plain_fixture')->reset(['email' => self::EMAIL, 'token' => self::issueToken('plain_fixture'), 'password' => self::NEW_PASSWORD]);
+        $result = $this->passwords('plain_fixture')->reset(
+            ['email' => self::EMAIL, 'token' => self::issueToken('plain_fixture'), 'password' => self::NEW_PASSWORD],
+            self::requestClient(),
+        );
 
         self::assertSame(ResetStatus::INVALID, $result->status);
         self::assertSame('invalid_credentials', $this->recordedEvent(AuthenticationFailed::class)->reason->value);

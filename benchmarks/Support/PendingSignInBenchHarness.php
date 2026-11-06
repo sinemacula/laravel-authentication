@@ -34,6 +34,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -150,7 +151,7 @@ final readonly class PendingSignInBenchHarness
      */
     private function signInToPendingToActive(): SignInResult
     {
-        $result     = $this->sessions()->signIn('password', ['email' => self::EMAIL, 'password' => self::PASSWORD]);
+        $result     = $this->sessions()->signIn('password', ['email' => self::EMAIL, 'password' => self::PASSWORD], SignInContext::fromRequest(BenchRequest::client()));
         $pending    = $result->pending;
         $credential = $result->credential?->reveal();
 

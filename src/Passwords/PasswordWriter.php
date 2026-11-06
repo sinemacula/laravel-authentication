@@ -83,8 +83,8 @@ final readonly class PasswordWriter
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
      * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return int
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -95,13 +95,12 @@ final readonly class PasswordWriter
      *
      * @imperative
      */
-    public function write(Identity&Model $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ?Session $except = null, ?ClientContext $client = null): int
+    public function write(Identity&Model $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ClientContext $client, ?Session $except = null): int
     {
         // `#[\SensitiveParameter]` does not cover what a closure captures,
         // which a dump of the trace shows.
         $hash      = new \SensitiveParameterValue($this->container->make(Hasher::class)->make($password));
         $container = $this->container;
-        $client ??= $this->context->client();
 
         return $identity->getConnection()->transaction(function () use ($identity, $hash, $flow, $except, $container, $client): int {
 

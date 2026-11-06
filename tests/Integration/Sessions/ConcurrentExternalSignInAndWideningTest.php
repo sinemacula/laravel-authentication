@@ -110,7 +110,7 @@ final class ConcurrentExternalSignInAndWideningTest extends TestCase
 
         self::assertSame(0, DB::table('authentication_sessions')->count());
 
-        $signedIn = $this->onSignInConnection(fn (): SignInResult => $this->sessions()->signInExternally($result));
+        $signedIn = $this->onSignInConnection(fn (): SignInResult => $this->sessions()->signInExternally($result, self::requestContext()));
         $key      = $signedIn->session?->record->getKey();
 
         self::assertTrue($signedIn->isSignedIn());
@@ -147,7 +147,7 @@ final class ConcurrentExternalSignInAndWideningTest extends TestCase
 
         $identity = $this->seedIdentity();
         $result   = $this->linkedResult($identity, subject: 'subject-1');
-        $signIn   = fn (): mixed => $this->sessions()->signInExternally($result);
+        $signIn   = fn (): mixed => $this->sessions()->signInExternally($result, self::requestContext());
 
         self::beginTransactionAt('repeatable read');
 
@@ -185,9 +185,9 @@ final class ConcurrentExternalSignInAndWideningTest extends TestCase
         $widening = $manager->getDefaultConnection();
 
         self::assertNotSame(ConnectionGuards::slot('link-1'), ConnectionGuards::slot('link-2'));
-        self::assertTrue($this->sessions()->signInExternally($this->linkedResult($grace, linkId: 'link-2'))->isSignedIn());
-        self::assertTrue($this->sessions()->signInExternally($this->linkedResult($ada))->isSignedIn());
-        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue($this->sessions()->signInExternally($this->linkedResult($grace, linkId: 'link-2'), self::requestContext())->isSignedIn());
+        self::assertTrue($this->sessions()->signInExternally($this->linkedResult($ada), self::requestContext())->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
 
         self::limitLockWaits(self::SIGN_IN_CONNECTION);
 
@@ -198,7 +198,7 @@ final class ConcurrentExternalSignInAndWideningTest extends TestCase
         $manager->setDefaultConnection(self::SIGN_IN_CONNECTION);
 
         try {
-            $signedIn = $this->sessions()->signInExternally($this->linkedResult($grace, linkId: 'link-2'));
+            $signedIn = $this->sessions()->signInExternally($this->linkedResult($grace, linkId: 'link-2'), self::requestContext());
         } finally {
             $manager->setDefaultConnection($widening);
 

@@ -199,7 +199,7 @@ final class ConnectionRevocationsQueryBudgetTest extends PerformanceContractTest
      */
     private function external(IntegrationIdentity $identity, string $connection): void
     {
-        self::assertNotNull($this->sessions()->signInExternally($this->linkedResult($identity, $connection))->session);
+        self::assertNotNull($this->sessions()->signInExternally($this->linkedResult($identity, $connection), self::requestContext())->session);
     }
 
     /**

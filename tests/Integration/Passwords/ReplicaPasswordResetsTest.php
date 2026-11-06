@@ -93,7 +93,7 @@ final class ReplicaPasswordResetsTest extends TestCase
         self::seedPasswordIdentity();
 
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('password_identities')->count());
-        self::assertTrue(Auth::passwords('web')->sendResetLink(['email' => 'ada@example.test'])->isSent());
+        self::assertTrue(Auth::passwords('web')->sendResetLink(['email' => 'ada@example.test'], self::requestClient())->isSent());
 
         app()->terminate();
 
@@ -101,7 +101,10 @@ final class ReplicaPasswordResetsTest extends TestCase
 
         self::assertIsString($token);
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('one_time_codes')->count());
-        self::assertSame(ResetStatus::RESET, Auth::passwords('web')->reset(['email' => 'ada@example.test', 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            Auth::passwords('web')->reset(['email' => 'ada@example.test', 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
         $stored = PasswordIdentity::query()->useWritePdo()->value('password');
 
         self::assertIsString($stored);
@@ -125,7 +128,7 @@ final class ReplicaPasswordResetsTest extends TestCase
 
         $verification = $this->verify(self::seedPasswordIdentity());
 
-        self::assertTrue(Auth::passwords('web')->sendResetLink(['email' => 'ada@example.test'])->isSent());
+        self::assertTrue(Auth::passwords('web')->sendResetLink(['email' => 'ada@example.test'], self::requestClient())->isSent());
 
         app()->terminate();
 
@@ -134,7 +137,7 @@ final class ReplicaPasswordResetsTest extends TestCase
         $this->withdrawOnThePrimary(GrantedApplicationPolicy::VERIFICATIONS, $verification);
 
         self::freezeClock(CarbonImmutable::parse('2026-10-29 10:30:00'));
-        self::assertTrue(Auth::passwords('web')->sendResetLink(['email' => 'ada@example.test'])->isSent());
+        self::assertTrue(Auth::passwords('web')->sendResetLink(['email' => 'ada@example.test'], self::requestClient())->isSent());
 
         app()->terminate();
 

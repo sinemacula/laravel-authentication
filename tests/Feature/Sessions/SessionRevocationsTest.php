@@ -465,7 +465,7 @@ final class SessionRevocationsTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $first       = self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'))->session;
+        $first       = self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
         $revocations = SessionRevocations::forContext($this->freshGuard('members')->context(), app());
 
         self::assertNotNull($first);
@@ -476,7 +476,7 @@ final class SessionRevocationsTest extends TestCase
 
         self::assertSame(1, $revoke($revocations, $member, $membership, $tenant));
 
-        $late = self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'))->session;
+        $late = self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($late);
 
@@ -540,7 +540,7 @@ final class SessionRevocationsTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $first       = self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'))->session;
+        $first       = self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
         $revocations = SessionRevocations::forContext($this->freshGuard('members')->context(), app());
 
         self::assertNotNull($first);
@@ -559,7 +559,7 @@ final class SessionRevocationsTest extends TestCase
 
         $revoke($revocations, $member, $membership, $tenant);
 
-        $late = self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'))->session;
+        $late = self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($late);
 
@@ -692,7 +692,7 @@ final class SessionRevocationsTest extends TestCase
 
         $eager = EagerTenantMembership::query()->findOrFail($membership->getKey());
 
-        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'));
+        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         $revocations = SessionRevocations::forContext($this->freshGuard('members')->context(), app());
 
@@ -722,8 +722,8 @@ final class SessionRevocationsTest extends TestCase
 
         $this->seedMember('other@example.test');
 
-        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'));
-        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('other@example.test'));
+        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'), self::requestContext());
+        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('other@example.test'), self::requestContext());
 
         $revocations = SessionRevocations::forContext($this->freshGuard('members')->context(), app());
 
@@ -793,7 +793,7 @@ final class SessionRevocationsTest extends TestCase
     {
         [, $membership, $tenant] = $this->seedMember();
 
-        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'));
+        self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         $revocations = SessionRevocations::forContext($this->freshGuard('members')->context(), app());
         $deactivated = $tenantOf($tenant);
@@ -914,7 +914,7 @@ final class SessionRevocationsTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

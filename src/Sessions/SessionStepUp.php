@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SteppedUp;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\NewProof;
 use SineMacula\Laravel\Authentication\Proofs\ProofAcceptance;
 use SineMacula\Laravel\Authentication\Proofs\ProofResult;
@@ -65,15 +66,15 @@ final readonly class SessionStepUp
      * Step the session the proof is bound to up with it.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      *
      * @throws \Throwable
      */
-    public function stepUp(ProofResult $proof): AccessTokenResult
+    public function stepUp(ProofResult $proof, ClientContext $client): AccessTokenResult
     {
-        $now    = CarbonImmutable::now()->startOfSecond();
-        $guard  = $this->context->name();
-        $client = $this->context->client();
+        $now   = CarbonImmutable::now()->startOfSecond();
+        $guard = $this->context->name();
 
         $accepts = static fn (EloquentSession&Model $session, CarbonInterface $since): ?FailureReason => ProofAcceptance::forSession($proof, $session, $guard, $since, $now);
 

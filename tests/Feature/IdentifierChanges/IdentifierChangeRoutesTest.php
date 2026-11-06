@@ -236,7 +236,7 @@ final class IdentifierChangeRoutesTest extends TestCase
             return response()->json(['message' => 'Confirm your password.'], 403);
         }
 
-        return self::answer(Auth::identifierChanges('web')->requestByCode($identity, 'email', $input['email'], $proof));
+        return self::answer(Auth::identifierChanges('web')->requestByCode($identity, 'email', $input['email'], $proof, self::requestClient()));
     }
 
     /**
@@ -256,7 +256,14 @@ final class IdentifierChangeRoutesTest extends TestCase
 
         abort_unless($identity instanceof Identity, 401);
 
-        $result = Auth::identifierChanges('web')->requestByLink($identity, 'email', $input['email'], Reauthentication::password($input['password']), 'email.confirm');
+        $result = Auth::identifierChanges('web')->requestByLink(
+            $identity,
+            'email',
+            $input['email'],
+            Reauthentication::password($input['password']),
+            'email.confirm',
+            self::requestClient(),
+        );
 
         if ($result->isSent()) {
             self::$mailed[] = [$input['email'], (string) $result->link()?->reveal()];
@@ -280,7 +287,7 @@ final class IdentifierChangeRoutesTest extends TestCase
 
         abort_unless($identity instanceof Identity, 401);
 
-        return self::confirmed(Auth::identifierChanges('web')->confirmByCode($identity, 'email', $input['challenge'], $input['code'])->outcome);
+        return self::confirmed(Auth::identifierChanges('web')->confirmByCode($identity, 'email', $input['challenge'], $input['code'], self::requestClient())->outcome);
     }
 
     /**
@@ -318,7 +325,10 @@ final class IdentifierChangeRoutesTest extends TestCase
     private static function answer(IdentifierChangeRequest $result): JsonResponse
     {
         return match ($result->status) {
-            IdentifierChangeRequestStatus::SENT                      => response()->json(['challenge' => $result->challengeId, 'expires_at' => $result->expiresAt?->toIso8601String()], 202), // phpcs:ignore Generic.Files.LineLength.TooLong
+            IdentifierChangeRequestStatus::SENT => response()->json(
+                ['challenge' => $result->challengeId, 'expires_at' => $result->expiresAt?->toIso8601String()],
+                202,
+            ), // phpcs:ignore Generic.Files.LineLength.TooLong
             IdentifierChangeRequestStatus::RATE_LIMITED              => response()->json(['message' => 'Too Many Attempts.'], 429, ['Retry-After' => (string) $result->retryAfter]),
             IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED => response()->json(['message' => 'Confirm your password, or sign in again.'], 403),
             IdentifierChangeRequestStatus::IDENTIFIER_INVALID,
@@ -349,7 +359,7 @@ final class IdentifierChangeRoutesTest extends TestCase
      */
     private function signIn(): string
     {
-        $access = $this->sessions('web')->signIn('password', self::credentials(self::EMAIL))->session?->tokens->accessToken->reveal();
+        $access = $this->sessions('web')->signIn('password', self::credentials(self::EMAIL), self::requestContext())->session?->tokens->accessToken->reveal();
 
         self::assertIsString($access);
 

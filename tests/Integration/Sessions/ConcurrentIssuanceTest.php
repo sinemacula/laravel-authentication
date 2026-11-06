@@ -159,8 +159,8 @@ final class ConcurrentIssuanceTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $session  = $issuer === 'external reauthentication'
-            ? $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->signedInAt))->session
-            : $this->sessions()->signIn('password', self::credentials())->session;
+            ? $this->sessions()->signInExternally($this->linkedResult($identity, subject: 'subject-1', authenticatedAt: $this->signedInAt), self::requestContext())->session
+            : $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -237,9 +237,14 @@ final class ConcurrentIssuanceTest extends TestCase
                 SwitchTarget::principal($identity),
                 self::requestClient(),
             )->session?->tokens->accessToken,
-            'step-up'                   => static fn (): ?Secret => $sessions->stepUp($stepUp)->accessToken,
-            'reauthentication'          => static fn (): ?Secret => $sessions->reauthenticate($session->record, 'password', self::credentials())->accessToken,
-            'external reauthentication' => static fn (): ?Secret => $sessions->reauthenticateExternally($key, $external)->accessToken,
+            'step-up'          => static fn (): ?Secret => $sessions->stepUp($stepUp, self::requestClient())->accessToken,
+            'reauthentication' => static fn (): ?Secret => $sessions->reauthenticate(
+                $session->record,
+                'password',
+                self::credentials(),
+                self::requestClient(),
+            )->accessToken,
+            'external reauthentication' => static fn (): ?Secret => $sessions->reauthenticateExternally($key, $external, self::requestClient())->accessToken,
             'direct issue'              => static fn (): Secret => Auth::manager()->jwt('api')->issueAccessToken($identity, $identity, null, $session->record),
         ];
 
@@ -270,7 +275,7 @@ final class ConcurrentIssuanceTest extends TestCase
         try {
             $proof = self::adapterProof($identity, 'api', $session->record->getKey(), methods: ['hwk'], evaluation: new Evaluation(true, true));
 
-            self::assertTrue($this->sessions()->stepUp($proof)->isIssued());
+            self::assertTrue($this->sessions()->stepUp($proof, self::requestClient())->isIssued());
         } finally {
             $manager->setDefaultConnection($default);
         }

@@ -99,14 +99,14 @@ final readonly class PasswordChanges
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $current
      * @param  string  $password
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\PasswordResult
      *
      * @throws \Throwable
      */
-    public function change(Session $session, #[\SensitiveParameter] string $current, #[\SensitiveParameter] string $password, ?ClientContext $client): PasswordResult
+    public function change(Session $session, #[\SensitiveParameter] string $current, #[\SensitiveParameter] string $password, ClientContext $client): PasswordResult
     {
-        $context = new EventContext($this->context->name(), $client ?? $this->context->client(), session: $session);
+        $context = new EventContext($this->context->name(), $client, session: $session);
         $owner   = $this->owner($session);
 
         if ($owner instanceof FailureReason) {
@@ -132,14 +132,14 @@ final readonly class PasswordChanges
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $password
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\PasswordResult
      *
      * @throws \Throwable
      */
-    public function establish(Session $session, #[\SensitiveParameter] string $password, ?ClientContext $client): PasswordResult
+    public function establish(Session $session, #[\SensitiveParameter] string $password, ClientContext $client): PasswordResult
     {
-        $context = new EventContext($this->context->name(), $client ?? $this->context->client(), session: $session);
+        $context = new EventContext($this->context->name(), $client, session: $session);
         $owner   = $this->owner($session);
 
         if ($owner instanceof FailureReason) {
@@ -220,7 +220,7 @@ final readonly class PasswordChanges
                     return FailureReason::SESSION_UNKNOWN;
                 }
 
-                return $this->sessionRefusal($session, $stored, $locked) ?? $stands($locked, $stored) ?? $writer->write($locked, $secret->getValue(), $flow, $stored, $client);
+                return $this->sessionRefusal($session, $stored, $locked) ?? $stands($locked, $stored) ?? $writer->write($locked, $secret->getValue(), $flow, $client, $stored);
             });
         } catch (PasswordAlreadySet) {
             $outcome = FailureReason::PASSWORD_ALREADY_SET;

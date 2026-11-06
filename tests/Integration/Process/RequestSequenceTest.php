@@ -86,7 +86,7 @@ final class RequestSequenceTest extends TestCase
         });
 
         Route::post('/sign-in', static function (): array {
-            $session = Auth::sessions('api')->signIn('password', self::credentials(request()->string('email')->value()))->session;
+            $session = Auth::sessions('api')->signIn('password', self::credentials(request()->string('email')->value()), self::requestContext())->session;
 
             return ['signed_in' => $session !== null, 'identity' => Auth::guard('api')->id()];
         });
@@ -317,7 +317,7 @@ final class RequestSequenceTest extends TestCase
 
         self::assertNull(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session);
 
-        self::sessionsOf($guard)->signIn('password', self::credentials('ada@example.test'));
+        self::sessionsOf($guard)->signIn('password', self::credentials('ada@example.test'), self::requestContext());
 
         Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::ROTATION_REUSE);
         Event::assertDispatched(SessionRevoked::class);
@@ -445,7 +445,7 @@ final class RequestSequenceTest extends TestCase
     private function signedIn(string $email): array
     {
         $identity = $this->seedIdentity($email);
-        $session  = self::sessionsOf($this->apiGuard())->signIn('password', self::credentials($email))->session;
+        $session  = self::sessionsOf($this->apiGuard())->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session);
 

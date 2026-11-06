@@ -64,10 +64,10 @@ final class ConcurrentResetSubmissionsTest extends TestCase
         $other = null;
 
         $this->afterTheTokenIsRead(function () use ($token, &$other): void {
-            $other = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => 'the other passphrase']);
+            $other = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => 'the other passphrase'], self::requestClient());
         });
 
-        $first = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+        $first = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
 
         self::assertInstanceOf(ResetResult::class, $other);
         self::assertSame([ResetStatus::INVALID, ResetStatus::RESET], [$first->status, $other->status]);
@@ -95,9 +95,15 @@ final class ConcurrentResetSubmissionsTest extends TestCase
             $fresh = app(OneTimeCodes::class)->issueToken(CodeBinding::passwordResetLink('web', 'email', self::EMAIL), now()->toImmutable(), 3600);
         });
 
-        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::INVALID,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
         self::assertInstanceOf(IssuedCode::class, $fresh);
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $fresh->code(), 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $fresh->code(), 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -126,7 +132,7 @@ final class ConcurrentResetSubmissionsTest extends TestCase
         });
 
         try {
-            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
             self::fail('The failing revocation was swallowed.');
         } catch (\RuntimeException $exception) {
             self::assertSame('The revocation failed.', $exception->getMessage());
@@ -161,14 +167,20 @@ final class ConcurrentResetSubmissionsTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
 
         DB::rollBack();
 
         self::assertSame([], $this->recordedClasses());
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
         self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
-        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(
+            ResetStatus::RESET,
+            $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->status,
+        );
     }
 
     /**
@@ -218,7 +230,7 @@ final class ConcurrentResetSubmissionsTest extends TestCase
             DB::beginTransaction();
 
             try {
-                $thrown = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+                $thrown = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient());
             } catch (\Throwable $exception) {
                 $thrown = $exception;
             }
@@ -243,7 +255,9 @@ final class ConcurrentResetSubmissionsTest extends TestCase
         self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
         self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
 
-        $retried = DB::transaction(fn (): ResetResult => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]));
+        $retried = DB::transaction(
+            fn (): ResetResult => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient()),
+        );
 
         self::assertSame([ResetStatus::RESET, 1], [$retried->status, $retried->revoked]);
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) PasswordIdentity::query()->sole()->password));

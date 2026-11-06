@@ -106,7 +106,7 @@ final class ExternalSignInTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->sessions()->signInExternally($result)->isSignedIn());
+        self::assertTrue($this->sessions()->signInExternally($result, self::requestContext())->isSignedIn());
         self::assertSame([], $this->recordedClasses());
         self::assertFalse(Auth::guard('api')->hasUser());
 
@@ -118,7 +118,7 @@ final class ExternalSignInTest extends TestCase
 
         DB::beginTransaction();
 
-        $session = $this->sessions()->signInExternally($result)->session;
+        $session = $this->sessions()->signInExternally($result, self::requestContext())->session;
 
         DB::commit();
 
@@ -144,7 +144,7 @@ final class ExternalSignInTest extends TestCase
         $this->externalLinks()->failWith($failure);
 
         try {
-            DB::transaction(fn () => $this->sessions()->signInExternally(new ExternalResult('connection-7', self::ISSUER, 'subject-1')));
+            DB::transaction(fn () => $this->sessions()->signInExternally(new ExternalResult('connection-7', self::ISSUER, 'subject-1'), self::requestContext()));
 
             self::fail('The link contract\'s exception was swallowed.');
         } catch (\RuntimeException $exception) {
@@ -170,7 +170,10 @@ final class ExternalSignInTest extends TestCase
         $sessions = [];
 
         foreach ($ids as $index => $id) {
-            $sessions[$id] = $this->sessions()->signInExternally($this->linkedResult($identity, linkId: $id, subject: "subject-{$index}"))->session?->record;
+            $sessions[$id] = $this->sessions()->signInExternally(
+                $this->linkedResult($identity, linkId: $id, subject: "subject-{$index}"),
+                self::requestContext(),
+            )->session?->record;
         }
 
         foreach ($sessions as $id => $record) {
@@ -199,7 +202,7 @@ final class ExternalSignInTest extends TestCase
         $stored   = ['methods' => $methods, 'context' => '', 'authenticated_at' => $now->utc()->toIso8601String()];
         $room     = ExternalEvidence::STORED_MAX_BYTES - strlen((string) json_encode($stored));
         $evidence = new ExternalEvidence($methods, str_repeat('c', $room), $now);
-        $record   = $this->sessions()->signInExternally($this->linkedResult($this->seedIdentity(), evidence: $evidence))->session?->record;
+        $record   = $this->sessions()->signInExternally($this->linkedResult($this->seedIdentity(), evidence: $evidence), self::requestContext())->session?->record;
 
         self::assertNotNull($record);
         self::assertEquals([$evidence], SessionProofs::acceptedEvidence($record));
@@ -229,13 +232,16 @@ final class ExternalSignInTest extends TestCase
         ];
 
         $identity = $this->seedIdentity();
-        $record   = $this->sessions()->signInExternally($this->linkedResult($identity, providerContext: new ProviderContext($values)))->session?->record;
+        $record   = $this->sessions()->signInExternally($this->linkedResult($identity, providerContext: new ProviderContext($values)), self::requestContext())->session?->record;
 
         self::assertNotNull($record);
         self::assertSame($values, SessionProofs::provenance($record)?->providerContext?->toArray());
 
         $largest = new ProviderContext(['k' => str_repeat("\u{1F600}", 340) . str_repeat('a', 8)]);
-        $session = $this->sessions()->signInExternally($this->linkedResult($identity, 'connection-8', 'link-8', providerContext: $largest))->session?->record;
+        $session = $this->sessions()->signInExternally(
+            $this->linkedResult($identity, 'connection-8', 'link-8', providerContext: $largest),
+            self::requestContext(),
+        )->session?->record;
 
         self::assertNotNull($session);
         self::assertSame(ProviderContext::STORED_MAX_BYTES, strlen($largest->toStored()));
@@ -252,7 +258,7 @@ final class ExternalSignInTest extends TestCase
      */
     public function testASessionNoProviderEstablishedHasNoProvenance(): void
     {
-        $session = $this->sessions()->signIn('password', self::credentials($this->seedIdentity()->email))->session;
+        $session = $this->sessions()->signIn('password', self::credentials($this->seedIdentity()->email), self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertNull(SessionProofs::provenance($session->record));

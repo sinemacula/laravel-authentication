@@ -419,7 +419,10 @@ final class CredentialAttemptMatrixTest extends TestCase
         [$box, $limiter] = $this->instrument($case);
 
         $sessions = $this->sessions($arranged['guard']);
-        $context  = $arranged['principal'] === null ? null : new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), principal: $arranged['principal']);
+        $context  = $arranged['principal'] === null ? self::requestContext() : new SignInContext(
+            new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT),
+            principal: $arranged['principal'],
+        );
 
         $this->record($case, $arranged['subject']);
 
@@ -665,7 +668,7 @@ final class CredentialAttemptMatrixTest extends TestCase
     {
         $this->seedIdentity('grace@example.test');
 
-        $session = $this->sessions()->signIn('password', self::credentials('grace@example.test'))->session;
+        $session = $this->sessions()->signIn('password', self::credentials('grace@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 

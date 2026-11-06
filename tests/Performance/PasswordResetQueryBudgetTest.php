@@ -101,11 +101,11 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
 
         $this->statements = [];
 
-        self::assertTrue($this->assertQueryBudget(1, 5, static fn (): CodeRequest => $passwords->sendResetLink(['email' => self::EMAIL]))->isSent());
+        self::assertTrue($this->assertQueryBudget(1, 5, static fn (): CodeRequest => $passwords->sendResetLink(['email' => self::EMAIL], self::requestClient()))->isSent());
 
         CarbonImmutable::setTestNow(CarbonImmutable::instance($this->now)->addSeconds(60));
 
-        self::assertTrue($this->assertQueryBudget(1, 3, static fn (): CodeRequest => $passwords->sendResetLink(['email' => self::EMAIL]))->isSent());
+        self::assertTrue($this->assertQueryBudget(1, 3, static fn (): CodeRequest => $passwords->sendResetLink(['email' => self::EMAIL], self::requestClient()))->isSent());
         self::assertSame([], array_filter($this->statements, static fn (string $sql): bool => str_contains($sql, 'password_identities')));
     }
 
@@ -130,13 +130,13 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
 
         $passwords = $this->passwords();
 
-        $passwords->sendResetLink(['email' => self::EMAIL]);
+        $passwords->sendResetLink(['email' => self::EMAIL], self::requestClient());
         app()->terminate();
 
         $token = (string) $this->links->lastTokenFor(self::EMAIL);
 
         $input  = ['email' => self::EMAIL, 'token' => $token, 'password' => 'a brand new passphrase'];
-        $result = $this->assertQueryBudget(5, 12, static fn (): ResetResult => $passwords->reset($input));
+        $result = $this->assertQueryBudget(5, 12, static fn (): ResetResult => $passwords->reset($input, self::requestClient()));
 
         self::assertSame(2, $result->revoked);
     }

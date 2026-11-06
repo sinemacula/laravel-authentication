@@ -77,7 +77,7 @@ final class RecordSessionUsageTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

@@ -88,7 +88,13 @@ final class ReboundFreshnessPolicyTest extends TestCase
     {
         $identity = self::seedChangeable();
         $policy   = $this->bind(new ScriptedFreshness(null));
-        $request  = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity, 'web', $this->now->subDays(10))));
+        $request  = $this->changes()->requestByCode(
+            $identity,
+            'email',
+            self::NEW_EMAIL,
+            Reauthentication::session(self::seedSession($identity, 'web', $this->now->subDays(10))),
+            self::requestClient(),
+        );
 
         self::assertSame(IdentifierChangeRequestStatus::SENT, $request->status);
         self::assertSame(['requirement:web:identifier_change', 'freshProof:identifier_change', 'freshProof:identifier_change (current)'], $policy->asked);
@@ -97,7 +103,7 @@ final class ReboundFreshnessPolicyTest extends TestCase
 
         $this->bind(new ScriptedFreshness(null, false));
 
-        $refused = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity)));
+        $refused = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity)), self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $refused->status);
         self::assertSame(0, self::rows('identifier_changes'));
@@ -125,7 +131,7 @@ final class ReboundFreshnessPolicyTest extends TestCase
         foreach ([$revoked, self::seedSession($identity, 'admin'), $ended] as $session) {
 
             $policy  = $this->bind(new ScriptedFreshness(null));
-            $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session));
+            $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session), self::requestClient());
 
             self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
             self::assertSame(['requirement:web:identifier_change'], $policy->asked);
@@ -153,7 +159,7 @@ final class ReboundFreshnessPolicyTest extends TestCase
             DB::table('authentication_sessions')->where('id', $asked->getSessionIdentifier())->update(['revoked_at' => '2026-04-06 12:00:00']);
         }));
 
-        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session));
+        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session), self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
         self::assertSame([0, 0], [self::rows('identifier_changes'), self::rows('one_time_codes')]);
@@ -173,7 +179,7 @@ final class ReboundFreshnessPolicyTest extends TestCase
     {
         $identity = self::seedChangeable();
         $policy   = $this->bind(new ScriptedFreshness(null, true, null, false));
-        $request  = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity)));
+        $request  = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity)), self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
         self::assertSame(['requirement:web:identifier_change', 'freshProof:identifier_change', 'freshProof:identifier_change (current)'], $policy->asked);
@@ -198,14 +204,14 @@ final class ReboundFreshnessPolicyTest extends TestCase
 
         $this->bind(new ScriptedFreshness(new FreshnessRequirement(900, [ProofKind::ADDITIONAL_FACTOR])));
 
-        $refused = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD));
+        $refused = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $refused->status);
         self::assertSame(0, self::counterHits('sign_in', 'per_account', AccountAttempts::account($identity)));
 
         $this->bind(new ScriptedFreshness(new FreshnessRequirement(900, [ProofKind::FIRST_FACTOR_REAUTHENTICATION])));
 
-        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD));
+        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::SENT, $request->status);
     }
@@ -224,13 +230,16 @@ final class ReboundFreshnessPolicyTest extends TestCase
 
         $this->bind(new ScriptedFreshness(null));
 
-        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity)));
+        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session(self::seedSession($identity)), self::requestClient());
 
         self::assertSame(IdentifierChangeRequestStatus::SENT, $request->status);
 
         $policy = $this->bind(new ScriptedFreshness(null));
 
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::CHANGED,
+            $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE, self::requestClient())->outcome,
+        );
         self::assertSame(['requirement:web:identifier_change'], $policy->asked);
     }
 

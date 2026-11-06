@@ -232,7 +232,7 @@ final class HoldsAuthenticationContextTest extends TestCase
     public function testForgettingTheContextKeepsTheBindingAndTouchesOnlyItsSession(): void
     {
         $signedIn = $this->signedIn();
-        $other    = $this->sessions()->signIn('password', self::credentials())->session;
+        $other    = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($other);
 
@@ -306,7 +306,7 @@ final class HoldsAuthenticationContextTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -348,7 +348,7 @@ final class HoldsAuthenticationContextTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

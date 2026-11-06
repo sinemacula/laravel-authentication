@@ -758,7 +758,7 @@ final class RequirementJudgeTest extends TestCase
      */
     private function signedIn(): Session
     {
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session?->record;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $session);
 

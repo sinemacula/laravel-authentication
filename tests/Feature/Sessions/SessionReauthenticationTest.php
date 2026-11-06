@@ -105,6 +105,7 @@ final class SessionReauthenticationTest extends TestCase
                 $session,
                 'password',
                 ['email' => $request->string('email')->toString(), 'password' => $request->string('password')->toString()],
+                self::requestClient(),
             );
 
             return ['access_token' => $result->accessToken?->reveal(), 'reason' => $result->reason?->value];
@@ -171,7 +172,7 @@ final class SessionReauthenticationTest extends TestCase
         $this->clockAt($this->now->addHour());
         $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
 
-        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient());
 
         self::assertTrue($result->isIssued());
         self::assertSame($signedIn->record->getKey(), $result->session?->getKey());
@@ -206,7 +207,7 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->clockAt($this->now->addHour());
 
-        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient());
         $claims = Auth::manager()->jwt('api')->parse((string) $result->accessToken?->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
@@ -229,8 +230,8 @@ final class SessionReauthenticationTest extends TestCase
         $this->seedIdentity('grace@example.test');
         $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
 
-        $wrong   = $this->sessions()->reauthenticate($signedIn->record, 'password', ['email' => 'ada@example.test', 'password' => 'wrong']);
-        $foreign = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials('grace@example.test'));
+        $wrong   = $this->sessions()->reauthenticate($signedIn->record, 'password', ['email' => 'ada@example.test', 'password' => 'wrong'], self::requestClient());
+        $foreign = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials('grace@example.test'), self::requestClient());
 
         self::assertSame([FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS], [$wrong->reason, $foreign->reason]);
         self::assertSame([AuthenticationFailed::class, AuthenticationFailed::class], $this->recordedClasses());
@@ -260,7 +261,7 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->reauthenticate($signedIn->record, 'passkey', [])->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->reauthenticate($signedIn->record, 'passkey', [], self::requestClient())->reason);
         self::assertSame(
             [AuthenticationFlow::REAUTHENTICATION, FailureReason::METHOD_NOT_ALLOWED],
             [$this->recordedEvent(AuthenticationFailed::class)->flow, $this->recordedEvent(AuthenticationFailed::class)->reason],
@@ -269,7 +270,7 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $unregistered = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
+        $unregistered = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a'], self::requestClient());
 
         self::assertSame([FailureReason::METHOD_NOT_ALLOWED, null], [$unregistered->reason, $this->recordedEvent(AuthenticationFailed::class)->challengeId]);
 
@@ -284,7 +285,7 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $disallowed = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
+        $disallowed = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a'], self::requestClient());
 
         self::assertSame([FailureReason::METHOD_NOT_ALLOWED, null], [$disallowed->reason, $this->recordedEvent(AuthenticationFailed::class)->challengeId]);
         self::assertFalse($built);
@@ -292,7 +293,7 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->expectException(\InvalidArgumentException::class);
 
-        $this->sessions()->reauthenticate($signedIn->record, 'api_key', []);
+        $this->sessions()->reauthenticate($signedIn->record, 'api_key', [], self::requestClient());
     }
 
     /**
@@ -316,7 +317,7 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $revoked = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
+        $revoked = $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a'], self::requestClient());
 
         self::assertSame(
             [FailureReason::SESSION_REVOKED, FailureReason::SESSION_REVOKED, null],
@@ -327,7 +328,7 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->expectException(\InvalidArgumentException::class);
 
-        $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a']);
+        $this->sessions()->reauthenticate($signedIn->record, 'badge', ['challenge' => '0195f4a2-7b1c-4000-8000-00000000000a'], self::requestClient());
     }
 
     /**
@@ -348,7 +349,7 @@ final class SessionReauthenticationTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         try {
-            $this->sessions()->reauthenticate($signedIn->record, 'external_provider', []);
+            $this->sessions()->reauthenticate($signedIn->record, 'external_provider', [], self::requestClient());
 
             self::fail('A reauthentication ran under external_provider.');
         } catch (\InvalidArgumentException $exception) {
@@ -372,16 +373,46 @@ final class SessionReauthenticationTest extends TestCase
         $signedIn = $this->signedIn();
 
         foreach (range(1, 5) as $attempt) {
-            $this->sessions()->reauthenticate($signedIn->record, 'password', ['email' => 'ada@example.test', 'password' => "wrong {$attempt}"]);
+            $this->sessions()->reauthenticate($signedIn->record, 'password', ['email' => 'ada@example.test', 'password' => "wrong {$attempt}"], self::requestClient());
         }
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient());
 
         self::assertSame(FailureReason::RATE_LIMITED, $result->reason);
         self::assertIsInt($result->retryAfter);
         self::assertSame($result->retryAfter, $this->recordedEvent(AuthenticationFailed::class)->retryAfter);
+    }
+
+    /**
+     * A reauthentication is counted against the client given and reports with
+     * it, never the guard's own request: `Reauthenticated` once it commits, and
+     * `AuthenticationFailed` for a wrong credential, carry it while the guard
+     * serves a cross-site request from another address, and the attempt limit
+     * counts the client's address.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReauthenticationIsForTheClientGiven(): void
+    {
+        $signedIn = $this->signedIn();
+        $client   = self::sameSiteClient();
+        $sessions = self::sessionsOf($this->crossSiteGuard());
+
+        $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
+
+        self::assertFalse($sessions->reauthenticate($signedIn->record, 'password', ['email' => 'ada@example.test', 'password' => 'wrong'], $client)->isIssued());
+        self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+        self::assertSame(1, self::counterHits('api', 'sign_in', 'per_ip', self::PLAIN_IP));
+        self::assertSame(0, self::counterHits('api', 'sign_in', 'per_ip', self::CROSS_SITE_IP));
+
+        $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
+
+        self::assertTrue($sessions->reauthenticate($signedIn->record, 'password', self::credentials(), $client)->isIssued());
+        self::assertSame($client, $this->recordedEvent(Reauthenticated::class)->context->client);
     }
 
     /**
@@ -395,22 +426,22 @@ final class SessionReauthenticationTest extends TestCase
     public function testASessionThatIsNotLiveTakesNoReauthentication(): void
     {
         $signedIn = $this->signedIn();
-        $admin    = $this->sessions('admin')->signIn('password', self::credentials())->session;
+        $admin    = $this->sessions('admin')->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($admin);
 
         DB::table('rate_limits')->delete();
 
-        self::assertSame(FailureReason::SESSION_GUARD_MISMATCH, $this->sessions()->reauthenticate($admin->record, 'password', self::credentials())->reason);
+        self::assertSame(FailureReason::SESSION_GUARD_MISMATCH, $this->sessions()->reauthenticate($admin->record, 'password', self::credentials(), self::requestClient())->reason);
 
         DB::table('authentication_sessions')->where('id', $signedIn->record->getKey())->update(['revoked_at' => $this->now]);
 
-        self::assertSame(FailureReason::SESSION_REVOKED, $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials())->reason);
+        self::assertSame(FailureReason::SESSION_REVOKED, $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient())->reason);
 
         DB::table('authentication_sessions')->where('id', $signedIn->record->getKey())->update(['revoked_at' => null, 'idle_expires_at' => $this->now]);
 
-        self::assertSame(FailureReason::SESSION_EXPIRED, $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials())->reason);
-        self::assertSame(FailureReason::SESSION_UNKNOWN, $this->sessions()->reauthenticate(new Session, 'password', self::credentials())->reason);
+        self::assertSame(FailureReason::SESSION_EXPIRED, $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient())->reason);
+        self::assertSame(FailureReason::SESSION_UNKNOWN, $this->sessions()->reauthenticate(new Session, 'password', self::credentials(), self::requestClient())->reason);
         self::assertSame(0, DB::table('rate_limits')->count());
         self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
     }
@@ -434,12 +465,15 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::MACHINE_IDENTITY, $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials())->reason);
+        self::assertSame(FailureReason::MACHINE_IDENTITY, $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient())->reason);
         self::assertSame(0, DB::table('rate_limits')->count());
 
         DB::table('authentication_sessions')->update(['authenticatable_type' => IntegrationIdentity::class, 'principal_type' => 'another-model']);
 
-        self::assertSame(FailureReason::SESSION_PRINCIPAL_MISMATCH, $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials())->reason);
+        self::assertSame(
+            FailureReason::SESSION_PRINCIPAL_MISMATCH,
+            $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient())->reason,
+        );
         self::assertSame([AuthenticationFailed::class, AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(
             [[AuthenticationFlow::REAUTHENTICATION, FailureReason::MACHINE_IDENTITY], [AuthenticationFlow::REAUTHENTICATION, FailureReason::SESSION_PRINCIPAL_MISMATCH]],
@@ -481,7 +515,7 @@ final class SessionReauthenticationTest extends TestCase
 
             $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
 
-            $result = $this->sessions()->reauthenticate($signedIn->record, $method, self::credentials());
+            $result = $this->sessions()->reauthenticate($signedIn->record, $method, self::credentials(), self::requestClient());
 
             self::assertSame([FailureReason::INVALID_CREDENTIALS, null], [$result->reason, $result->retryAfter], $method);
 
@@ -514,13 +548,13 @@ final class SessionReauthenticationTest extends TestCase
         $this->seedIdentity('grace@example.test');
 
         $sessions = $this->sessions();
-        $signedIn = $sessions->signIn('password', self::credentials())->session;
+        $signedIn = $sessions->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 
-        $wrong   = $sessions->reauthenticate($signedIn->record, 'password', ['email' => 'ada@example.test', 'password' => 'wrong']);
-        $foreign = $sessions->reauthenticate($signedIn->record, 'password', self::credentials('grace@example.test'));
-        $owner   = $sessions->reauthenticate($signedIn->record, 'password', self::credentials());
+        $wrong   = $sessions->reauthenticate($signedIn->record, 'password', ['email' => 'ada@example.test', 'password' => 'wrong'], self::requestClient());
+        $foreign = $sessions->reauthenticate($signedIn->record, 'password', self::credentials('grace@example.test'), self::requestClient());
+        $owner   = $sessions->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient());
 
         self::assertSame([FailureReason::INVALID_CREDENTIALS, FailureReason::INVALID_CREDENTIALS, true], [$wrong->reason, $foreign->reason, $owner->isIssued()]);
         self::assertSame([true, false, false, true], $box->endedEarly);
@@ -547,7 +581,7 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
 
-        $result  = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+        $result  = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient());
         $failure = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([FailureReason::IDENTITY_INACTIVE, null], [$result->reason, $result->accessToken]);
@@ -591,7 +625,7 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
 
-        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient());
 
         self::assertTrue($moved);
         self::assertSame([FailureReason::SESSION_EXPIRED, null], [$result->reason, $result->accessToken]);
@@ -611,11 +645,11 @@ final class SessionReauthenticationTest extends TestCase
     {
         [, , $tenant] = $this->seedMember();
 
-        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 
-        $result = $this->sessions('members')->reauthenticate($signedIn->record, 'password', self::credentials('member@example.test'));
+        $result = $this->sessions('members')->reauthenticate($signedIn->record, 'password', self::credentials('member@example.test'), self::requestClient());
         $claims = Auth::manager()->jwt('members')->parse((string) $result->accessToken?->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
@@ -638,7 +672,7 @@ final class SessionReauthenticationTest extends TestCase
         $this->recordEvents([Reauthenticated::class]);
 
         DB::transaction(function () use ($signedIn): void {
-            self::assertTrue($this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials())->isIssued());
+            self::assertTrue($this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient())->isIssued());
             self::assertSame([], $this->recordedClasses());
         });
 
@@ -648,7 +682,7 @@ final class SessionReauthenticationTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials())->isIssued());
+        self::assertTrue($this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient())->isIssued());
 
         DB::rollBack();
 
@@ -679,7 +713,7 @@ final class SessionReauthenticationTest extends TestCase
             DB::table('authentication_sessions')->where('id', $signedIn->record->getKey())->update(['revoked_at' => $this->now]);
         });
 
-        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient());
 
         self::assertTrue($revoked);
         self::assertSame(FailureReason::SESSION_REVOKED, $result->reason);
@@ -773,7 +807,7 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
 
-        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient());
 
         self::assertSame([FailureReason::SESSION_UNKNOWN, null, null], [$result->reason, $result->accessToken, $result->session]);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
@@ -783,7 +817,7 @@ final class SessionReauthenticationTest extends TestCase
         self::assertSame(0, self::counterHits('sign_in', 'per_account', AccountAttempts::account($signedIn->identity)));
         self::assertCount(2, self::proofsOf($replacement));
 
-        self::assertTrue($this->sessions()->reauthenticate($replacement, 'password', self::credentials())->isIssued());
+        self::assertTrue($this->sessions()->reauthenticate($replacement, 'password', self::credentials(), self::requestClient())->isIssued());
     }
 
     /**
@@ -802,7 +836,11 @@ final class SessionReauthenticationTest extends TestCase
             $session = \Mockery::mock($contract);
             $session->shouldReceive('getSessionIdentifier')->andReturn($signedIn->record->getKey());
 
-            self::assertSame(FailureReason::SESSION_UNKNOWN, $this->sessions()->reauthenticate($session, 'password', self::credentials())->reason, $contract);
+            self::assertSame(
+                FailureReason::SESSION_UNKNOWN,
+                $this->sessions()->reauthenticate($session, 'password', self::credentials(), self::requestClient())->reason,
+                $contract,
+            );
         }
 
         self::assertSame(0, SessionProof::query()->where('kind', 'first_factor_reauthentication')->count());
@@ -853,7 +891,7 @@ final class SessionReauthenticationTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -914,7 +952,7 @@ final class SessionReauthenticationTest extends TestCase
 
         $this->recordEvents([Reauthenticated::class, AuthenticationFailed::class]);
 
-        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials());
+        $result = $this->sessions()->reauthenticate($signedIn->record, 'password', self::credentials(), self::requestClient());
 
         self::assertTrue($changed);
 

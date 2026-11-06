@@ -525,7 +525,7 @@ final class RefreshProofTest extends TestCase
      */
     private function signedIn(string $guard = 'api', string $email = 'ada@example.test'): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session);
 

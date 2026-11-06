@@ -134,7 +134,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $this->verify($identity);
         $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->signIn('password', self::credentials())->reason);
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->signIn('password', self::credentials(), self::requestContext())->reason);
     }
 
     /**
@@ -151,11 +151,11 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $identity = $this->seedIdentity();
         $grant    = $this->grant($identity);
 
-        self::assertTrue($this->sessions()->start($identity, null, 'sso')->isSignedIn());
+        self::assertTrue($this->sessions()->start($identity, null, 'sso', self::requestContext())->isSignedIn());
 
         $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->start($identity, null, 'sso')->reason);
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->start($identity, null, 'sso', self::requestContext())->reason);
     }
 
     /**

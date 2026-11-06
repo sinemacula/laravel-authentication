@@ -1050,7 +1050,7 @@ final class RevokeSessionsOnPasswordChangeTest extends TestCase
      */
     private function signIn(?array $credentials = null): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', $credentials ?? self::credentials())->session;
+        $session = $this->sessions()->signIn('password', $credentials ?? self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

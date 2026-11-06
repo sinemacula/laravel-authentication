@@ -124,7 +124,7 @@ final class CodeServiceTest extends TestCase
 
         Event::fake([AuthenticationFailed::class]);
 
-        $request = $this->codeService()->send('phone_code', ['phone' => ' ' . self::PHONE]);
+        $request = $this->codeService()->send('phone_code', ['phone' => ' ' . self::PHONE], self::requestClient());
 
         self::assertSame([CodeRequestStatus::SENT, null], [$request->status, $request->retryAfter]);
         self::assertTrue($this->now->addSeconds(600)->equalTo($request->expiresAt));
@@ -152,8 +152,8 @@ final class CodeServiceTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        $known   = $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
-        $unknown = $this->codeService()->send('phone_code', ['phone' => self::UNKNOWN_PHONE]);
+        $known   = $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
+        $unknown = $this->codeService()->send('phone_code', ['phone' => self::UNKNOWN_PHONE], self::requestClient());
 
         self::assertEquals([$known->status, $known->expiresAt, $known->retryAfter], [$unknown->status, $unknown->expiresAt, $unknown->retryAfter]);
         self::assertEquals($known->resendAvailableAt, $unknown->resendAvailableAt);
@@ -192,7 +192,7 @@ final class CodeServiceTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $request = $this->codeService('web')->send('phone_code', ['phone' => self::PHONE]);
+        $request = $this->codeService('web')->send('phone_code', ['phone' => self::PHONE], self::requestClient());
         $failed  = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame(CodeRequestStatus::METHOD_NOT_ALLOWED, $request->status);
@@ -233,7 +233,7 @@ final class CodeServiceTest extends TestCase
     {
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $request = $this->codeService()->send('phone_code', $input);
+        $request = $this->codeService()->send('phone_code', $input, self::requestClient());
         $failed  = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame(CodeRequestStatus::IDENTIFIER_INVALID, $request->status);
@@ -252,7 +252,7 @@ final class CodeServiceTest extends TestCase
     public function testAMethodThatIsNotACodeMethodThrows(): void
     {
         try {
-            $this->codeService()->send('password', ['email' => 'ada@example.test']);
+            $this->codeService()->send('password', ['email' => 'ada@example.test'], self::requestClient());
 
             self::fail('A password method sent a code.');
         } catch (\InvalidArgumentException $exception) {
@@ -262,7 +262,7 @@ final class CodeServiceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Sign-in method [sms_code] is not registered.');
 
-        $this->codeService()->send('sms_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('sms_code', ['phone' => self::PHONE], self::requestClient());
     }
 
     /**
@@ -276,13 +276,13 @@ final class CodeServiceTest extends TestCase
      */
     public function testTheResendCooldownRateLimits(): void
     {
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         CarbonImmutable::setTestNow($this->now->addSeconds(25));
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $request = $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $request = $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
         $failed  = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertSame([CodeRequestStatus::RATE_LIMITED, 35, null], [$request->status, $request->retryAfter, $request->expiresAt]);
@@ -308,15 +308,15 @@ final class CodeServiceTest extends TestCase
             'per_ip'         => ['max' => 3, 'decay_seconds' => 3600],
         ]);
 
-        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE])->isSent());
-        self::assertTrue($this->codeService()->send('phone_code', ['phone' => ' ' . self::PHONE])->isSent());
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->isSent());
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => ' ' . self::PHONE], self::requestClient())->isSent());
 
-        $limited = $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $limited = $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         self::assertSame([CodeRequestStatus::RATE_LIMITED, 3600], [$limited->status, $limited->retryAfter]);
         self::assertSame(2, self::counterHits('mobile', 'code_request', 'per_identifier', self::PHONE));
-        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::UNKNOWN_PHONE])->isSent());
-        self::assertSame(CodeRequestStatus::RATE_LIMITED, $this->codeService()->send('phone_code', ['phone' => '+447700900555'])->status);
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::UNKNOWN_PHONE], self::requestClient())->isSent());
+        self::assertSame(CodeRequestStatus::RATE_LIMITED, $this->codeService()->send('phone_code', ['phone' => '+447700900555'], self::requestClient())->status);
         self::assertSame(3, self::counterHits('mobile', 'code_request', 'per_ip', self::CLIENT_IP));
 
         Queue::assertPushed(SendOneTimeCode::class, 3);
@@ -337,7 +337,7 @@ final class CodeServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         Queue::assertNothingPushed();
 
@@ -347,7 +347,7 @@ final class CodeServiceTest extends TestCase
         self::assertSame(0, DB::table('one_time_codes')->count());
 
         DB::transaction(function (): void {
-            $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+            $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
             Queue::assertNothingPushed();
         });
@@ -383,7 +383,7 @@ final class CodeServiceTest extends TestCase
     {
         $identity = self::seedCodeIdentity(verified: false);
 
-        $request = $this->codeService()->sendVerification($identity, 'phone');
+        $request = $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
 
         self::assertTrue($request->isSent());
 
@@ -404,7 +404,7 @@ final class CodeServiceTest extends TestCase
     {
         $identity = self::seedCodeIdentity(verified: false);
 
-        $this->codeService()->sendVerification($identity, 'phone');
+        $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
         $this->recordEvents([IdentifierVerified::class, AuthenticationFailed::class]);
 
         $client = new ClientContext('198.51.100.4', 'Phone/2.0');
@@ -413,7 +413,7 @@ final class CodeServiceTest extends TestCase
         self::assertSame([VerificationOutcome::VERIFIED, null, true], [$result->outcome, $result->retryAfter, $result->is(VerificationOutcome::VERIFIED)]);
         self::assertTrue($identity->fresh()?->hasVerifiedIdentifier('phone'));
         self::assertSame('198.51.100.4', $this->recordedEvent(IdentifierVerified::class)->context->client->ip);
-        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::challenge(), self::CODE)->outcome);
+        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::challenge(), self::CODE, self::requestClient())->outcome);
         self::assertFalse(Auth::guard('mobile')->check());
         self::assertSame(0, Session::query()->count());
     }
@@ -464,11 +464,11 @@ final class CodeServiceTest extends TestCase
 
         $identity = self::seedCodeIdentity(verified: false);
 
-        $this->codeService()->sendVerification($identity, 'phone');
+        $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
 
         match ($before) {
             'expire'  => CarbonImmutable::setTestNow($this->now->addSeconds(600)),
-            'exhaust' => $this->codeService()->verify($identity, 'phone', self::challenge(), '000000')->outcome,
+            'exhaust' => $this->codeService()->verify($identity, 'phone', self::challenge(), '000000', self::requestClient())->outcome,
             'change'  => $identity->forceFill(['phone' => '+447700900124'])->save(),
             'remove'  => $identity->forceFill(['phone' => null])->save(),
             default   => null,
@@ -478,7 +478,7 @@ final class CodeServiceTest extends TestCase
 
         $challenge = self::challenge();
 
-        self::assertSame($outcome, $this->codeService()->verify($identity, 'phone', $challenge, $code)->outcome);
+        self::assertSame($outcome, $this->codeService()->verify($identity, 'phone', $challenge, $code, self::requestClient())->outcome);
 
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
@@ -499,8 +499,8 @@ final class CodeServiceTest extends TestCase
     {
         $identity = self::seedCodeIdentity(verified: false);
 
-        $this->codeService()->sendVerification($identity, 'phone');
-        $this->codeService()->verify($identity, 'phone', self::challenge(), '13579');
+        $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
+        $this->codeService()->verify($identity, 'phone', self::challenge(), '13579', self::requestClient());
 
         self::assertSame(0, self::storedAttempts());
     }
@@ -518,14 +518,14 @@ final class CodeServiceTest extends TestCase
         $identity = self::seedCodeIdentity(verified: false);
         $other    = self::seedCodeIdentity('+447700900124', 'ben@example.test', verified: false);
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
-        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::challenge(), self::CODE)->outcome);
+        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::challenge(), self::CODE, self::requestClient())->outcome);
 
-        $challenge = (string) $this->codeService()->sendVerification($other, 'phone')->challengeId;
+        $challenge = (string) $this->codeService()->sendVerification($other, 'phone', self::requestClient())->challengeId;
 
-        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', $challenge, '246802')->outcome);
-        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($other, 'phone', $challenge, '246802')->outcome);
+        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', $challenge, '246802', self::requestClient())->outcome);
+        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($other, 'phone', $challenge, '246802', self::requestClient())->outcome);
     }
 
     /**
@@ -540,9 +540,9 @@ final class CodeServiceTest extends TestCase
     {
         $identity = self::seedCodeIdentity();
 
-        $this->codeService()->sendVerification($identity, 'phone');
+        $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
 
-        self::assertSame(VerificationOutcome::ALREADY_VERIFIED, $this->codeService()->verify($identity, 'phone', self::challenge(), self::CODE)->outcome);
+        self::assertSame(VerificationOutcome::ALREADY_VERIFIED, $this->codeService()->verify($identity, 'phone', self::challenge(), self::CODE, self::requestClient())->outcome);
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
     }
 
@@ -559,17 +559,17 @@ final class CodeServiceTest extends TestCase
     {
         $identity = self::seedCodeIdentity(verified: false);
 
-        $this->codeService()->sendVerification($identity, 'phone');
+        $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
 
         DB::table('code_identities')->where('id', $identity->getKey())->update(['phone' => '+447700900124']);
 
         $this->recordEvents([IdentifierVerified::class, AuthenticationFailed::class]);
 
-        self::assertSame(VerificationOutcome::MISMATCH, $this->codeService()->verify($identity, 'phone', self::challenge(), self::CODE)->outcome);
+        self::assertSame(VerificationOutcome::MISMATCH, $this->codeService()->verify($identity, 'phone', self::challenge(), self::CODE, self::requestClient())->outcome);
         self::assertSame([], $this->recorded);
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
         self::assertNull(DB::table('code_identities')->where('id', $identity->getKey())->value('phone_verified_at'));
-        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::challenge(), self::CODE)->outcome);
+        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::challenge(), self::CODE, self::requestClient())->outcome);
     }
 
     /**
@@ -591,7 +591,7 @@ final class CodeServiceTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertSame(CodeRequestStatus::IDENTIFIER_INVALID, $this->codeService()->sendVerification($none, 'phone', new ClientContext('198.51.100.4', 'Kiosk/1.0'))->status);
-        self::assertSame(CodeRequestStatus::IDENTIFIER_INVALID, $this->codeService()->sendVerification($legacy, 'phone')->status);
+        self::assertSame(CodeRequestStatus::IDENTIFIER_INVALID, $this->codeService()->sendVerification($legacy, 'phone', self::requestClient())->status);
         $failures = array_values(array_filter($this->recorded, static fn (object $event): bool => $event instanceof AuthenticationFailed));
 
         $reasons = array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $failures);
@@ -614,9 +614,9 @@ final class CodeServiceTest extends TestCase
     {
         $identity = self::seedCodeIdentity(verified: false);
 
-        self::assertTrue($this->codeService()->sendVerification($identity, 'phone')->isSent());
+        self::assertTrue($this->codeService()->sendVerification($identity, 'phone', self::requestClient())->isSent());
 
-        $limited = $this->codeService()->sendVerification($identity, 'phone');
+        $limited = $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
 
         self::assertSame([CodeRequestStatus::RATE_LIMITED, 60], [$limited->status, $limited->retryAfter]);
         self::assertSame(2, self::counterHits('mobile', 'code_request', 'per_identifier', self::PHONE));
@@ -658,8 +658,8 @@ final class CodeServiceTest extends TestCase
     public function testIdentitiesThatCannotBeVerifiedByCodeThrow(\Closure $identity, string $exception, string $message): void
     {
         $calls = [
-            fn (): CodeRequest => $this->codeService()->sendVerification($identity(), 'phone'),
-            fn (): mixed => $this->codeService()->verify($identity(), 'phone', self::challenge(), self::CODE)->outcome,
+            fn (): CodeRequest => $this->codeService()->sendVerification($identity(), 'phone', self::requestClient()),
+            fn (): mixed => $this->codeService()->verify($identity(), 'phone', self::challenge(), self::CODE, self::requestClient())->outcome,
         ];
 
         foreach ($calls as $call) {
@@ -688,7 +688,7 @@ final class CodeServiceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Identifier type [Phone] must be a lower-case letter');
 
-        $this->codeService()->sendVerification($identity, 'Phone');
+        $this->codeService()->sendVerification($identity, 'Phone', self::requestClient());
     }
 
     /**
@@ -705,7 +705,7 @@ final class CodeServiceTest extends TestCase
 
         $this->freshGuard('mobile');
 
-        self::assertTrue(Auth::codes()->send('phone_code', ['phone' => self::PHONE])->isSent());
+        self::assertTrue(Auth::codes()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->isSent());
 
         config()->set('auth.guards.session', ['driver' => 'session', 'provider' => 'code_identities']);
 
@@ -747,7 +747,7 @@ final class CodeServiceTest extends TestCase
         config()->set($settings);
 
         try {
-            $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+            $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
             self::fail('A code was sent with malformed settings.');
         } catch (\InvalidArgumentException $exception) {
@@ -773,8 +773,13 @@ final class CodeServiceTest extends TestCase
      */
     public static function provideMalformedFactorCodeSettings(): iterable
     {
-        $send  = static fn (CodeService $codes, FactorCodeBinding $binding): mixed => $codes->sendFactorCode($binding);
-        $check = static fn (CodeService $codes, FactorCodeBinding $binding): mixed => $codes->verifyFactorCode($binding, '0190e1a4-0000-7000-8000-000000000001', self::CODE);
+        $send  = static fn (CodeService $codes, FactorCodeBinding $binding): mixed => $codes->sendFactorCode($binding, self::requestClient());
+        $check = static fn (CodeService $codes, FactorCodeBinding $binding): mixed => $codes->verifyFactorCode(
+            $binding,
+            '0190e1a4-0000-7000-8000-000000000001',
+            self::CODE,
+            self::requestClient(),
+        );
 
         foreach (self::provideMalformedSettings() as $name => [$settings, $message]) {
             yield 'a send, ' . $name => [$settings, $message, $send];
@@ -833,20 +838,22 @@ final class CodeServiceTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        $first = $this->codeService()->send('phone_code', ['phone' => self::PHONE])->challengeId;
+        $first = $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->challengeId;
 
         CarbonImmutable::setTestNow($this->now->addSeconds(60));
 
-        $resent = $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $resent = $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         self::assertIsString($first);
         self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, $first);
         self::assertSame($first, $resent->challengeId);
-        self::assertTrue($this->sessions('mobile')->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $first, 'code' => '246802'])->isSignedIn());
+        self::assertTrue(
+            $this->sessions('mobile')->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $first, 'code' => '246802'], self::requestContext())->isSignedIn(),
+        );
 
         CarbonImmutable::setTestNow($this->now->addSeconds(120));
 
-        self::assertNotSame($first, $this->codeService()->send('phone_code', ['phone' => self::PHONE])->challengeId);
+        self::assertNotSame($first, $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->challengeId);
     }
 
     /**
@@ -868,13 +875,13 @@ final class CodeServiceTest extends TestCase
         foreach ([self::PHONE, self::UNKNOWN_PHONE] as $phone) {
             CarbonImmutable::setTestNow($this->now);
 
-            self::assertTrue($this->codeService()->send('phone_code', ['phone' => $phone])->isSent());
+            self::assertTrue($this->codeService()->send('phone_code', ['phone' => $phone], self::requestClient())->isSent());
 
             CarbonImmutable::setTestNow($this->now->addSeconds(60));
 
             $this->recordEvents([AuthenticationFailed::class]);
 
-            $request = $this->codeService()->send('phone_code', ['phone' => $phone]);
+            $request = $this->codeService()->send('phone_code', ['phone' => $phone], self::requestClient());
             $failed  = $this->recordedEvent(AuthenticationFailed::class);
 
             self::assertSame([CodeRequestStatus::DELIVERIES_EXHAUSTED, 1740, null], [$request->status, $request->retryAfter, $request->challengeId]);
@@ -900,20 +907,20 @@ final class CodeServiceTest extends TestCase
     public function testAVerificationNamesItsChallenge(): void
     {
         $identity  = self::seedCodeIdentity(verified: false);
-        $challenge = (string) $this->codeService()->sendVerification($identity, 'phone')->challengeId;
+        $challenge = (string) $this->codeService()->sendVerification($identity, 'phone', self::requestClient())->challengeId;
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', strtoupper($challenge), self::CODE)->outcome);
+        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', strtoupper($challenge), self::CODE, self::requestClient())->outcome);
         self::assertSame(0, self::counterHits('identifier_verification', 'per_account', AccountAttempts::account($identity)));
         self::assertNull($this->recordedEvent(AuthenticationFailed::class)->challengeId);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::NO_CHALLENGE, self::CODE)->outcome);
+        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', self::NO_CHALLENGE, self::CODE, self::requestClient())->outcome);
         self::assertSame(self::NO_CHALLENGE, $this->recordedEvent(AuthenticationFailed::class)->challengeId);
         self::assertSame(0, self::storedAttempts());
-        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'phone', $challenge, self::CODE)->outcome);
+        self::assertSame(VerificationOutcome::VERIFIED, $this->codeService()->verify($identity, 'phone', $challenge, self::CODE, self::requestClient())->outcome);
     }
 
     /**
@@ -933,7 +940,7 @@ final class CodeServiceTest extends TestCase
 
         $identity  = self::seedCodeIdentity(verified: false);
         $client    = new ClientContext('203.0.113.7', 'Phone/1.0');
-        $challenge = (string) $this->codeService()->sendVerification($identity, 'phone')->challengeId;
+        $challenge = (string) $this->codeService()->sendVerification($identity, 'phone', self::requestClient())->challengeId;
         $account   = AccountAttempts::account($identity);
 
         self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', $challenge, '000000', $client)->outcome);

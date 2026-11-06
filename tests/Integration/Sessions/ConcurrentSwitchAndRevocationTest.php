@@ -365,7 +365,9 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
             $session = $this->signIn($first);
 
             [$steppedUp, $second] = $this->race(
-                fn (): array => self::stepUpOutcome($this->sessions(self::GUARD)->stepUp(self::adapterProof($member, self::GUARD, $session->record->getKey()))),
+                fn (): array => self::stepUpOutcome(
+                    $this->sessions(self::GUARD)->stepUp(self::adapterProof($member, self::GUARD, $session->record->getKey()), self::requestClient()),
+                ),
                 fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
                 $commit,
             );
@@ -401,7 +403,9 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
 
             [$revoked, $second] = $this->race(
                 fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
-                fn (): array => self::stepUpOutcome($this->sessions(self::GUARD)->stepUp(self::adapterProof($member, self::GUARD, $session->record->getKey()))),
+                fn (): array => self::stepUpOutcome(
+                    $this->sessions(self::GUARD)->stepUp(self::adapterProof($member, self::GUARD, $session->record->getKey()), self::requestClient()),
+                ),
                 $commit,
             );
 

@@ -396,7 +396,7 @@ final class SessionRoutesTest extends TestCase
 
         if (!$verify($pending->identity, $code)) {
 
-            $sessions->discard($credential);
+            $sessions->discard($credential, self::requestClient());
 
             abort(401);
         }

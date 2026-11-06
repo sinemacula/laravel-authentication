@@ -141,7 +141,7 @@ final class SignInProofsTest extends TestCase
     public function testAPasswordSignInRecordsItsFirstFactor(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signIn('password', self::credentials())->session;
+        $session  = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -178,7 +178,7 @@ final class SignInProofsTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -201,7 +201,7 @@ final class SignInProofsTest extends TestCase
     public function testStartRecordsAnUnattestedFirstFactor(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->start($identity, null, 'sso')->session;
+        $session  = $this->sessions()->start($identity, null, 'sso', self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -233,7 +233,7 @@ final class SignInProofsTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $result   = $this->linkedResult($identity, 'connection-7', 'link-9', null, 'tenant-3', $this->now->subMinutes(2), $this->now->addHours(8), 'enforcement-12');
-        $session  = $this->sessions()->signInExternally($result)->session;
+        $session  = $this->sessions()->signInExternally($result, self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertSame('external_provider', $session->record->getSignInMethod());
@@ -278,8 +278,8 @@ final class SignInProofsTest extends TestCase
     public function testAProviderTimeAfterNowOrNoneIsRecordedAsNow(): void
     {
         $identity = $this->seedIdentity();
-        $future   = $this->sessions()->signInExternally($this->linkedResult($identity, authenticatedAt: $this->now->addMinute()))->session;
-        $none     = $this->sessions()->signInExternally($this->linkedResult($identity))->session;
+        $future   = $this->sessions()->signInExternally($this->linkedResult($identity, authenticatedAt: $this->now->addMinute()), self::requestContext())->session;
+        $none     = $this->sessions()->signInExternally($this->linkedResult($identity), self::requestContext())->session;
 
         self::assertNotNull($future);
         self::assertNotNull($none);
@@ -301,7 +301,7 @@ final class SignInProofsTest extends TestCase
     public function testTheProvidersDeadlineCapsTheSession(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, sessionNotAfter: $this->now->addHours(8)))->session;
+        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, sessionNotAfter: $this->now->addHours(8)), self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertSame($this->now->addHours(8)->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
@@ -362,7 +362,7 @@ final class SignInProofsTest extends TestCase
 
             $this->recordEvents([AuthenticationFailed::class]);
 
-            $result = $this->sessions()->signInExternally($this->linkedResult($identity, sessionNotAfter: $deadline));
+            $result = $this->sessions()->signInExternally($this->linkedResult($identity, sessionNotAfter: $deadline), self::requestContext());
 
             self::assertTrue($result->isFailed());
             self::assertSame(FailureReason::SESSION_EXPIRED, $result->reason);
@@ -405,7 +405,7 @@ final class SignInProofsTest extends TestCase
 
         self::requireAFurtherFactor();
 
-        [$pending, $credential] = self::pendingOf($this->sessions()->signInExternally($this->linkedResult($identity, sessionNotAfter: $deadline)));
+        [$pending, $credential] = self::pendingOf($this->sessions()->signInExternally($this->linkedResult($identity, sessionNotAfter: $deadline), self::requestContext()));
 
         self::assertSame($deadline->getTimestamp(), Session::query()->sole()->getAbsoluteExpiresAt()?->getTimestamp());
 
@@ -434,7 +434,7 @@ final class SignInProofsTest extends TestCase
 
         $deadline = $this->now->addHours(8)->setTimezone($zone);
 
-        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->signInExternally($this->linkedResult($member, sessionNotAfter: $deadline)));
+        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->signInExternally($this->linkedResult($member, sessionNotAfter: $deadline), self::requestContext()));
 
         $this->clockAt($this->now->addMinutes(2));
 
@@ -462,7 +462,10 @@ final class SignInProofsTest extends TestCase
         $identity      = $this->seedIdentity();
         $authenticated = $this->now->subMinutes(5)->setTimezone($zone);
         $deadline      = $this->now->addHours(8)->setTimezone($zone);
-        $session       = $this->sessions()->signInExternally($this->linkedResult($identity, authenticatedAt: $authenticated, sessionNotAfter: $deadline))->session;
+        $session       = $this->sessions()->signInExternally(
+            $this->linkedResult($identity, authenticatedAt: $authenticated, sessionNotAfter: $deadline),
+            self::requestContext(),
+        )->session;
 
         self::assertNotNull($session);
 
@@ -494,7 +497,7 @@ final class SignInProofsTest extends TestCase
     {
         $this->seedIdentity();
 
-        $first = $this->sessions()->signIn('password', self::credentials())->session;
+        $first = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($first);
 
@@ -527,7 +530,7 @@ final class SignInProofsTest extends TestCase
         SessionProvenance::creating(static fn (): bool => false);
 
         try {
-            $this->sessions()->signInExternally($this->linkedResult($identity));
+            $this->sessions()->signInExternally($this->linkedResult($identity), self::requestContext());
             self::fail('Expected a cancelled provenance to fail the sign-in.');
         } catch (\LogicException $exception) {
             self::assertSame(SessionProvenance::class . ' was not saved: a model event cancelled it, so the session it belongs to is not written.', $exception->getMessage());
@@ -555,7 +558,7 @@ final class SignInProofsTest extends TestCase
         SessionProof::creating(static fn (): bool => false);
 
         try {
-            $this->sessions()->signIn('password', self::credentials());
+            $this->sessions()->signIn('password', self::credentials(), self::requestContext());
             self::fail('Expected a cancelled proof to fail the sign-in.');
         } catch (\LogicException $exception) {
             self::assertSame(SessionProof::class . ' was not saved: a model event cancelled it, so the session it belongs to is not written.', $exception->getMessage());
@@ -581,7 +584,7 @@ final class SignInProofsTest extends TestCase
 
         self::requireAFurtherFactor();
 
-        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
+        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials(), self::requestContext()));
 
         $row = Session::query()->sole();
 
@@ -618,7 +621,7 @@ final class SignInProofsTest extends TestCase
 
         self::requireAFurtherFactor();
 
-        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
+        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials(), self::requestContext()));
 
         $this->clockAt($this->now->addMinute());
 
@@ -664,7 +667,7 @@ final class SignInProofsTest extends TestCase
 
         app()->instance(RequirementCheck::class, $check);
 
-        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
+        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials(), self::requestContext()));
 
         $this->clockAt($this->now->addMinute());
 
@@ -686,13 +689,13 @@ final class SignInProofsTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        $single = $this->sessions()->stepUp(self::adapterProof($identity, 'api', $pending->id, evaluation: new Evaluation(true, false), methods: ['otp']));
+        $single = $this->sessions()->stepUp(self::adapterProof($identity, 'api', $pending->id, evaluation: new Evaluation(true, false), methods: ['otp']), self::requestClient());
 
         self::assertSame(['pwd', 'kba', 'otp'], self::amrOf((string) $single->accessToken?->reveal()));
 
         $this->clockAt($this->now->addMinute());
 
-        $multi = $this->sessions()->stepUp(self::adapterProof($identity, 'api', $pending->id, evaluation: new Evaluation(true, true), methods: ['otp']));
+        $multi = $this->sessions()->stepUp(self::adapterProof($identity, 'api', $pending->id, evaluation: new Evaluation(true, true), methods: ['otp']), self::requestClient());
 
         self::assertSame(['pwd', 'kba', 'otp', 'mfa'], self::amrOf((string) $multi->accessToken?->reveal()));
     }
@@ -712,7 +715,7 @@ final class SignInProofsTest extends TestCase
 
         self::requireAFurtherFactor();
 
-        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
+        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials(), self::requestContext()));
 
         $this->clockAt($this->now->addMinute());
 
@@ -778,7 +781,7 @@ final class SignInProofsTest extends TestCase
 
         self::requireAFurtherFactor();
 
-        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
+        [$pending, $credential] = self::pendingOf($this->sessions()->signIn('password', self::credentials(), self::requestContext()));
 
         $now = $this->now->addMinute();
 
@@ -828,8 +831,8 @@ final class SignInProofsTest extends TestCase
 
         self::requireAFurtherFactor();
 
-        [$early, $earlyCredential] = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
-        [$late, $lateCredential]   = self::pendingOf($this->sessions()->signIn('password', self::credentials()));
+        [$early, $earlyCredential] = self::pendingOf($this->sessions()->signIn('password', self::credentials(), self::requestContext()));
+        [$late, $lateCredential]   = self::pendingOf($this->sessions()->signIn('password', self::credentials(), self::requestContext()));
 
         $this->clockAt($this->now->addMinute());
 
@@ -862,7 +865,7 @@ final class SignInProofsTest extends TestCase
 
         $result = $this->linkedResult($identity, 'connection-7', 'link-9', null, 'tenant-3', $this->now->subMinute(), $this->now->addHours(8), 'enforcement-12');
 
-        [$pending, $credential] = self::pendingOf($this->sessions()->signInExternally($result));
+        [$pending, $credential] = self::pendingOf($this->sessions()->signInExternally($result, self::requestContext()));
 
         self::assertNotNull(self::provenanceOf(Session::query()->sole()));
 
@@ -906,7 +909,7 @@ final class SignInProofsTest extends TestCase
 
         $result = $this->linkedResult($member, tenantId: 'tenant-3', authenticatedAt: $this->now->subMinute(), providerContext: new ProviderContext(['protocol' => 'saml']));
 
-        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->signInExternally($result));
+        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->signInExternally($result, self::requestContext()));
 
         $this->clockAt($this->now->addMinutes(2));
 
@@ -940,7 +943,7 @@ final class SignInProofsTest extends TestCase
     {
         [$member, $membership] = $this->seedChooser();
 
-        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test')));
+        [, $credential] = self::pendingOf($this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext()));
 
         self::requireAFurtherFactor();
 

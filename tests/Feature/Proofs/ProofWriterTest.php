@@ -421,7 +421,7 @@ final class ProofWriterTest extends TestCase
      */
     private function newSession(): Session
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session?->record;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $session);
 

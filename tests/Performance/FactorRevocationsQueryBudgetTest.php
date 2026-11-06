@@ -269,7 +269,7 @@ final class FactorRevocationsQueryBudgetTest extends PerformanceContractTestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -286,7 +286,7 @@ final class FactorRevocationsQueryBudgetTest extends PerformanceContractTestCase
      */
     private function satisfied(): SignedInSession
     {
-        $pending = $this->sessions()->signIn('password', self::credentials());
+        $pending = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);

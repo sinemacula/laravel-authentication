@@ -164,7 +164,7 @@ final class BearerAuthenticationTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -488,7 +488,7 @@ final class BearerAuthenticationTest extends TestCase
     {
         [$member, $membership] = $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -534,7 +534,7 @@ final class BearerAuthenticationTest extends TestCase
      */
     private function signedIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertSame(1, DB::table('authentication_sessions')->count());

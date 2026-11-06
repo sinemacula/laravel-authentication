@@ -344,7 +344,7 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
      */
     private static function signInRoute(string $guard): JsonResponse
     {
-        $tokens = Auth::sessions($guard)->signIn('password', self::credentials())->session?->tokens;
+        $tokens = Auth::sessions($guard)->signIn('password', self::credentials(), self::requestContext())->session?->tokens;
         $cookie = $tokens?->refreshCookie;
 
         assert($tokens !== null && $cookie !== null);

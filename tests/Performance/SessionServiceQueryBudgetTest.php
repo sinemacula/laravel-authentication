@@ -120,7 +120,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(5, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), self::requestContext()))->isSignedIn());
     }
 
     /**
@@ -140,7 +140,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
 
-        $signIn = static fn (): SignInResult => $sessions->signIn('password', self::credentials());
+        $signIn = static fn (): SignInResult => $sessions->signIn('password', self::credentials(), self::requestContext());
 
         self::assertTrue($this->assertQueryBudget(6, 11, static fn (): SignInResult => DB::transaction($signIn))->isSignedIn());
     }
@@ -161,7 +161,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $this->seedIdentity();
 
         $sessions = $this->sessions('admin');
-        $result   = $this->assertQueryBudget(5, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
+        $result   = $this->assertQueryBudget(5, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), self::requestContext()));
 
         self::assertNull($result->session?->tokens->refreshToken);
         self::assertSame('__Secure-admin_refresh_token', $result->session?->tokens->refreshCookie?->name);
@@ -186,7 +186,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         request()->headers->set('Origin', 'https://evil.example.test');
         request()->headers->remove('X-Requested-With');
 
-        $result = $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
+        $result = $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), self::requestContext()));
 
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $result->reason);
     }
@@ -209,7 +209,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         request()->headers->set('Origin', 'https://evil.example.test');
         request()->headers->remove('X-Requested-With');
 
-        $result = $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->start($identity, null, 'sso'));
+        $result = $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->start($identity, null, 'sso', self::requestContext()));
 
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $result->reason);
     }
@@ -232,7 +232,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         self::requireAFurtherFactor();
 
-        $result = $this->sessions('admin')->signIn('password', self::credentials());
+        $result = $this->sessions('admin')->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
@@ -281,7 +281,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         self::requireAFurtherFactor();
 
-        $result = $this->sessions('admin')->signIn('password', self::credentials());
+        $result = $this->sessions('admin')->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
@@ -315,7 +315,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     {
         $this->seedIdentity();
 
-        $first = $this->sessions()->signIn('password', self::credentials())->session;
+        $first = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($first);
 
@@ -341,7 +341,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $identity = $this->seedIdentity();
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(5, 2, static fn (): SignInResult => $sessions->start($identity, null, 'sso'))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 2, static fn (): SignInResult => $sessions->start($identity, null, 'sso', self::requestContext()))->isSignedIn());
     }
 
     /**
@@ -360,8 +360,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
         $result   = $this->linkedResult($identity, tenantId: 'tenant-3');
 
-        self::assertTrue($this->assertQueryBudget(5, 4, static fn (): SignInResult => $sessions->signInExternally($result))->isSignedIn());
-        self::assertTrue($this->assertQueryBudget(5, 4, static fn (): SignInResult => $sessions->signInExternally($result))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 4, static fn (): SignInResult => $sessions->signInExternally($result, self::requestContext()))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 4, static fn (): SignInResult => $sessions->signInExternally($result, self::requestContext()))->isSignedIn());
     }
 
     /**
@@ -379,7 +379,10 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $this->externalLinks();
 
-        self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->signInExternally($result))->reason);
+        self::assertSame(
+            FailureReason::EXTERNAL_RESULT_UNLINKED,
+            $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->signInExternally($result, self::requestContext()))->reason,
+        );
     }
 
     /**
@@ -409,7 +412,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         self::requireAFurtherFactor();
 
         $sessions = $this->sessions();
-        $result   = $this->assertQueryBudget(4, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
+        $result   = $this->assertQueryBudget(4, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), self::requestContext()));
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
@@ -441,7 +444,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         self::requireAFurtherFactor();
 
-        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'));
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
@@ -475,7 +478,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'));
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
@@ -506,7 +509,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     {
         $identity = $this->seedIdentity();
 
-        $first = $this->sessions()->signIn('password', self::credentials())->session;
+        $first = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($first);
 
@@ -541,14 +544,14 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         self::requireAFurtherFactor();
 
-        $credential = $this->sessions()->signIn('password', self::credentials())->credential?->reveal();
+        $credential = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->credential?->reveal();
 
         self::assertNotNull($credential);
 
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => $sessions->discard($credential)));
-        self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => $sessions->discard($credential)));
+        self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => $sessions->discard($credential, self::requestClient())));
+        self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => $sessions->discard($credential, self::requestClient())));
     }
 
     /**
@@ -567,7 +570,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         self::requireAFurtherFactor();
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
@@ -622,14 +625,14 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(1, $writes, static fn (): SignInResult => $sessions->signIn('password', $credentials))->isFailed());
+        self::assertTrue($this->assertQueryBudget(1, $writes, static fn (): SignInResult => $sessions->signIn('password', $credentials, self::requestContext()))->isFailed());
 
         $this->useTimebox();
 
         $sessions = $this->sessions();
         $started  = hrtime(true);
 
-        self::assertTrue($sessions->signIn('password', $credentials)->isFailed());
+        self::assertTrue($sessions->signIn('password', $credentials, self::requestContext())->isFailed());
         self::assertGreaterThanOrEqual(self::TIMEBOX_MICROSECONDS * 1000, hrtime(true) - $started);
     }
 
@@ -654,7 +657,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
             $sessions = $this->sessions();
             $started  = hrtime(true);
 
-            self::assertTrue($sessions->signIn('password', self::credentials())->isSignedIn());
+            self::assertTrue($sessions->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
 
             $fastest = min($fastest, hrtime(true) - $started);
         }

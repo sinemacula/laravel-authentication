@@ -169,7 +169,7 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
 
         app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy(static fn (): mixed => $deactivate($member, $membership)));
 
-        $refused = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL));
+        $refused = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL), self::requestContext());
 
         self::assertSame($reason, $refused->reason);
         self::assertNull($refused->session);
@@ -242,7 +242,7 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
 
         DB::beginTransaction();
 
-        $answered = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL))->session;
+        $answered = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL), self::requestContext())->session;
 
         self::assertNotNull($answered);
 
@@ -291,7 +291,7 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL))->session;
+        $session = Auth::sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL), self::requestContext())->session;
 
         self::assertNotNull($session);
 

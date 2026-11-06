@@ -73,7 +73,7 @@ final class JwtGuardRequestsTest extends TestCase
 
         Route::post('/sign-in', static function (): array {
             $guard   = request()->string('guard', 'api')->value();
-            $session = Auth::sessions($guard)->signIn('password', self::credentials(request()->string('email')->value()))->session;
+            $session = Auth::sessions($guard)->signIn('password', self::credentials(request()->string('email')->value()), self::requestContext())->session;
 
             return [
                 'access'  => $session?->tokens->accessToken->reveal(),

@@ -165,7 +165,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart));
 
-        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'));
+        $result = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         self::assertTrue($result->isPending());
         self::assertNotNull($result->pending);
@@ -221,7 +221,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $refused = $this->sessions('members')->signIn('password', self::credentials('member@example.test'));
+        $refused = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         self::assertTrue($refused->isFailed());
         self::assertSame(FailureReason::SSO_REQUIRED, $refused->reason);
@@ -251,7 +251,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
             ? new TenantRequirement('sso', connections: ['conn-a'])
             : new TenantRequirement('mfa', new Requirement(new RequirementPart));
 
-        $result = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
+        $result = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext());
 
         self::assertTrue($result->isPending());
         self::assertNotNull($result->credential);
@@ -303,7 +303,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         app()->instance(ExternalEvidencePolicy::class, $policy);
 
-        $trusted = $this->sessions(self::CHOOSERS)->signInExternally($this->linkedResult($member, evidence: $evidence));
+        $trusted = $this->sessions(self::CHOOSERS)->signInExternally($this->linkedResult($member, evidence: $evidence), self::requestContext());
 
         self::assertTrue($trusted->isPending());
         self::assertSame([PendingRequirement::PRINCIPAL], $trusted->pending?->requires);
@@ -316,7 +316,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
 
         app()->instance(ExternalEvidencePolicy::class, new InsufficientEvidence);
 
-        $untrusted = $this->sessions(self::CHOOSERS)->signInExternally($this->linkedResult($member, evidence: $evidence));
+        $untrusted = $this->sessions(self::CHOOSERS)->signInExternally($this->linkedResult($member, evidence: $evidence), self::requestContext());
         $waiting   = $this->sessions(self::CHOOSERS)->choose((string) $untrusted->credential?->reveal(), $second, self::requestClient());
 
         self::assertTrue($waiting->isPending());
@@ -567,7 +567,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
         $other   = $this->signedIn();
         $guard   = $this->freshGuard('members');
         $service = self::sessionsOf($guard);
-        $kept    = $service->signIn('password', self::credentials('member@example.test'))->session;
+        $kept    = $service->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($kept);
         self::assertSame($kept->record, $guard->session());
@@ -891,7 +891,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
      */
     private function signedIn(string $email = 'member@example.test'): SignedInSession
     {
-        $result = $this->sessions('members')->signIn('password', self::credentials($email));
+        $result = $this->sessions('members')->signIn('password', self::credentials($email), self::requestContext());
 
         self::assertNotNull($result->session, 'Expected the sign-in to start a session; it failed with ' . $result->reason?->value);
 
@@ -927,7 +927,7 @@ final class TenantAuthenticationPolicyTest extends TestCase
         $this->policy->answer      = null;
         $this->policy->requirement = new TenantRequirement(factor: new Requirement(new RequirementPart));
 
-        $result = $this->sessions('members')->signIn('password', self::credentials($email));
+        $result = $this->sessions('members')->signIn('password', self::credentials($email), self::requestContext());
 
         self::assertTrue($result->isPending());
 

@@ -114,14 +114,14 @@ final readonly class PasswordService
      * `$except` is for a change only; and an establishment is `establish()`'s
      * alone. Prefer `change()`, which checks the current password, unless the
      * application verified the change itself. The events report the client
-     * given, or the client of the request the guard is serving (pass one from a
-     * queued job or a console command).
+     * given: the request's `ClientContext`, or one a queued job or a console
+     * command builds for the client it acts for.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
      * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\PasswordResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -129,7 +129,7 @@ final readonly class PasswordService
      * @throws \LogicException
      * @throws \Throwable
      */
-    public function set(Identity $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ?Session $except = null, ?ClientContext $client = null): PasswordResult
+    public function set(Identity $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ClientContext $client, ?Session $except = null): PasswordResult
     {
         $model = self::settable($identity, $flow, $except);
         $check = $this->check($password);
@@ -140,7 +140,7 @@ final readonly class PasswordService
 
         $writer = new PasswordWriter($this->context, $this->revocations, $this->container);
 
-        return PasswordResult::set($writer->write($model, $password, $flow, $except, $client));
+        return PasswordResult::set($writer->write($model, $password, $flow, $client, $except));
     }
 
     /**
@@ -159,12 +159,12 @@ final readonly class PasswordService
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $current
      * @param  string  $password
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\PasswordResult
      *
      * @throws \Throwable
      */
-    public function change(Session $session, #[\SensitiveParameter] string $current, #[\SensitiveParameter] string $password, ?ClientContext $client = null): PasswordResult
+    public function change(Session $session, #[\SensitiveParameter] string $current, #[\SensitiveParameter] string $password, ClientContext $client): PasswordResult
     {
         return (new PasswordChanges($this->context, $this->revocations, $this->container))->change($session, $current, $password, $client);
     }
@@ -182,12 +182,12 @@ final readonly class PasswordService
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  string  $password
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\PasswordResult
      *
      * @throws \Throwable
      */
-    public function establish(Session $session, #[\SensitiveParameter] string $password, ?ClientContext $client = null): PasswordResult
+    public function establish(Session $session, #[\SensitiveParameter] string $password, ClientContext $client): PasswordResult
     {
         return (new PasswordChanges($this->context, $this->revocations, $this->container))->establish($session, $password, $client);
     }
@@ -204,7 +204,7 @@ final readonly class PasswordService
      * engine, so the answer is a code request's.
      *
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -212,7 +212,7 @@ final readonly class PasswordService
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    public function sendResetLink(#[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
+    public function sendResetLink(#[\SensitiveParameter] array $input, ClientContext $client): CodeRequest
     {
         return (new ResetRequests($this->context, $this->container))->link($input, $client);
     }
@@ -227,7 +227,7 @@ final readonly class PasswordService
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -235,7 +235,7 @@ final readonly class PasswordService
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    public function sendResetCode(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
+    public function sendResetCode(string $type, #[\SensitiveParameter] array $input, ClientContext $client): CodeRequest
     {
         return (new ResetRequests($this->context, $this->container))->code($type, $input, $client);
     }
@@ -250,12 +250,12 @@ final readonly class PasswordService
      * `resetFromRequest()` reads it so.
      *
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
      *
      * @throws \Throwable
      */
-    public function reset(#[\SensitiveParameter] array $input, ?ClientContext $client = null): ResetResult
+    public function reset(#[\SensitiveParameter] array $input, ClientContext $client): ResetResult
     {
         return (new ResetSubmissions($this->context, $this->revocations, $this->container))->link($input, $client);
     }
@@ -268,12 +268,12 @@ final readonly class PasswordService
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
      *
      * @throws \Throwable
      */
-    public function resetWithCode(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client = null): ResetResult
+    public function resetWithCode(string $type, #[\SensitiveParameter] array $input, ClientContext $client): ResetResult
     {
         return (new ResetSubmissions($this->context, $this->revocations, $this->container))->code($type, $input, $client);
     }
@@ -285,12 +285,12 @@ final readonly class PasswordService
      * fragment, which no browser sends to a server, and have it post the token
      * in the body.
      *
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
      *
      * @throws \Throwable
      */
-    public function resetFromRequest(?ClientContext $client = null): ResetResult
+    public function resetFromRequest(ClientContext $client): ResetResult
     {
         return $this->reset(RequestBody::fields($this->context->request()), $client);
     }
@@ -300,12 +300,12 @@ final readonly class PasswordService
      * guard is serving, never its query string, as `resetWithCode()` does.
      *
      * @param  string  $type
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
      *
      * @throws \Throwable
      */
-    public function resetWithCodeFromRequest(string $type, ?ClientContext $client = null): ResetResult
+    public function resetWithCodeFromRequest(string $type, ClientContext $client): ResetResult
     {
         return $this->resetWithCode($type, RequestBody::fields($this->context->request()), $client);
     }

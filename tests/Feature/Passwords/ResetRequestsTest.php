@@ -56,8 +56,8 @@ final class ResetRequestsTest extends TestCase
 
         Queue::fake();
 
-        $known   = $this->passwords()->sendResetLink(['email' => self::EMAIL]);
-        $unknown = $this->passwords()->sendResetLink(['email' => 'nobody@example.test']);
+        $known   = $this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient());
+        $unknown = $this->passwords()->sendResetLink(['email' => 'nobody@example.test'], self::requestClient());
 
         self::assertEquals($known, $unknown);
         self::assertSame([CodeRequestStatus::SENT, null], [$known->status, $known->retryAfter]);
@@ -86,10 +86,17 @@ final class ResetRequestsTest extends TestCase
     public static function provideRefusedRequests(): iterable
     {
         yield from [
-            'no identifier'         => [static fn (PasswordService $passwords) => $passwords->sendResetLink([]), 'invalid_credentials'],
-            'an identifier list'    => [static fn (PasswordService $passwords) => $passwords->sendResetLink(['email' => [self::EMAIL]]), 'invalid_credentials'],
-            'an empty identifier'   => [static fn (PasswordService $passwords) => $passwords->sendResetLink(['email' => '  ']), 'invalid_credentials'],
-            'a number not in E.164' => [static fn (PasswordService $passwords) => $passwords->sendResetCode('phone', ['phone' => '07700 900123']), 'invalid_credentials'],
+            'no identifier'      => [static fn (PasswordService $passwords) => $passwords->sendResetLink([], self::requestClient()), 'invalid_credentials'],
+            'an identifier list' => [static fn (PasswordService $passwords) => $passwords->sendResetLink(
+                ['email' => [self::EMAIL]],
+                self::requestClient(),
+            ), 'invalid_credentials'],
+            'an empty identifier'   => [static fn (PasswordService $passwords) => $passwords->sendResetLink(['email' => '  '], self::requestClient()), 'invalid_credentials'],
+            'a number not in E.164' => [static fn (PasswordService $passwords) => $passwords->sendResetCode(
+                'phone',
+                ['phone' => '07700 900123'],
+                self::requestClient(),
+            ), 'invalid_credentials'],
         ];
     }
 
@@ -148,7 +155,7 @@ final class ResetRequestsTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $answer = $this->passwords()->sendResetLink(['email' => self::EMAIL]);
+        $answer = $this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient());
 
         self::assertSame(CodeRequestStatus::METHOD_NOT_ALLOWED, $answer->status);
         $event = $this->recordedEvent(AuthenticationFailed::class);
@@ -172,13 +179,13 @@ final class ResetRequestsTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL])->isSent());
+        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient())->isSent());
 
-        $cooled = $this->passwords()->sendResetLink(['email' => self::EMAIL]);
+        $cooled = $this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient());
 
         self::assertSame([CodeRequestStatus::RATE_LIMITED, 60], [$cooled->status, $cooled->retryAfter]);
 
-        $limited = $this->passwords()->sendResetLink(['email' => 'Ada@Example.test']);
+        $limited = $this->passwords()->sendResetLink(['email' => 'Ada@Example.test'], self::requestClient());
 
         self::assertSame(CodeRequestStatus::RATE_LIMITED, $limited->status);
         self::assertSame(1800, $limited->retryAfter);
@@ -197,9 +204,9 @@ final class ResetRequestsTest extends TestCase
      */
     public function testACodesAnswerCarriesItsChallengeAndALinksNone(): void
     {
-        $known   = $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE]);
-        $unknown = $this->passwords()->sendResetCode('phone', ['phone' => '+447700900999']);
-        $link    = $this->passwords()->sendResetLink(['email' => self::EMAIL]);
+        $known   = $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE], self::requestClient());
+        $unknown = $this->passwords()->sendResetCode('phone', ['phone' => '+447700900999'], self::requestClient());
+        $link    = $this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient());
 
         self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, (string) $known->challengeId);
         self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, (string) $unknown->challengeId);
@@ -223,13 +230,13 @@ final class ResetRequestsTest extends TestCase
     {
         config()->set('authentication.codes.max_deliveries', 1);
 
-        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL])->isSent());
+        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient())->isSent());
 
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(60));
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $request = $this->passwords()->sendResetLink(['email' => self::EMAIL]);
+        $request = $this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient());
 
         self::assertSame([CodeRequestStatus::DELIVERIES_EXHAUSTED, 1740], [$request->status, $request->retryAfter]);
         self::assertSame(
@@ -248,9 +255,21 @@ final class ResetRequestsTest extends TestCase
         $message = 'Password reset codes need a normaliser registered for identifier type [username] in `authentication.identifiers.normalizers`.';
 
         yield from [
-            'a code type with no normaliser'       => [static fn (PasswordService $passwords) => $passwords->sendResetCode('username', ['username' => 'ada']), $message],
-            'a code reset type with no normaliser' => [static fn (PasswordService $passwords) => $passwords->resetWithCode('username', ['username' => 'ada']), $message],
-            'an invalid identifier type'           => [static fn (PasswordService $passwords) => $passwords->sendResetCode('Phone', ['Phone' => self::PHONE]), 'Identifier type'],
+            'a code type with no normaliser' => [static fn (PasswordService $passwords) => $passwords->sendResetCode(
+                'username',
+                ['username' => 'ada'],
+                self::requestClient(),
+            ), $message],
+            'a code reset type with no normaliser' => [static fn (PasswordService $passwords) => $passwords->resetWithCode(
+                'username',
+                ['username' => 'ada'],
+                self::requestClient(),
+            ), $message],
+            'an invalid identifier type' => [static fn (PasswordService $passwords) => $passwords->sendResetCode(
+                'Phone',
+                ['Phone' => self::PHONE],
+                self::requestClient(),
+            ), 'Identifier type'],
         ];
     }
 
@@ -288,14 +307,14 @@ final class ResetRequestsTest extends TestCase
         app()->offsetUnset(OneTimeCodeSender::class);
 
         try {
-            $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE]);
+            $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE], self::requestClient());
             self::fail('A reset code was sent with no sender bound.');
         } catch (\LogicException $exception) {
             self::assertSame('No ' . OneTimeCodeSender::class . ' is bound to deliver password reset codes: bind one before sending them.', $exception->getMessage());
         }
 
         self::assertSame([0, 0], [DB::table('rate_limits')->count(), DB::table('one_time_codes')->count()]);
-        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL])->isSent());
+        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient())->isSent());
     }
 
     /**
@@ -351,7 +370,7 @@ final class ResetRequestsTest extends TestCase
         config()->set($settings);
 
         try {
-            $this->passwords()->sendResetLink(['email' => self::EMAIL]);
+            $this->passwords()->sendResetLink(['email' => self::EMAIL], self::requestClient());
             self::fail('A malformed setting was accepted.');
         } catch (\InvalidArgumentException $exception) {
             self::assertStringStartsWith($message, $exception->getMessage());

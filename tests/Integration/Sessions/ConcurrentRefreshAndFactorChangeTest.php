@@ -264,7 +264,7 @@ final class ConcurrentRefreshAndFactorChangeTest extends TestCase
     {
         $this->seedIdentity();
 
-        $signedIn = $this->sessions()->signIn('password', self::credentials())->session;
+        $signedIn = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 

@@ -102,7 +102,7 @@ final class ReplicaProofsTest extends TestCase
 
         CarbonImmutable::setTestNow($now);
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('authentication_proofs')->count());
@@ -112,7 +112,7 @@ final class ReplicaProofsTest extends TestCase
         // A minute on, so the step-up's values follow the first factor's.
         CarbonImmutable::setTestNow($now->addMinute());
 
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($session->identity, 'api', $session->record->getKey()))->isIssued());
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($session->identity, 'api', $session->record->getKey()), self::requestClient())->isIssued());
 
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('authentication_proofs')->count());
         self::assertSame(['pwd', 'otp', 'mfa'], AuthenticationClaims::forSession($session->record)->methods);
@@ -136,7 +136,7 @@ final class ReplicaProofsTest extends TestCase
 
         CarbonImmutable::setTestNow($now);
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -149,7 +149,7 @@ final class ReplicaProofsTest extends TestCase
 
         CarbonImmutable::setTestNow($now->addMinute());
 
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($session->identity, 'api', $key))->isIssued());
+        self::assertTrue($this->sessions()->stepUp(self::adapterProof($session->identity, 'api', $key), self::requestClient())->isIssued());
 
         $kinds = static fn (array $proofs): array => array_map(static fn (RecordedProof $proof): ProofKind => $proof->kind, $proofs);
 

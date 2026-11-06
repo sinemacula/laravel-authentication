@@ -308,7 +308,7 @@ final class ConnectionRevocationsTest extends TestCase
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
 
         $identity = $this->seedIdentity();
-        $result   = $this->sessions()->signInExternally($this->linkedResult($identity, 'conn-a'));
+        $result   = $this->sessions()->signInExternally($this->linkedResult($identity, 'conn-a'), self::requestContext());
 
         self::assertTrue($result->isPending());
         self::assertSame(1, $this->sessions()->connectionDisabled('conn-a'));
@@ -799,7 +799,7 @@ final class ConnectionRevocationsTest extends TestCase
     private function external(IntegrationIdentity $identity, string $connection, string $guard = 'api', string $link = 'link-1'): mixed
     {
         $subject = $link === 'link-1' ? null : 'subject-' . $link;
-        $session = $this->sessions($guard)->signInExternally($this->linkedResult($identity, $connection, $link, $subject))->session;
+        $session = $this->sessions($guard)->signInExternally($this->linkedResult($identity, $connection, $link, $subject), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -817,7 +817,7 @@ final class ConnectionRevocationsTest extends TestCase
      */
     private function started(IntegrationIdentity $identity, string $connection): SignedInSession
     {
-        $session = $this->sessions()->signInExternally($this->linkedResult($identity, $connection))->session;
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity, $connection), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -850,7 +850,7 @@ final class ConnectionRevocationsTest extends TestCase
      */
     private function passwordSession(): mixed
     {
-        $session = Auth::sessions('api')->signIn('password', self::credentials())->session;
+        $session = Auth::sessions('api')->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

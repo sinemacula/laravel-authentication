@@ -403,7 +403,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        $kept = Auth::sessions()->signIn('password', $credentials)->session;
+        $kept = Auth::sessions()->signIn('password', $credentials, self::requestContext())->session;
 
         self::assertNotNull($kept);
         self::assertSame(['SessionAuthenticated'], $reported->getArrayCopy());
@@ -417,7 +417,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        $ended = Auth::sessions()->signIn('password', $credentials)->session;
+        $ended = Auth::sessions()->signIn('password', $credentials, self::requestContext())->session;
 
         self::assertNotNull($ended);
 
@@ -458,7 +458,7 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        $ended = Auth::sessions()->signIn('password', ['email' => 'thrown@example.test', 'password' => 'correct horse battery staple'])->session;
+        $ended = Auth::sessions()->signIn('password', ['email' => 'thrown@example.test', 'password' => 'correct horse battery staple'], self::requestContext())->session;
 
         self::assertNotNull($ended);
         self::assertSame($ended->record->getKey(), $guard->session()?->getSessionIdentifier());
@@ -513,7 +513,11 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
 
         DB::beginTransaction();
 
-        $signedIn = Auth::sessions(self::CUTOFFS)->signIn('password', ['email' => 'kept@example.test', 'password' => 'correct horse battery staple'])->session;
+        $signedIn = Auth::sessions(self::CUTOFFS)->signIn(
+            'password',
+            ['email' => 'kept@example.test', 'password' => 'correct horse battery staple'],
+            self::requestContext(),
+        )->session;
 
         self::assertNotNull($signedIn);
 

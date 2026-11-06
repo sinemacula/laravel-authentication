@@ -89,7 +89,7 @@ final class MachineCredentialRequestsTest extends TestCase
         });
 
         Route::post('/sign-in', static function (): array {
-            $session = Auth::sessions('api')->signIn('password', request()->only('email', 'password'))->session;
+            $session = Auth::sessions('api')->signIn('password', request()->only('email', 'password'), self::requestContext())->session;
 
             return ['access' => $session?->tokens->accessToken->reveal()];
         });

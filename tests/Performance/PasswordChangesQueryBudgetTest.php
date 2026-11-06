@@ -90,7 +90,10 @@ final class PasswordChangesQueryBudgetTest extends PerformanceContractTestCase
 
         $passwords = Auth::passwords('web');
 
-        self::assertSame(1, $this->assertQueryBudget(6, 10, static fn (): PasswordResult => $passwords->change($kept, self::PASSWORD, self::NEW_PASSWORD))->revoked);
+        self::assertSame(
+            1,
+            $this->assertQueryBudget(6, 10, static fn (): PasswordResult => $passwords->change($kept, self::PASSWORD, self::NEW_PASSWORD, self::requestClient()))->revoked,
+        );
     }
 
     /**
@@ -106,15 +109,15 @@ final class PasswordChangesQueryBudgetTest extends PerformanceContractTestCase
     public function testAnEstablishmentHasAFixedBudget(): void
     {
         $identity = self::seedPasswordIdentity(attributes: ['password' => null]);
-        $kept     = $this->sessions('web')->start($identity, null, 'password')->session?->record;
+        $kept     = $this->sessions('web')->start($identity, null, 'password', self::requestContext())->session?->record;
 
-        $this->sessions('admin')->start($identity, null, 'password');
+        $this->sessions('admin')->start($identity, null, 'password', self::requestContext());
 
         self::assertNotNull($kept);
 
         $passwords = Auth::passwords('web');
 
-        self::assertSame(1, $this->assertQueryBudget(8, 4, static fn (): PasswordResult => $passwords->establish($kept, self::NEW_PASSWORD))->revoked);
+        self::assertSame(1, $this->assertQueryBudget(8, 4, static fn (): PasswordResult => $passwords->establish($kept, self::NEW_PASSWORD, self::requestClient()))->revoked);
     }
 
     /**
@@ -135,7 +138,7 @@ final class PasswordChangesQueryBudgetTest extends PerformanceContractTestCase
 
         $passwords = Auth::passwords('web');
 
-        $change = static fn (): PasswordResult => $passwords->change($session, 'not the password', self::NEW_PASSWORD);
+        $change = static fn (): PasswordResult => $passwords->change($session, 'not the password', self::NEW_PASSWORD, self::requestClient());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->assertQueryBudget(2, 4, $change)->reason);
     }

@@ -127,7 +127,7 @@ final class IntegerKeyPendingSessionTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertTrue($result->isPending());
         self::assertNotNull($result->pending);
@@ -160,7 +160,7 @@ final class IntegerKeyPendingSessionTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->credential);
 

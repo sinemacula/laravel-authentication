@@ -161,8 +161,8 @@ final readonly class PasskeyService
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $challenge
      * @param  array<array-key, mixed>|string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?string  $name
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -175,8 +175,8 @@ final readonly class PasskeyService
         Identity $identity,
         string $challenge,
         #[\SensitiveParameter] array|string $credential,
+        ClientContext $client,
         ?string $name = null,
-        ?ClientContext $client = null,
     ): PasskeyRegistration {
         $owner = PasskeyOwner::of($identity);
         $rp    = $this->relyingParty();
@@ -213,7 +213,7 @@ final readonly class PasskeyService
             return PasskeyRegistration::alreadyRegistered();
         }
 
-        $this->dispatchOnceCommitted($passkey, new PasskeyAdded(PasskeyAssertions::context($rp, $this->client($client), $owner, $passkey->id)));
+        $this->dispatchOnceCommitted($passkey, new PasskeyAdded(PasskeyAssertions::context($rp, $client, $owner, $passkey->id)));
 
         return PasskeyRegistration::registered(PasskeySummary::of($passkey), $association);
     }
@@ -227,7 +227,7 @@ final readonly class PasskeyService
      * address under the guard's `passkey_options` limit; once that is used up a
      * `ThrottleRequestsException` (429 with `Retry-After`) is thrown.
      *
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passkeys\CeremonyOptions
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -237,10 +237,10 @@ final readonly class PasskeyService
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
-    public function signInOptions(?ClientContext $client = null): CeremonyOptions
+    public function signInOptions(ClientContext $client): CeremonyOptions
     {
         $rp      = $this->relyingParty();
-        $subject = new AttemptSubject($rp->guard, AttemptFlow::PASSKEY_OPTIONS, null, null, $this->client($client)->ip);
+        $subject = new AttemptSubject($rp->guard, AttemptFlow::PASSKEY_OPTIONS, null, null, $client->ip);
 
         $this->refuseWhenThrottled($this->container->make(AttemptLimiter::class)->acquire($subject));
 
@@ -320,7 +320,7 @@ final readonly class PasskeyService
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
      * @param  string  $challenge
      * @param  array<array-key, mixed>|string  $credential
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -333,7 +333,7 @@ final readonly class PasskeyService
         ProofBinding $binding,
         string $challenge,
         #[\SensitiveParameter] array|string $credential,
-        ?ClientContext $client = null,
+        ClientContext $client,
     ): PasskeyFactorResult {
         $owner      = PasskeyOwner::of($identity);
         $rp         = $this->relyingParty();
@@ -359,7 +359,7 @@ final readonly class PasskeyService
 
         [, $passkey, $observed] = $verified;
 
-        $assertions->used($rp, $this->client($client), $owner, $passkey, $this->context->dispatch(...));
+        $assertions->used($rp, $client, $owner, $passkey, $this->context->dispatch(...));
 
         return PasskeyFactorResult::verified(new PasskeyFactorAssertion($passkey->id, $passkey->credential_id, $observed, $now, PasskeySummary::of($passkey)));
     }
@@ -397,7 +397,7 @@ final readonly class PasskeyService
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $passkeyId
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRemoval
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -405,7 +405,7 @@ final readonly class PasskeyService
      * @throws \LogicException
      * @throws \Throwable
      */
-    public function remove(Identity $identity, string $passkeyId, ?ClientContext $client = null): PasskeyRemoval
+    public function remove(Identity $identity, string $passkeyId, ClientContext $client): PasskeyRemoval
     {
         $owner   = PasskeyOwner::of($identity);
         $rp      = $this->relyingParty();
@@ -430,7 +430,7 @@ final readonly class PasskeyService
             return PasskeyRemoval::notRemoved();
         }
 
-        $this->dispatchOnceCommitted($passkey, new PasskeyRemoved(PasskeyAssertions::context($rp, $this->client($client), $owner, $passkey->id)));
+        $this->dispatchOnceCommitted($passkey, new PasskeyRemoved(PasskeyAssertions::context($rp, $client, $owner, $passkey->id)));
 
         return PasskeyRemoval::removed($completion);
     }
@@ -589,17 +589,6 @@ final readonly class PasskeyService
     private function relyingParty(): RelyingParty
     {
         return RelyingParty::forGuard($this->context->name(), $this->container->make(Repository::class));
-    }
-
-    /**
-     * The client the call is for: the one given, else the guard's request's.
-     *
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Http\ClientContext
-     */
-    private function client(?ClientContext $client): ClientContext
-    {
-        return $client ?? $this->context->client();
     }
 
     /**

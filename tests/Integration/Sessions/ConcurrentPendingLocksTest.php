@@ -179,7 +179,7 @@ final class ConcurrentPendingLocksTest extends TestCase
         $proofs = SessionProof::query()->count();
 
         [$discarded, $second] = $this->race(
-            fn (): bool => $this->sessions(self::GUARD)->discard($credential),
+            fn (): bool => $this->sessions(self::GUARD)->discard($credential, self::requestClient()),
             fn (): array => ['reason' => $this->sessions(self::GUARD)->satisfy($credential, $proof, self::requestClient())->reason?->value],
         );
 
@@ -206,7 +206,7 @@ final class ConcurrentPendingLocksTest extends TestCase
 
         [$satisfied, $second] = $this->race(
             fn (): bool => $this->sessions(self::GUARD)->satisfy($credential, $proof, self::requestClient())->isSignedIn(),
-            fn (): array => ['discarded' => $this->sessions(self::GUARD)->discard($credential)],
+            fn (): array => ['discarded' => $this->sessions(self::GUARD)->discard($credential, self::requestClient())],
         );
 
         self::assertTrue($satisfied);
@@ -397,7 +397,7 @@ final class ConcurrentPendingLocksTest extends TestCase
      */
     private function pendingSession(): array
     {
-        $result = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'));
+        $result = $this->sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);

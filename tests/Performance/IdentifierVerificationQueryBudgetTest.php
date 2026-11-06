@@ -76,7 +76,7 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
         $identity = self::seedVerifiableIdentity();
         $verifier = app(IdentifierVerifier::class);
 
-        $verify = static fn (string $identifier): \Closure => static fn (): mixed => $verifier->verify(self::GUARD, $identity, 'email', $identifier);
+        $verify = static fn (string $identifier): \Closure => static fn (): mixed => $verifier->verify(self::GUARD, $identity, 'email', $identifier, self::requestClient());
 
         self::assertSame(IdentifierVerification::VERIFIED, $this->assertQueryBudget(1, 1, $verify('ben@example.com')));
         self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $this->assertQueryBudget(2, 0, $verify('ben@example.com')));

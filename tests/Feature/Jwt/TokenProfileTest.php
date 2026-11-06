@@ -167,7 +167,7 @@ final class TokenProfileTest extends TestCase
     {
         [$member, , $tenant] = $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
         $claims = $this->claims($session->tokens->accessToken->reveal(), TokenType::ACCESS, 'members');
@@ -219,7 +219,7 @@ final class TokenProfileTest extends TestCase
         [$member, $membership, $tenant] = $this->seedMember();
         [, , $other]                    = $this->seedMember('other@example.test');
 
-        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 
@@ -258,7 +258,7 @@ final class TokenProfileTest extends TestCase
     {
         [, , $tenant] = $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -410,7 +410,7 @@ final class TokenProfileTest extends TestCase
      */
     private function signedIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

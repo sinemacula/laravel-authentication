@@ -81,7 +81,7 @@ final class ReplicaIdentifierChangesTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient())->isSent());
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('identifier_changes')->count());
 
         self::assertSame(self::NEW_EMAIL, $this->changes()->pending($identity, 'email')?->identifier);
@@ -100,12 +100,15 @@ final class ReplicaIdentifierChangesTest extends TestCase
     {
         $identity = self::seedChangeable();
 
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient())->isSent());
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('changeable_identities')->count());
         self::assertSame(1, $this->runQueued(SendIdentifierChangeCode::class));
 
         self::assertSame(self::CODE, $this->sender->lastCodeFor(self::NEW_EMAIL, CodePurpose::CHANGE_IDENTIFIER));
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE)->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::CHANGED,
+            $this->changes()->confirmByCode($identity, 'email', self::changeChallenge($identity, 'email'), self::CODE, self::requestClient())->outcome,
+        );
     }
 
     /**
@@ -122,7 +125,7 @@ final class ReplicaIdentifierChangesTest extends TestCase
         $session  = self::seedSession($identity);
 
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('authentication_sessions')->count());
-        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session))->isSent());
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::session($session), self::requestClient())->isSent());
     }
 
     /**

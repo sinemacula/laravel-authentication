@@ -230,7 +230,7 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $failed = $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong']);
+        $failed = $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'], self::requestContext());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $failed->reason);
 
@@ -248,7 +248,7 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
      */
     private function pendingSession(): array
     {
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);

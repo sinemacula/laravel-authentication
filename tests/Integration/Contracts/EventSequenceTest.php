@@ -142,7 +142,7 @@ final class EventSequenceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($sessions->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue($sessions->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
         self::assertSame(['Attempting api'], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
 
@@ -170,7 +170,7 @@ final class EventSequenceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
 
         DB::rollBack();
 
@@ -224,7 +224,10 @@ final class EventSequenceTest extends TestCase
         $this->recordSequence();
         $this->throwOn(Login::class);
 
-        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => self::sessionsOf($guard)->signIn('password', self::credentials())));
+        self::assertSame(
+            'listener failed',
+            self::failureOf(static fn (): SignInResult => self::sessionsOf($guard)->signIn('password', self::credentials(), self::requestContext())),
+        );
         self::assertSame(['Attempting api', ...self::REPORT, 'Validated api i1', 'Login api i1'], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
         self::assertSame(1, Session::query()->count());
@@ -273,7 +276,10 @@ final class EventSequenceTest extends TestCase
         $this->recordSequence();
         $this->throwOn(SignedIn::class);
 
-        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => self::sessionsOf($guard)->signIn('password', self::credentials())));
+        self::assertSame(
+            'listener failed',
+            self::failureOf(static fn (): SignInResult => self::sessionsOf($guard)->signIn('password', self::credentials(), self::requestContext())),
+        );
         self::assertSame(['Attempting api', ...self::REPORT], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
         self::assertSame(1, Session::query()->count());
@@ -325,7 +331,7 @@ final class EventSequenceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
 
         app()->instance('request', Request::create('/elsewhere', 'GET', server: ['REMOTE_ADDR' => '198.51.100.9']));
 
@@ -356,7 +362,7 @@ final class EventSequenceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($sessions->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue($sessions->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
 
         Event::fake([SessionCreated::class, SignedIn::class]);
 
@@ -440,7 +446,7 @@ final class EventSequenceTest extends TestCase
      */
     private function signedIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -471,7 +477,7 @@ final class EventSequenceTest extends TestCase
         });
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $result = $this->sessions()->signIn('password', self::credentials());
+        $result = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);

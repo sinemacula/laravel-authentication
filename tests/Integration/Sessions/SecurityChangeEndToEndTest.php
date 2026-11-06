@@ -128,7 +128,7 @@ final class SecurityChangeEndToEndTest extends TestCase
 
         $this->assertSessionEnded($session);
 
-        self::assertTrue($this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'a new password'])->isSignedIn());
+        self::assertTrue($this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'a new password'], self::requestContext())->isSignedIn());
     }
 
     /**
@@ -169,7 +169,7 @@ final class SecurityChangeEndToEndTest extends TestCase
 
             IntegrationIdentity::query()->whereKey($saved->getKey())->firstOrFail()->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
 
-            $between = $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'a new password'])->session;
+            $between = $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'a new password'], self::requestContext())->session;
 
             $saved->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
         });
@@ -291,7 +291,7 @@ final class SecurityChangeEndToEndTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

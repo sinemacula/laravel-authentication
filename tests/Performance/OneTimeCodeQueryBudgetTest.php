@@ -116,11 +116,11 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
         $this->statements = [];
 
-        self::assertTrue($this->assertQueryBudget(1, 5, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE]))->isSent());
+        self::assertTrue($this->assertQueryBudget(1, 5, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE], self::requestClient()))->isSent());
 
         CarbonImmutable::setTestNow(CarbonImmutable::instance($this->now)->addSeconds(60));
 
-        self::assertTrue($this->assertQueryBudget(1, 3, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE]))->isSent());
+        self::assertTrue($this->assertQueryBudget(1, 3, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE], self::requestClient()))->isSent());
         self::assertSame([], array_filter($this->statements, static fn (string $sql): bool => str_contains($sql, 'code_identities')));
     }
 
@@ -136,9 +136,9 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     {
         $codes = $this->codeService();
 
-        $codes->send('phone_code', ['phone' => self::PHONE]);
+        $codes->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
-        self::assertSame(60, $this->assertQueryBudget(1, 2, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE]))->retryAfter);
+        self::assertSame(60, $this->assertQueryBudget(1, 2, static fn (): CodeRequest => $codes->send('phone_code', ['phone' => self::PHONE], self::requestClient()))->retryAfter);
     }
 
     /**
@@ -157,11 +157,11 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     {
         self::seedCodeIdentity();
 
-        $challenge = $this->codeService()->send('phone_code', ['phone' => self::PHONE])->challengeId;
+        $challenge = $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->challengeId;
 
         $sessions = $this->sessions('mobile');
 
-        $signIn = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => self::CODE]);
+        $signIn = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => self::CODE], self::requestContext());
 
         self::assertTrue($this->assertQueryBudget(6, 13, $signIn)->isSignedIn());
     }
@@ -184,12 +184,16 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
         $this->statements = [];
 
-        $challenge = $this->assertQueryBudget(1, 5, static fn (): CodeRequest => $codes->send('email_code', ['email' => ' Ada@Example.test']))->challengeId;
+        $challenge = $this->assertQueryBudget(1, 5, static fn (): CodeRequest => $codes->send('email_code', ['email' => ' Ada@Example.test'], self::requestClient()))->challengeId;
 
         self::assertSame([], array_filter($this->statements, static fn (string $sql): bool => str_contains($sql, 'code_identities')));
 
         $sessions = $this->sessions('mobile');
-        $signIn   = static fn (): SignInResult => $sessions->signIn('email_code', ['email' => 'ada@example.test', 'challenge' => $challenge, 'code' => self::CODE]);
+        $signIn   = static fn (): SignInResult => $sessions->signIn(
+            'email_code',
+            ['email' => 'ada@example.test', 'challenge' => $challenge, 'code' => self::CODE],
+            self::requestContext(),
+        );
 
         self::assertTrue($this->assertQueryBudget(6, 13, $signIn)->isSignedIn());
     }
@@ -207,12 +211,12 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     {
         self::seedCodeIdentity();
 
-        $challenge = $this->codeService()->send('phone_code', ['phone' => self::PHONE])->challengeId;
+        $challenge = $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->challengeId;
 
         $sessions = $this->sessions('mobile');
 
-        $wrong     = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => '000000']);
-        $malformed = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => '0000']);
+        $wrong     = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => '000000'], self::requestContext());
+        $malformed = static fn (): SignInResult => $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $challenge, 'code' => '0000'], self::requestContext());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->assertQueryBudget(2, 7, $wrong)->reason);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->assertQueryBudget(0, 2, $malformed)->reason);
@@ -235,7 +239,7 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
         self::seedCodeIdentity();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         $sender = FakeOneTimeCodeSender::fake($this->app);
         $job    = Queue::pushed(SendOneTimeCode::class)->sole();
@@ -263,9 +267,12 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
         $identity = self::seedCodeIdentity(verified: false);
         $codes    = $this->codeService();
 
-        $challenge = (string) $codes->sendVerification($identity, 'phone')->challengeId;
+        $challenge = (string) $codes->sendVerification($identity, 'phone', self::requestClient())->challengeId;
 
-        self::assertSame(VerificationOutcome::VERIFIED, $this->assertQueryBudget(2, 9, static fn (): mixed => $codes->verify($identity, 'phone', $challenge, self::CODE)->outcome));
+        self::assertSame(
+            VerificationOutcome::VERIFIED,
+            $this->assertQueryBudget(2, 9, static fn (): mixed => $codes->verify($identity, 'phone', $challenge, self::CODE, self::requestClient())->outcome),
+        );
     }
 
     /**
@@ -288,9 +295,11 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
 
         $this->app?->instance(FactorCodeCounters::class, new RecordingFactorCodeCounters);
 
-        $challenge = (string) $this->assertQueryBudget(1, 7, static fn (): CodeRequest => $codes->sendFactorCode($binding))->challengeId;
+        $challenge = (string) $this->assertQueryBudget(1, 7, static fn (): CodeRequest => $codes->sendFactorCode($binding, self::requestClient()))->challengeId;
 
-        self::assertTrue($this->assertQueryBudget(1, 5, static fn (): FactorCodeCheck => $codes->verifyFactorCode($binding, $challenge, self::CODE))->isVerified());
+        self::assertTrue(
+            $this->assertQueryBudget(1, 5, static fn (): FactorCodeCheck => $codes->verifyFactorCode($binding, $challenge, self::CODE, self::requestClient()))->isVerified(),
+        );
     }
 
     /**

@@ -435,7 +435,7 @@ final class ActiveSessionProofsTest extends TestCase
             $this->seedIdentity();
         }
 
-        $session = $this->sessions($guard)->signIn('password', self::credentials())->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

@@ -144,7 +144,7 @@ final class SecretRedactionTest extends TestCase
 
         app()->make(SignInMethodManager::class)->extend('trusted', fn (): FailingSignIn => new FailingSignIn);
 
-        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->signIn('trusted', self::credentials()));
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->signIn('trusted', self::credentials(), self::requestContext()));
 
         self::assertSame('a bug in the sign-in method for api', $exception->getMessage());
         self::assertFalse(self::dumpsInTrace($exception, self::PASSWORD));
@@ -167,7 +167,7 @@ final class SecretRedactionTest extends TestCase
             throw new \RuntimeException('a bug in a sign-in listener');
         });
 
-        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->signIn('password', self::credentials()));
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->signIn('password', self::credentials(), self::requestContext()));
 
         self::assertSame('a bug in a sign-in listener', $exception->getMessage());
         self::assertFalse(self::dumpsInTrace($exception, self::anyJwt()));
@@ -252,7 +252,7 @@ final class SecretRedactionTest extends TestCase
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $pending = $this->sessions()->signIn('password', self::credentials());
+        $pending = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
@@ -285,7 +285,7 @@ final class SecretRedactionTest extends TestCase
 
         $sessions = $this->sessions();
 
-        self::assertTrue($sessions->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue($sessions->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
 
         Event::listen(SessionRevoked::class, static function (): never {
             throw new \RuntimeException('a bug in a sign-out listener');
@@ -379,7 +379,7 @@ final class SecretRedactionTest extends TestCase
             }
         });
 
-        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->signIn('password', self::credentials()));
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->signIn('password', self::credentials(), self::requestContext()));
 
         self::assertSame('the rehash failed', $exception->getMessage());
         self::assertTrue(self::runsClosure($exception, Rehashing::class, 'during'));
@@ -405,13 +405,13 @@ final class SecretRedactionTest extends TestCase
 
         ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
 
-        $choosing = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->credential?->reveal();
+        $choosing = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->credential?->reveal();
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $satisfying = $this->sessions()->signIn('password', self::credentials());
-        $discarding = $this->sessions()->signIn('password', self::credentials())->credential?->reveal();
+        $satisfying = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
+        $discarding = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->credential?->reveal();
 
         self::assertIsString($choosing);
         self::assertIsString($discarding);
@@ -430,7 +430,7 @@ final class SecretRedactionTest extends TestCase
         $actions = [
             'satisfy' => [$satisfied, PendingSessions::class, 'atomically', fn (): mixed => $this->sessions()->satisfy($satisfied, $proof, self::requestClient())],
             'choose'  => [$choosing, PendingSessions::class, 'atomically', fn (): mixed => $this->sessions('members')->choose($choosing, $first, self::requestClient())],
-            'discard' => [$discarding, Connection::class, 'transaction', fn (): mixed => $this->sessions()->discard($discarding)],
+            'discard' => [$discarding, Connection::class, 'transaction', fn (): mixed => $this->sessions()->discard($discarding, self::requestClient())],
         ];
 
         foreach ($actions as $action => [$credential, $class, $function, $act]) {
@@ -470,7 +470,7 @@ final class SecretRedactionTest extends TestCase
             throw new \RuntimeException('the pending session was not written');
         });
 
-        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->signIn('password', self::credentials()));
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->signIn('password', self::credentials(), self::requestContext()));
         $secret    = static fn (string $value): bool => preg_match_all('/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/', $value, $found) > 0
             && array_filter($found[0], static fn (string $candidate): bool => RefreshTokenHasher::verify($candidate, $digest['pending'])) !== [];
 
@@ -498,7 +498,7 @@ final class SecretRedactionTest extends TestCase
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $pending    = $this->sessions()->signIn('password', self::credentials());
+        $pending    = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
         $credential = $pending->credential?->reveal();
 
         self::assertNotNull($credential);
@@ -626,7 +626,7 @@ final class SecretRedactionTest extends TestCase
      */
     private function signedIn(): TokenPair
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

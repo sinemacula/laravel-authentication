@@ -216,7 +216,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
         $second = TypedMembership::query()->create(['identity_id' => $first->identity_id, 'tenant_id' => null, 'type' => 'service']);
 
         $sessions = Auth::sessions(self::GUARD);
-        $signedIn = $sessions->start($first->getIdentity(), $first, 'password')->session;
+        $signedIn = $sessions->start($first->getIdentity(), $first, 'password', self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 

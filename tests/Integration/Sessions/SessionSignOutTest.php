@@ -277,7 +277,7 @@ final class SessionSignOutTest extends TestCase
     {
         $this->seedIdentity();
 
-        $cookie = $this->sessions('admin')->signIn('password', self::credentials())->session?->tokens->refreshCookie?->cookie()->getValue();
+        $cookie = $this->sessions('admin')->signIn('password', self::credentials(), self::requestContext())->session?->tokens->refreshCookie?->cookie()->getValue();
 
         self::assertIsString($cookie);
 
@@ -347,7 +347,7 @@ final class SessionSignOutTest extends TestCase
      */
     private function signedIn(): string
     {
-        $token = $this->sessions()->signIn('password', self::credentials())->session?->tokens->refreshToken?->reveal();
+        $token = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->tokens->refreshToken?->reveal();
 
         self::assertIsString($token);
 

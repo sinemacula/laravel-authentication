@@ -151,7 +151,7 @@ final class ExternalSignInTest extends TestCase
 
         $this->recordEvents([Attempting::class, ExternalResultUnlinked::class, SessionCreated::class, SignedIn::class, Validated::class]);
 
-        $signedIn = $this->sessions()->signInExternally($result);
+        $signedIn = $this->sessions()->signInExternally($result, self::requestContext());
         $session  = $signedIn->session;
 
         self::assertTrue($signedIn->isSignedIn());
@@ -189,7 +189,7 @@ final class ExternalSignInTest extends TestCase
 
         $this->recordEvents([ExternalResultUnlinked::class, Failed::class, AuthenticationFailed::class]);
 
-        $refused = $this->sessions()->signInExternally($result);
+        $refused = $this->sessions()->signInExternally($result, self::requestContext());
 
         self::assertTrue($refused->isFailed());
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $refused->reason);
@@ -254,7 +254,7 @@ final class ExternalSignInTest extends TestCase
 
         $this->recordEvents([SessionCreated::class, SignedIn::class, ExternalResultRedeemed::class, AuthenticationFailed::class]);
 
-        $session = $this->sessions()->signInExternally($result)->session;
+        $session = $this->sessions()->signInExternally($result, self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertSame([SessionCreated::class, SignedIn::class, ExternalResultRedeemed::class], $this->recordedClasses());
@@ -319,7 +319,7 @@ final class ExternalSignInTest extends TestCase
             SessionCreated::class, SignedIn::class, ExternalResultRedeemed::class, SessionPending::class, AuthenticationFailed::class, ExternalResultUnlinked::class,
         ]);
 
-        $session = $this->sessions()->signInExternally($this->linkedResult($identity, providerContext: $context))->session;
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity, providerContext: $context), self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertSame($context->toArray(), SessionProofs::provenance($session->record)?->providerContext?->toArray());
@@ -327,12 +327,12 @@ final class ExternalSignInTest extends TestCase
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requirementFor')->andReturn(new Requirement(new RequirementPart));
 
-        $pending = $this->sessions()->signInExternally($this->linkedResult($identity, providerContext: $context))->pending;
+        $pending = $this->sessions()->signInExternally($this->linkedResult($identity, providerContext: $context), self::requestContext())->pending;
 
         self::assertNotNull($pending);
         self::assertSame($context->toArray(), SessionProofs::provenance($pending->session)?->providerContext?->toArray());
 
-        $refused = $this->sessions()->signInExternally(new ExternalResult('connection-7', self::ISSUER, 'nobody', providerContext: $context));
+        $refused = $this->sessions()->signInExternally(new ExternalResult('connection-7', self::ISSUER, 'nobody', providerContext: $context), self::requestContext());
 
         self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $refused->reason);
         self::assertSame(
@@ -379,14 +379,14 @@ final class ExternalSignInTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($this->sessions()->signInExternally($result)->isPending());
+        self::assertTrue($this->sessions()->signInExternally($result, self::requestContext())->isPending());
         self::assertSame([], $this->recordedClasses());
 
         DB::rollBack();
 
         self::assertSame([], $this->recordedClasses());
 
-        $pending = $this->sessions()->signInExternally($result)->pending;
+        $pending = $this->sessions()->signInExternally($result, self::requestContext())->pending;
 
         self::assertNotNull($pending);
         self::assertSame([SessionPending::class, ExternalResultRedeemed::class], $this->recordedClasses());
@@ -425,7 +425,7 @@ final class ExternalSignInTest extends TestCase
             SessionRevoked::class,
         ]);
 
-        $refused = $this->sessions()->signInExternally($this->linkedResult($identity));
+        $refused = $this->sessions()->signInExternally($this->linkedResult($identity), self::requestContext());
 
         self::assertSame(FailureReason::IDENTITY_INACTIVE, $refused->reason);
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
@@ -448,7 +448,7 @@ final class ExternalSignInTest extends TestCase
 
         $this->recordEvents([ExternalResultUnlinked::class, AuthenticationFailed::class, ExternalResultRedeemed::class]);
 
-        $refused = $this->sessions()->signInExternally(new ExternalResult('connection-7', self::ISSUER, 'nobody', requestReference: 'request-9'));
+        $refused = $this->sessions()->signInExternally(new ExternalResult('connection-7', self::ISSUER, 'nobody', requestReference: 'request-9'), self::requestContext());
 
         self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $refused->reason);
         self::assertSame([ExternalResultUnlinked::class, AuthenticationFailed::class], $this->recordedClasses());
@@ -481,7 +481,7 @@ final class ExternalSignInTest extends TestCase
         ];
 
         foreach ($results as $result) {
-            self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $this->sessions()->signInExternally($result)->reason);
+            self::assertSame(FailureReason::EXTERNAL_RESULT_UNLINKED, $this->sessions()->signInExternally($result, self::requestContext())->reason);
         }
 
         self::assertSame(0, Session::query()->count());
@@ -506,9 +506,9 @@ final class ExternalSignInTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::IDENTITY_UNKNOWN, $this->sessions()->signInExternally($results[0])->reason);
+        self::assertSame(FailureReason::IDENTITY_UNKNOWN, $this->sessions()->signInExternally($results[0], self::requestContext())->reason);
         self::assertSame('external_provider', $this->recordedEvent(AuthenticationFailed::class)->context->method);
-        self::assertSame(FailureReason::IDENTITY_INACTIVE, $this->sessions()->signInExternally($results[1])->reason);
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, $this->sessions()->signInExternally($results[1], self::requestContext())->reason);
         self::assertSame(0, Session::query()->count());
     }
 
@@ -560,7 +560,11 @@ final class ExternalSignInTest extends TestCase
         $this->recordEvents([Attempting::class, AuthenticationFailed::class]);
 
         try {
-            $this->sessions()->signIn(SignInMethodManager::EXTERNAL_METHOD, ['connection' => 'connection-7', 'issuer' => self::ISSUER, 'subject' => 'subject-1']);
+            $this->sessions()->signIn(
+                SignInMethodManager::EXTERNAL_METHOD,
+                ['connection' => 'connection-7', 'issuer' => self::ISSUER, 'subject' => 'subject-1'],
+                self::requestContext(),
+            );
 
             self::fail('An external result was taken as input.');
         } catch (\InvalidArgumentException $exception) {
@@ -588,7 +592,7 @@ final class ExternalSignInTest extends TestCase
         $this->recordEvents([ExternalResultUnlinked::class, AuthenticationFailed::class]);
 
         try {
-            $this->sessions()->signInExternally(new ExternalResult('connection-7', self::ISSUER, 'subject-1'));
+            $this->sessions()->signInExternally(new ExternalResult('connection-7', self::ISSUER, 'subject-1'), self::requestContext());
 
             self::fail('The link contract\'s exception was swallowed.');
         } catch (\RuntimeException $exception) {
@@ -619,7 +623,7 @@ final class ExternalSignInTest extends TestCase
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requirementFor')->andReturn(new Requirement(multifactor: new RequirementPart));
 
-        $pending = $this->sessions()->signInExternally($this->linkedResult($identity, evidence: $evidence));
+        $pending = $this->sessions()->signInExternally($this->linkedResult($identity, evidence: $evidence), self::requestContext());
 
         self::assertTrue($pending->isPending());
         self::assertNull(SessionProvenance::query()->sole()->accepted_evidence);
@@ -627,7 +631,7 @@ final class ExternalSignInTest extends TestCase
 
         $this->app?->instance(ExternalEvidencePolicy::class, new ScriptedEvidencePolicy([RequirementKind::MULTIFACTOR, RequirementKind::ADDITIONAL_VERIFICATION]));
 
-        $session = $this->sessions()->signInExternally($this->linkedResult($identity, evidence: $evidence))->session;
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity, evidence: $evidence), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -658,7 +662,7 @@ final class ExternalSignInTest extends TestCase
         config()->set('auth.guards.api.refresh_token', ['transport' => 'carrier-pigeon']);
 
         try {
-            $this->sessions()->signInExternally($result);
+            $this->sessions()->signInExternally($result, self::requestContext());
 
             self::fail('A misconfigured transport was let through.');
         } catch (\InvalidArgumentException) {
@@ -755,7 +759,7 @@ final class ExternalSignInTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $refused = $this->sessions()->signInExternally($named('link-1'));
+        $refused = $this->sessions()->signInExternally($named('link-1'), self::requestContext());
 
         self::assertSame(FailureReason::LINK_MISMATCH, $refused->reason);
         self::assertSame([FailureReason::LINK_MISMATCH], array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->recorded));
@@ -768,7 +772,7 @@ final class ExternalSignInTest extends TestCase
             $levels[] = DB::transactionLevel();
         });
 
-        $signedIn = $this->sessions()->signInExternally($named('link-2'));
+        $signedIn = $this->sessions()->signInExternally($named('link-2'), self::requestContext());
 
         self::assertTrue($signedIn->isSignedIn());
         self::assertSame([1], $levels);
@@ -816,7 +820,7 @@ final class ExternalSignInTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $result   = $this->linkedResult($identity, sessionNotAfter: $this->now->addHours(2));
-        $session  = $this->sessions()->signInExternally($result)->session;
+        $session  = $this->sessions()->signInExternally($result, self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertSame(self::CLIENT_IP, $session->record->getAttribute($session->record->getCreatedIpName()));
@@ -844,7 +848,7 @@ final class ExternalSignInTest extends TestCase
         request()->headers->set('Origin', 'https://provider.example.test');
         request()->headers->remove('X-Requested-With');
 
-        foreach ([null, new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT))] as $context) {
+        foreach ([self::requestContext(), new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT))] as $context) {
 
             $session = $sessions->signInExternally($this->linkedResult($identity), $context)->session;
 

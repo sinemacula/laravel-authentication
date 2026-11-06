@@ -404,7 +404,7 @@ final class ManagerServicesRequestsTest extends TestCase
             }
 
             $minutes = Auth::jwt('api')->lifetimes()->accessTtlMinutes;
-            $access  = Auth::sessions('api')->signIn('password', request()->only('email', 'password'))->session?->tokens->accessToken->reveal();
+            $access  = Auth::sessions('api')->signIn('password', request()->only('email', 'password'), self::requestContext())->session?->tokens->accessToken->reveal();
             $claims  = $access === null ? null : Auth::jwt('api')->parse($access);
 
             self::assertIsArray($claims);
@@ -417,13 +417,13 @@ final class ManagerServicesRequestsTest extends TestCase
         Route::post('/api/trusted', function (): array {
             $this->servedBy[] = app();
 
-            return ['signed_in' => Auth::sessions('api')->signIn('trusted', request()->only('email'))->isSignedIn()];
+            return ['signed_in' => Auth::sessions('api')->signIn('trusted', request()->only('email'), self::requestContext())->isSignedIn()];
         });
 
         Route::post('/codes/send', function (): array {
             $this->senders[] = FakeOneTimeCodeSender::fake();
 
-            $request = Auth::codes('mobile')->send('phone_code', request()->only('phone'));
+            $request = Auth::codes('mobile')->send('phone_code', request()->only('phone'), self::requestClient());
 
             return ['sent' => $request->isSent(), 'challenge' => $request->challengeId];
         });
@@ -432,7 +432,7 @@ final class ManagerServicesRequestsTest extends TestCase
             $sessions = Auth::sessions('mobile');
             $this->recordInThisRequest(self::LIFECYCLE);
 
-            return ['signed_in' => $sessions->signIn('phone_code', request()->only('phone', 'challenge', 'code'))->isSignedIn()];
+            return ['signed_in' => $sessions->signIn('phone_code', request()->only('phone', 'challenge', 'code'), self::requestContext())->isSignedIn()];
         });
     }
 

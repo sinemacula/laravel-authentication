@@ -296,7 +296,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $this->seedChooser($memberships);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(6, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test')));
+        $result   = $this->assertQueryBudget(6, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test'), self::requestContext()));
 
         self::assertTrue($result->isPending());
     }
@@ -345,7 +345,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         ActivatableTenant::query()->where('name', '!=', 'Tenant 1')->update(['is_active' => false]);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(9, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test')));
+        $result   = $this->assertQueryBudget(9, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials('chooser@example.test'), self::requestContext()));
 
         self::assertTrue($result->isSignedIn());
     }
@@ -693,7 +693,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     {
         $this->seedChooser($memberships);
 
-        $choice = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'))->credential?->reveal();
+        $choice = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'), self::requestContext())->credential?->reveal();
 
         self::assertNotNull($choice);
 

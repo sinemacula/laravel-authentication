@@ -9,6 +9,7 @@ use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\AccessTokenResult;
 use SineMacula\Laravel\Authentication\Sessions\ExternalReauthentication;
@@ -86,17 +87,17 @@ trait SignsInExternally
      * `sign_in`) report them, with the connection and request reference too.
      *
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
-     * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function signInExternally(ExternalResult $result, ?SignInContext $context = null): SignInResult
+    public function signInExternally(ExternalResult $result, SignInContext $context): SignInResult
     {
         $began     = CarbonImmutable::now()->startOfSecond();
         $method    = SignInMethodManager::EXTERNAL_METHOD;
         $transport = $this->transport();
-        $context   = ($context ?? SignInContext::fromRequest($this->context->request()))->withNotAfter($result->sessionNotAfter);
+        $context   = $context->withNotAfter($result->sessionNotAfter);
         $recheck   = $this->recheck($context->client, $began);
         $outcome   = SessionLookup::model()->getConnection()->transaction(function () use ($result, $context, $method, $recheck): mixed {
 
@@ -147,13 +148,14 @@ trait SignsInExternally
      *
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      *
      * @throws \Throwable
      */
-    public function reauthenticateExternally(mixed $sessionId, ExternalResult $result): AccessTokenResult
+    public function reauthenticateExternally(mixed $sessionId, ExternalResult $result, ClientContext $client): AccessTokenResult
     {
-        return $this->externalReauthentications->reauthenticate($sessionId, $result);
+        return $this->externalReauthentications->reauthenticate($sessionId, $result, $client);
     }
 
     /**

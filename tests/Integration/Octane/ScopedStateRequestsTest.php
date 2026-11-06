@@ -59,7 +59,10 @@ final class ScopedStateRequestsTest extends TestCase
 
         $this->createSessionTables();
 
-        Route::post('/sign-in', static fn (): array => ['signed_in' => Authentication::sessions('api')->signIn('password', self::credentials())->isSignedIn()]);
+        Route::post(
+            '/sign-in',
+            static fn (): array => ['signed_in' => Authentication::sessions('api')->signIn('password', self::credentials(), self::requestContext())->isSignedIn()],
+        );
 
         Route::post('/web/abandon', function (): array {
             try {

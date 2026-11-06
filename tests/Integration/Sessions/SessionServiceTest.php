@@ -531,7 +531,7 @@ final class SessionServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials())->isSignedIn());
+        self::assertTrue(self::sessionsOf($guard)->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
 
         app()->instance('request', Request::create('/elsewhere', 'GET', server: ['REMOTE_ADDR' => '198.51.100.9']));
 
@@ -562,7 +562,7 @@ final class SessionServiceTest extends TestCase
         app()->instance(PrincipalResolver::class, new StubFixedPrincipalResolver($principal));
 
         try {
-            $this->sessions()->signIn('password', self::credentials());
+            $this->sessions()->signIn('password', self::credentials(), self::requestContext());
             self::fail('Expected issuing to fail.');
         } catch (\InvalidArgumentException $exception) {
             self::assertStringContainsString('`principal`', $exception->getMessage());
@@ -772,7 +772,7 @@ final class SessionServiceTest extends TestCase
 
         $this->requireAFurtherFactor();
 
-        $pending = self::sessionsOf($this->freshGuard('admin'))->signIn('password', self::credentials());
+        $pending = self::sessionsOf($this->freshGuard('admin'))->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
@@ -929,7 +929,7 @@ final class SessionServiceTest extends TestCase
     private function failedSignIn(): string
     {
         try {
-            $this->sessions()->signIn('password', self::credentials());
+            $this->sessions()->signIn('password', self::credentials(), self::requestContext());
         } catch (\RuntimeException $exception) {
             return $exception->getMessage();
         }

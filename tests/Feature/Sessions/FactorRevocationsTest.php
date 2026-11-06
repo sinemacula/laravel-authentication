@@ -528,7 +528,7 @@ final class FactorRevocationsTest extends TestCase
             $memberships[] = ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
         }
 
-        $signIn = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
+        $signIn = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext());
 
         self::assertNotNull($signIn->pending);
         self::assertNotNull($signIn->credential);
@@ -956,7 +956,7 @@ final class FactorRevocationsTest extends TestCase
         $this->requireAFurtherFactor();
 
         $current = $this->satisfied('factor-a');
-        $other   = $this->sessions()->signIn('password', self::credentials())->pending;
+        $other   = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->pending;
         $guard   = $this->boundGuard($current);
 
         self::assertNotNull($other);
@@ -1168,7 +1168,7 @@ final class FactorRevocationsTest extends TestCase
         $this->stepUp($other, 'factor-a');
         $this->requireAFurtherFactor();
 
-        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
+        $pending = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->pending;
 
         self::assertNotNull($pending);
 
@@ -1729,7 +1729,7 @@ final class FactorRevocationsTest extends TestCase
     {
         $this->seedIdentity('grace@example.test');
 
-        $result = $this->sessions()->signIn('password', self::credentials('grace@example.test'));
+        $result = $this->sessions()->signIn('password', self::credentials('grace@example.test'), self::requestContext());
 
         self::assertInstanceOf(Session::class, $result->session?->record);
 
@@ -1745,7 +1745,7 @@ final class FactorRevocationsTest extends TestCase
      */
     public function anotherGuardsSession(): Session
     {
-        $result = $this->sessions('admin')->signIn('password', self::credentials());
+        $result = $this->sessions('admin')->signIn('password', self::credentials(), self::requestContext());
 
         self::assertInstanceOf(Session::class, $result->session?->record);
 
@@ -1848,7 +1848,7 @@ final class FactorRevocationsTest extends TestCase
             $this->seedIdentity($email);
         }
 
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -1884,7 +1884,7 @@ final class FactorRevocationsTest extends TestCase
             $this->seedIdentity($email);
         }
 
-        $pending = $this->sessions($guard)->signIn('password', self::credentials($email));
+        $pending = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext());
 
         self::assertTrue($pending->isPending());
         self::assertNotNull($pending->pending);
@@ -1914,7 +1914,9 @@ final class FactorRevocationsTest extends TestCase
     {
         $guard = (string) $signedIn->record->getGuard();
 
-        self::assertTrue($this->sessions($guard)->stepUp($this->proof($signedIn->identity, $signedIn->record->getKey(), $factor, Purpose::STEP_UP, $guard))->isIssued());
+        self::assertTrue(
+            $this->sessions($guard)->stepUp($this->proof($signedIn->identity, $signedIn->record->getKey(), $factor, Purpose::STEP_UP, $guard), self::requestClient())->isIssued(),
+        );
     }
 
     /**

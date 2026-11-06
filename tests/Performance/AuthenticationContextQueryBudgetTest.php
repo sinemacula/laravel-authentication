@@ -144,7 +144,10 @@ final class AuthenticationContextQueryBudgetTest extends PerformanceContractTest
         ]);
 
         $identity = $this->seedIdentity('external@example.test');
-        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, providerContext: new ProviderContext(['protocol' => 'saml'])))->session;
+        $session  = $this->sessions()->signInExternally(
+            $this->linkedResult($identity, providerContext: new ProviderContext(['protocol' => 'saml'])),
+            self::requestContext(),
+        )->session;
 
         self::assertNotNull($session);
 
@@ -210,7 +213,7 @@ final class AuthenticationContextQueryBudgetTest extends PerformanceContractTest
     {
         $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

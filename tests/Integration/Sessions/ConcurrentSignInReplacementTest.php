@@ -407,7 +407,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
      */
     private function signIn(IntegrationIdentity $identity): SignedInSession
     {
-        $session = $this->sessions()->start($identity, null, 'sso')->session;
+        $session = $this->sessions()->start($identity, null, 'sso', self::requestContext())->session;
 
         self::assertNotNull($session);
 

@@ -440,7 +440,7 @@ final class FactorRevocationsTest extends TestCase
      */
     private function satisfied(string $factor): SignedInSession
     {
-        $pending = $this->sessions()->signIn('password', self::credentials());
+        $pending = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
@@ -476,7 +476,7 @@ final class FactorRevocationsTest extends TestCase
     {
         app()->instance(AdditionalFactorPolicy::class, new NeverRequireAdditionalFactor);
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

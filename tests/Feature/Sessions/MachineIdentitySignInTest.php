@@ -119,7 +119,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         $this->app?->instance('hash', $hasher);
 
-        $result = $this->sessions('machines')->signIn('password', self::credentials(self::EMAIL));
+        $result = $this->sessions('machines')->signIn('password', self::credentials(self::EMAIL), self::requestContext());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $result->reason);
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->recordedEvent(AuthenticationFailed::class)->reason);
@@ -147,13 +147,13 @@ final class MachineIdentitySignInTest extends TestCase
         $this->seedMachineWithPassword();
         $this->seedIdentity('human@example.test');
 
-        $this->sessions('machines')->signIn('password', ['email' => self::EMAIL, 'password' => 'wrong']);
+        $this->sessions('machines')->signIn('password', ['email' => self::EMAIL, 'password' => 'wrong'], self::requestContext());
 
         $forMachine = DB::table('rate_limits')->count();
 
         DB::table('rate_limits')->delete();
 
-        $this->sessions('api')->signIn('password', ['email' => 'human@example.test', 'password' => 'wrong']);
+        $this->sessions('api')->signIn('password', ['email' => 'human@example.test', 'password' => 'wrong'], self::requestContext());
 
         self::assertSame(2, $forMachine);
         self::assertSame(3, DB::table('rate_limits')->count());
@@ -182,7 +182,7 @@ final class MachineIdentitySignInTest extends TestCase
     {
         $machine = $this->seedMachineWithPassword();
 
-        $result = $this->sessions('machines')->signIn($method, ['email' => self::EMAIL]);
+        $result = $this->sessions('machines')->signIn($method, ['email' => self::EMAIL], self::requestContext());
 
         self::assertTrue($result->isFailed());
         self::assertSame(FailureReason::MACHINE_IDENTITY, $result->reason);
@@ -242,7 +242,7 @@ final class MachineIdentitySignInTest extends TestCase
     {
         $machine = $this->seedMachineWithPassword();
 
-        $result = $this->sessions('machines')->start($machine, null, 'proven');
+        $result = $this->sessions('machines')->start($machine, null, 'proven', self::requestContext());
 
         self::assertSame(FailureReason::MACHINE_IDENTITY, $result->reason);
         self::assertSame(0, DB::table('authentication_sessions')->count());
@@ -378,7 +378,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         self::assertSame($human->getKey(), $machine->getKey());
 
-        $session = $this->sessions()->signIn('password', self::credentials(self::EMAIL))->session;
+        $session = $this->sessions()->signIn('password', self::credentials(self::EMAIL), self::requestContext())->session;
 
         self::assertNotNull($session);
 

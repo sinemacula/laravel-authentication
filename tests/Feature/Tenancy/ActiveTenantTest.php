@@ -270,7 +270,7 @@ final class ActiveTenantTest extends TestCase
 
         $this->seedMember('own@example.test');
 
-        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('own@example.test'))->isSignedIn());
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('own@example.test'), self::requestContext())->isSignedIn());
 
         $this->recordEvents([SessionRevoked::class]);
 

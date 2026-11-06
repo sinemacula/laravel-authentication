@@ -151,8 +151,8 @@ final class CookieTransportTest extends TestCase
     {
         $this->seedIdentity();
 
-        $cookie = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
-        $body   = $this->sessions(self::BODY)->signIn('password', self::credentials())->session;
+        $cookie = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session;
+        $body   = $this->sessions(self::BODY)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($cookie);
         self::assertNotNull($body);
@@ -171,7 +171,7 @@ final class CookieTransportTest extends TestCase
      */
     public function testAStartedSessionHandsBackTheCookie(): void
     {
-        $session = $this->sessions(self::BROWSER)->start($this->seedIdentity(), null, 'sso')->session;
+        $session = $this->sessions(self::BROWSER)->start($this->seedIdentity(), null, 'sso', self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertCookiePair(self::BROWSER, $session->tokens, $session->record);
@@ -193,7 +193,7 @@ final class CookieTransportTest extends TestCase
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $pending = $this->sessions(self::BROWSER)->signIn('password', self::credentials());
+        $pending = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
@@ -226,7 +226,7 @@ final class CookieTransportTest extends TestCase
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $pending = $this->sessions(self::BROWSER)->signIn('password', self::credentials());
+        $pending = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
@@ -273,7 +273,7 @@ final class CookieTransportTest extends TestCase
 
         ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
 
-        $pending = $this->sessions(self::MEMBERS)->signIn('password', self::credentials('member@example.test'));
+        $pending = $this->sessions(self::MEMBERS)->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         self::assertNotNull($pending->credential);
 
@@ -304,12 +304,12 @@ final class CookieTransportTest extends TestCase
 
         ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $other->getKey()]);
 
-        $choice = $this->sessions(self::MEMBERS)->signIn('password', self::credentials('member@example.test'));
+        $choice = $this->sessions(self::MEMBERS)->signIn('password', self::credentials('member@example.test'), self::requestContext());
 
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $factor = $this->sessions(self::BROWSER)->signIn('password', self::credentials());
+        $factor = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($choice->credential);
         self::assertNotNull($factor->pending);
@@ -325,8 +325,8 @@ final class CookieTransportTest extends TestCase
 
         $calls = [
             self::BROWSER => [
-                fn (): mixed => $this->sessions(self::BROWSER)->signIn('password', self::credentials()),
-                fn (): mixed => $this->sessions(self::BROWSER)->start($identity, null, 'sso'),
+                fn (): mixed => $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext()),
+                fn (): mixed => $this->sessions(self::BROWSER)->start($identity, null, 'sso', self::requestContext()),
                 fn (): mixed => $this->sessions(self::BROWSER)->satisfy($factor->credential->reveal(), $proof, self::requestClient()),
             ],
             self::MEMBERS => [
@@ -373,7 +373,7 @@ final class CookieTransportTest extends TestCase
     {
         $this->seedIdentity();
 
-        $first = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session?->tokens;
+        $first = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session?->tokens;
 
         self::assertNotNull($first);
 
@@ -441,7 +441,7 @@ final class CookieTransportTest extends TestCase
     {
         $this->seedIdentity();
 
-        $first = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session?->tokens;
+        $first = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session?->tokens;
         $binds = $this->countBinds();
 
         self::assertNotNull($first);
@@ -545,7 +545,7 @@ final class CookieTransportTest extends TestCase
     {
         $this->seedIdentity();
 
-        $token = self::cookieValue($this->sessions(self::BROWSER)->signIn('password', self::credentials())->session?->tokens);
+        $token = self::cookieValue($this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session?->tokens);
         $other = $this->seedIdentity('grace@example.test');
 
         $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class]);
@@ -574,7 +574,7 @@ final class CookieTransportTest extends TestCase
         self::assertSame(AuthenticationFlow::SIGN_OUT, $this->recordedEvent(AuthenticationFailed::class)->flow);
         self::assertTrue($this->fromCookie(self::BROWSER, $token)->refresh(self::servedToken(self::BROWSER), self::requestClient())?->isRefreshed());
 
-        $body = $this->sessions(self::BODY)->signIn('password', self::credentials())->session?->tokens->refreshToken;
+        $body = $this->sessions(self::BODY)->signIn('password', self::credentials(), self::requestContext())->session?->tokens->refreshToken;
 
         self::assertNotNull($body);
         self::assertTrue($this->sessions(self::BODY)->refresh(PresentedRefreshToken::fromBody($body), self::requestClient())->isRefreshed());
@@ -597,7 +597,7 @@ final class CookieTransportTest extends TestCase
     {
         $this->seedIdentity();
 
-        $first     = self::cookieValue($this->sessions(self::BROWSER)->signIn('password', self::credentials())->session?->tokens);
+        $first     = self::cookieValue($this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session?->tokens);
         $transport = Auth::refreshTransport(self::BROWSER);
 
         $this->fromCookie(self::BROWSER, $first);
@@ -663,8 +663,8 @@ final class CookieTransportTest extends TestCase
     {
         $this->seedIdentity();
 
-        $byCookie = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
-        $byBearer = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
+        $byCookie = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session;
+        $byBearer = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($byCookie);
         self::assertNotNull($byBearer);
@@ -750,8 +750,8 @@ final class CookieTransportTest extends TestCase
     {
         $this->seedIdentity();
 
-        $revoked  = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
-        $replayed = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
+        $revoked  = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session;
+        $replayed = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($revoked);
         self::assertNotNull($replayed);
@@ -804,8 +804,8 @@ final class CookieTransportTest extends TestCase
     {
         $this->seedIdentity();
 
-        $bound = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
-        $raced = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
+        $bound = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session;
+        $raced = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($bound);
         self::assertNotNull($raced);
@@ -865,7 +865,7 @@ final class CookieTransportTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions(self::UNNAMED)->signIn('password', self::credentials())->session;
+        $session = $this->sessions(self::UNNAMED)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertNull($session->tokens->refreshCookie);
@@ -910,8 +910,8 @@ final class CookieTransportTest extends TestCase
     {
         $this->seedIdentity();
 
-        $body    = $this->sessions(self::BODY)->signIn('password', self::credentials())->session;
-        $browser = $this->sessions(self::BROWSER)->signIn('password', self::credentials())->session;
+        $body    = $this->sessions(self::BODY)->signIn('password', self::credentials(), self::requestContext())->session;
+        $browser = $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($body);
         self::assertNotNull($browser);

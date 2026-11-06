@@ -67,12 +67,14 @@ final class SharedCredentialTimeboxTest extends TestCase
         $recent   = new RecentAuthentication($guard->context(), app());
 
         self::assertTrue($guard->attempt(self::credentials(self::EMAIL)));
-        self::assertNull($sessions->signIn('password', ['email' => self::EMAIL, 'password' => self::WRONG_PASSWORD])->session);
-        self::assertNotNull($sessions->signIn('password', self::credentials(self::EMAIL))->session);
+        self::assertNull($sessions->signIn('password', ['email' => self::EMAIL, 'password' => self::WRONG_PASSWORD], self::requestContext())->session);
+        self::assertNotNull($sessions->signIn('password', self::credentials(self::EMAIL), self::requestContext())->session);
         self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $recent->refusal($identity, Reauthentication::password(self::WRONG_PASSWORD), self::CLIENT_IP));
         self::assertNull($recent->refusal($identity, Reauthentication::password(self::PASSWORD), self::CLIENT_IP));
-        self::assertFalse(Auth::passwords('web')->reset(['email' => self::EMAIL, 'token' => str_repeat('a', 43), 'password' => self::NEW_PASSWORD])->isReset());
-        self::assertTrue(Auth::passwords('web')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->isReset());
+        self::assertFalse(
+            Auth::passwords('web')->reset(['email' => self::EMAIL, 'token' => str_repeat('a', 43), 'password' => self::NEW_PASSWORD], self::requestClient())->isReset(),
+        );
+        self::assertTrue(Auth::passwords('web')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], self::requestClient())->isReset());
         self::assertFalse($guard->attempt(self::credentials(self::EMAIL)));
 
         self::assertSame([true, false, true, false, true, false, true, false], $box->endedEarly);

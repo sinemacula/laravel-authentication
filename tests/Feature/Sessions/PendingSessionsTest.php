@@ -357,7 +357,7 @@ final class PendingSessionsTest extends TestCase
         self::assertNull($this->sessions()->pending($credential));
         self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, $proof, self::requestClient())->reason);
         self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->choose($credential, $identity, self::requestClient())->reason);
-        self::assertFalse($this->sessions()->discard($credential));
+        self::assertFalse($this->sessions()->discard($credential, self::requestClient()));
         self::assertSame([], $queries);
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
     }
@@ -453,7 +453,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->factorRequired = false;
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -463,7 +463,7 @@ final class PendingSessionsTest extends TestCase
 
         self::assertNull($this->sessions()->pending($session->tokens->accessToken->reveal()));
         self::assertNull($this->sessions()->pending($session->tokens->refreshToken?->reveal()));
-        self::assertFalse($this->sessions()->discard($session->tokens->refreshToken?->reveal()));
+        self::assertFalse($this->sessions()->discard($session->tokens->refreshToken?->reveal(), self::requestClient()));
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $credential])->getJson('/me')->assertUnauthorized();
 
@@ -594,8 +594,8 @@ final class PendingSessionsTest extends TestCase
     {
         [$member, $first] = $this->seedChooser();
 
-        $signIn = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
-        $again  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'));
+        $signIn = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext());
+        $again  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext());
 
         self::assertNotNull($signIn->pending);
         self::assertNotNull($signIn->credential);
@@ -607,7 +607,7 @@ final class PendingSessionsTest extends TestCase
         self::assertSame($signIn->pending->id, $this->sessions(self::CHOOSERS)->pending($credential)?->id);
         self::assertTrue($this->sessions(self::CHOOSERS)->satisfy($credential, $proof, self::requestClient())->isPending());
         self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient())->isSignedIn());
-        self::assertTrue($this->sessions(self::CHOOSERS)->discard($again->credential));
+        self::assertTrue($this->sessions(self::CHOOSERS)->discard($again->credential, self::requestClient()));
         self::assertNull($this->sessions(self::CHOOSERS)->pending($again->credential));
     }
 
@@ -876,7 +876,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->factorRequired = false;
 
-        $first = $this->sessions()->signIn('password', self::credentials())->session;
+        $first = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($first);
 
@@ -921,7 +921,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->factorRequired = false;
 
-        $first = $this->sessions()->signIn('password', self::credentials())->session;
+        $first = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($first);
 
@@ -1082,7 +1082,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->factorRequired = false;
 
-        $first = $this->sessions()->signIn('password', self::credentials())->session;
+        $first = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($first);
 
@@ -1139,7 +1139,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->factorRequired = false;
 
-        $first = $this->sessions()->signIn('password', self::credentials())->session;
+        $first = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($first);
 
@@ -1337,7 +1337,7 @@ final class PendingSessionsTest extends TestCase
 
         for ($signIn = 1; $signIn <= 6; $signIn++) {
 
-            $result = $this->sessions()->signIn('two_secrets', $input);
+            $result = $this->sessions()->signIn('two_secrets', $input, self::requestContext());
 
             self::assertNotNull($result->pending, 'Expected a pending session; got ' . self::describe($result));
             self::assertNotNull($result->credential);
@@ -1424,7 +1424,7 @@ final class PendingSessionsTest extends TestCase
             ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
         }
 
-        $refused = $this->sessions(self::VERIFIED)->signIn('password', self::credentials('chooser@example.test'));
+        $refused = $this->sessions(self::VERIFIED)->signIn('password', self::credentials('chooser@example.test'), self::requestContext());
 
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $refused->reason);
         self::assertSame(0, Session::query()->count());
@@ -1445,9 +1445,10 @@ final class PendingSessionsTest extends TestCase
     }
 
     /**
-     * Discarding a pending session revokes it as `signed_out`, reported once,
-     * so its credential names nothing afterwards; a credential that names no
-     * live pending session discards nothing and reports nothing.
+     * Discarding a pending session revokes it as `signed_out`, reported once
+     * with the client given, not the guard's request, so its credential names
+     * nothing afterwards; a credential that names no live pending session
+     * discards nothing and reports nothing.
      *
      * @return void
      *
@@ -1461,9 +1462,10 @@ final class PendingSessionsTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class, AuthenticationFailed::class]);
 
-        self::assertTrue($this->sessions()->discard($credential));
-        self::assertFalse($this->sessions()->discard($credential));
+        self::assertTrue(self::sessionsOf($this->crossSiteGuard())->discard($credential, self::sameSiteClient()));
+        self::assertFalse($this->sessions()->discard($credential, self::requestClient()));
         self::assertSame([SessionRevoked::class], $this->recordedClasses());
+        self::assertSame(self::sameSiteClient()->ip, $this->recordedEvent(SessionRevoked::class)->context->client->ip);
         self::assertSame(RevocationReason::SIGNED_OUT, $this->recordedEvent(SessionRevoked::class)->reason);
         self::assertSame(IdentifierCoercion::stringify($pending->id), $this->recordedEvent(SessionRevoked::class)->context->sessionId);
         self::assertSame('signed_out', Session::query()->sole()->getRevokedReason());
@@ -1494,8 +1496,8 @@ final class PendingSessionsTest extends TestCase
 
         $this->factorRequired = false;
 
-        $choosing = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'))->credential?->reveal();
-        $waiting  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'))->credential?->reveal();
+        $choosing = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext())->credential?->reveal();
+        $waiting  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), self::requestContext())->credential?->reveal();
 
         self::assertNotNull($choosing);
         self::assertNotNull($waiting);
@@ -1639,7 +1641,7 @@ final class PendingSessionsTest extends TestCase
         $actions = [
             'satisfy' => fn (): mixed => $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::STEP_UP), self::requestClient()),
             'choose'  => fn (): mixed => $this->sessions()->choose($credential, $identity, self::requestClient()),
-            'discard' => fn (): mixed => $this->sessions()->discard($credential),
+            'discard' => fn (): mixed => $this->sessions()->discard($credential, self::requestClient()),
         ];
 
         foreach ($actions as $name => $action) {
@@ -1668,7 +1670,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->factorRequired = false;
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -2366,7 +2368,7 @@ final class PendingSessionsTest extends TestCase
 
         [$member] = $this->seedMember();
 
-        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 
@@ -2403,7 +2405,7 @@ final class PendingSessionsTest extends TestCase
 
         Route::middleware('auth:members')->get('/members/me', static fn (): array => ['ok' => true]);
 
-        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $signedIn = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 
@@ -2474,7 +2476,7 @@ final class PendingSessionsTest extends TestCase
      */
     private function pendingSignIn(string $guard = 'api', string $email = 'ada@example.test'): array
     {
-        $result = $this->sessions($guard)->signIn('password', self::credentials($email));
+        $result = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext());
 
         self::assertTrue($result->isPending(), 'Expected a pending session; got ' . self::describe($result));
         self::assertNotNull($result->pending);

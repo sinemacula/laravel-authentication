@@ -99,9 +99,9 @@ final class MachineCodeSignInTest extends TestCase
 
         $machine = CodeMachineClient::query()->sole();
 
-        self::assertTrue($this->codeService('machines')->send($method, [$type => $identifier])->isSent());
+        self::assertTrue($this->codeService('machines')->send($method, [$type => $identifier], self::requestClient())->isSent());
 
-        $result = $this->sessions('machines')->signIn($method, [$type => $identifier, 'challenge' => self::challenge(), 'code' => self::CODE]);
+        $result = $this->sessions('machines')->signIn($method, [$type => $identifier, 'challenge' => self::challenge(), 'code' => self::CODE], self::requestContext());
 
         self::assertSame(FailureReason::MACHINE_IDENTITY, $result->reason);
 

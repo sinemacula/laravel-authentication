@@ -107,7 +107,7 @@ final class TokenPairTest extends TestCase
 
         foreach (['api', self::BROWSER] as $guard) {
 
-            $tokens = $this->sessions($guard)->signIn('password', self::credentials())->session?->tokens;
+            $tokens = $this->sessions($guard)->signIn('password', self::credentials(), self::requestContext())->session?->tokens;
 
             self::assertNotNull($tokens);
             self::assertSame($guard === self::BROWSER, $tokens->refreshCookie !== null);
@@ -131,7 +131,7 @@ final class TokenPairTest extends TestCase
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $pending = $this->sessions()->signIn('password', self::credentials());
+        $pending = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
 
         self::assertNotNull($pending->pending);
 
@@ -151,7 +151,7 @@ final class TokenPairTest extends TestCase
 
         [$chooser, $first] = $this->seedChooser();
 
-        $choice = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials($chooser->email));
+        $choice = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials($chooser->email), self::requestContext());
 
         $this->clockAt($this->now->addMinute());
 
@@ -174,7 +174,7 @@ final class TokenPairTest extends TestCase
     {
         $this->seedIdentity();
 
-        $token = $this->sessions()->signIn('password', self::credentials())->session?->tokens->refreshToken?->reveal() ?? '';
+        $token = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session?->tokens->refreshToken?->reveal() ?? '';
 
         $this->clockAt($this->now->addMinutes(2));
 

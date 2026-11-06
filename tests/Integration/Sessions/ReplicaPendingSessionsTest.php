@@ -284,7 +284,7 @@ final class ReplicaPendingSessionsTest extends TestCase
      */
     private function pendingSignIn(string $guard, string $email): SignInResult
     {
-        $result = $this->sessions($guard)->signIn('password', self::credentials($email));
+        $result = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext());
 
         self::assertTrue($result->isPending());
         self::assertNotNull($result->credential);

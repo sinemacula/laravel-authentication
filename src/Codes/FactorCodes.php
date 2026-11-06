@@ -57,17 +57,17 @@ final readonly class FactorCodes
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
      * @param  \SineMacula\Laravel\Authentication\Delivery\QueuedDelivery  $delivery
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \Throwable
      */
-    public function send(FactorCodeBinding $binding, QueuedDelivery $delivery, ?ClientContext $client): CodeRequest
+    public function send(FactorCodeBinding $binding, QueuedDelivery $delivery, ClientContext $client): CodeRequest
     {
         $guard   = $this->application($binding);
-        $context = new EventContext($guard, $client ?? $this->context->client(), $binding->binding->identity);
+        $context = new EventContext($guard, $client, $binding->binding->identity);
         $code    = CodeBinding::factor($guard, $binding);
 
         $reservation = $this->container->make(AttemptLimiter::class)->acquire(
@@ -96,17 +96,17 @@ final readonly class FactorCodes
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
      * @param  string  $challengeId
      * @param  string  $code
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Codes\FactorCodeCheck
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \Throwable
      */
-    public function verify(FactorCodeBinding $binding, string $challengeId, #[\SensitiveParameter] string $code, ?ClientContext $client): FactorCodeCheck
+    public function verify(FactorCodeBinding $binding, string $challengeId, #[\SensitiveParameter] string $code, ClientContext $client): FactorCodeCheck
     {
         $guard   = $this->application($binding);
-        $context = new EventContext($guard, $client ?? $this->context->client(), $binding->binding->identity);
+        $context = new EventContext($guard, $client, $binding->binding->identity);
         $codes   = $this->container->make(OneTimeCodes::class);
 
         if (!$codes->isWellFormed($code) || !$codes->isWellFormedChallenge($challengeId)) {

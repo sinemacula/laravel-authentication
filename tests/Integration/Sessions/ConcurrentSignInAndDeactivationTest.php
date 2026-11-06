@@ -242,7 +242,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
         [$member, $membership] = $this->seedRechecked();
 
         $tokens = $this->race(
-            fn (): array => self::tokensOf(Auth::sessions(self::GUARD)->start($member, $membership, 'sso')),
+            fn (): array => self::tokensOf(Auth::sessions(self::GUARD)->start($member, $membership, 'sso', self::requestContext())),
             function () use ($level, $member): void {
                 self::beginTransactionAt($level);
 
@@ -274,7 +274,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
         [$member, $membership] = $this->seedRechecked();
 
         $tokens = $this->race(
-            fn (): array => self::tokensOf(Auth::sessions(self::GUARD)->start($member, $membership, 'sso')),
+            fn (): array => self::tokensOf(Auth::sessions(self::GUARD)->start($member, $membership, 'sso', self::requestContext())),
             function () use ($level, $member): void {
                 self::beginTransactionAt($level);
 
@@ -336,7 +336,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
             function () use ($identity): array {
                 app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($this->pause(...)));
 
-                return self::described(Auth::sessions('api')->start($identity, null, 'sso'));
+                return self::described(Auth::sessions('api')->start($identity, null, 'sso', self::requestContext()));
             },
             function () use ($identity): void {
                 $this->freezeAt(CarbonImmutable::now()->addSecond());
@@ -367,7 +367,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
         [$member, $membership, $tenant] = $this->seedRechecked();
 
         $other   = RecheckedMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey(), 'is_active' => true]);
-        $pending = Auth::sessions(self::GUARD)->start($member, null, 'sso');
+        $pending = Auth::sessions(self::GUARD)->start($member, null, 'sso', self::requestContext());
 
         self::assertNotNull($pending->credential);
         self::assertCount(2, $pending->pending->principals ?? []);
@@ -408,7 +408,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
         [$member, $membership, $tenant] = $this->seedRechecked();
 
         $destination = RecheckedMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey(), 'is_active' => true]);
-        $session     = Auth::sessions(self::GUARD)->start($member, $membership, 'sso')->session;
+        $session     = Auth::sessions(self::GUARD)->start($member, $membership, 'sso', self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -481,7 +481,7 @@ final class ConcurrentSignInAndDeactivationTest extends TestCase
     {
         app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($this->pause(...)));
 
-        return Auth::sessions(self::GUARD)->start($member, $membership, 'sso');
+        return Auth::sessions(self::GUARD)->start($member, $membership, 'sso', self::requestContext());
     }
 
     /**

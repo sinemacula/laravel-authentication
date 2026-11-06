@@ -122,7 +122,10 @@ final class ContributionSubjectTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $context  = new ProviderContext(['protocol' => 'saml', 'link' => ['made' => 'explicitly']]);
-        $session  = $this->sessions()->signInExternally($this->linkedResult($identity, 'connection-7', 'link-9', tenantId: 'tenant-3', providerContext: $context))->session;
+        $session  = $this->sessions()->signInExternally(
+            $this->linkedResult($identity, 'connection-7', 'link-9', tenantId: 'tenant-3', providerContext: $context),
+            self::requestContext(),
+        )->session;
 
         self::assertNotNull($session);
 
@@ -153,7 +156,7 @@ final class ContributionSubjectTest extends TestCase
     public function testASessionWithoutProvenanceHasNone(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->signIn('password', self::credentials())->session;
+        $session  = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -547,7 +550,7 @@ final class ContributionSubjectTest extends TestCase
      */
     private function signedIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

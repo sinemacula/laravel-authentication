@@ -119,7 +119,7 @@ final class CodeSignInTest extends TestCase
     {
         $identity = self::seedCodeIdentity();
 
-        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE])->isSent());
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->isSent());
 
         $result = $this->signIn(self::CODE);
 
@@ -149,7 +149,7 @@ final class CodeSignInTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn(self::CODE, '+44 7700 900123')->reason);
         self::assertSame(0, self::storedAttempts());
@@ -167,7 +167,7 @@ final class CodeSignInTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         self::assertTrue($this->signIn(self::CODE)->isSignedIn());
 
@@ -190,7 +190,7 @@ final class CodeSignInTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
         $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
         $result = $this->signIn('000000');
@@ -237,7 +237,7 @@ final class CodeSignInTest extends TestCase
 
         self::seedCodeIdentity();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         if ($state === 'expired') {
             CarbonImmutable::setTestNow($this->now->addSeconds(600));
@@ -267,7 +267,7 @@ final class CodeSignInTest extends TestCase
 
         self::seedCodeIdentity();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
         $this->signIn('000000');
         $this->signIn('000001');
 
@@ -275,7 +275,7 @@ final class CodeSignInTest extends TestCase
 
         CarbonImmutable::setTestNow($this->now->addSeconds(60));
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         self::assertTrue($this->signIn('246802')->isSignedIn());
     }
@@ -293,7 +293,7 @@ final class CodeSignInTest extends TestCase
     {
         config()->set('authentication.codes.max_attempts', 2);
 
-        $this->codeService()->send('phone_code', ['phone' => self::UNKNOWN_PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::UNKNOWN_PHONE], self::requestClient());
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn('000000', self::UNKNOWN_PHONE)->reason);
@@ -319,7 +319,7 @@ final class CodeSignInTest extends TestCase
     {
         self::seedCodeIdentity(verified: false);
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn('000000')->reason);
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->signIn(self::CODE)->reason);
@@ -338,7 +338,7 @@ final class CodeSignInTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        $this->codeService('unverifiable')->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService('unverifiable')->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->signIn(self::CODE, guard: 'unverifiable')->reason);
     }
@@ -353,7 +353,7 @@ final class CodeSignInTest extends TestCase
      */
     public function testWhatIsNotAnIdentityIsNoOne(): void
     {
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         $provider = \Mockery::mock(IdentityProvider::class);
         $provider->shouldReceive('retrieveByCredentials')->once()->andReturn(\Mockery::mock(Authenticatable::class));
@@ -375,7 +375,7 @@ final class CodeSignInTest extends TestCase
     {
         self::seedCodeIdentity(active: false);
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertSame(FailureReason::IDENTITY_INACTIVE, $this->signIn(self::CODE)->reason);
@@ -395,7 +395,7 @@ final class CodeSignInTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        $this->codeService('kiosk')->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService('kiosk')->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn(self::CODE)->reason);
         self::assertSame(0, self::storedAttempts());
@@ -413,7 +413,7 @@ final class CodeSignInTest extends TestCase
     {
         $identity = self::seedCodeIdentity();
 
-        $this->codeService()->sendVerification($identity, 'phone');
+        $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn(self::CODE)->reason);
         self::assertSame(0, self::storedAttempts());
@@ -434,7 +434,7 @@ final class CodeSignInTest extends TestCase
 
         config()->set('authentication.rate_limits.sign_in.per_identifier', ['max' => 1, 'decay_seconds' => 300]);
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         DB::table('rate_limits')->insert([
             'key'            => self::counterKey('sign_in', 'per_account', AccountAttempts::account($identity)),
@@ -463,7 +463,7 @@ final class CodeSignInTest extends TestCase
     {
         $identity = self::seedCodeIdentity();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
         $this->signIn('000000');
 
         self::assertSame(1, self::counterHits('sign_in', 'per_account', AccountAttempts::account($identity)));
@@ -518,10 +518,10 @@ final class CodeSignInTest extends TestCase
 
         self::seedCodeIdentity();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
 
         $input  = array_filter([...['challenge' => self::challenge()], ...$input], static fn (mixed $value): bool => $value !== null);
-        $result = $this->sessions('mobile')->signIn('phone_code', $input);
+        $result = $this->sessions('mobile')->signIn('phone_code', $input, self::requestContext());
 
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $result->reason);
         self::assertSame(0, self::storedAttempts());
@@ -543,22 +543,25 @@ final class CodeSignInTest extends TestCase
         self::seedCodeIdentity();
 
         $sessions = $this->sessions('mobile');
-        $first    = $this->codeService()->send('phone_code', ['phone' => self::PHONE])->challengeId;
+        $first    = $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->challengeId;
 
         self::assertIsString($first);
 
         DB::table('one_time_codes')->update(['issued_at' => '2026-04-06 11:59:00', 'expires_at' => '2026-04-06 12:00:00']);
 
-        $live = $this->codeService()->send('phone_code', ['phone' => self::PHONE])->challengeId;
+        $live = $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->challengeId;
 
         self::assertNotSame($first, $live);
 
         foreach ([$first, self::NO_CHALLENGE] as $other) {
-            self::assertSame(FailureReason::INVALID_CREDENTIALS, $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $other, 'code' => '246802'])->reason);
+            self::assertSame(
+                FailureReason::INVALID_CREDENTIALS,
+                $sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $other, 'code' => '246802'], self::requestContext())->reason,
+            );
         }
 
         self::assertSame(0, self::storedAttempts());
-        self::assertTrue($sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $live, 'code' => '246802'])->isSignedIn());
+        self::assertTrue($sessions->signIn('phone_code', ['phone' => self::PHONE, 'challenge' => $live, 'code' => '246802'], self::requestContext())->isSignedIn());
     }
 
     /**
@@ -630,12 +633,12 @@ final class CodeSignInTest extends TestCase
 
         $manager->extend('whatsapp_code', fn (Application $app): CodeSignIn => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
 
-        $this->codeService()->send('whatsapp_code', ['whatsapp' => self::PHONE]);
+        $this->codeService()->send('whatsapp_code', ['whatsapp' => self::PHONE], self::requestClient());
 
         self::assertSame('whatsapp', $manager->method('whatsapp_code')->identifierType('mobile'));
         self::assertSame(
             FailureReason::INVALID_CREDENTIALS,
-            $this->sessions('mobile')->signIn('whatsapp_code', ['whatsapp' => self::PHONE, 'challenge' => self::challenge(), 'code' => '000000'])->reason,
+            $this->sessions('mobile')->signIn('whatsapp_code', ['whatsapp' => self::PHONE, 'challenge' => self::challenge(), 'code' => '000000'], self::requestContext())->reason,
         );
         self::assertSame(1, self::storedAttempts());
     }
@@ -662,8 +665,14 @@ final class CodeSignInTest extends TestCase
 
         self::seedCodeIdentity()->forceFill(['whatsapp' => self::PHONE, 'whatsapp_verified_at' => '2026-01-01 00:00:00'])->save();
 
-        self::assertTrue($this->codeService()->send('whatsapp_code', ['whatsapp' => ' ' . self::PHONE])->isSent());
-        self::assertTrue($this->sessions('mobile')->signIn('whatsapp_code', ['whatsapp' => self::PHONE, 'challenge' => self::challenge(), 'code' => self::CODE])->isSignedIn());
+        self::assertTrue($this->codeService()->send('whatsapp_code', ['whatsapp' => ' ' . self::PHONE], self::requestClient())->isSent());
+        self::assertTrue(
+            $this->sessions('mobile')->signIn(
+                'whatsapp_code',
+                ['whatsapp' => self::PHONE, 'challenge' => self::challenge(), 'code' => self::CODE],
+                self::requestContext(),
+            )->isSignedIn(),
+        );
 
         $proof = SessionProof::query()->sole();
 
@@ -712,8 +721,10 @@ final class CodeSignInTest extends TestCase
 
         self::seedCodeIdentity()->forceFill(['handle' => $handle, 'handle_verified_at' => '2026-01-01 00:00:00'])->save();
 
-        self::assertTrue($this->codeService()->send('handle_code', ['handle' => $handle])->isSent());
-        self::assertTrue($this->sessions('mobile')->signIn('handle_code', ['handle' => $handle, 'challenge' => self::challenge(), 'code' => self::CODE])->isSignedIn());
+        self::assertTrue($this->codeService()->send('handle_code', ['handle' => $handle], self::requestClient())->isSent());
+        self::assertTrue(
+            $this->sessions('mobile')->signIn('handle_code', ['handle' => $handle, 'challenge' => self::challenge(), 'code' => self::CODE], self::requestContext())->isSignedIn(),
+        );
         self::assertSame($recorded ? $handle : null, SessionProof::query()->sole()->channel_reference);
     }
 
@@ -731,7 +742,7 @@ final class CodeSignInTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE])->isSent());
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->isSent());
 
         $session = $this->signIn(self::CODE)->session;
 
@@ -744,9 +755,14 @@ final class CodeSignInTest extends TestCase
 
         JWT::$timestamp = $later->getTimestamp();
 
-        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE])->isSent());
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->isSent());
 
-        $result = $this->sessions('mobile')->reauthenticate($session->record, 'phone_code', ['phone' => ' ' . self::PHONE, 'challenge' => self::challenge(), 'code' => '246802']);
+        $result = $this->sessions('mobile')->reauthenticate(
+            $session->record,
+            'phone_code',
+            ['phone' => ' ' . self::PHONE, 'challenge' => self::challenge(), 'code' => '246802'],
+            self::requestClient(),
+        );
 
         self::assertTrue($result->isIssued());
 
@@ -775,7 +791,7 @@ final class CodeSignInTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE])->isSent());
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->isSent());
 
         $session = $this->signIn(self::CODE)->session;
 
@@ -788,11 +804,16 @@ final class CodeSignInTest extends TestCase
 
         JWT::$timestamp = $later->getTimestamp();
 
-        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE])->isSent());
+        self::assertTrue($this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient())->isSent());
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        $result = $this->sessions('mobile')->reauthenticate($session->record, 'phone_code', ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => '000000']);
+        $result = $this->sessions('mobile')->reauthenticate(
+            $session->record,
+            'phone_code',
+            ['phone' => self::PHONE, 'challenge' => self::challenge(), 'code' => '000000'],
+            self::requestClient(),
+        );
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
         self::assertFalse($result->isIssued());
@@ -842,7 +863,7 @@ final class CodeSignInTest extends TestCase
     {
         self::seedCodeIdentity();
 
-        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE], self::requestClient());
         $this->recordEvents([SignedIn::class]);
         $this->signIn(self::CODE);
 
@@ -879,6 +900,6 @@ final class CodeSignInTest extends TestCase
      */
     private function signIn(string $code, string $phone = self::PHONE, string $guard = 'mobile'): SignInResult
     {
-        return $this->sessions($guard)->signIn('phone_code', ['phone' => $phone, 'challenge' => self::challenge(), 'code' => $code]);
+        return $this->sessions($guard)->signIn('phone_code', ['phone' => $phone, 'challenge' => self::challenge(), 'code' => $code], self::requestContext());
     }
 }

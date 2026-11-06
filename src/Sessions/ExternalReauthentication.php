@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Events\ExternalResultRedeemed;
 use SineMacula\Laravel\Authentication\Events\Reauthenticated;
 use SineMacula\Laravel\Authentication\External\ExternalLink;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -116,17 +117,18 @@ final readonly class ExternalReauthentication
      *
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      *
      * @throws \Throwable
      */
-    public function reauthenticate(mixed $sessionId, ExternalResult $result): AccessTokenResult
+    public function reauthenticate(mixed $sessionId, ExternalResult $result, ClientContext $client): AccessTokenResult
     {
         $now     = CarbonImmutable::now()->startOfSecond();
-        $checked = $this->checked($sessionId, $result, $now);
+        $checked = $this->checked($sessionId, $result, $now, $client);
 
         if ($checked instanceof Refused) {
-            return $this->fail($checked, $result);
+            return $this->fail($checked, $result, $client);
         }
 
         [$stored, $link, $at]    = $checked;
@@ -155,12 +157,11 @@ final readonly class ExternalReauthentication
         );
 
         if ($issued instanceof Refused) {
-            return $this->fail($issued->reason === FailureReason::SESSION_UNKNOWN ? new Refused(FailureReason::SESSION_UNKNOWN, session: $stored) : $issued, $result);
+            return $this->fail($issued->reason === FailureReason::SESSION_UNKNOWN ? new Refused(FailureReason::SESSION_UNKNOWN, session: $stored) : $issued, $result, $client);
         }
 
         [$admitted, $record, $token, $expires] = $issued;
 
-        $client   = $this->context->client();
         $method   = SignInMethodManager::EXTERNAL_METHOD;
         $event    = new Reauthenticated(new EventContext($this->context->name(), $client, $admitted->identity, $admitted->principal, $admitted->tenant, $record, $method));
         $redeemed = new ExternalResultRedeemed(new EventContext(
@@ -235,6 +236,7 @@ final readonly class ExternalReauthentication
      * @param  mixed  $sessionId
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, 1: \SineMacula\Laravel\Authentication\External\ExternalLink, 2: \Carbon\CarbonImmutable}|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -245,7 +247,7 @@ final readonly class ExternalReauthentication
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      */
-    private function checked(mixed $sessionId, ExternalResult $result, CarbonImmutable $now): array|Refused
+    private function checked(mixed $sessionId, ExternalResult $result, CarbonImmutable $now, ClientContext $client): array|Refused
     {
         $stored = $this->stored($sessionId, $result, $now);
 
@@ -255,7 +257,7 @@ final readonly class ExternalReauthentication
 
         [$record, $at] = $stored;
 
-        $link = $this->results->link($result, $this->context->client());
+        $link = $this->results->link($result, $client);
 
         if ($link === null || !SessionOwnership::isOwner($record, $link->identity) || !ExternalResults::isNamedLink($result, $link)) {
             return new Refused($link === null ? FailureReason::EXTERNAL_RESULT_UNLINKED : FailureReason::LINK_MISMATCH, session: $record);
@@ -395,14 +397,15 @@ final readonly class ExternalReauthentication
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused  $refused
      * @param  \SineMacula\Laravel\Authentication\External\ExternalResult  $result
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      */
-    private function fail(Refused $refused, ExternalResult $result): AccessTokenResult
+    private function fail(Refused $refused, ExternalResult $result, ClientContext $client): AccessTokenResult
     {
         $session = $refused->session;
         $context = new EventContext(
             $this->context->name(),
-            $this->context->client(),
+            $client,
             $refused->identity,
             $refused->principal,
             $refused->tenant,

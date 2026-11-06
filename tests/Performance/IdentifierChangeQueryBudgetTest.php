@@ -109,7 +109,11 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $changes  = Auth::identifierChanges('web');
 
         $proof   = self::freshSession($identity);
-        $request = $this->assertQueryBudget(9, 8, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
+        $request = $this->assertQueryBudget(
+            9,
+            8,
+            static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient()),
+        );
 
         self::assertTrue($request->isSent());
     }
@@ -129,9 +133,13 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $changes  = Auth::identifierChanges('web');
         $proof    = self::freshSession($identity);
 
-        $changes->requestByLink($identity, 'email', 'ada@first.example.test', $proof, 'confirm');
+        $changes->requestByLink($identity, 'email', 'ada@first.example.test', $proof, 'confirm', self::requestClient());
 
-        $request = $this->assertQueryBudget(9, 6, static fn (): IdentifierChangeRequest => $changes->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'confirm'));
+        $request = $this->assertQueryBudget(
+            9,
+            6,
+            static fn (): IdentifierChangeRequest => $changes->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'confirm', self::requestClient()),
+        );
 
         self::assertTrue($request->isSent());
     }
@@ -158,7 +166,11 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $proof   = Reauthentication::session($session);
         $changes = Auth::identifierChanges('web');
 
-        $request = $this->assertQueryBudget(9, 8, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
+        $request = $this->assertQueryBudget(
+            9,
+            8,
+            static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient()),
+        );
 
         self::assertTrue($request->isSent());
     }
@@ -180,7 +192,11 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
 
         $proof   = Reauthentication::session($session);
         $changes = Auth::identifierChanges('web');
-        $request = $this->assertQueryBudget(2, 0, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
+        $request = $this->assertQueryBudget(
+            2,
+            0,
+            static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient()),
+        );
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
     }
@@ -205,8 +221,12 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $proof    = Reauthentication::password(self::PASSWORD);
         $changes  = Auth::identifierChanges('web');
         $started  = hrtime(true);
-        $request  = $this->assertQueryBudget(4, 14, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
-        $elapsed  = hrtime(true) - $started;
+        $request  = $this->assertQueryBudget(
+            4,
+            14,
+            static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient()),
+        );
+        $elapsed = hrtime(true) - $started;
 
         self::assertTrue($request->isSent());
         self::assertLessThan(self::TIMEBOX_MICROSECONDS * 1000, $elapsed);
@@ -229,8 +249,12 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $proof    = Reauthentication::password('not the password');
         $changes  = Auth::identifierChanges('web');
         $started  = hrtime(true);
-        $request  = $this->assertQueryBudget(2, 4, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
-        $elapsed  = hrtime(true) - $started;
+        $request  = $this->assertQueryBudget(
+            2,
+            4,
+            static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient()),
+        );
+        $elapsed = hrtime(true) - $started;
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
         self::assertGreaterThanOrEqual(self::TIMEBOX_MICROSECONDS * 1000, $elapsed);
@@ -252,14 +276,18 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $changes  = Auth::identifierChanges('web');
 
         foreach (range(1, 5) as $attempt) {
-            $changes->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password("wrong {$attempt}"));
+            $changes->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password("wrong {$attempt}"), self::requestClient());
         }
 
         config()->set('authentication.timebox.credentials_microseconds', self::TIMEBOX_MICROSECONDS);
 
         $proof   = Reauthentication::password(self::PASSWORD);
         $started = hrtime(true);
-        $request = $this->assertQueryBudget(2, 3, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
+        $request = $this->assertQueryBudget(
+            2,
+            3,
+            static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof, self::requestClient()),
+        );
         $elapsed = hrtime(true) - $started;
 
         self::assertSame(IdentifierChangeRequestStatus::RATE_LIMITED, $request->status);
@@ -284,10 +312,14 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $identity = self::seedChangeable();
         $changes  = Auth::identifierChanges('web');
 
-        $changes->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD));
+        $changes->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), self::requestClient());
 
         $challenge = self::changeChallenge($identity, 'email');
-        $outcome   = $this->assertQueryBudget(5, 9, static fn (): IdentifierChangeOutcome => $changes->confirmByCode($identity, 'email', $challenge, '135790')->outcome);
+        $outcome   = $this->assertQueryBudget(
+            5,
+            9,
+            static fn (): IdentifierChangeOutcome => $changes->confirmByCode($identity, 'email', $challenge, '135790', self::requestClient())->outcome,
+        );
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $outcome);
     }
@@ -304,7 +336,14 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     {
         $identity = self::seedChangeable();
         $changes  = Auth::identifierChanges('web');
-        $link     = (string) $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'confirm')->link()?->reveal();
+        $link     = (string) $changes->requestByLink(
+            $identity,
+            'email',
+            self::NEW_EMAIL,
+            Reauthentication::password(self::PASSWORD),
+            'confirm',
+            self::requestClient(),
+        )->link()?->reveal();
 
         $outcome = $this->assertQueryBudget(5, 3, static fn (): IdentifierChangeOutcome => $changes->confirmByLink(Request::create($link))->outcome);
 
@@ -326,11 +365,15 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $identity = self::seedChangeable(self::EMAIL, self::PHONE);
         $changes  = Auth::identifierChanges('web');
 
-        $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'confirm');
-        $changes->requestByLink($identity, 'phone', self::NEW_PHONE, Reauthentication::password(self::PASSWORD), 'confirm');
+        $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'confirm', self::requestClient());
+        $changes->requestByLink($identity, 'phone', self::NEW_PHONE, Reauthentication::password(self::PASSWORD), 'confirm', self::requestClient());
 
         $passwords = Auth::passwords('web');
-        $result    = $this->assertQueryBudget(2, 3, static fn (): PasswordResult => $passwords->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE));
+        $result    = $this->assertQueryBudget(
+            2,
+            3,
+            static fn (): PasswordResult => $passwords->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, self::requestClient()),
+        );
 
         self::assertTrue($result->isSet());
         self::assertSame(0, DB::table('identifier_changes')->count());

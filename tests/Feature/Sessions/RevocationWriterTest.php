@@ -1075,7 +1075,7 @@ final class RevocationWriterTest extends TestCase
      */
     private function signIn(string $guard = 'api', string $email = 'ada@example.test'): SignedInSession
     {
-        $session = $this->sessions($guard)->signIn('password', self::credentials($email))->session;
+        $session = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -1110,7 +1110,7 @@ final class RevocationWriterTest extends TestCase
             }
         });
 
-        $result = $this->sessions()->signIn('password', self::credentials($email));
+        $result = $this->sessions()->signIn('password', self::credentials($email), self::requestContext());
 
         app()->instance(AdditionalFactorPolicy::class, $previous);
 

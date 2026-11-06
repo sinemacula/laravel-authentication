@@ -117,9 +117,9 @@ final class EmptyApplicationIntegrationTest extends TestCase
 
         self::assertFalse($this->freshGuard()->attempt(self::credentials()));
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(AuthenticationFailed::class)->reason);
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->signIn('password', self::credentials())->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->signIn('password', self::credentials(), self::requestContext())->reason);
         self::assertSame(0, $queries);
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start($identity, null, 'password')->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start($identity, null, 'password', self::requestContext())->reason);
         self::assertSame(0, DB::table('rate_limits')->count());
         self::assertSame(0, Session::query()->count());
     }
@@ -187,7 +187,7 @@ final class EmptyApplicationIntegrationTest extends TestCase
      */
     private function signIn(): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

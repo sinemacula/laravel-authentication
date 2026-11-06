@@ -167,7 +167,7 @@ final class EveryEventRestoresTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedMember();
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 

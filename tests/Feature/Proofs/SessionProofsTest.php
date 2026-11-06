@@ -485,7 +485,7 @@ final class SessionProofsTest extends TestCase
         self::recordProof($record, ProofKind::ADDITIONAL_FACTOR, $this->now->addMinute(), ['otp'], new Evaluation(true, false));
         self::recordExternal($record, $this->now->addMinutes(2), new ExternalEvidence(['hwk'], 'phrh', $this->now->addMinutes(2)));
 
-        $external = $this->sessions()->signInExternally($this->linkedResult($identity, 'conn-a'))->session?->record;
+        $external = $this->sessions()->signInExternally($this->linkedResult($identity, 'conn-a'), self::requestContext())->session?->record;
 
         self::assertNotNull($external);
 
@@ -917,7 +917,7 @@ final class SessionProofsTest extends TestCase
         self::assertNull(SessionProofs::connectionId($password));
         self::assertInstanceOf(Identity::class, $identity);
 
-        $external = $this->sessions()->signInExternally($this->linkedResult($identity, 'conn-a'))->session?->record;
+        $external = $this->sessions()->signInExternally($this->linkedResult($identity, 'conn-a'), self::requestContext())->session?->record;
 
         self::assertNotNull($external);
         self::assertSame('conn-a', SessionProofs::connectionId($external));
@@ -1170,7 +1170,7 @@ final class SessionProofsTest extends TestCase
     {
         $this->seedIdentity();
 
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($session);
 

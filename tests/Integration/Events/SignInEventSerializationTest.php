@@ -124,7 +124,7 @@ final class SignInEventSerializationTest extends TestCase
     {
         $this->recordEvents([SignedIn::class, SessionCreated::class]);
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -155,7 +155,7 @@ final class SignInEventSerializationTest extends TestCase
      */
     public function testASupersededRevocationRestoresItsValuesAndReason(): void
     {
-        $first = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $first = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($first);
 
@@ -245,7 +245,7 @@ final class SignInEventSerializationTest extends TestCase
     {
         $this->recordEvents([SignedIn::class]);
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -274,7 +274,7 @@ final class SignInEventSerializationTest extends TestCase
     {
         $this->recordEvents([SignedIn::class]);
 
-        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -310,7 +310,7 @@ final class SignInEventSerializationTest extends TestCase
     {
         $this->recordEvents([SignedIn::class]);
 
-        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->isSignedIn());
 
         $event  = $this->recordedEvent(SignedIn::class);
         $queued = serialize($event);
@@ -345,7 +345,7 @@ final class SignInEventSerializationTest extends TestCase
 
         $this->recordEvents([SignedIn::class]);
 
-        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->isSignedIn());
 
         $this->assertReceivedTheSnapshotAlone($this->recordedEvent(SignedIn::class));
     }
@@ -382,7 +382,7 @@ final class SignInEventSerializationTest extends TestCase
 
         $this->recordEvents([SignedIn::class]);
 
-        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->isSignedIn());
         self::assertSame([], RecordSignedInLater::$received);
 
         $this->deleteEverything();

@@ -281,7 +281,7 @@ final class ProvidesDeactivationTimeTest extends TestCase
      */
     private function signIn(): SignInResult
     {
-        return $this->sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL));
+        return $this->sessions(self::GUARD)->signIn('password', self::credentials(self::EMAIL), self::requestContext());
     }
 
     /**

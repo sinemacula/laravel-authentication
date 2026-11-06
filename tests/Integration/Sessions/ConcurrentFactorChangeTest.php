@@ -249,10 +249,12 @@ final class ConcurrentFactorChangeTest extends TestCase
     {
         $this->seedIdentity();
 
-        $signedIn = $this->sessions()->signIn('password', self::credentials())->session;
+        $signedIn = $this->sessions()->signIn('password', self::credentials(), self::requestContext())->session;
 
         self::assertNotNull($signedIn);
-        self::assertTrue($this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), Purpose::STEP_UP))->isIssued());
+        self::assertTrue(
+            $this->sessions()->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey(), Purpose::STEP_UP), self::requestClient())->isIssued(),
+        );
 
         return $signedIn;
     }
