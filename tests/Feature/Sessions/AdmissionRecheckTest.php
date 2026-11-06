@@ -13,6 +13,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -1290,6 +1291,53 @@ final class AdmissionRecheckTest extends TestCase
 
         self::assertSame(RevocationReason::PRINCIPAL_DEACTIVATED->value, self::revokedReasonOf($session));
         self::assertSame([SessionRevoked::class], $this->recordedClasses());
+    }
+
+    /**
+     * A guard bound to a session that fails its check after the call answered
+     * forgets it even when a listener of the revocation throws, so a caller
+     * that catches the exception is left with no identity, principal or session
+     * bound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGuardForgetsTheSessionWhenTheRevocationsListenerThrows(): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $session = $this->signIn();
+        $guard   = $this->guard();
+
+        DB::beginTransaction();
+
+        $recheck = $this->recheck();
+
+        $recheck->signIn($session->record, $member, $membership, $tenant);
+
+        self::assertNull($recheck->refusal());
+
+        $guard->login($member, $membership, $session->record);
+
+        RecheckedMember::query()->whereKey($member->getKey())->update(['is_active' => false]);
+
+        Event::listen(SessionRevoked::class, static function (): void {
+            throw new \RuntimeException('listener');
+        });
+
+        try {
+            DB::commit();
+
+            self::fail('Expected the listener to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener', $exception->getMessage());
+        }
+
+        self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, self::revokedReasonOf($session));
+        self::assertNull($guard->session());
+        self::assertNull($guard->principal());
+        self::assertFalse($guard->check());
     }
 
     /**

@@ -541,9 +541,9 @@ final class AdmissionRecheck
     /**
      * End the session that failed the check: revoke it with the reason's
      * revocation reason, then report the revocation and forget a binding to it
-     * when the session was handed out (it existed before the call, or the call
-     * has answered), or leave the call the refusal to answer with when it has
-     * not answered yet.
+     * (even when a listener of the report throws) when the session was handed
+     * out (it existed before the call, or the call has answered), or leave the
+     * call the refusal to answer with when it has not answered yet.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession  $session
@@ -562,18 +562,18 @@ final class AdmissionRecheck
             $this->refused = new Refused($reason, $identity, $principal, $tenant, $this->created ? null : $session);
         }
 
-        $this->revocations->revoke(
-            $session,
-            $revoked,
-            CarbonImmutable::now()->startOfSecond(),
-            $handedOut ? fn () => $this->context->dispatch(new SessionRevoked($context, $revoked)) : static fn () => null,
-        );
-
         if (!$handedOut) {
+
+            $this->revocations->revoke($session, $revoked, CarbonImmutable::now()->startOfSecond(), static fn () => null);
+
             return;
         }
 
-        $this->binding->forgetSession($session);
+        try {
+            $this->revocations->revoke($session, $revoked, CarbonImmutable::now()->startOfSecond(), fn () => $this->context->dispatch(new SessionRevoked($context, $revoked)));
+        } finally {
+            $this->binding->forgetSession($session);
+        }
     }
 
     /**

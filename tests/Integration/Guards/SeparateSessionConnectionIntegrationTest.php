@@ -419,6 +419,56 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * With the sessions on their own connection, a session committed and bound
+     * at once whose check ends it when the identity's transaction commits its
+     * deletion leaves the guard with nothing bound, even when a listener of the
+     * revocation throws and the caller catches it: the session is revoked and
+     * the guard has forgotten its identity, principal and session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGuardForgetsASessionItsCheckEndsThoughTheRevocationsListenerThrows(): void
+    {
+        $identity            = new SeparateConnectionSessionIdentity;
+        $identity->email     = 'thrown@example.test';
+        $identity->password  = app(Hasher::class)->make('correct horse battery staple');
+        $identity->is_active = true;
+        $identity->save();
+
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        DB::beginTransaction();
+
+        $ended = Auth::sessions()->signIn('password', ['email' => 'thrown@example.test', 'password' => 'correct horse battery staple'])->session;
+
+        self::assertNotNull($ended);
+        self::assertSame($ended->record->getKey(), $guard->session()?->getSessionIdentifier());
+
+        SeparateConnectionSessionIdentity::query()->whereKey($identity->getKey())->delete();
+
+        Event::listen(SessionRevoked::class, static function (): void {
+            throw new \RuntimeException('listener');
+        });
+
+        try {
+            DB::commit();
+
+            self::fail('Expected the listener to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener', $exception->getMessage());
+        }
+
+        self::assertSame('identity_deleted', self::revokedReasonOf($ended->record->getKey()));
+        self::assertNull($guard->session());
+        self::assertNull($guard->principal());
+        self::assertFalse($guard->check());
+    }
+
+    /**
      * A password change that keeps the session a sign-in wrote inside a
      * transaction on the identity's connection, made a second after the sign-in
      * began and before that transaction commits, leaves the session standing:
