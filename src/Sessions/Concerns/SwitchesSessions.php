@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
 use SineMacula\Laravel\Authentication\Sessions\PendingTransitions;
 use SineMacula\Laravel\Authentication\Sessions\ReturnedToPending;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
@@ -147,8 +148,10 @@ trait SwitchesSessions
      */
     private function switchWith(#[\SensitiveParameter] Secret|string $refreshToken, SwitchTarget $target, RefreshTokenTransport $transport): SwitchResult
     {
-        $client = $this->context->client();
-        $revoke = function (EloquentSession&Model $record, CarbonImmutable $now) use ($client): bool {
+        $began   = CarbonImmutable::now()->startOfSecond();
+        $client  = $this->context->client();
+        $recheck = $this->recheck($client, $began);
+        $revoke  = function (EloquentSession&Model $record, CarbonImmutable $now) use ($client): bool {
 
             $event = new SessionRevoked(
                 new EventContext($record->getGuard(), $client, session: $record, method: $record->getSignInMethod(), fromSession: true),
@@ -158,8 +161,25 @@ trait SwitchesSessions
             return $this->switchRevocations->revoke($record, RevocationReason::ROTATION_REUSE, $now, fn () => $this->context->dispatch($event));
         };
 
-        $outcome = (new SessionSwitch($this->tokens, $this->rotations, $this->context, $client, $target, $revoke, $this->transitions))
+        $outcome = (new SessionSwitch($this->tokens, $this->rotations, $this->context, $client, $target, $revoke, $this->transitions, $recheck))
             ->switch($refreshToken);
+        $refusal = $recheck->refusal();
+
+        if ($refusal !== null) {
+            $outcome = new AuthenticationFailed(
+                new EventContext(
+                    $this->context->name(),
+                    $client,
+                    $refusal->identity,
+                    $refusal->principal,
+                    $refusal->tenant,
+                    $refusal->session,
+                    $refusal->session?->getSignInMethod(),
+                ),
+                AuthenticationFlow::SWITCH,
+                $refusal->reason,
+            );
+        }
 
         if ($outcome instanceof AuthenticationFailed) {
 
@@ -175,26 +195,29 @@ trait SwitchesSessions
             return SwitchResult::pending($outcome->pending, $outcome->credential);
         }
 
-        return $this->switched($outcome, $client, $transport);
+        return $this->switched($outcome, $recheck, $transport);
     }
 
     /**
-     * Report the switch once committed when the principal or the tenant
-     * changed, then bind the guard to the switched session in its destination
-     * tenant once it commits too, and answer it, its pair delivered at once.
-     * The report is scheduled before the bind, so a bind listener that throws
-     * cannot withhold it from the switch it already wrote.
+     * Report the switch once committed, and once the principal and tenant it
+     * moved the session to are checked again (`AdmissionRecheck`), when the
+     * principal or the tenant changed, then bind the guard to the switched
+     * session in its destination tenant once it commits too, and answer it, its
+     * pair delivered at once. The report is scheduled before the bind, so a
+     * bind listener that throws cannot withhold it from the switch it already
+     * wrote.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal  $switched
-     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @return \SineMacula\Laravel\Authentication\Sessions\SwitchResult
      *
      * @throws \Throwable
      */
-    private function switched(SwitchedPrincipal $switched, ClientContext $client, RefreshTokenTransport $transport): SwitchResult
+    private function switched(SwitchedPrincipal $switched, AdmissionRecheck $recheck, RefreshTokenTransport $transport): SwitchResult
     {
         $session = $switched->session;
+        $client  = $recheck->client;
 
         if ($switched->changed()) {
 
@@ -207,7 +230,7 @@ trait SwitchesSessions
                 $switched->tenantChanged,
             );
 
-            $this->afterCommit->run($session->record, fn () => $this->context->dispatch($event));
+            $recheck->then($session->record, fn () => $this->context->dispatch($event));
         }
 
         $tokens = $transport->deliver($session->tokens, $session->record);

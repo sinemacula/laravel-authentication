@@ -23,10 +23,14 @@ use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\ExternalResultRedeemed;
 use SineMacula\Laravel\Authentication\Events\ExternalResultUnlinked;
+use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SessionPending;
+use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ExternalResult;
@@ -57,7 +61,9 @@ use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
+use Tests\Fixtures\Sessions\InterruptingFactorPolicy;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
+use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
 /**
@@ -265,6 +271,37 @@ final class ExternalSignInTest extends TestCase
     }
 
     /**
+     * A redemption given a `SignInContext` built from plain values binds the
+     * guard with that context's client: its bind's `PrincipalAssigned` and
+     * `SessionAuthenticated` carry it, and with a last-use throttle that
+     * records every use the session's last use is that client's, not the
+     * guard's own request's.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARedemptionGivenAContextBindsWithItsClient(): void
+    {
+        config()->set('authentication.session.last_used_throttle_seconds', 0);
+
+        $identity = $this->seedIdentity();
+        $context  = new SignInContext(new ClientContext(self::PLAIN_IP, self::PLAIN_AGENT));
+
+        $this->recordEvents([PrincipalAssigned::class, SessionAuthenticated::class]);
+
+        $session = $this->sessions()->signInExternally($this->linkedResult($identity), $context)->session;
+
+        self::assertNotNull($session);
+        self::assertSame($context->client, $this->recordedEvent(PrincipalAssigned::class)->context->client);
+        self::assertSame($context->client, $this->recordedEvent(SessionAuthenticated::class)->context->client);
+
+        $row = Session::query()->whereKey($session->record->getSessionIdentifier())->sole();
+
+        self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], [$row->getRawOriginal('last_used_ip'), $row->getRawOriginal('last_used_user_agent')]);
+    }
+
+    /**
      * A result's provider context is recorded with the provenance, as given,
      * pending or active, and is in none of the events the sign-in reports, a
      * refused one's included, nor in the serialised session or provenance.
@@ -358,6 +395,43 @@ final class ExternalSignInTest extends TestCase
 
         EventContextAssertions::assertSession($pending->session, $redeemed->context);
         self::assertSame(['connection-7', null], [$redeemed->context->connectionId, $redeemed->context->requestReference]);
+    }
+
+    /**
+     * An external sign-in whose identity is deactivated after its admission,
+     * before its session is written, is refused once the sign-in's own
+     * transaction commits, before the call returns: the session is revoked as
+     * `identity_deactivated`, the refusal names the connection as any refused
+     * redemption does, and neither the session's events nor
+     * `ExternalResultRedeemed` are reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARedemptionWhoseIdentityIsDeactivatedBeforeItsWriteIsRefused(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $change = static fn (): int => IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($change));
+
+        $this->recordEvents([
+            AuthenticationFailed::class,
+            SessionCreated::class,
+            SignedIn::class,
+            ExternalResultRedeemed::class,
+            SessionRevoked::class,
+        ]);
+
+        $refused = $this->sessions()->signInExternally($this->linkedResult($identity));
+
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, $refused->reason);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame('connection-7', $this->recordedEvent(AuthenticationFailed::class)->context->connectionId);
+        self::assertSame(RevocationReason::IDENTITY_DEACTIVATED->value, Session::query()->sole()->getRawOriginal('revoked_reason'));
+        self::assertTrue(Auth::guard('api')->guest());
     }
 
     /**

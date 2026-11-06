@@ -59,9 +59,9 @@ checked before it gets here is in `session-service.md`; the choice of principal 
   the caller gives (a service layer that keeps HTTP out), else the guard's request's, read once at the start; one
   without the same-site facts fails closed. `PendingSessions::satisfy()` and `choose()` take it and pass it to
   `SessionActivation::activate()`, so the activation's last use, `SessionCreated` or `SessionActivated`, `SignedIn` and
-  a superseded session's `SessionRevoked` carry it, and the service reports a refusal with it. The guard's bind then
-  describes the guard's own request, so its `SessionAuthenticated` overwrites that last use with the request's whenever
-  the last-use throttle allows a use so soon (with `0`, always).
+  a superseded session's `SessionRevoked` carry it, and the service reports a refusal with it. The guard's bind carries
+  it too (`GuardBinding::login()` given the client), so its `SessionAuthenticated` records the same client as the last
+  use whenever the last-use throttle allows a use so soon.
 - `satisfy()` and `choose()` run in one transaction on the session's connection that locks the row, finds the credential
   again under the lock, and rolls back on any refusal, so a refused proof is never stored, a refused choice records
   nothing, and no refusal revokes the session: it waits until its credential expires, and only `discard()` ends it
@@ -133,6 +133,10 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 
 ## Failure / Edge Cases
 
+- A choice registers the call's check of the principal and tenant chosen (`AdmissionRecheck::choice()`) inside its
+  transaction, before `settle()`, so the activation's reports (routed through `then()`) run after the check passes at
+  the commit; a failed check revokes the pending session, reports its `SessionRevoked` (the client holds its
+  credential) and makes `choose()` answer the refusal. `satisfy()` passes a check that watches nothing.
 - Two `satisfy()` calls on one credential serialise on the row's lock: one activates, and the other finds the session
   active and is `pending_invalid`. A `discard()` racing either wins or loses the same way.
 - A `satisfy()` or `choose()` locks the pending session and then the older one its sign-in proved, whatever it goes on
@@ -170,13 +174,16 @@ checked before it gets here is in `session-service.md`; the choice of principal 
 - `src/Concerns/RecordsSessionStanding.php` and `src/Contracts/EloquentSessionStanding.php`: the record's columns.
 - `src/Events/SessionPending.php`, `src/Events/SessionReturnedToPending.php`, `src/Events/SessionActivated.php`.
 - `src/Sessions/SessionService.php`: `satisfy()`, `choose()`; `src/Sessions/SessionPreconditions.php`: `crossSite()`.
+- `src/Sessions/AdmissionRecheck.php`: `choice()`, `then()`, `refusal()` (the check a choice's write is held to once it
+  commits).
 
 ## Authoritative Tests
 
 - `tests/Feature/Sessions/PendingSessionsTest.php` (the actions per requirement, an unknown, expired, revoked,
   other-guard or tampered credential, every acceptance refusal, activation, moving on to the choice, a bootstrap
   enrolment proof, a recovery code, the gate's refusals, the proven session and its lock, the current reads, a refusal
-  and a deadlock inside a caller's transaction, the slots, discard), `tests/Unit/Sessions/PendingActionRefusedTest.php`
+  and a deadlock inside a caller's transaction, the slots, discard, a choice whose tenant is deactivated before it
+  commits), `tests/Unit/Sessions/PendingActionRefusedTest.php`
 - `tests/Feature/Sessions/PendingTransitionsTest.php` (a return to pending, its compare-and-swap, the version it
   records, its event)
 - `tests/Feature/Sessions/PendingEvaluationTest.php` (the gate's checks on their own) and

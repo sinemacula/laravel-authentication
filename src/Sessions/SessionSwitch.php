@@ -91,8 +91,13 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * judgement, like the token, counts every proof committed before it and none
  * voided by then.
  *
- * One switch is one instance, built with the guard's context, the client and
- * the target when the switch runs.
+ * A switch that moved the session to another principal or tenant has the call's
+ * check (`AdmissionRecheck`) read that principal or tenant again once the
+ * switch commits, so one deactivated or deleted after the switch admitted it
+ * ends the session instead.
+ *
+ * One switch is one instance, built with the guard's context, the client, the
+ * target and the call's check when the switch runs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -111,6 +116,7 @@ final readonly class SessionSwitch
      * @param  \SineMacula\Laravel\Authentication\Sessions\SwitchTarget  $target
      * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \Carbon\CarbonImmutable): bool  $revoke
      * @param  \SineMacula\Laravel\Authentication\Sessions\PendingTransitions  $transitions
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
      */
     public function __construct(
 
@@ -134,6 +140,9 @@ final readonly class SessionSwitch
 
         /** Returns the session to pending when its destination asks for a further factor it lacks. */
         private PendingTransitions $transitions,
+
+        /** Checks the principal and tenant the switch moved the session to once it commits. */
+        private AdmissionRecheck $recheck,
     ) {}
 
     /**
@@ -401,7 +410,10 @@ final readonly class SessionSwitch
      * requires, instead of re-issuing its pair, or, when the compare-and-swap
      * missed, answer as the caller has it answered: a switch judges the
      * presented rotation id again as after a lost switch, while a retry is a
-     * conflict and is never judged again.
+     * conflict and is never judged again. The return's
+     * `SessionReturnedToPending` waits for the switch's check, registered once
+     * the return applied, and is never reported once the check ends the
+     * session.
      *
      * @formatter:off
      *
@@ -429,8 +441,14 @@ final readonly class SessionSwitch
     ): AuthenticationFailed|ReturnedToPending|SwitchedPrincipal {
         $firstFactor = PendingTransitions::firstFactorOf($session, $verdict, current: true);
         $outstanding = $this->transitions->outstanding($session, $destination->identity, $verdict->factor, $firstFactor, $now, current: true);
+        $changes     = RefreshRotationStore::contextChanges($session, $destination);
+        $transition  = $this->transitions->reportingThrough(function (\Closure $report) use ($session, $destination, $changes): void {
 
-        return $this->transitions->returnToPending($session, $destination, $verdict->version, $outstanding, $firstFactor, AuthenticationFlow::SWITCH, $now) ?? $missed();
+            $this->recheck->switch($session, $destination, ...$changes);
+            $this->recheck->then($session, $report);
+        });
+
+        return $transition->returnToPending($session, $destination, $verdict->version, $outstanding, $firstFactor, AuthenticationFlow::SWITCH, $now) ?? $missed();
     }
 
     /**
@@ -476,6 +494,8 @@ final readonly class SessionSwitch
         if (!$this->store->switchSession($session, [$presented[0], $next], $destination, $version, $deadlines, $now)) {
             return $this->afterLostSwitch($session, $destination, $presented, $now);
         }
+
+        $this->recheck->switch($session, $destination, $principal, $tenant);
 
         return new SwitchedPrincipal(self::exchanged($destination, $session, $tokens), $previous[0], $previous[1], $previous[2], $principal, $tenant);
     }

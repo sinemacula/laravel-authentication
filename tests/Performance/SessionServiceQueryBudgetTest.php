@@ -103,29 +103,32 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
      * A sign-in on a new session reads the identity once, writes the session,
      * looks for proofs and provenance an earlier session left under its key
      * (one read each, which find none, so nothing is deleted), writes its first
-     * proof, and reads its proofs once for the access token's `auth_time` and
-     * `amr`, besides the six reservation writes and three releases of its
-     * limits: binding it records no further use, since the session already
-     * records the sign-in as its last.
+     * proof, reads its proofs once for the access token's `auth_time` and
+     * `amr`, and, once the session is committed, reads the identity again to
+     * check it still stands (it is its own principal, so it is read once),
+     * besides the six reservation writes and three releases of its limits:
+     * binding it records no further use, since the session already records the
+     * sign-in as its last.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASignInOnANewSessionReadsFourTimesAndWritesTheSessionAndItsProof(): void
+    public function testASignInOnANewSessionReadsFiveTimesAndWritesTheSessionAndItsProof(): void
     {
         $this->seedIdentity();
 
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(4, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->isSignedIn());
     }
 
     /**
      * Inside a caller's transaction a sign-in costs what one alone does, and
      * one read more at the commit: its bind, which waited for the commit, reads
      * the session again before binding it. With no transaction open the bind
-     * runs at once and reads nothing.
+     * runs at once and reads nothing. The check of the identity waits for the
+     * commit too, and costs the same one read.
      *
      * @return void
      *
@@ -139,7 +142,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $signIn = static fn (): SignInResult => $sessions->signIn('password', self::credentials());
 
-        self::assertTrue($this->assertQueryBudget(5, 11, static fn (): SignInResult => DB::transaction($signIn))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(6, 11, static fn (): SignInResult => DB::transaction($signIn))->isSignedIn());
     }
 
     /**
@@ -158,7 +161,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $this->seedIdentity();
 
         $sessions = $this->sessions('admin');
-        $result   = $this->assertQueryBudget(4, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
+        $result   = $this->assertQueryBudget(5, 11, static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
 
         self::assertNull($result->session?->tokens->refreshToken);
         self::assertSame('__Secure-admin_refresh_token', $result->session?->tokens->refreshCookie?->name);
@@ -293,16 +296,16 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     /**
      * Replacing a proven session reads the identity and the session, writes one
      * compare-and-swap that revokes it and one insert each of the new session
-     * and its first proof, and reads what was left under the new session's key
-     * (two reads, which find nothing) and its proofs once, besides reserving
-     * and releasing a slot on each of the three counters the first sign-in
-     * created.
+     * and its first proof, reads what was left under the new session's key (two
+     * reads, which find nothing) and its proofs once, and reads the identity
+     * again once committed, besides reserving and releasing a slot on each of
+     * the three counters the first sign-in created.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASignInOnAProvenSessionReadsFiveTimesAndWritesTheReplacement(): void
+    public function testASignInOnAProvenSessionReadsSixTimesAndWritesTheReplacement(): void
     {
         $this->seedIdentity();
 
@@ -312,7 +315,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
         $context  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken?->reveal());
-        $again    = $this->assertQueryBudget(5, 9, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), $context));
+        $again    = $this->assertQueryBudget(6, 9, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), $context));
 
         self::assertNotSame($first->record->getKey(), $again->session?->record->getKey());
     }
@@ -320,7 +323,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     /**
      * Starting a session for an externally verified identity reloads it once,
      * writes the session, reads the proofs and the provenance left under its
-     * key (none), writes its first proof, and reads its proofs once.
+     * key (none), writes its first proof, reads its proofs once, and reads the
+     * identity again once the session is committed.
      *
      * @return void
      *
@@ -331,7 +335,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $identity = $this->seedIdentity();
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(4, 2, static fn (): SignInResult => $sessions->start($identity, null, 'sso'))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 2, static fn (): SignInResult => $sessions->start($identity, null, 'sso'))->isSignedIn());
     }
 
     /**
@@ -350,8 +354,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
         $result   = $this->linkedResult($identity, tenantId: 'tenant-3');
 
-        self::assertTrue($this->assertQueryBudget(4, 4, static fn (): SignInResult => $sessions->signInExternally($result))->isSignedIn());
-        self::assertTrue($this->assertQueryBudget(4, 4, static fn (): SignInResult => $sessions->signInExternally($result))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 4, static fn (): SignInResult => $sessions->signInExternally($result))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 4, static fn (): SignInResult => $sessions->signInExternally($result))->isSignedIn());
     }
 
     /**
@@ -376,17 +380,17 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
      * A sign-in that needs a further factor reads the identity once (the check
      * judges the sign-in's own proofs in memory), writes its pending session,
      * reads what an earlier session left under its key (two reads, which find
-     * nothing) and writes its first proof, signing no token, besides its
-     * limits, whose slots it keeps (the account's as well as the identifier's
-     * and the IP address's); looking it up reads the session, its owner, its
-     * first factor and the one page of proofs the check judges for what is
-     * still outstanding; and satisfying it locks and reads the session and its
-     * owner, writes the session's issuance guard (so an issuance of the session
-     * that overlaps the proof reads it) and the further factor's proof, reads
-     * its first factor and the page of proofs the check judges, activates the
-     * session with one update, which is the activation's own guard, reads its
-     * proofs for the access token's `auth_time` and `amr`, and gives the three
-     * slots back.
+     * nothing), writes its first proof and reads the identity again once
+     * committed, signing no token, besides its limits, whose slots it keeps
+     * (the account's as well as the identifier's and the IP address's); looking
+     * it up reads the session, its owner, its first factor and the one page of
+     * proofs the check judges for what is still outstanding; and satisfying it
+     * locks and reads the session and its owner, writes the session's issuance
+     * guard (so an issuance of the session that overlaps the proof reads it)
+     * and the further factor's proof, reads its first factor and the page of
+     * proofs the check judges, activates the session with one update, which is
+     * the activation's own guard, reads its proofs for the access token's
+     * `auth_time` and `amr`, and gives the three slots back.
      *
      * @return void
      *
@@ -399,7 +403,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         self::requireAFurtherFactor();
 
         $sessions = $this->sessions();
-        $result   = $this->assertQueryBudget(3, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
+        $result   = $this->assertQueryBudget(4, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials()));
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);

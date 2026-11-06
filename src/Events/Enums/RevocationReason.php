@@ -20,7 +20,9 @@ enum RevocationReason: string
     // The session signed itself out
     case SIGNED_OUT = 'signed_out';
 
-    // The identity or principal signed out of every session
+    // The identity or principal signed out of every session; or a sign-in,
+    // choice or switch whose identity's or principal's "tokens valid after"
+    // cutoff a revocation moved while it was in flight (`AdmissionRecheck`)
     case SIGNED_OUT_EVERYWHERE = 'signed_out_everywhere';
 
     // The application revoked the session (from a list of sessions, an
@@ -43,22 +45,28 @@ enum RevocationReason: string
     // again after that removal
     case FACTOR_REMOVED = 'factor_removed';
 
-    // The identity was deactivated: `identityDeactivated()`
+    // The identity was deactivated: `identityDeactivated()`; or a sign-in whose
+    // identity was deactivated meanwhile (`AdmissionRecheck`)
     case IDENTITY_DEACTIVATED = 'identity_deactivated';
 
     // The principal the session acts as was deactivated:
-    // `principalDeactivated()`
+    // `principalDeactivated()`; or a sign-in, choice or switch whose principal
+    // was deactivated meanwhile (`AdmissionRecheck`)
     case PRINCIPAL_DEACTIVATED = 'principal_deactivated';
 
     // The tenant was deactivated: a session acting as one of its principals, or
-    // acting in it: `tenantDeactivated()`
+    // acting in it: `tenantDeactivated()`; or a sign-in, choice or switch whose
+    // principal's own tenant or active tenant was deactivated or deleted
+    // meanwhile (`AdmissionRecheck`)
     case TENANT_DEACTIVATED = 'tenant_deactivated';
 
-    // The identity was deleted, a soft delete included: `identityDeleted()`
+    // The identity was deleted, a soft delete included: `identityDeleted()`; or
+    // a sign-in whose identity was deleted meanwhile (`AdmissionRecheck`)
     case IDENTITY_DELETED = 'identity_deleted';
 
     // The principal the session acts as was deleted, a soft delete included:
-    // `principalDeleted()`
+    // `principalDeleted()`; or a sign-in, choice or switch whose principal was
+    // deleted meanwhile (`AdmissionRecheck`)
     case PRINCIPAL_DELETED = 'principal_deleted';
 
     // The authentication policy of the tenant the session is active in changed

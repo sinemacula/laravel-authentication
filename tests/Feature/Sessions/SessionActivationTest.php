@@ -7,6 +7,7 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\DatabaseTransactionRecord;
 use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Database\Events\QueryExecuted;
@@ -28,6 +29,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -37,7 +39,9 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
+use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
+use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -170,7 +174,7 @@ final class SessionActivationTest extends TestCase
 
         $this->recordEvents([SessionCreated::class, SignedIn::class, SessionActivated::class, SessionRevoked::class]);
 
-        $activated = $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), 'v1', $client, $this->now);
+        $activated = $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), 'v1', $this->actingFor($client), $this->now);
 
         self::assertNotNull($activated);
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
@@ -223,7 +227,7 @@ final class SessionActivationTest extends TestCase
 
         $client = new ClientContext('198.51.100.20', 'Activator/2.0');
 
-        self::assertNotNull($this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, $client, $this->now));
+        self::assertNotNull($this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, $this->actingFor($client), $this->now));
 
         $writes = array_values(array_filter($statements, static fn (string $sql): bool => str_starts_with($sql, 'update')));
         $read   = array_key_first(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'group by')));
@@ -253,7 +257,7 @@ final class SessionActivationTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
-        $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, self::client(), $this->now, $proven);
+        $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, $this->actingFor(self::client()), $this->now, $proven);
 
         self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame(RevocationReason::SUPERSEDED, $this->recordedEvent(SessionRevoked::class)->reason);
@@ -309,7 +313,7 @@ final class SessionActivationTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
-        self::assertNull($this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, self::client(), $this->now, $proven));
+        self::assertNull($this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, $this->actingFor(self::client()), $this->now, $proven));
         self::assertSame([], $this->recordedClasses());
         self::assertEquals($row, (array) DB::table('authentication_sessions')->where('id', $proven->getKey())->sole());
         self::assertEquals($waiting, (array) DB::table('authentication_sessions')->where('id', $pending->getKey())->sole());
@@ -359,7 +363,7 @@ final class SessionActivationTest extends TestCase
 
         DB::beginTransaction();
 
-        $activated = $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, self::client(), $this->now);
+        $activated = $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, $this->actingFor(self::client()), $this->now);
 
         self::assertNotNull($activated);
         self::assertCount(1, $this->queuedCallbacks());
@@ -399,7 +403,7 @@ final class SessionActivationTest extends TestCase
 
         $this->recordEvents([SessionCreated::class, SignedIn::class, SessionActivated::class]);
 
-        $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), 'v2', self::client(), $this->now);
+        $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), 'v2', $this->actingFor(self::client()), $this->now);
 
         self::assertSame([SessionActivated::class], $this->recordedClasses());
         self::assertSame($this->now->getTimestamp(), Session::query()->sole()->getSwitchedAt()?->getTimestamp());
@@ -409,7 +413,7 @@ final class SessionActivationTest extends TestCase
 
         $again = $this->returnedSession($this->now);
 
-        $this->activation()->activate($again, new Admitted($member, $membership, $tenant), 'v2', self::client(), $this->now);
+        $this->activation()->activate($again, new Admitted($member, $membership, $tenant), 'v2', $this->actingFor(self::client()), $this->now);
 
         $floor = Session::query()->sole()->getSwitchedAt();
 
@@ -437,7 +441,7 @@ final class SessionActivationTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('A pending session changed under the lock its activation holds.');
 
-        $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, self::client(), $this->now);
+        $this->activation()->activate($pending, new Admitted($member, $membership, $tenant), null, $this->actingFor(self::client()), $this->now);
     }
 
     /**
@@ -465,7 +469,30 @@ final class SessionActivationTest extends TestCase
     {
         $guard = $this->freshGuard(self::GUARD);
 
-        return new SessionActivation($guard->context(), $guard->tokens(), new AfterCommit(static fn (): mixed => app('db.transactions')), app());
+        return new SessionActivation($guard->context(), $guard->tokens(), app());
+    }
+
+    /**
+     * The call an activation is made for, for the client, as the session
+     * service makes it for a pending action: it checks nothing itself.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck
+     */
+    private function actingFor(ClientContext $client): AdmissionRecheck
+    {
+        $guard = app('auth')->guard(self::GUARD);
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        return new AdmissionRecheck(
+            $guard->context(),
+            $guard,
+            new RevocationWriter(app(ConnectionResolverInterface::class), static fn (): mixed => app('db.transactions')),
+            new AfterCommit(static fn (): mixed => app('db.transactions')),
+            $client,
+            $this->now,
+        );
     }
 
     /**

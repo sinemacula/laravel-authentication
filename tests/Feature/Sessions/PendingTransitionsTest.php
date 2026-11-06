@@ -194,6 +194,50 @@ final class PendingTransitionsTest extends TestCase
     }
 
     /**
+     * Transitions that report through a schedule hand it each return's report
+     * once the return applied, in place of scheduling it for the commit, with
+     * the client they were given, and keep the client when they are made;
+     * nothing is handed over for a return that did not apply.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReturnIsReportedThroughTheScheduleTheTransitionsWereGiven(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->signedIn();
+        $client  = new ClientContext('192.0.2.44', 'Plain/1.0');
+        /** @var \ArrayObject<int, \Closure(): void> $reports */
+        $reports  = new \ArrayObject;
+        $schedule = static function (\Closure $report) use ($reports): void {
+            $reports->append($report);
+        };
+
+        $this->recordEvents([SessionReturnedToPending::class]);
+
+        $transitions = $this->transitions('members', $client)->reportingThrough($schedule);
+        $admitted    = new Admitted($member, $membership, $tenant);
+        $returned    = $transitions->returnToPending($session, $admitted, 'v3', self::requirement(), self::firstFactorOf($session), AuthenticationFlow::REFRESH, $this->now);
+
+        self::assertNotNull($returned);
+        self::assertCount(1, $reports);
+        self::assertSame([], $this->recordedClasses());
+
+        foreach ($reports as $report) {
+            $report();
+        }
+
+        self::assertSame($client, $this->recordedEvent(SessionReturnedToPending::class)->context->client);
+
+        $missed = $transitions->returnToPending($session, $admitted, 'v3', self::requirement(), self::firstFactorOf($session), AuthenticationFlow::REFRESH, $this->now);
+
+        self::assertNull($missed);
+        self::assertCount(1, $reports);
+    }
+
+    /**
      * What an active session falls short of is the tenant's requirement alone
      * while the identity owes nothing, and the strictest of both once the
      * identity's own factor policy asks for more than the session has, judged

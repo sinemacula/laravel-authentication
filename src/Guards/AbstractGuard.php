@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Guards\Concerns\RebindsCollaborators;
 use SineMacula\Laravel\Authentication\Guards\Concerns\SignsInWithCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Runtime\CredentialTimebox;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
@@ -374,19 +375,26 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * `tenant()`). The events carry it and, with a session, the sign-in method
      * the session records.
      *
+     * `PrincipalAssigned` and `SessionAuthenticated` (and so the session's last
+     * use) describe the client given, for a flow acting for a client it was
+     * given as plain values, or the guard's request without one; for this bind
+     * only, as the guard keeps no client and its later events describe its
+     * request.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
      *
      * @throws \LogicException
      */
     #[\Override]
-    public function login(Identity $identity, Principal $principal, ?Session $session = null): void
+    public function login(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void
     {
         $this->fireValidatedEvent($identity);
 
-        $this->bindAuthenticationLifecycle($identity, $principal, $session);
+        $this->bindAuthenticationLifecycle($identity, $principal, $session, $client);
     }
 
     /**
@@ -552,14 +560,15 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \LogicException
      */
-    protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Session $session = null): void
+    protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void
     {
-        $this->bindVerifiedContext($identity, $principal, $session, self::trustedTenant($principal, $session), $session?->getSignInMethod(), true);
+        $this->bindVerifiedContext($identity, $principal, $session, self::trustedTenant($principal, $session), $session?->getSignInMethod(), true, client: $client);
     }
 
     /**
@@ -586,6 +595,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * @param  ?string  $credentialId
      * @param  ?list<string>  $scopes
      * @param  ?\SineMacula\Laravel\Authentication\Context\Enums\CredentialKind  $kind
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
      */
     protected function bindVerifiedContext(
@@ -599,6 +609,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
         ?string $credentialId = null,
         ?array $scopes = null,
         ?CredentialKind $kind = null,
+        ?ClientContext $client = null,
     ): void {
         $this->requestResolved = true;
 
@@ -610,6 +621,9 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
             $this->context->dispatch(new Login($this->context->name(), $identity, false));
         }
 
-        $this->bindContext($identity, $principal, $session, $tenant, $method, $credentialId, $scopes);
+        $this->credentialId = $credentialId;
+        $this->scopes       = $scopes;
+
+        $this->bindContext($identity, $principal, $session, $tenant, $method, $client);
     }
 }

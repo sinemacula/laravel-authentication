@@ -46,6 +46,33 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * Deactivation already stops every token at once through the live activity
  * checks; revoking makes the end outlast a reactivation and records why.
  *
+ * A deactivation's or deletion's revocation (`identityDeactivated()`,
+ * `identityDeleted()`, `principalDeactivated()`, `principalDeleted()`,
+ * `tenantDeactivated()`) also ends a session a sign-in, a choice or a switch
+ * admitted before the change and committed after it: such a call checks what
+ * its session newly acts as once it commits (`AdmissionRecheck`), and these
+ * calls, when made inside a transaction on the session model's connection or on
+ * the changed model's, end the same scopes again once that commits, since the
+ * transaction may have read the sessions before the call's commit. Either the
+ * revocation reads the session, or the call's check, made after its commit,
+ * reads the change; no session established before or concurrently with the
+ * change survives its reactivation or restore. That holds for these calls made
+ * inside the change's transaction or after it (not before it, outside a
+ * transaction), and for Eloquent identities, principals and tenants whose
+ * standing is read on their own connection: the check waits only for those
+ * connections, so what it reads elsewhere (a principal or tenant that is no
+ * model, through its resolver; a principal's own tenant on another connection;
+ * activity derived from other rows) it reads as that connection gives it, a
+ * caller's open transaction there included. The one exception is a change
+ * undone (reactivated, restored) before a call in flight checks its session:
+ * only a "tokens valid after" cutoff the revocation moved to a later second
+ * than the call began in records that, so a subject without one (a tenant, an
+ * identity or principal without `HasTokensValidAfter`, or one hard-deleted,
+ * which has no row to move it on, when a row is inserted again under its key
+ * before the check), or a revocation that ran within the second the call began,
+ * however long after that the change was undone, leaves that call's session
+ * standing.
+ *
  * It runs on the guard's context: its events carry the client of the request
  * each call starts in, and go to the context's dispatcher as it is when they
  * are dispatched, a deferred report's when the revocation commits. Only the two
@@ -326,7 +353,8 @@ final readonly class SessionRevocations
 
     /**
      * The identity was deactivated: end every session it has
-     * (`identity_deactivated`).
+     * (`identity_deactivated`), and once more after the commit when called
+     * inside a transaction (see the class).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -338,12 +366,13 @@ final readonly class SessionRevocations
      */
     public function identityDeactivated(Identity $identity): int
     {
-        return $this->revokeSessions($identity, RevocationReason::IDENTITY_DEACTIVATED);
+        return $this->endSessions([$this->identityScope($identity)], RevocationReason::IDENTITY_DEACTIVATED, null, changed: $identity);
     }
 
     /**
      * The principal was deactivated: end every session acting as it
-     * (`principal_deactivated`).
+     * (`principal_deactivated`), and once more after the commit when called
+     * inside a transaction (see the class).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return int
@@ -353,12 +382,13 @@ final readonly class SessionRevocations
      */
     public function principalDeactivated(Principal $principal): int
     {
-        return $this->revokePrincipalSessions($principal, RevocationReason::PRINCIPAL_DEACTIVATED);
+        return $this->endSessions([RevocationScope::principal($principal)], RevocationReason::PRINCIPAL_DEACTIVATED, null, changed: $principal);
     }
 
     /**
      * The identity was deleted, or soft-deleted: end every session it has
-     * (`identity_deleted`).
+     * (`identity_deleted`), and once more after the commit when called inside a
+     * transaction (see the class).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -370,12 +400,13 @@ final readonly class SessionRevocations
      */
     public function identityDeleted(Identity $identity): int
     {
-        return $this->revokeSessions($identity, RevocationReason::IDENTITY_DELETED);
+        return $this->endSessions([$this->identityScope($identity)], RevocationReason::IDENTITY_DELETED, null, changed: $identity);
     }
 
     /**
      * The principal was deleted, or soft-deleted: end every session acting as
-     * it (`principal_deleted`).
+     * it (`principal_deleted`), and once more after the commit when called
+     * inside a transaction (see the class).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return int
@@ -385,7 +416,7 @@ final readonly class SessionRevocations
      */
     public function principalDeleted(Principal $principal): int
     {
-        return $this->revokePrincipalSessions($principal, RevocationReason::PRINCIPAL_DELETED);
+        return $this->endSessions([RevocationScope::principal($principal)], RevocationReason::PRINCIPAL_DELETED, null, changed: $principal);
     }
 
     /**
@@ -397,7 +428,8 @@ final readonly class SessionRevocations
      * once, and so does a session both find. All sessions, pending ones among
      * them, are ended in one transaction, after each principal's cutoff moved,
      * with one `SignedOutEverywhere` per principal and one `SessionRevoked` per
-     * session.
+     * session, and once more after the commit when called inside a transaction
+     * (see the class).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  iterable<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
@@ -426,7 +458,7 @@ final readonly class SessionRevocations
             $scopes[] = RevocationScope::principal($principal, $tenant);
         }
 
-        return $this->endSessions([...$scopes, RevocationScope::activeTenant($tenant)], RevocationReason::TENANT_DEACTIVATED, null);
+        return $this->endSessions([...$scopes, RevocationScope::activeTenant($tenant)], RevocationReason::TENANT_DEACTIVATED, null, changed: $tenant);
     }
 
     /**
@@ -452,33 +484,47 @@ final readonly class SessionRevocations
      * End every session of the scopes, reporting each revoked session and then
      * each scope of an identity or a principal once the revocations commit,
      * after the `$committed` callback given; a tenant's scope signs no one out
-     * everywhere, so it reports only its sessions.
+     * everywhere, so it reports only its sessions. For a deactivation or
+     * deletion of the model given as `$changed`, the scopes are ended again
+     * once a transaction open on the session model's connection or on the
+     * model's own has committed (see `RevocationWriter::revokeAgain()`),
+     * reporting each session that pass revokes.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\RevocationScope>  $scopes
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
      * @param  ?\Closure(): void  $committed
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Contracts\Principal|\SineMacula\Laravel\Authentication\Contracts\Tenant|null  $changed
      * @return int
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
-    private function endSessions(array $scopes, RevocationReason $reason, ?Session $except, ?\Closure $committed = null): int
+    private function endSessions(array $scopes, RevocationReason $reason, ?Session $except, ?\Closure $committed = null, Identity|Principal|Tenant|null $changed = null): int
     {
         $client = $this->context->client();
         $guard  = $this->context->name();
+        $report = function (EloquentSession&Model $session, RevocationScope $scope) use ($client, $reason): void {
+            $method  = $session->getSignInMethod();
+            $context = new EventContext($session->getGuard(), $client, $scope->identity, $scope->principal, $scope->tenant, $session, $method, fromSession: true);
 
-        return $this->revocations->revokeScopes(
+            $this->context->dispatch(new SessionRevoked($context, $reason));
+        };
+
+        $ended = $this->revocations->revokeScopes(
             $scopes,
             $reason,
             $except,
             CarbonImmutable::now()->startOfSecond(),
-            function (EloquentSession&Model $session, RevocationScope $scope) use ($client, $reason): void {
-                $method  = $session->getSignInMethod();
-                $context = new EventContext($session->getGuard(), $client, $scope->identity, $scope->principal, $scope->tenant, $session, $method, fromSession: true);
-
-                $this->context->dispatch(new SessionRevoked($context, $reason));
-            },
+            $report,
             function (RevocationScope $scope, int $revoked, ?CarbonImmutable $cutoff) use ($client, $guard, $reason, $except): void {
                 if ($scope->identity === null && $scope->principal === null) {
                     return;
@@ -490,6 +536,12 @@ final readonly class SessionRevocations
             },
             $committed,
         );
+
+        if ($changed !== null) {
+            $this->revocations->revokeAgain($scopes, $reason, $changed, $report);
+        }
+
+        return $ended;
     }
 
     /**

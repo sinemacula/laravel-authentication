@@ -43,7 +43,7 @@ are caught on the server.
   detection, and a refresh transport per application: the body, or for a browser application a host-only `HttpOnly`
   cookie named after it, with CSRF checks, whose results never hand its code the plain refresh token; a service layer
   that keeps HTTP out refreshes, signs out and acts on a pending session from plain values, judged as the request would
-  be.
+  be and recorded, last use included, as that client's.
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that custom
   methods plug into; a further-factor package can use passkeys as a factor too, with a ceremony bound to the session and
   the credentials it names, and a gate it takes part in when a passkey is registered or removed.
@@ -70,8 +70,10 @@ are caught on the server.
   the other sessions and judges the current one again without it, a replacement counting as the replaced factor's
   removal, and an addition to the factors judges the current one again, returning it to pending when it falls short),
   when an identity or principal is deleted (an opt-in observer, a soft delete included) and when a connection is
-  disabled or deleted or a link through it removed or its scope widened (only that link's sessions), and list, get and
-  switch to the principals an identity may use, or switch its active tenant.
+  disabled or deleted or a link through it removed or its scope widened (only that link's sessions), end a session a
+  sign-in, choice or switch racing a deactivation or deletion wrote, so it does not survive the reactivation or restore
+  (a change undone before that call checks its session is caught through a "tokens valid after" cutoff only; see the
+  sessions guide), and list, get and switch to the principals an identity may use, or switch its active tenant.
 - **The caller of a request**: `Auth::caller()` reads who a request is from the access, refresh or pending credential
   its route authenticates with, and says whether a session, identity or principal is the caller's, so an application can
   scope its own route bindings.

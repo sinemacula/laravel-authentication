@@ -6,6 +6,7 @@ namespace Tests\Feature\Sessions;
 
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
@@ -40,6 +41,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -77,6 +79,7 @@ use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
+use Tests\Fixtures\Sessions\InterruptingFactorPolicy;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Sessions\TwoSecretSignIn;
 use Tests\Fixtures\Tenancy\DescendantTenants;
@@ -955,6 +958,100 @@ final class PendingSessionsTest extends TestCase
         self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first, null, $client)->isSignedIn());
         self::assertSame($client, $this->recordedEvent(SignedIn::class)->context->client);
         self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], self::lastUseOf($pending->id));
+    }
+
+    /**
+     * A choice whose tenant is deactivated after the choice admitted it, before
+     * the choice commits, ends the pending session once checked: it is revoked
+     * as `tenant_deactivated`, reported as revoked (its client holds its
+     * pending credential), the choice is refused as `tenant_inactive` with
+     * `Failed` and `AuthenticationFailed` naming the session and the method it
+     * records, nothing reports an activation, and the guard is not bound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceWhoseTenantIsDeactivatedBeforeItCommitsEndsTheSession(): void
+    {
+        $this->factorRequired = false;
+
+        [, $first] = $this->seedChooser();
+
+        [$credential] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
+
+        $change = static fn (): int => ActivatableTenant::query()->whereKey($first->tenant_id)->update(['is_active' => false]);
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($change));
+
+        $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class, SessionRevoked::class]);
+
+        $result = $this->sessions(self::CHOOSERS)->choose($credential, $first);
+
+        self::assertSame(FailureReason::TENANT_INACTIVE, $result->reason);
+        self::assertSame([SessionRevoked::class, Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(RevocationReason::TENANT_DEACTIVATED, $this->recordedEvent(SessionRevoked::class)->reason);
+        self::assertSame(RevocationReason::TENANT_DEACTIVATED->value, Session::query()->sole()->getRawOriginal('revoked_reason'));
+        self::assertSame(IdentifierCoercion::stringify(Session::query()->sole()->getKey()), $this->recordedEvent(AuthenticationFailed::class)->context->sessionId);
+        self::assertSame('password', $this->recordedEvent(AuthenticationFailed::class)->context->method);
+        self::assertTrue(app('auth')->guard(self::CHOOSERS)->guest());
+    }
+
+    /**
+     * A choice that supersedes the proven session its client holds, and whose
+     * tenant is deactivated after the choice admitted it, still reports the
+     * superseded session, which stays revoked as `superseded`, after its check
+     * has ended the chosen session as `tenant_deactivated` and reported that:
+     * the choice is refused as `tenant_inactive`, nothing reports an
+     * activation, and the guard is not bound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceThatSupersedesAndFailsItsCheckStillReportsTheSupersededSession(): void
+    {
+        [, $first] = $this->seedChooser();
+
+        $this->factorRequired = false;
+
+        $client = new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT);
+        $active = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), new SignInContext($client, principal: $first))->session;
+
+        self::assertNotNull($active);
+
+        $context = new SignInContext($client, refreshToken: $active->tokens->refreshToken?->reveal());
+        $result  = $this->sessions(self::CHOOSERS)->signIn('password', self::credentials('chooser@example.test'), $context);
+
+        self::assertNotNull($result->pending);
+        self::assertNotNull($result->credential);
+
+        $change = static fn (): int => ActivatableTenant::query()->whereKey($first->tenant_id)->update(['is_active' => false]);
+
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy($change));
+
+        $guard = app('auth')->guard(self::CHOOSERS);
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $guard->forgetUser();
+
+        $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class, SessionRevoked::class]);
+
+        $chosen = $this->sessions(self::CHOOSERS)->choose($result->credential->reveal(), $first);
+
+        self::assertSame(FailureReason::TENANT_INACTIVE, $chosen->reason);
+        self::assertSame([SessionRevoked::class, SessionRevoked::class, Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+
+        [$ended, $superseded] = $this->recorded;
+
+        self::assertInstanceOf(SessionRevoked::class, $ended);
+        self::assertInstanceOf(SessionRevoked::class, $superseded);
+        self::assertSame([RevocationReason::TENANT_DEACTIVATED, IdentifierCoercion::stringify($result->pending->id)], [$ended->reason, $ended->context->sessionId]);
+        self::assertSame([RevocationReason::SUPERSEDED, IdentifierCoercion::stringify($active->record->getKey())], [$superseded->reason, $superseded->context->sessionId]);
+        self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $active->record->getKey())->value('revoked_reason'));
+        self::assertSame('tenant_deactivated', DB::table('authentication_sessions')->where('id', $result->pending->id)->value('revoked_reason'));
+        self::assertTrue($guard->guest());
     }
 
     /**

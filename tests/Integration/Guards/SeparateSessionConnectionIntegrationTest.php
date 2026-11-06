@@ -5,9 +5,11 @@ declare(strict_types = 1);
 namespace Tests\Integration\Guards;
 
 use Carbon\Carbon;
+use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -18,18 +20,23 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
+use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
+use Tests\Integration\Fixtures\SeparateConnectionCutoffIdentity;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\Integration\Fixtures\SeparateConnectionSessionIdentity;
 use Tests\TestCase;
@@ -52,9 +59,13 @@ use Tests\TestCase;
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(RefreshRotationStore::class)]
 #[CoversClass(SessionSwitch::class)]
+#[CoversClass(AdmissionRecheck::class)]
 final class SeparateSessionConnectionIntegrationTest extends TestCase
 {
     use InteractsWithSessionRecords;
+
+    /** @var string The guard over identities that record a "tokens valid after" cutoff. */
+    private const string CUTOFFS = 'cutoffs';
 
     /** @var string Plaintext rotation id of the session's first refresh token. */
     private const string ROTATION_ID = 'first-rotation-id';
@@ -110,9 +121,11 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
+        Schema::dropIfExists('cutoff_identities');
         Schema::dropIfExists('stub_principals');
 
         Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
         JWT::$timestamp = null;
 
         parent::tearDown();
@@ -345,6 +358,167 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * A sign-in made inside a transaction on the identity's connection, with
+     * the sessions on their own, commits its session at once and binds the
+     * guard to it, while the check of what it acts as waits for that
+     * transaction to end, and the events that report the session with it:
+     * when it rolls back, the check still runs and the session is reported;
+     * when it commits the identity's deletion made in it, the check ends the
+     * session, which the caller holds, and reports that instead.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInInsideATransactionOnTheIdentitysConnectionIsCheckedWhenThatTransactionEnds(): void
+    {
+        $identity            = new SeparateConnectionSessionIdentity;
+        $identity->email     = 'checked@example.test';
+        $identity->password  = app(Hasher::class)->make('correct horse battery staple');
+        $identity->is_active = true;
+        $identity->save();
+
+        $credentials = ['email' => 'checked@example.test', 'password' => 'correct horse battery staple'];
+        /** @var \ArrayObject<int, string> $reported */
+        $reported = new \ArrayObject;
+
+        Event::listen([SessionAuthenticated::class, SessionCreated::class, SignedIn::class, SessionRevoked::class], static function (object $event) use ($reported): void {
+            $reported->append(class_basename($event));
+        });
+
+        DB::beginTransaction();
+
+        $kept = Auth::sessions()->signIn('password', $credentials)->session;
+
+        self::assertNotNull($kept);
+        self::assertSame(['SessionAuthenticated'], $reported->getArrayCopy());
+
+        DB::rollBack();
+
+        self::assertSame(['SessionAuthenticated', 'SessionCreated', 'SignedIn'], $reported->getArrayCopy());
+        self::assertNull(self::revokedReasonOf($kept->record->getKey()));
+
+        $reported->exchangeArray([]);
+
+        DB::beginTransaction();
+
+        $ended = Auth::sessions()->signIn('password', $credentials)->session;
+
+        self::assertNotNull($ended);
+
+        SeparateConnectionSessionIdentity::query()->whereKey($identity->getKey())->delete();
+
+        DB::commit();
+
+        self::assertSame(['SessionAuthenticated', 'SessionRevoked'], $reported->getArrayCopy());
+        self::assertSame('identity_deleted', self::revokedReasonOf($ended->record->getKey()));
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+        self::assertNull($guard->session());
+    }
+
+    /**
+     * With the sessions on their own connection, a session committed and bound
+     * at once whose check ends it when the identity's transaction commits its
+     * deletion leaves the guard with nothing bound, even when a listener of the
+     * revocation throws and the caller catches it: the session is revoked and
+     * the guard has forgotten its identity, principal and session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGuardForgetsASessionItsCheckEndsThoughTheRevocationsListenerThrows(): void
+    {
+        $identity            = new SeparateConnectionSessionIdentity;
+        $identity->email     = 'thrown@example.test';
+        $identity->password  = app(Hasher::class)->make('correct horse battery staple');
+        $identity->is_active = true;
+        $identity->save();
+
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        DB::beginTransaction();
+
+        $ended = Auth::sessions()->signIn('password', ['email' => 'thrown@example.test', 'password' => 'correct horse battery staple'])->session;
+
+        self::assertNotNull($ended);
+        self::assertSame($ended->record->getKey(), $guard->session()?->getSessionIdentifier());
+
+        SeparateConnectionSessionIdentity::query()->whereKey($identity->getKey())->delete();
+
+        Event::listen(SessionRevoked::class, static function (): void {
+            throw new \RuntimeException('listener');
+        });
+
+        try {
+            DB::commit();
+
+            self::fail('Expected the listener to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener', $exception->getMessage());
+        }
+
+        self::assertSame('identity_deleted', self::revokedReasonOf($ended->record->getKey()));
+        self::assertNull($guard->session());
+        self::assertNull($guard->principal());
+        self::assertFalse($guard->check());
+    }
+
+    /**
+     * A password change that keeps the session a sign-in wrote inside a
+     * transaction on the identity's connection, made a second after the sign-in
+     * began and before that transaction commits, leaves the session standing:
+     * its check, which waits for that transaction, does not take the cutoff the
+     * change moved for a revocation that could not see the session, so the
+     * session stays live and the guard stays bound to it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasswordChangeThatKeepsASessionCheckedAfterTheIdentitysTransactionLeavesItStanding(): void
+    {
+        Schema::create('cutoff_identities', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email');
+            $blueprint->string('password');
+            $blueprint->dateTime('tokens_valid_after', 0)->nullable();
+            $blueprint->timestamps();
+        });
+
+        CarbonImmutable::setTestNow($this->now);
+
+        $created  = SeparateConnectionCutoffIdentity::query()->create(['email' => 'kept@example.test', 'password' => app(Hasher::class)->make('correct horse battery staple')]);
+        $identity = SeparateConnectionCutoffIdentity::query()->whereKey($created->getKey())->firstOrFail();
+        $later    = CarbonImmutable::instance($this->now)->addSecond();
+
+        DB::beginTransaction();
+
+        $signedIn = Auth::sessions(self::CUTOFFS)->signIn('password', ['email' => 'kept@example.test', 'password' => 'correct horse battery staple'])->session;
+
+        self::assertNotNull($signedIn);
+
+        Carbon::setTestNow($later);
+        CarbonImmutable::setTestNow($later);
+
+        Auth::sessions(self::CUTOFFS)->passwordChanged($identity, $signedIn->record);
+
+        DB::commit();
+
+        self::assertSame($later->getTimestamp(), $identity->refresh()->getTokensValidAfter()?->getTimestamp());
+        self::assertNull(self::revokedReasonOf($signedIn->record->getKey()));
+
+        $guard = app('auth')->guard(self::CUTOFFS);
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+        self::assertSame($signedIn->record->getKey(), $guard->session()?->getSessionIdentifier());
+    }
+
+    /**
      * Keep the sessions on their own connection, a separate database, as the
      * storage connection, the counters on the default one, and configure the
      * `api` guard.
@@ -367,6 +541,19 @@ final class SeparateSessionConnectionIntegrationTest extends TestCase
         $config->set('auth.defaults.guard', 'api');
         $config->set('auth.providers.identities', ['driver' => 'model', 'model' => SeparateConnectionSessionIdentity::class]);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'application' => ['methods' => ['password']], 'jwt' => ['refresh_grace_seconds' => 30]]);
+        $config->set('auth.providers.' . self::CUTOFFS, ['driver' => 'model', 'model' => SeparateConnectionCutoffIdentity::class]);
+        $config->set('auth.guards.' . self::CUTOFFS, ['driver' => 'jwt', 'provider' => self::CUTOFFS, 'application' => ['methods' => ['password']]]);
+    }
+
+    /**
+     * Why the session's row records it was revoked, if it was.
+     *
+     * @param  mixed  $id
+     * @return mixed
+     */
+    private static function revokedReasonOf(mixed $id): mixed
+    {
+        return DB::connection(SeparateConnectionSession::CONNECTION)->table('authentication_sessions')->where('id', $id)->value('revoked_reason');
     }
 
     /**

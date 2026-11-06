@@ -46,8 +46,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   transaction but not outside a transaction the caller opened on that connection: with the default (`null`, the storage
   connection) a caller that rolls back around a sign-in rolls its counts back too, so its attempts go uncounted. Only
   counters on a connection of their own survive such a rollback. The slots are therefore given back only once the
-  session commits on its connection and the guard is bound to it: a rollback leaves a first activation's session
-  pending, and slots given back before it would be given back again when it activates. A release that fails then is
+  session commits on its connection, the guard is bound to it and it passed the check the call is held to
+  (`AdmissionRecheck::then()`): a rollback leaves a first activation's session pending, and slots given back before it
+  would be given back again when it activates; a session the check ends at a caller's commit keeps them counted, as a
+  sign-in the check refuses before it answers does. A release that fails then is
   reported to the exception handler, not thrown, the one limiter error that does not propagate: the session already
   stands, and Laravel runs a commit's callbacks in order without catching, so a throw would stop the later ones (another
   activation's events, the caller's own). The release stops at the failure, and the slots not given back stay counted. A
@@ -180,6 +182,13 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Failure / Edge Cases
 
+- A sign-in's session is checked once committed (`AdmissionRecheck`, made by `recheck()` with the call's client and
+  the second it began, before verification): its identity, principal and tenant are read again, and one deactivated or
+  deleted after admission revokes the session, which `signIn()`, `start()` and `signInExternally()` (after its own
+  transaction) answer as a refusal through `refusal()`; inside a caller's transaction the check runs at the commit,
+  ahead of the reports and the bind; with the caller's transaction on the identity's, principal's or tenant's
+  connection and not the session's, the session commits and binds at once and the check and the reports wait for that
+  transaction to end, committed or rolled back (see `session-lifecycle.md`).
 - The slots a pending session keeps stay taken until it first activates, the one the method's check took on the
   account (`SignInRequest::reserveAccountAttempt()`) among them, and a discard or expiry leaves them counted, so each
   guess at a factor costs a sign-in attempt. For the password method the
@@ -189,8 +198,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `start()` or `signInExternally()` holds no slots (nothing was guessed), so its external verifier bounds it.
 - An activation runs in the acting request's client, or the one `satisfy()` or `choose()` is given: its events and the
   session's last use carry that client, while the session keeps the client the sign-in came from as its creation. The
-  bind's `SessionAuthenticated` describes the guard's own request, and records it as the last use whenever the
-  last-use throttle allows a use so soon after the activation (with `0`, always).
+  bind's `PrincipalAssigned` and `SessionAuthenticated` carry it too (`bound()` hands the client to
+  `GuardBinding::login()`), as they carry a sign-in's `SignInContext` client, so a last use the bind records is the same
+  client's.
 - Inside a caller's transaction the service's transaction is a savepoint: the lifecycle events, the bind and the
   give-back of the slots wait for the caller's commit, and a rollback withdraws all three with the session, leaving the
   guard unbound (and, unless the counters are on a connection of their own, the sign-in's attempts uncounted). A
@@ -249,6 +259,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Authoritative Tests
 
+- `tests/Feature/Sessions/AdmissionRecheckTest.php`, and the forked race of a sign-in, choice and switch against a
+  deactivation or deletion in `tests/Integration/Sessions/ConcurrentSignInAndDeactivationTest.php`
 - `tests/Feature/Sessions/SessionServiceTest.php`, `tests/Unit/RateLimiting/AccountAttemptsTest.php`
 - `tests/Feature/Contracts/CredentialAttemptMatrixTest.php`: every case of `signIn('password')` beside `attempt()`'s,
   with its answer, events, timebox, rehash and slots; `tests/Feature/Sessions/CredentialAttemptTest.php`

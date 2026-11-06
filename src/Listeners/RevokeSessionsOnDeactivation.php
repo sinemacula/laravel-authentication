@@ -31,7 +31,13 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * session acting in the tenant); registering this observer on any other model
  * throws a `LogicException` when it is deactivated. Deactivation already stops
  * every token at once through the live activity checks; revoking makes it
- * outlast a reactivation and records why.
+ * outlast a reactivation and records why. A sign-in, a choice of principal or a
+ * switch that admitted the model before the update committed, and wrote its
+ * session after this revocation read the sessions, ends that session itself
+ * once it checks it (`AdmissionRecheck`), so no session survives the
+ * reactivation, unless the reactivation came before that check: then only a
+ * "tokens valid after" cutoff (`HasTokensValidAfter`) this revocation moved to
+ * a later second than the call began in ends it (see `SessionRevocations`).
  *
  * @api
  *

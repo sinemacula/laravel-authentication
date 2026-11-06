@@ -59,6 +59,7 @@ use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
+use SineMacula\Laravel\Authentication\Database\RequiredWork;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
@@ -90,8 +91,10 @@ use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
+use SineMacula\Laravel\Authentication\Sessions\KeptSessions;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Sessions\WatchedSessions;
 use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
 use SineMacula\Laravel\Authentication\Tenancy\RequireNothingOfTenants;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
@@ -550,9 +553,11 @@ final class AuthenticationServiceProviderTest extends TestCase
     /**
      * The sign-in method registry is a container singleton, the mark of an
      * automatic password rehash it and the password-change listener share is
-     * scoped (one per request or job), and the default additional-factor
-     * policy, which never asks for a factor, is bound as one so an application
-     * or an MFA package can rebind it.
+     * scoped (one per request or job), as are the sessions a bulk revocation
+     * kept for the check of a sign-in, choice or switch, the checks still
+     * waiting per session and the required work held for a commit, and the
+     * default additional-factor policy, which never asks for a factor, is bound
+     * as one so an application or an MFA package can rebind it.
      *
      * @return void
      */
@@ -573,6 +578,28 @@ final class AuthenticationServiceProviderTest extends TestCase
         $app->forgetScopedInstances();
 
         self::assertNotSame($rehashing, app(Rehashing::class));
+        self::assertTrue($app->isShared(KeptSessions::class));
+
+        $kept = app(KeptSessions::class);
+
+        self::assertSame($kept, app(KeptSessions::class));
+
+        $app->forgetScopedInstances();
+
+        self::assertNotSame($kept, app(KeptSessions::class));
+
+        foreach ([WatchedSessions::class, RequiredWork::class] as $scoped) {
+
+            self::assertTrue($app->isShared($scoped));
+
+            $instance = app($scoped);
+
+            self::assertSame($instance, app($scoped));
+
+            $app->forgetScopedInstances();
+
+            self::assertNotSame($instance, app($scoped));
+        }
 
         self::assertTrue($app->isShared(AdditionalFactorPolicy::class));
         self::assertInstanceOf(NeverRequireAdditionalFactor::class, app(AdditionalFactorPolicy::class));

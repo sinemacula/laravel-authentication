@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\DatabaseTransactionsManager as TestingTransact
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Database\RequiredWork;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Integration\Fixtures\SeparateConnectionSession;
 use Tests\TestCase;
@@ -17,7 +18,8 @@ use Tests\Unit\Stubs\StubSession;
 /**
  * Feature tests for work deferred until a session's connection commits, or run
  * if it rolls back, against real transactions on whichever engine the suite
- * runs on, and a session kept on a second connection.
+ * runs on, and a session kept on a second connection, with the required work a
+ * callback that throws runs before its exception leaves it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -25,6 +27,7 @@ use Tests\Unit\Stubs\StubSession;
  * @internal
  */
 #[CoversClass(AfterCommit::class)]
+#[CoversClass(RequiredWork::class)]
 final class AfterCommitTest extends TestCase
 {
     use InteractsWithSessionRecords;
@@ -104,6 +107,176 @@ final class AfterCommitTest extends TestCase
         DB::rollBack();
 
         self::assertCount(1, $calls);
+    }
+
+    /**
+     * Work run across models runs once the writes on each model's connection
+     * have committed, in the order the models are given: at once with none
+     * open; otherwise only once every transaction open on any of them has
+     * committed, whichever commits first; never when one rolls back; and at
+     * once with no model at all.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRunsAcrossEveryModelsConnection(): void
+    {
+        $session  = $this->record();
+        $separate = new SeparateConnectionSession;
+        $calls    = new \ArrayObject;
+        $count    = self::counter($calls);
+
+        $this->afterCommit()->runAcross([$session, $separate], $count);
+        $this->afterCommit()->runAcross([], $count);
+
+        self::assertCount(2, $calls);
+
+        $other = DB::connection(SeparateConnectionSession::CONNECTION);
+
+        DB::beginTransaction();
+        $other->beginTransaction();
+
+        $this->afterCommit()->runAcross([$session, $separate], $count);
+
+        $other->commit();
+
+        self::assertCount(2, $calls);
+
+        DB::commit();
+
+        self::assertCount(3, $calls);
+
+        DB::beginTransaction();
+        $other->beginTransaction();
+
+        $this->afterCommit()->runAcross([$session, $separate], $count);
+
+        DB::commit();
+
+        self::assertCount(3, $calls);
+
+        $other->commit();
+
+        self::assertCount(4, $calls);
+
+        $other->beginTransaction();
+
+        $this->afterCommit()->runAcross([$session, $separate], $count);
+
+        $other->rollBack();
+
+        self::assertCount(4, $calls);
+    }
+
+    /**
+     * Work run once transactions have ended runs, on each model's connection in
+     * the order the models are given, once the outermost transaction open on it
+     * ends, whether it commits or rolls back, never when a transaction nested
+     * in it does, and not again for a second model on a connection whose
+     * transaction just ended; at once with none open, and with no model at all.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRunsOnceTheTransactionsOnEveryModelsConnectionHaveEnded(): void
+    {
+        $session  = $this->record();
+        $separate = new SeparateConnectionSession;
+        $calls    = new \ArrayObject;
+        $count    = self::counter($calls);
+        $other    = DB::connection(SeparateConnectionSession::CONNECTION);
+
+        $this->afterCommit()->runOnceEnded([$session, $separate], $count);
+        $this->afterCommit()->runOnceEnded([], $count);
+
+        self::assertCount(2, $calls);
+
+        $other->beginTransaction();
+        $other->beginTransaction();
+
+        $this->afterCommit()->runOnceEnded([$separate], $count);
+
+        $other->rollBack();
+        $other->beginTransaction();
+        $other->commit();
+
+        self::assertCount(2, $calls);
+
+        $other->commit();
+
+        self::assertCount(3, $calls);
+
+        $other->beginTransaction();
+
+        $this->afterCommit()->runOnceEnded([$separate, $separate], $count);
+
+        $other->rollBack();
+
+        self::assertCount(4, $calls);
+
+        DB::beginTransaction();
+        $other->beginTransaction();
+
+        $this->afterCommit()->runOnceEnded([$session, $separate], $count);
+
+        DB::rollBack();
+
+        self::assertCount(4, $calls);
+
+        $other->rollBack();
+
+        self::assertCount(5, $calls);
+    }
+
+    /**
+     * Under the transactions manager of Laravel's testing traits, work run once
+     * transactions have ended does not wait for the transaction that wraps each
+     * test, only for one opened inside it, and runs when that one ends.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRunsOnceEndedIgnoringTheTransactionWrappingATest(): void
+    {
+        $session     = $this->record();
+        $calls       = new \ArrayObject;
+        $count       = self::counter($calls);
+        $manager     = new TestingTransactionsManager([null]);
+        $afterCommit = new AfterCommit(static fn (): TestingTransactionsManager => $manager);
+        $connection  = DB::connection();
+
+        $connection->setTransactionManager($manager);
+        $connection->beginTransaction();
+
+        try {
+            $afterCommit->runOnceEnded([$session], $count);
+
+            self::assertCount(1, $calls);
+
+            DB::beginTransaction();
+
+            $afterCommit->runOnceEnded([$session], $count);
+
+            self::assertCount(1, $calls);
+
+            DB::rollBack();
+
+            self::assertCount(2, $calls);
+
+            DB::beginTransaction();
+
+            $afterCommit->runOnceEnded([$session], $count);
+
+            DB::commit();
+
+            self::assertCount(3, $calls);
+        } finally {
+            $connection->rollBack();
+            $connection->setTransactionManager(app('db.transactions'));
+        }
     }
 
     /**
@@ -370,6 +543,132 @@ final class AfterCommitTest extends TestCase
     }
 
     /**
+     * A report that throws at a commit runs the required work that is due
+     * before its exception leaves the commit: work run across models or once
+     * transactions have ended, registered after the report, runs once, a report
+     * registered after it does not, and work still waiting for another
+     * connection's transaction waits on for it. Work that already ran is not
+     * run again by a later report that throws.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReportThatThrowsRunsTheRequiredWorkThatIsDue(): void
+    {
+        $session     = $this->record();
+        $separate    = new SeparateConnectionSession;
+        $calls       = new \ArrayObject;
+        $count       = self::counter($calls);
+        $other       = DB::connection(SeparateConnectionSession::CONNECTION);
+        $afterCommit = $this->afterCommit();
+
+        DB::beginTransaction();
+        $other->beginTransaction();
+
+        $afterCommit->run($session, self::thrower('report'));
+        $afterCommit->runAcross([$session], $count);
+        $afterCommit->runOnceEnded([$session], $count);
+        $afterCommit->runAcross([$session, $separate], $count);
+        $afterCommit->runOnceEnded([$separate], $count);
+        $afterCommit->run($session, $count);
+
+        self::assertSame('report', self::thrown(static fn () => DB::commit()));
+        self::assertCount(2, $calls);
+
+        $other->commit();
+
+        self::assertCount(4, $calls);
+
+        DB::beginTransaction();
+
+        $afterCommit->run($session, self::thrower('later'));
+
+        self::assertSame('later', self::thrown(static fn () => DB::commit()));
+        self::assertCount(4, $calls);
+    }
+
+    /**
+     * Required work held for a nested transaction that rolled back is let go
+     * with it, so a report that throws at the outer commit does not run it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRequiredWorkRolledBackIsNotRunByAReportThatThrows(): void
+    {
+        $session     = $this->record();
+        $calls       = new \ArrayObject;
+        $afterCommit = $this->afterCommit();
+
+        DB::beginTransaction();
+        DB::beginTransaction();
+
+        $afterCommit->runAcross([$session], self::counter($calls));
+
+        DB::rollBack();
+
+        $afterCommit->run($session, self::thrower('report'));
+
+        self::assertSame('report', self::thrown(static fn () => DB::commit()));
+        self::assertCount(0, $calls);
+    }
+
+    /**
+     * Required work that throws while it is run for a report that threw does
+     * not keep the rest from running, the report's exception is the one thrown,
+     * and work the required work's own report ran is not run twice.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRequiredWorkThatThrowsLetsTheRestRun(): void
+    {
+        $session     = $this->record();
+        $calls       = new \ArrayObject;
+        $afterCommit = $this->afterCommit();
+
+        DB::beginTransaction();
+
+        $afterCommit->run($session, self::thrower('report'));
+        $afterCommit->runAcross([$session], self::thrower('work'));
+        $afterCommit->runAcross([$session], static function () use ($afterCommit, $session): void {
+            DB::transaction(static function () use ($afterCommit, $session): void {
+                $afterCommit->run($session, self::thrower('nested'));
+            });
+        });
+        $afterCommit->runAcross([$session], self::counter($calls));
+
+        self::assertSame('report', self::thrown(static fn () => DB::commit()));
+        self::assertCount(1, $calls);
+    }
+
+    /**
+     * A callback run on a rollback that throws runs the required work that is
+     * due, as one run on a commit does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARollbackCallbackThatThrowsRunsTheRequiredWorkThatIsDue(): void
+    {
+        $session     = $this->record();
+        $calls       = new \ArrayObject;
+        $afterCommit = $this->afterCommit();
+
+        DB::beginTransaction();
+
+        $afterCommit->runIfRolledBack($session, self::thrower('rollback'));
+        $afterCommit->runOnceEnded([$session], self::counter($calls));
+
+        self::assertSame('rollback', self::thrown(static fn () => DB::rollBack()));
+        self::assertCount(1, $calls);
+    }
+
+    /**
      * Without a transactions manager, nothing can be deferred, so the work runs
      * at once even inside a transaction.
      *
@@ -429,6 +728,36 @@ final class AfterCommitTest extends TestCase
         return static function () use ($calls): void {
             $calls->append(true);
         };
+    }
+
+    /**
+     * A callback that throws a runtime exception with the message.
+     *
+     * @param  string  $message
+     * @return \Closure(): void
+     */
+    private static function thrower(string $message): \Closure
+    {
+        return static function () use ($message): void {
+            throw new \RuntimeException($message);
+        };
+    }
+
+    /**
+     * The message of the runtime exception the work throws.
+     *
+     * @param  \Closure(): mixed  $work
+     * @return string
+     */
+    private static function thrown(\Closure $work): string
+    {
+        try {
+            $work();
+        } catch (\RuntimeException $exception) {
+            return $exception->getMessage();
+        }
+
+        self::fail('Expected the work to throw.');
     }
 
     /**

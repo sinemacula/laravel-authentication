@@ -38,11 +38,14 @@ key (or polymorphic type) is a misconfiguration, and the bind throws its `LogicE
 
 `setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
 principal (and no session), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
-`login($identity, $principal, $session)` to bind a specific principal or a session. `actingAs()` binds the guard for
-code that runs in the test itself only: a request the test sends through the HTTP kernel, such as
-`$this->actingAs($user, 'api')->getJson('/me')`, rebinds the guard to its own request and starts the context over. In
-tests, act through `InteractsWithAuthenticationContext` instead (see [Testing](testing.md)), whose context survives
-those requests.
+`login($identity, $principal, $session)` to bind a specific principal or a session; code acting for a client it was
+given as plain values (a console command, a queued job) passes that `ClientContext` as a fourth argument, which the
+bind's `PrincipalAssigned` and `SessionAuthenticated` carry, so the last use it records (as the last-use throttle
+allows) is that client's, for this bind only (the guard keeps no client, and its later events describe its request).
+`actingAs()` binds the guard for code that runs in the test itself only: a request the test sends through the HTTP
+kernel, such as `$this->actingAs($user, 'api')->getJson('/me')`, rebinds the guard to its own request and starts the
+context over. In tests, act through `InteractsWithAuthenticationContext` instead (see [Testing](testing.md)), whose
+context survives those requests.
 
 Sign in with credentials through `attempt()`, optionally pinning the principal and session to act as:
 
@@ -837,6 +840,10 @@ whichever guard each sign-in used, held to the most permissive `per_identifier` 
 account (see [Rate limits](configuration.md#rate-limits)). A sign-in that `start()` began took no slots, since nothing
 was guessed.
 
+Once its session commits, active or pending, the sign-in reads its identity, principal and tenant again, and refuses
+the sign-in, ending the session, when one of them was deactivated or deleted after the steps above admitted it (see
+[Sign-ins racing a deactivation or deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion)).
+
 ### Actions
 
 A pending credential allows only the actions of the session's first outstanding requirement, by stable names
@@ -958,10 +965,12 @@ scheme and host or header names is refused as `cross_site_request` before the pe
 guard's request. The client is your trusted description of the request (see
 [Refresh token cookie](refreshing.md#refresh-token-cookie)). An activation writes it as the session's last use, and it
 is carried by the events that report the action (`AuthenticationFailed`, `SessionCreated` or `SessionActivated`,
-`SignedIn`, a superseded session's `SessionRevoked`); the guard's bind describes the guard's own request, as every later
-event of the guard does, so its `SessionAuthenticated` records that request as the last use whenever
-`session.last_used_throttle_seconds` allows a use so soon after the activation (with `0`, always). A body application
-is never held to the check, with a client or without.
+`SignedIn`, a superseded session's `SessionRevoked`) and by the guard's bind (`PrincipalAssigned` and
+`SessionAuthenticated`), so a last use the bind records is that client's too, whatever
+`session.last_used_throttle_seconds` is. The same holds for `signIn()`, `start()` and `signInExternally()` given a
+`SignInContext`: every event of the sign-in, the bind's included, and the session's last use carry its client. The
+client describes that bind only: the guard keeps no client, so its later events describe its own request. A body
+application is never held to the check, with a client or without.
 
 ## Additional factors
 

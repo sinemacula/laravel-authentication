@@ -88,10 +88,14 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * The session is established by `SessionEstablishment`, which writes it and
  * schedules what reports it but never binds; the service binds the guard only
  * once that has returned, and only once the session's writes commit, so a
- * sign-in inside a caller's transaction that rolls back never binds. Pending
- * sessions are acted on through `PendingSessions`. The service also refreshes a
- * session through `SessionRefresh` (`RefreshesSessions`), steps a session up
- * and reauthenticates it through `SessionStepUp` and `SessionReauthentication`
+ * sign-in inside a caller's transaction that rolls back never binds. A sign-in,
+ * a choice of principal and a switch check the session they wrote once it
+ * commits (`AdmissionRecheck`): one whose identity, principal or tenant was
+ * deactivated or deleted after the call admitted it is revoked, and the call
+ * answers the refusal when it has not answered yet. Pending sessions are acted
+ * on through `PendingSessions`. The service also refreshes a session through
+ * `SessionRefresh` (`RefreshesSessions`), steps a session up and
+ * reauthenticates it through `SessionStepUp` and `SessionReauthentication`
  * (`ProvesSessions`), or at an external provider through the link that
  * established it through `ExternalReauthentication` (`SignsInExternally`), each
  * of which issues a new access token only, gates the factor package's changes
@@ -183,8 +187,8 @@ final readonly class SessionService
         $this->rotations         = new RefreshRotationStore($connections);
         $this->evaluation        = new PendingEvaluation($context, $container);
         $this->externalSignIns   = new ExternalSignIn($externalResults, $this->evaluation);
-        $this->establishment     = new SessionEstablishment($context, $writer, $proof, $this->evaluation, $this->afterCommit, $container);
-        $activation              = new SessionActivation($context, $tokens, $this->afterCommit, $container);
+        $this->establishment     = new SessionEstablishment($context, $writer, $proof, $this->evaluation, $container);
+        $activation              = new SessionActivation($context, $tokens, $container);
         $this->pendings          = new PendingSessions($context, $this->evaluation, $activation, $sessions, $this->afterCommit);
         $this->revocations       = new SessionRevocations($context, $sessions, $container);
         $this->policyChanges     = new TenantPolicyChanges($context, $this->afterCommit);
@@ -257,6 +261,7 @@ final readonly class SessionService
      */
     public function signIn(string $method, #[\SensitiveParameter] array $input, ?SignInContext $context = null): SignInResult
     {
+        $began     = CarbonImmutable::now()->startOfSecond();
         $transport = $this->transport();
         $driver    = $this->container->make(SignInMethodManager::class)->method($method);
         $context ??= SignInContext::fromRequest($this->context->request());
@@ -267,7 +272,8 @@ final readonly class SessionService
         $this->context->dispatch(new Attempting($this->context->name(), $safe, false));
 
         $subject = new AttemptSubject($this->context->name(), AttemptFlow::SIGN_IN, $identifier, $type, $context->client->ip);
-        $outcome = SessionPreconditions::crossSite($transport, $context->client) ?? $this->signInWith($driver, $method, $input, $context, $subject, $transport);
+        $recheck = $this->recheck($context->client, $began);
+        $outcome = SessionPreconditions::crossSite($transport, $context->client) ?? $this->signInWith($driver, $method, $input, $context, $subject, $transport, $recheck);
 
         if (!$outcome instanceof Refused) {
             return $outcome;
@@ -321,14 +327,17 @@ final readonly class SessionService
     {
         SessionPreconditions::assertSessionMethod($method);
 
+        $began     = CarbonImmutable::now()->startOfSecond();
         $transport = $this->transport();
         $context ??= SignInContext::fromRequest($this->context->request());
-        $pinned = SessionPreconditions::pinnedPrincipal($principal, $context);
-        $proof  = SignInProof::unattested($method, CarbonImmutable::now());
+        $pinned  = SessionPreconditions::pinnedPrincipal($principal, $context);
+        $proof   = SignInProof::unattested($method, CarbonImmutable::now());
+        $recheck = $this->recheck($context->client, $began);
 
-        $outcome = SessionPreconditions::crossSite($transport, $context->client) ?? $this->startFor($identity, $pinned, $method, $context, $proof);
+        $outcome = SessionPreconditions::crossSite($transport, $context->client) ?? $this->startFor($identity, $pinned, $method, $context, $proof, $recheck);
+        $outcome = $recheck->refusal()                                           ?? $outcome;
 
-        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $this->bound($outcome, $transport);
+        return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $this->bound($outcome, $transport, $recheck);
     }
 
     /**
@@ -387,11 +396,10 @@ final readonly class SessionService
      * host or custom header fails it on a cookie application), written by the
      * activation as the session's last use, and carried by the events that
      * report the action (`AuthenticationFailed`, `SessionCreated` or
-     * `SessionActivated`, `SignedIn`, a superseded session's `SessionRevoked`);
-     * the guard's bind describes the guard's own request, as every later event
-     * of the guard does, so its `SessionAuthenticated` records that request as
-     * the last use whenever `session.last_used_throttle_seconds` allows a use
-     * so soon after the activation (with `0`, always).
+     * `SessionActivated`, `SignedIn`, a superseded session's `SessionRevoked`)
+     * and the guard's bind (`PrincipalAssigned` and `SessionAuthenticated`, so
+     * a last use the bind records is that client's too); the guard keeps no
+     * client, so its later events describe its own request.
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
@@ -402,12 +410,14 @@ final readonly class SessionService
      */
     public function satisfy(#[\SensitiveParameter] Secret|string $credential, ProofResult $proof, ?ClientContext $client = null): SignInResult
     {
+        $now       = CarbonImmutable::now()->startOfSecond();
         $transport = $this->transport();
         $client ??= $this->context->client();
+        $recheck = $this->recheck($client, $now);
         $outcome = SessionPreconditions::crossSite($transport, $client)
-            ?? $this->pendings->satisfy($credential, $proof, CarbonImmutable::now()->startOfSecond(), $client);
+            ?? $this->pendings->satisfy($credential, $proof, $now, $recheck);
 
-        return $this->acted($outcome, $transport, $client);
+        return $this->acted($outcome, $transport, $recheck);
     }
 
     /**
@@ -443,12 +453,14 @@ final readonly class SessionService
      */
     public function choose(#[\SensitiveParameter] Secret|string $credential, Principal $principal, ?TenantSelection $tenant = null, ?ClientContext $client = null): SignInResult
     {
+        $now       = CarbonImmutable::now()->startOfSecond();
         $transport = $this->transport();
         $client ??= $this->context->client();
+        $recheck = $this->recheck($client, $now);
         $outcome = SessionPreconditions::crossSite($transport, $client)
-            ?? $this->pendings->choose($credential, $principal, $tenant, CarbonImmutable::now()->startOfSecond(), $client);
+            ?? $this->pendings->choose($credential, $principal, $tenant, $now, $recheck);
 
-        return $this->acted($outcome, $transport, $client);
+        return $this->acted($recheck->refusal() ?? $outcome, $transport, $recheck);
     }
 
     /**
@@ -513,6 +525,7 @@ final readonly class SessionService
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
@@ -524,6 +537,7 @@ final readonly class SessionService
         SignInContext $context,
         AttemptSubject $subject,
         RefreshTokenTransport $transport,
+        AdmissionRecheck $recheck,
     ): Refused|SignInResult {
         $policy = CredentialAttempt::checkMethod($this->container, $subject->guard, $method);
 
@@ -543,9 +557,10 @@ final readonly class SessionService
             fn (Timebox $timebox) => $this->verify($driver, $method, $request, $attempt, $subject->identifierType, $timebox),
         );
 
-        $outcome = $verified instanceof Refused ? $verified : $this->continueVerified($driver, $input, $context, $subject->identifierType, $attempt, $verified);
+        $outcome = $verified instanceof Refused ? $verified : $this->continueVerified($driver, $input, $context, $subject->identifierType, $attempt, $verified, $recheck);
+        $outcome = $recheck->refusal() ?? $outcome;
 
-        return $outcome instanceof Refused ? $outcome : $this->bound($outcome, $transport, $attempt);
+        return $outcome instanceof Refused ? $outcome : $this->bound($outcome, $transport, $recheck, $attempt);
     }
 
     /**
@@ -564,6 +579,7 @@ final readonly class SessionService
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\CredentialAttempt  $attempt
      * @param  array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Proofs\SignInProof}  $verified
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -579,6 +595,7 @@ final readonly class SessionService
         ?string $identifierType,
         CredentialAttempt $attempt,
         array $verified,
+        AdmissionRecheck $recheck,
     ): Refused|SignInResult {
         [$identity, $proof] = $verified;
 
@@ -592,7 +609,7 @@ final readonly class SessionService
             $driver->rehash($this->context->provider(), $identity, $input);
         }
 
-        return $this->establishment->proceed($identity, $selection, $identifierType, $context, $proof, $attempt->windows());
+        return $this->establishment->proceed($identity, $selection, $identifierType, $context, $proof, $recheck, $attempt->windows());
     }
 
     /**
@@ -659,12 +676,19 @@ final readonly class SessionService
      * @param  string  $method
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Proofs\SignInProof  $proof
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
      * @return \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    private function startFor(Identity $identity, ?Principal $principal, string $method, SignInContext $context, SignInProof $proof): Refused|SignInResult
-    {
+    private function startFor(
+        Identity $identity,
+        ?Principal $principal,
+        string $method,
+        SignInContext $context,
+        SignInProof $proof,
+        AdmissionRecheck $recheck,
+    ): Refused|SignInResult {
         $reloaded = $this->context->provider()->retrieveById($identity->getAuthIdentifier());
 
         if (!$reloaded instanceof Identity || !SessionPreconditions::isSameIdentity($reloaded, $identity)) {
@@ -677,7 +701,7 @@ final readonly class SessionService
 
         $selection = $this->admitIdentity($reloaded, null) ?? $this->establishment->select($reloaded, $principal, $context);
 
-        return $selection instanceof Refused ? $selection : $this->establishment->proceed($reloaded, $selection, null, $context, $proof);
+        return $selection instanceof Refused ? $selection : $this->establishment->proceed($reloaded, $selection, null, $context, $proof, $recheck);
     }
 
     /**
@@ -708,18 +732,18 @@ final readonly class SessionService
      *
      * @param  \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Sessions\SignInResult  $outcome
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
-     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \InvalidArgumentException
      */
-    private function acted(Refused|SignInResult $outcome, RefreshTokenTransport $transport, ClientContext $client): SignInResult
+    private function acted(Refused|SignInResult $outcome, RefreshTokenTransport $transport, AdmissionRecheck $recheck): SignInResult
     {
         if ($outcome instanceof SignInResult) {
-            return $this->bound($outcome, $transport);
+            return $this->bound($outcome, $transport, $recheck);
         }
 
-        return $this->fail($outcome, $outcome->session?->getSignInMethod(), new SignInContext($client), null, []);
+        return $this->fail($outcome, $outcome->session?->getSignInMethod(), new SignInContext($recheck->client), null, []);
     }
 
     /**
@@ -728,22 +752,28 @@ final readonly class SessionService
      * and bind the guard to the session once the writes on the session's
      * connection commit, as `DeferredBind` binds it, after what reports the
      * session (`SessionCreated`, `SignedIn`), which was scheduled first. Only
-     * once the bind returned are the attempt-limit slots the sign-in took given
-     * back (the attempt's, for a sign-in that started active, or the ones a
-     * pending session held), whether or not it bound, so a bind listener that
-     * throws leaves them counted and a rolled-back sign-in gives nothing back.
-     * A result without a session binds nothing and is answered as it is. The
-     * transport is built before the sign-in or the action begins, so one that
-     * is misconfigured fails it before anything is written or reported.
+     * once the bind returned, and once the session passed the check the call is
+     * held to (`AdmissionRecheck`), are the attempt-limit slots the sign-in
+     * took given back (the attempt's, for a sign-in that started active, or the
+     * ones a pending session held), whether or not it bound, so a bind listener
+     * that throws leaves them counted, a rolled-back sign-in gives nothing
+     * back, and one whose check fails at a caller's commit keeps them counted
+     * as one refused before it answered does. A result without a session binds
+     * nothing and is answered as it is. The transport is built before the
+     * sign-in or the action begins, so one that is misconfigured fails it
+     * before anything is written or reported. The bind's events, and so the
+     * session's last use, describe the client the sign-in or the action was
+     * for.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck  $recheck
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\CredentialAttempt  $attempt
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \InvalidArgumentException
      */
-    private function bound(SignInResult $result, RefreshTokenTransport $transport, ?CredentialAttempt $attempt = null): SignInResult
+    private function bound(SignInResult $result, RefreshTokenTransport $transport, AdmissionRecheck $recheck, ?CredentialAttempt $attempt = null): SignInResult
     {
         $session = $result->session;
 
@@ -756,8 +786,8 @@ final readonly class SessionService
         $this->binds->run(
             $session->record,
             $session->principal,
-            fn () => $this->binding->login($session->identity, $session->principal, $session->record),
-            fn () => $this->giveBack($session->heldSlots, $attempt),
+            fn () => $this->binding->login($session->identity, $session->principal, $session->record, $recheck->client),
+            fn () => $recheck->then($session->record, fn () => $this->giveBack($session->heldSlots, $attempt)),
         );
 
         return SignInResult::signedIn(new SignedInSession($session->identity, $session->principal, $session->record, $tokens, $session->method));
@@ -790,6 +820,20 @@ final readonly class SessionService
         } catch (\Throwable $exception) {
             $this->container->make(ExceptionHandler::class)->report($exception);
         }
+    }
+
+    /**
+     * The check of a call for the client that began at the second given, which
+     * a session the call writes is held to once committed (see
+     * `AdmissionRecheck`).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \Carbon\CarbonImmutable  $began
+     * @return \SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck
+     */
+    private function recheck(ClientContext $client, CarbonImmutable $began): AdmissionRecheck
+    {
+        return new AdmissionRecheck($this->context, $this->binding, $this->switchRevocations, $this->afterCommit, $client, $began);
     }
 
     /**

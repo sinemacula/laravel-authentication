@@ -490,6 +490,16 @@ missing one reads as no tenant, and a `tenant` relation to a model that is not a
 Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
 resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
 
+Deactivation stops every token at once through these checks, and ending the sessions as well (the optional
+`RevokeSessionsOnDeactivation` observer, or `identityDeactivated()`, `principalDeactivated()` and `tenantDeactivated()`,
+see [Revoking on security changes](sessions.md#revoking-on-security-changes)) makes the end outlast a reactivation. A
+sign-in, a choice of principal or a switch that admitted the identity, principal or tenant before the deactivation
+committed outlasts it no more, for Eloquent models whose standing is read on their own connection (see [Sign-ins racing
+a deactivation or deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion) for its bounds): each checks its
+session again once it commits, and refuses or ends it when what it acts as was deactivated meanwhile. A deactivation
+undone before such a call checks its session is recorded only by the identity's or principal's "tokens valid after"
+cutoff, so give identities and principals `HasTokensValidAfter` (`ProvidesTokensValidAfter`).
+
 Where the package lists an identity's principals for admission (a sign-in, a pending session, `Auth::sessions()`'s
 `principals()` for a choice or switch screen, and `principal()` for a lookup by identifier), it loads their tenants
 itself: once the identity's `principals()` has been read on the write connection and each principal's own activity
@@ -522,12 +532,14 @@ soft-deleted one from the provider and the principal resolver). Its sessions sta
 recorded, until they are pruned or you end them: register the optional `RevokeSessionsOnDeletion` observer, or call
 `identityDeleted()` or `principalDeleted()` yourself (see [Revoking on security
 changes](sessions.md#revoking-on-security-changes)). A soft delete counts as deletion, and a restore brings no session
-back. For a model that records a "tokens valid after" cutoff (`HasTokensValidAfter`), the soft delete also moves the
-cutoff, so its session-less access tokens issued before stay refused after a restore; without one, they work again until
-they expire.
+back, a session a sign-in, choice or switch admitted before the delete and wrote after it included (see [Sign-ins racing
+a deactivation or deletion](sessions.md#sign-ins-racing-a-deactivation-or-deletion)). For a model that records a "tokens
+valid after" cutoff (`HasTokensValidAfter`), the soft delete also moves the cutoff, so its session-less access tokens
+issued before stay refused after a restore; without one, they work again until they expire.
 
 A principal deleted by a database cascade from its identity fires no model event, but the identity's own revocation
 already ends every session acting as its principals, since an identity's sessions are all those it holds: register the
 observer on the identity model and do not rely on the principal's observer for cascades. A principal a cascade removes
 with its tenant is covered by no identity's revocation, so call `tenantDeactivated()` with the tenant's principals
-before deleting it.
+inside the transaction that deletes the tenant, before the delete: it ends their sessions again once the delete commits,
+so a sign-in racing the delete keeps none, which a call made before the delete outside a transaction does not ensure.

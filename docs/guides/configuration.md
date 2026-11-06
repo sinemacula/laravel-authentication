@@ -430,9 +430,10 @@ A session is one sign-in, on one application, on one device. The shipped migrati
 Every timestamp is a `datetime` stored to the whole second, so a deadline years ahead fits on every engine (MySQL's
 `timestamp` type ends in January 2038), and the table is indexed on the owner, the principal, the guard, both deadlines,
 the revocation time and the tenant. Every authentication that binds a persisted session (a bearer request or a refresh)
-records its last use: the time, the request's IP address (only when it is a valid IPv4 or IPv6 address), and its user
+records its last use: the time, the client's IP address (only when it is a valid IPv4 or IPv6 address), and its user
 agent (without NUL bytes, as valid UTF-8, at most 512 characters), at most once per `last_used_throttle_seconds` (0
-records every use).
+records every use). The client is the request's, or the one a refresh, sign-in or pending action made from plain values
+was given.
 
 Like Laravel's own `datetime` columns, these times are stored as wall-clock times in the application timezone, without
 an offset, so keep `app.timezone` at Laravel's default of `UTC` or another zone without daylight saving. In a zone with

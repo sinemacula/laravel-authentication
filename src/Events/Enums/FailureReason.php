@@ -102,7 +102,9 @@ enum FailureReason: string
     case TOKEN_INVALID = 'token_invalid';
 
     // A token issued without a session was issued at or before the identity's
-    // or the principal's "tokens valid after" time
+    // or the principal's "tokens valid after" time; or a sign-in, choice or
+    // switch was in flight when a revocation moved that time past the second it
+    // began (`AdmissionRecheck`)
     case ISSUED_BEFORE_CUTOFF = 'issued_before_cutoff';
 
     // The session id is not a key of the session model, or names no session

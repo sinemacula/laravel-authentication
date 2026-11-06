@@ -5,10 +5,15 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Container\Container;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
+use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -35,7 +40,11 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
  * kept on that connection), so a change link requested from a session that
  * ends, which needs no session to confirm, cannot move the account afterwards.
  * A failure in the transaction leaves the cutoffs moved: more is cut off, never
- * less, and a retry is idempotent.
+ * less, and a retry is idempotent. The session a bulk revocation excepts is
+ * recorded as kept by each holder whose cutoff it moved (`KeptSessions`), so a
+ * sign-in, a choice or a switch that wrote it, and whose check is still to run,
+ * is not ended by the cutoff of the revocation that kept it, unless that move
+ * rolls back.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -124,10 +133,12 @@ final readonly class RevocationWriter
         \Closure $scopeEnded,
         ?\Closure $committed = null,
     ): int {
-        $cutoffs = array_map(static fn (RevocationScope $scope): ?CarbonImmutable => $scope->cutoff?->invalidateTokensIssuedBefore($now) === true ? $now : null, $scopes);
-        $anchor  = SessionLookup::model();
+        $moved  = array_map(static fn (RevocationScope $scope): ?HasTokensValidAfter => self::moveCutoff($scope, $now), $scopes);
+        $anchor = SessionLookup::model();
 
-        return $anchor->getConnection()->transaction(function () use ($scopes, $cutoffs, $reason, $except, $now, $sessionRevoked, $scopeEnded, $committed, $anchor): int {
+        $this->keep($moved, $except, $now);
+
+        return $anchor->getConnection()->transaction(function () use ($scopes, $moved, $reason, $except, $now, $sessionRevoked, $scopeEnded, $committed, $anchor): int {
 
             if ($committed !== null) {
                 $this->afterCommit->run($anchor, $committed);
@@ -141,7 +152,7 @@ final readonly class RevocationWriter
 
                 self::forgetChanges($scope);
 
-                $cutoff = $cutoffs[$index];
+                $cutoff = $moved[$index] === null ? null : $now;
 
                 $this->afterCommit->run($anchor, static function () use ($scopeEnded, $scope, $revoked, $cutoff): void {
                     $scopeEnded($scope, $revoked, $cutoff);
@@ -155,9 +166,55 @@ final readonly class RevocationWriter
     }
 
     /**
+     * End every session of the scopes once more, for a deactivation or deletion
+     * of the model given, once the transactions open now on the session model's
+     * connection and on the model's own have committed, in turn: the
+     * transaction the scopes were first ended in may have read the sessions
+     * through a snapshot taken before a sign-in, a choice or a switch that
+     * admitted the model committed one, which a read after the change's commit
+     * finds. Every cutoff stays where the first pass left it, each session this
+     * pass revokes is reported, and no scope is; the pending identifier changes
+     * an identity's scope names are deleted again, so a change requested since
+     * the first pass (from a session it could not see) is dropped with that
+     * session. With no transaction open on either connection, the first pass
+     * already read past every commit and nothing is done; a rollback runs
+     * nothing. The pass is required work (`AfterCommit::runAcross()`), so a
+     * listener that throws on a report of the first pass cannot skip it.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  non-empty-list<\SineMacula\Laravel\Authentication\Sessions\RevocationScope>  $scopes
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Contracts\Principal|\SineMacula\Laravel\Authentication\Contracts\Tenant  $changed
+     * @param  \Closure(\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession, \SineMacula\Laravel\Authentication\Sessions\RevocationScope): void  $sessionRevoked
+     * @return void
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    public function revokeAgain(array $scopes, RevocationReason $reason, Identity|Principal|Tenant $changed, \Closure $sessionRevoked): void
+    {
+        $models = $changed instanceof Model ? [SessionLookup::model(), $changed] : [SessionLookup::model()];
+
+        if (array_filter($models, $this->afterCommit->defers(...)) === []) {
+            return;
+        }
+
+        $kept = array_map(static fn (RevocationScope $scope): RevocationScope => $scope->keepingCutoff(), $scopes);
+
+        $this->afterCommit->runAcross($models, fn () => $this->revokeScopes($kept, $reason, null, CarbonImmutable::now()->startOfSecond(), $sessionRevoked, static fn () => null));
+    }
+
+    /**
      * Revoke every unrevoked session of the scope but the excepted one, reading
      * them on the write connection in key order, a chunk at a time, and queue
-     * each revoked session's report.
+     * each revoked session's report. The scope's query is copied, never
+     * narrowed, so a scope can be ended again (`revokeAgain()`).
      *
      * @formatter:off
      *
@@ -180,9 +237,9 @@ final readonly class RevocationWriter
             return 0;
         }
 
-        [$query, $model] = $scope->sessions;
+        [$sessions, $model] = $scope->sessions;
 
-        $query->whereNull($model->qualifyColumn($model->getRevokedAtName()));
+        $query = (clone $sessions)->whereNull($model->qualifyColumn($model->getRevokedAtName()));
 
         if ($except instanceof $model) {
             $query->whereKeyNot($except->getSessionIdentifier());
@@ -204,6 +261,53 @@ final readonly class RevocationWriter
 
             return $revoked;
         });
+    }
+
+    /**
+     * Move the scope's "tokens valid after" cutoff to the time given, and
+     * return its holder when this moved it; `null` when it records none or
+     * already had that time or a later one.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationScope  $scope
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter
+     */
+    private static function moveCutoff(RevocationScope $scope, CarbonImmutable $now): ?HasTokensValidAfter
+    {
+        return $scope->cutoff?->invalidateTokensIssuedBefore($now) === true ? $scope->cutoff : null;
+    }
+
+    /**
+     * Record the excepted session as kept by each holder whose cutoff this call
+     * moved, so the check of a call that wrote it (`AdmissionRecheck`) does not
+     * take that cutoff for a revocation that could not see the session, until
+     * the move of an Eloquent holder's cutoff rolls back with its transaction:
+     * the cutoff is then back where a revocation that could not see the session
+     * may have left it.
+     *
+     * @param  list<?\SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter>  $moved
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return void
+     */
+    private function keep(array $moved, ?Session $except, CarbonImmutable $now): void
+    {
+        if (!$except instanceof Model) {
+            return;
+        }
+
+        $kept = Container::getInstance()->make(KeptSessions::class);
+
+        foreach (array_filter($moved) as $holder) {
+
+            $forget = $kept->keep($except, $holder, $now);
+
+            if (!$holder instanceof Model) {
+                continue;
+            }
+
+            $this->afterCommit->runIfRolledBack($holder, $forget);
+        }
     }
 
     /**

@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -25,11 +26,13 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
+use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\EndsSessions;
+use SineMacula\Laravel\Authentication\Sessions\KeptSessions;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
@@ -39,6 +42,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
+use Tests\Fixtures\Sessions\PlainCutoffIdentity;
 use Tests\Integration\Fixtures\AccessOnlyIdentity;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -47,6 +51,7 @@ use Tests\Integration\Fixtures\ForeignModelSessionsIdentity;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainSessionFixture;
+use Tests\Unit\Stubs\PlainTenantFixture;
 
 /**
  * Feature tests of the session service's sign-out and revocation methods: what
@@ -71,6 +76,9 @@ final class RevocationWriterTest extends TestCase
 
     /** @var string The frozen time every revocation happens at. */
     private const string NOW = '2027-01-15 10:00:00';
+
+    /** @var string A second connection to the test database, which a changed model may live on. */
+    private const string ELSEWHERE = 'elsewhere';
 
     /**
      * Freeze the clock and create the tables.
@@ -530,6 +538,261 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
+     * The second pass of a deactivation's or deletion's revocation ends the
+     * scopes' sessions again only once the transactions open when it was asked
+     * for have committed, so it reads past them: with none open it does
+     * nothing, a rollback runs nothing, and after a commit it revokes each
+     * session left unrevoked, reports each one, keeps every cutoff where it
+     * was, and reports no scope; a changed subject that is not a model leaves
+     * the session model's connection alone to wait for. Ending a scope never
+     * narrows its query, so it can be ended again.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASecondPassEndsTheScopesAgainOnceTheirTransactionsCommit(): void
+    {
+        $identity = new CutoffIdentity;
+        $identity->forceFill(['email' => 'ada@example.test'])->save();
+        $identity = CutoffIdentity::query()->findOrFail($identity->id);
+
+        $this->seedIdentity();
+
+        $session = $this->signIn();
+        /** @var \ArrayObject<int, mixed> $reported */
+        $reported    = new \ArrayObject;
+        $revocations = new RevocationWriter(app('db'), static fn (): mixed => app('db.transactions'));
+        $report      = static function (EloquentSession&Model $revoked) use ($reported): void {
+            $reported->append($revoked->getKey());
+        };
+        $scopes = [RevocationScope::identity($session->identity), RevocationScope::identity($identity)];
+        $query  = $scopes[0]->sessions[0] ?? null;
+
+        self::assertNotNull($query);
+
+        $sql = $query->toRawSql();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $session->identity, $report);
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        DB::beginTransaction();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $session->identity, $report);
+
+        DB::rollBack();
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        DB::beginTransaction();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, new PlainTenantFixture(1), $report);
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        DB::commit();
+
+        self::assertSame('identity_deactivated', DB::table('authentication_sessions')->value('revoked_reason'));
+        self::assertSame([$session->record->getKey()], $reported->getArrayCopy());
+        self::assertNull(DB::table('cutoff_identities')->value('tokens_valid_after'));
+        self::assertSame($sql, $query->toRawSql());
+    }
+
+    /**
+     * The second pass waits for a transaction open on the changed model's own
+     * connection, though none is open on the session model's: nothing is
+     * revoked before it commits, the session is revoked and reported once it
+     * has, and a rollback there runs nothing, since the change was undone.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASecondPassWaitsForTheChangedModelsOwnConnection(): void
+    {
+        $this->seedIdentity();
+
+        $session  = $this->signIn();
+        $identity = $session->identity;
+
+        self::assertInstanceOf(Model::class, $identity);
+
+        $changed = clone $identity;
+
+        $changed->setConnection(self::ELSEWHERE);
+
+        /** @var \ArrayObject<int, mixed> $reported */
+        $reported    = new \ArrayObject;
+        $revocations = new RevocationWriter(app('db'), static fn (): mixed => app('db.transactions'));
+        $report      = static function (EloquentSession&Model $revoked) use ($reported): void {
+            $reported->append($revoked->getKey());
+        };
+        $scopes    = [RevocationScope::identity($identity)];
+        $elsewhere = DB::connection(self::ELSEWHERE);
+
+        $elsewhere->beginTransaction();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $changed, $report);
+
+        $elsewhere->rollBack();
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        $elsewhere->beginTransaction();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $changed, $report);
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        $elsewhere->commit();
+
+        self::assertSame('identity_deactivated', DB::table('authentication_sessions')->value('revoked_reason'));
+        self::assertSame([$session->record->getKey()], $reported->getArrayCopy());
+    }
+
+    /**
+     * The second pass waits for a transaction open on the session model's
+     * connection, though none is open on the changed model's own: nothing is
+     * revoked before it commits, the session is revoked and reported once it
+     * has, and a rollback there runs nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASecondPassWaitsForTheSessionModelsConnection(): void
+    {
+        $this->seedIdentity();
+
+        $session  = $this->signIn();
+        $identity = $session->identity;
+
+        self::assertInstanceOf(Model::class, $identity);
+
+        $changed = clone $identity;
+
+        $changed->setConnection(self::ELSEWHERE);
+
+        /** @var \ArrayObject<int, mixed> $reported */
+        $reported    = new \ArrayObject;
+        $revocations = new RevocationWriter(app('db'), static fn (): mixed => app('db.transactions'));
+        $report      = static function (EloquentSession&Model $revoked) use ($reported): void {
+            $reported->append($revoked->getKey());
+        };
+        $scopes = [RevocationScope::identity($identity)];
+
+        DB::beginTransaction();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $changed, $report);
+
+        DB::rollBack();
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        DB::beginTransaction();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $changed, $report);
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        DB::commit();
+
+        self::assertSame('identity_deactivated', DB::table('authentication_sessions')->value('revoked_reason'));
+        self::assertSame([$session->record->getKey()], $reported->getArrayCopy());
+    }
+
+    /**
+     * A report of the first pass that throws at the commit cannot skip the
+     * second: a session written after the first pass read the scopes is still
+     * ended and reported, and the report's exception is thrown.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFirstPassReportThatThrowsCannotSkipTheSecondPass(): void
+    {
+        $this->seedIdentity();
+
+        $first    = $this->signIn();
+        $identity = $first->identity;
+
+        /** @var \ArrayObject<int, mixed> $reported */
+        $reported    = new \ArrayObject;
+        $revocations = new RevocationWriter(app('db'), static fn (): mixed => app('db.transactions'));
+        $scopes      = [RevocationScope::identity($identity)];
+
+        DB::beginTransaction();
+
+        $revocations->revokeScopes(
+            $scopes,
+            RevocationReason::IDENTITY_DEACTIVATED,
+            null,
+            CarbonImmutable::now(),
+            static function (): void {
+                throw new \RuntimeException('first pass');
+            },
+            static function (): void {},
+        );
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $identity, static function (EloquentSession&Model $revoked) use ($reported): void {
+            $reported->append($revoked->getKey());
+        });
+
+        $racing = $this->signIn();
+
+        try {
+            DB::commit();
+
+            self::fail('Expected the report to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('first pass', $exception->getMessage());
+        }
+
+        self::assertSame('identity_deactivated', DB::table('authentication_sessions')->where('id', self::idOf($first))->value('revoked_reason'));
+        self::assertSame('identity_deactivated', DB::table('authentication_sessions')->where('id', self::idOf($racing))->value('revoked_reason'));
+        self::assertSame([$racing->record->getKey()], $reported->getArrayCopy());
+    }
+
+    /**
+     * The second pass deletes the pending identifier changes its identity
+     * scopes name once more, as the first did, so a change requested between
+     * the two passes, from a session the first pass could not see, is dropped
+     * with that session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASecondPassDeletesTheChangesRequestedSinceTheFirst(): void
+    {
+        $identity    = $this->seedIdentity();
+        $revocations = new RevocationWriter(app('db'), static fn (): mixed => app('db.transactions'));
+        $none        = static function (): void {};
+
+        DB::beginTransaction();
+
+        $revocations->revokeAgain([RevocationScope::identity($identity, ['email'])], RevocationReason::IDENTITY_DEACTIVATED, $identity, $none);
+
+        DB::table('identifier_changes')->insert([
+            'id'           => PendingChanges::key($identity, 'email'),
+            'guard'        => 'api',
+            'type'         => 'email',
+            'previous'     => null,
+            'identifier'   => 'new@example.test',
+            'request_id'   => '0195f4a2-7b1c-4000-8000-000000000000',
+            'requested_at' => self::NOW,
+            'expires_at'   => self::NOW,
+        ]);
+
+        self::assertSame(1, DB::table('identifier_changes')->count());
+
+        DB::commit();
+
+        self::assertSame(0, DB::table('identifier_changes')->count());
+    }
+
+    /**
      * A bulk revocation with nothing left to revoke is still reported, with a
      * count of none.
      *
@@ -703,6 +966,85 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
+     * A bulk revocation that excepts a session records it as kept by each
+     * holder whose cutoff it moved, at the cutoff it moved it to, and by no
+     * holder whose cutoff it left where it was (one already moved within the
+     * second); an excepted session that is no model is kept by none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnExceptedSessionIsKeptByTheCutoffsTheRevocationMoved(): void
+    {
+        $identity = new CutoffIdentity;
+        $identity->forceFill(['email' => 'ada@example.test'])->save();
+        $identity = CutoffIdentity::query()->findOrFail($identity->id);
+        $other    = new CutoffIdentity;
+        $other->forceFill(['email' => 'grace@example.test'])->save();
+        $other = CutoffIdentity::query()->findOrFail($other->id);
+
+        $session = (new Session)->forceFill(['id' => '00000000-0000-4000-8000-000000000001']);
+        $kept    = app(KeptSessions::class);
+        $began   = CarbonImmutable::now()->subSecond();
+
+        $this->sessions()->revokeSessions($identity, RevocationReason::REVOKED);
+        $this->sessions()->revokeSessions($identity, RevocationReason::REVOKED, $session);
+
+        self::assertSame($began, $kept->floor($session, $identity, $began));
+
+        $this->sessions()->revokeSessions($other, RevocationReason::REVOKED, new PlainSessionFixture('plain-session'));
+
+        self::assertSame(self::NOW, DB::table('cutoff_identities')->where('id', $other->id)->value('tokens_valid_after'));
+        self::assertSame($began, $kept->floor($session, $other, $began));
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse(self::NOW)->addSecond());
+
+        $this->sessions()->revokeSessions($identity, RevocationReason::REVOKED, $session);
+
+        self::assertSame(CarbonImmutable::parse(self::NOW)->addSecond()->getTimestamp(), $kept->floor($session, $identity, $began)->getTimestamp());
+        self::assertSame($began, $kept->floor($session, $other, $began));
+    }
+
+    /**
+     * A move of an Eloquent holder's cutoff that rolls back with its
+     * transaction forgets the session the revocation kept, since the cutoff is
+     * back where it was; a holder that is no model keeps it, since its cutoff
+     * is not written in a transaction the package can see.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAKeptSessionIsForgottenWhenTheMoveOfAModelsCutoffRollsBack(): void
+    {
+        $identity = new CutoffIdentity;
+        $identity->forceFill(['email' => 'ada@example.test'])->save();
+        $identity = CutoffIdentity::query()->findOrFail($identity->id);
+        $plain    = new PlainCutoffIdentity('7', moves: true);
+
+        $session     = (new Session)->forceFill(['id' => '00000000-0000-4000-8000-000000000001']);
+        $kept        = app(KeptSessions::class);
+        $began       = CarbonImmutable::now()->subSecond();
+        $revocations = new RevocationWriter(app('db'), static fn (): mixed => app('db.transactions'));
+        $none        = static function (): void {};
+
+        DB::beginTransaction();
+
+        $scopes = [RevocationScope::identity($identity), RevocationScope::identity($plain)];
+
+        $revocations->revokeScopes($scopes, RevocationReason::REVOKED, $session, CarbonImmutable::now(), $none, $none);
+
+        self::assertSame(CarbonImmutable::now()->getTimestamp(), $kept->floor($session, $identity, $began)->getTimestamp());
+
+        DB::rollBack();
+
+        self::assertNull(DB::table('cutoff_identities')->value('tokens_valid_after'));
+        self::assertSame($began, $kept->floor($session, $identity, $began));
+        self::assertSame(CarbonImmutable::now()->getTimestamp(), $kept->floor($session, $plain, $began)->getTimestamp());
+    }
+
+    /**
      * Register the session guards.
      *
      * @param  mixed  $app
@@ -715,7 +1057,11 @@ final class RevocationWriterTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('database.connections.' . self::ELSEWHERE, $config->get('database.connections.' . $config->string('database.default')));
     }
 
     /**

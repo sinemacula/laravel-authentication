@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Contracts;
 
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+
 /**
  * What a session flow may do to its guard's bound state: read what the request
  * is authenticated as, bind a session it started or refreshed, and forget the
@@ -64,16 +66,18 @@ interface GuardBinding
 
     /**
      * Bind a session the flow started as a sign-in (`Validated`, `Login` and
-     * the bind events).
+     * the bind events), whose events describe the client given (see
+     * `loginVerified()`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
      *
      * @throws \LogicException
      */
-    public function login(Identity $identity, Principal $principal, ?Session $session = null): void;
+    public function login(Identity $identity, Principal $principal, ?Session $session = null, ?ClientContext $client = null): void;
 
     /**
      * Bind a session the flow verified itself as a sign-in (`Validated`,
@@ -81,14 +85,21 @@ interface GuardBinding
      * loaded and the sign-in method it reports, as a refresh binds the session
      * it rotated.
      *
+     * The client is the one the bind's own events describe (`PrincipalAssigned`
+     * and `SessionAuthenticated`, and so the session's last use), for a flow
+     * acting for a client it was given as plain values; `null` for the guard's
+     * request. It describes this bind only: the guard keeps no client, and its
+     * later events describe its request.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?string  $method
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
      */
-    public function loginVerified(Identity $identity, Principal $principal, ?Session $session, ?Tenant $tenant, ?string $method): void;
+    public function loginVerified(Identity $identity, Principal $principal, ?Session $session, ?Tenant $tenant, ?string $method, ?ClientContext $client = null): void;
 
     /**
      * Bind a session the flow moved as the request's authentication, not as a

@@ -15,13 +15,18 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
+use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\SwitchesSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -176,6 +181,40 @@ final class ManagerServicesRequestsTest extends TestCase
     }
 
     /**
+     * A refresh from plain values for a client unlike the request's binds the
+     * guard with that client, so its `PrincipalAssigned` and the last use its
+     * `SessionAuthenticated` records name that client; the worker keeps no
+     * client, so the next request's bearer bind names its own request.
+     *
+     * @return void
+     */
+    public function testAPlainRefreshsClientDescribesItsBindAlone(): void
+    {
+        config(['authentication.session.last_used_throttle_seconds' => 0]);
+
+        [, $first] = $this->seedMember();
+
+        $input     = [...self::credentials('member@example.test'), 'membership' => $first->getKey()];
+        $signIn    = $this->serve(self::octaneRequest('POST', '/members/sign-in', $input, ip: '203.0.113.1'));
+        $refreshed = $this->serve(self::octaneRequest('POST', '/members/refresh-for', ['refresh' => $signIn->json('refresh'), 'client' => '192.0.2.50'], ip: '203.0.113.2'));
+
+        self::assertSame(['192.0.2.50', 'Console/1.0'], self::lastUse());
+
+        $access = $refreshed->json('access');
+
+        self::assertIsString($access);
+
+        $this->serve(self::octaneRequest('GET', '/members/bound', bearer: $access, ip: '203.0.113.3'))->assertExactJson(['principal' => $first->getKey()]);
+
+        self::assertSame(['203.0.113.3', 'OctaneTest/1.0'], self::lastUse());
+        self::assertSame([
+            [['SignedIn', '203.0.113.1']],
+            [['PrincipalAssigned', '192.0.2.50']],
+            [['PrincipalAssigned', '203.0.113.3']],
+        ], $this->eventsRecordedByEachRequest());
+    }
+
+    /**
      * A token lifetime changed in one request's configuration applies to that
      * request alone: `Auth::jwt()` and the session it signs in use it, the next
      * request is back to the configured lifetime, and the booted application's
@@ -282,6 +321,16 @@ final class ManagerServicesRequestsTest extends TestCase
     }
 
     /**
+     * The IP address and user agent the session's row records as its last use.
+     *
+     * @return list<mixed>
+     */
+    private static function lastUse(): array
+    {
+        return array_values((array) DB::table('authentication_sessions')->first(['last_used_ip', 'last_used_user_agent']));
+    }
+
+    /**
      * Add the routes: each resolves the guard it acts through before it binds a
      * dispatcher of its own, as a route behind authentication middleware would.
      *
@@ -307,6 +356,21 @@ final class ManagerServicesRequestsTest extends TestCase
             $session = $sessions->refresh(request()->string('refresh')->value())->session;
 
             return ['refresh' => self::refreshTokenOf($session)];
+        });
+
+        Route::post('/members/refresh-for', function (): array {
+            $sessions = Auth::sessions('members');
+            $this->recordInThisRequest([PrincipalAssigned::class]);
+            $presented = new PresentedRefreshToken(new Secret(request()->string('refresh')->value()), RefreshTokenSource::BODY, [RefreshTokenSource::BODY]);
+            $session   = $sessions->refreshPresented($presented, new ClientContext(request()->string('client')->value(), 'Console/1.0'))->session;
+
+            return ['access' => $session?->tokens->accessToken->reveal()];
+        });
+
+        Route::get('/members/bound', function (): array {
+            $this->recordInThisRequest([PrincipalAssigned::class]);
+
+            return ['principal' => self::contextOf('members')['principal']];
         });
 
         Route::post('/members/switch', function (): array {
