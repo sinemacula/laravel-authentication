@@ -302,7 +302,7 @@ final class FactorCodesTest extends TestCase
      * The right code is verified, at the time it was checked, once the counters
      * admit it and are told of the attempt, exactly once, as passed, inside the
      * storage transaction that uses the challenge up; the IP slot it took is
-     * given back. A replay is invalid and reports nothing.
+     * given back. A replay is used and reports nothing.
      *
      * @return void
      *
@@ -323,7 +323,7 @@ final class FactorCodesTest extends TestCase
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
         self::assertSame(0, self::counterHits('mobile', 'factor_code', 'per_ip', self::IP));
 
-        self::assertSame(FactorCodeOutcome::INVALID, $this->verify($binding, $challenge, self::CODE)->outcome);
+        self::assertSame(FactorCodeOutcome::USED, $this->verify($binding, $challenge, self::CODE)->outcome);
         self::assertCount(1, $this->counters->reports);
     }
 
@@ -423,7 +423,7 @@ final class FactorCodesTest extends TestCase
      * Rows of `[the binding checked, the challenge id named]`: a code checked
      * against another session, another factor, another proof purpose, the other
      * kind of challenge, another identity, or naming another challenge, is
-     * invalid and counts and reports nothing.
+     * not found and counts and reports nothing.
      *
      * @return iterable<string, array{0: \Closure(self): \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding, 1: ?string}>
      */
@@ -454,7 +454,7 @@ final class FactorCodesTest extends TestCase
     {
         $live = (string) $this->send($this->binding())->challengeId;
 
-        self::assertSame(FactorCodeOutcome::INVALID, $this->verify($other($this), $challenge ?? $live, self::CODE)->outcome);
+        self::assertSame(FactorCodeOutcome::NOT_FOUND, $this->verify($other($this), $challenge ?? $live, self::CODE)->outcome);
         self::assertSame([0, null], [self::column('attempts'), DB::table('one_time_codes')->value('consumed_at')]);
         self::assertSame([], $this->counters->reports);
         self::assertTrue($this->verify($this->binding(), $live, self::CODE)->isVerified());
@@ -472,8 +472,8 @@ final class FactorCodesTest extends TestCase
         $enrollment = $this->binding(Purpose::ENROLLMENT, grant: 'grant-1');
         $live       = (string) $this->send($enrollment)->challengeId;
 
-        self::assertSame(FactorCodeOutcome::INVALID, $this->verify($this->binding(), $live, self::CODE)->outcome);
-        self::assertSame(FactorCodeOutcome::INVALID, $this->verify($this->binding(Purpose::ENROLLMENT, grant: 'grant-2'), $live, self::CODE)->outcome);
+        self::assertSame(FactorCodeOutcome::NOT_FOUND, $this->verify($this->binding(), $live, self::CODE)->outcome);
+        self::assertSame(FactorCodeOutcome::NOT_FOUND, $this->verify($this->binding(Purpose::ENROLLMENT, grant: 'grant-2'), $live, self::CODE)->outcome);
         self::assertSame([], $this->counters->reports);
         self::assertTrue($this->verify($enrollment, $live, self::CODE)->isVerified());
     }
@@ -525,35 +525,198 @@ final class FactorCodesTest extends TestCase
     }
 
     /**
-     * Rows of `[challenge id, code, challenge id reported]` a check refuses
-     * before anything else: a challenge id not in the form the engine issues is
-     * never reported.
+     * Rows of `[binding, challenge id]` that name a challenge the binding does
+     * not own once it was used up: another session, factor, purpose, grant or
+     * identity, and an id the binding never had.
      *
-     * @return iterable<string, array{0: string, 1: string, 2: ?string}>
+     * @return iterable<string, array{0: \Closure(self): \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding}>
      */
-    public static function provideMalformedChecks(): iterable
+    public static function provideOtherBindings(): iterable
     {
         yield from [
-            'a short code'            => [self::NO_CHALLENGE, '13579', self::NO_CHALLENGE],
-            'a code with a letter'    => [self::NO_CHALLENGE, '13579O', self::NO_CHALLENGE],
-            'a challenge in capitals' => ['0195F4A2-7B1C-4000-8000-00000000000A', self::CODE, null],
-            'an empty challenge'      => ['', self::CODE, null],
+            'another session'  => [static fn (self $test): FactorCodeBinding => $test->binding(session: 'session-2')],
+            'another factor'   => [static fn (self $test): FactorCodeBinding => $test->binding(factor: 'factor-2')],
+            'another purpose'  => [static fn (self $test): FactorCodeBinding => $test->binding(Purpose::STEP_UP)],
+            'an enrolment'     => [static fn (self $test): FactorCodeBinding => $test->binding(Purpose::ENROLLMENT, grant: 'grant-1')],
+            'another identity' => [static fn (self $test): FactorCodeBinding => $test->binding(identity: self::seedCodeIdentity('+447700900124', 'ben@example.test'))],
         ];
     }
 
     /**
-     * A malformed code or challenge id is invalid with nothing counted, the
-     * counters not asked and nothing reported to them.
+     * A challenge of another binding is not found even once it was used up,
+     * never used, so the answer says nothing of another binding's challenges;
+     * nothing is counted or reported to the counters, the IP slot is taken and
+     * the refusal is reported as for any other.
+     *
+     * @param  \Closure(self): \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $other
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideOtherBindings')]
+    public function testAUsedChallengeOfAnotherBindingIsNotFound(\Closure $other): void
+    {
+        $owner     = $this->binding();
+        $challenge = (string) $this->send($owner)->challengeId;
+
+        self::assertTrue($this->verify($owner, $challenge, self::CODE)->isVerified());
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $reports = $this->counters->reports;
+        $check   = $this->verify($other($this), $challenge, self::CODE);
+        $failed  = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([FactorCodeOutcome::NOT_FOUND, $challenge], [$check->outcome, $check->challengeId]);
+        self::assertSame([FailureReason::INVALID_CREDENTIALS, AuthenticationFlow::FACTOR_CODE, $challenge], [$failed->reason, $failed->flow, $failed->challengeId]);
+        self::assertSame($reports, $this->counters->reports);
+        self::assertSame(1, self::column('attempts'));
+        self::assertSame(1, self::counterHits('mobile', 'factor_code', 'per_ip', self::IP));
+    }
+
+    /**
+     * A well-formed challenge id nobody issued is not found: no attempt is
+     * counted and nothing is reported to the counters, but the IP slot is taken
+     * and the refusal is reported with the id.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnUnknownChallengeIsNotFound(): void
+    {
+        $this->send($this->binding());
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $check  = $this->verify($this->binding(), self::NO_CHALLENGE, self::CODE);
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([FactorCodeOutcome::NOT_FOUND, self::NO_CHALLENGE], [$check->outcome, $check->challengeId]);
+        self::assertSame([FailureReason::INVALID_CREDENTIALS, self::NO_CHALLENGE], [$failed->reason, $failed->challengeId]);
+        self::assertSame([[], 0, 1], [$this->counters->reports, self::column('attempts'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);
+    }
+
+    /**
+     * A challenge replaced by a newer one is not found, as the newer one is the
+     * binding's challenge now.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReplacedChallengeIsNotFound(): void
+    {
+        $binding = $this->binding();
+        $first   = (string) $this->send($binding)->challengeId;
+
+        DB::table('one_time_codes')->update(['consumed_at' => '2026-04-06 11:00:00']);
+        CarbonImmutable::setTestNow($this->now->addDay());
+
+        $second = (string) $this->send($binding)->challengeId;
+
+        self::assertNotSame($first, $second);
+        self::assertSame(FactorCodeOutcome::NOT_FOUND, $this->verify($binding, $first, self::CODE)->outcome);
+        self::assertSame([], $this->counters->reports);
+    }
+
+    /**
+     * Rows of `[what used the challenge up]`: a code that matched, and a
+     * challenge that was ended, each with and without having expired since.
+     *
+     * @return iterable<string, array{0: array<string, mixed>}>
+     */
+    public static function provideUsedChallenges(): iterable
+    {
+        yield from [
+            'ended'               => [['consumed_at' => '2026-04-06 11:59:00']],
+            'ended and expired'   => [['consumed_at' => '2026-04-06 11:59:00', 'expires_at' => '2026-04-06 12:00:00']],
+            'ended and exhausted' => [['consumed_at' => '2026-04-06 11:59:00', 'attempts' => 5]],
+        ];
+    }
+
+    /**
+     * The binding's own used challenge is used, whether or not it has expired
+     * or used up its attempts since; no attempt is counted, nothing is reported
+     * to the counters, and the refusal is reported as for any other.
+     *
+     * @param  array<string, mixed>  $state
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideUsedChallenges')]
+    public function testTheBindingsOwnUsedChallengeIsUsed(array $state): void
+    {
+        $binding   = $this->binding();
+        $challenge = (string) $this->send($binding)->challengeId;
+
+        DB::table('one_time_codes')->update($state);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $check  = $this->verify($binding, $challenge, self::CODE);
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([FactorCodeOutcome::USED, $challenge], [$check->outcome, $check->challengeId]);
+        self::assertSame([FailureReason::INVALID_CREDENTIALS, $challenge], [$failed->reason, $failed->challengeId]);
+        self::assertSame([[], $state['attempts'] ?? 0, 1], [$this->counters->reports, self::column('attempts'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);
+    }
+
+    /**
+     * A used challenge is used again and again, however wrong the code, as it
+     * is never compared; a live challenge's wrong code is still invalid and
+     * counted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAWrongCodeIsStillInvalidWhileAUsedChallengeIsUsed(): void
+    {
+        $binding   = $this->binding();
+        $challenge = (string) $this->send($binding)->challengeId;
+
+        self::assertSame(FactorCodeOutcome::INVALID, $this->verify($binding, $challenge, '000000')->outcome);
+        self::assertSame([1, 1], [self::column('attempts'), count($this->counters->reports)]);
+        self::assertTrue($this->verify($binding, $challenge, self::CODE)->isVerified());
+        self::assertSame(FactorCodeOutcome::USED, $this->verify($binding, $challenge, '000000')->outcome);
+        self::assertSame([2, 2], [self::column('attempts'), count($this->counters->reports)]);
+    }
+
+    /**
+     * Rows of `[challenge id, code, the outcome, challenge id reported]` a
+     * check refuses before anything else: a challenge id not in the form the
+     * engine issues is not found and never reported, a code not in the form is
+     * invalid, and a check malformed in both is not found.
+     *
+     * @return iterable<string, array{0: string, 1: string, 2: \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeOutcome, 3: ?string}>
+     */
+    public static function provideMalformedChecks(): iterable
+    {
+        yield from [
+            'a short code'            => [self::NO_CHALLENGE, '13579', FactorCodeOutcome::INVALID, self::NO_CHALLENGE],
+            'a code with a letter'    => [self::NO_CHALLENGE, '13579O', FactorCodeOutcome::INVALID, self::NO_CHALLENGE],
+            'a challenge in capitals' => ['0195F4A2-7B1C-4000-8000-00000000000A', self::CODE, FactorCodeOutcome::NOT_FOUND, null],
+            'an empty challenge'      => ['', self::CODE, FactorCodeOutcome::NOT_FOUND, null],
+            'both malformed'          => ['', '13579', FactorCodeOutcome::NOT_FOUND, null],
+        ];
+    }
+
+    /**
+     * A malformed code is invalid and a malformed challenge id not found, with
+     * nothing counted, the counters not asked and nothing reported to them.
      *
      * @param  string  $challenge
      * @param  string  $code
+     * @param  \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeOutcome  $outcome
      * @param  ?string  $reported
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideMalformedChecks')]
-    public function testAMalformedCheckCountsNothing(string $challenge, string $code, ?string $reported): void
+    public function testAMalformedCheckCountsNothing(string $challenge, string $code, FactorCodeOutcome $outcome, ?string $reported): void
     {
         $this->send($this->binding());
 
@@ -564,7 +727,7 @@ final class FactorCodesTest extends TestCase
         $check  = $this->verify($this->binding(), $challenge, $code);
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
-        self::assertSame([FactorCodeOutcome::INVALID, $challenge], [$check->outcome, $check->challengeId]);
+        self::assertSame([$outcome, $challenge], [$check->outcome, $check->challengeId]);
         self::assertSame([FailureReason::INVALID_CREDENTIALS, AuthenticationFlow::FACTOR_CODE, $reported], [$failed->reason, $failed->flow, $failed->challengeId]);
         self::assertSame([[], []], [$this->counters->admitted, $this->counters->reports]);
         self::assertSame([0, 0], [self::column('attempts'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);

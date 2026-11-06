@@ -250,6 +250,8 @@ final readonly class IdentifierChangeService
                 CodeCheck::EXPIRED   => new ChangeRefused(IdentifierChangeOutcome::EXPIRED, FailureReason::CODE_EXPIRED),
                 CodeCheck::EXHAUSTED => new ChangeRefused(IdentifierChangeOutcome::EXHAUSTED, FailureReason::CODE_EXHAUSTED),
                 CodeCheck::INVALID,
+                CodeCheck::NOT_FOUND,
+                CodeCheck::USED,
                 CodeCheck::WRONG => new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS),
             };
         };

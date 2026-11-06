@@ -144,13 +144,13 @@ final class OutdatedProofsTest extends TestCase
             ResetStatus::RESET,
             $this->passwords()->reset(['email' => self::EMAIL, 'token' => self::issueToken('web'), 'password' => self::NEW_PASSWORD], self::requestClient())->status,
         );
-        self::assertSame(CodeCheck::INVALID, self::check(CodeBinding::signIn('admin', 'email', self::EMAIL), $email));
-        self::assertSame(CodeCheck::INVALID, self::check(CodeBinding::signIn('web', 'phone', self::PHONE), $phone));
+        self::assertSame(CodeCheck::USED, self::check(CodeBinding::signIn('admin', 'email', self::EMAIL), $email));
+        self::assertSame(CodeCheck::USED, self::check(CodeBinding::signIn('web', 'phone', self::PHONE), $phone));
 
         $email = self::issue(CodeBinding::signIn('web', 'email', self::EMAIL), false);
 
         self::assertTrue($this->passwords()->set($identity->fresh() ?? $identity, self::TAKEOVER_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
-        self::assertSame(CodeCheck::INVALID, self::check(CodeBinding::signIn('web', 'email', self::EMAIL), $email));
+        self::assertSame(CodeCheck::USED, self::check(CodeBinding::signIn('web', 'email', self::EMAIL), $email));
         self::assertSame(CodeCheck::ACCEPTED, self::check(CodeBinding::signIn('web', 'email', 'grace@example.test'), $grace));
     }
 

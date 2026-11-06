@@ -105,14 +105,14 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
-     * A used code stays invalid once it has expired, or the check that used it
+     * A used code stays used once it has expired, or the check that used it
      * took its last attempt: it is neither expired nor exhausted.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testAUsedCodeStaysInvalid(): void
+    public function testAUsedCodeStaysUsed(): void
     {
         config()->set('authentication.codes.max_attempts', 1);
 
@@ -120,8 +120,8 @@ final class OneTimeCodesTest extends TestCase
         $issued  = self::issued($binding);
 
         self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now->addSeconds(600)));
+        self::assertSame(CodeCheck::USED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
+        self::assertSame(CodeCheck::USED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now->addSeconds(600)));
     }
 
     /**
@@ -267,7 +267,7 @@ final class OneTimeCodesTest extends TestCase
 
     /**
      * The right code is accepted once: the check uses it up, and every later
-     * check of it, right or wrong, is invalid.
+     * check of it, right or wrong, is used.
      *
      * @return void
      *
@@ -281,8 +281,8 @@ final class OneTimeCodesTest extends TestCase
         self::assertSame(CodeCheck::ACCEPTED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
         self::assertSame('2026-04-06 12:00:00', DB::table('one_time_codes')->value('consumed_at'));
         self::assertSame(1, self::attempts());
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, self::challenge(), '000000', $this->now));
+        self::assertSame(CodeCheck::USED, self::codes()->check($binding, self::challenge(), $issued->code(), $this->now));
+        self::assertSame(CodeCheck::USED, self::codes()->check($binding, self::challenge(), '000000', $this->now));
         self::assertSame(1, self::attempts());
     }
 
@@ -370,8 +370,8 @@ final class OneTimeCodesTest extends TestCase
 
     /**
      * A code works only for the binding it was issued for: checked for any
-     * other guard, type, identifier or purpose it is invalid and counts nothing
-     * against the code.
+     * other guard, type, identifier or purpose it is not found and counts
+     * nothing against the code.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $other
      * @return void
@@ -383,7 +383,7 @@ final class OneTimeCodesTest extends TestCase
     {
         $issued = self::issued(self::binding());
 
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($other, self::challenge(), $issued->code(), $this->now));
+        self::assertSame(CodeCheck::NOT_FOUND, self::codes()->check($other, self::challenge(), $issued->code(), $this->now));
         self::assertSame(0, self::attempts());
         self::assertSame(CodeCheck::ACCEPTED, self::codes()->check(self::binding(), self::challenge(), $issued->code(), $this->now));
     }
@@ -412,7 +412,7 @@ final class OneTimeCodesTest extends TestCase
         self::assertFalse($codes->isCurrent($binding, $first->issueId, $later));
         self::assertTrue($codes->isCurrent($binding, $second->issueId, $later));
         self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, self::challenge(), '424242', $later));
-        self::assertSame(CodeCheck::INVALID, $codes->check($binding, self::challenge(), '424242', $later));
+        self::assertSame(CodeCheck::USED, $codes->check($binding, self::challenge(), '424242', $later));
     }
 
     /**
@@ -474,8 +474,8 @@ final class OneTimeCodesTest extends TestCase
     /**
      * Rows of `[change another request makes after the check reads, answer]`: a
      * check whose attempt cannot be counted answers from a fresh read of the
-     * issuance it read: exhausted or expired when it now is, invalid when it
-     * was used.
+     * issuance it read: exhausted or expired when it now is, used when it was
+     * used, and invalid when it is gone.
      *
      * @return iterable<string, array{0: array<string, mixed>, 1: \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck}>
      */
@@ -484,7 +484,7 @@ final class OneTimeCodesTest extends TestCase
         yield from [
             'attempts used up' => [['attempts' => 5], CodeCheck::EXHAUSTED],
             'expired'          => [['expires_at' => '2026-04-06 12:00:00'], CodeCheck::EXPIRED],
-            'used'             => [['consumed_at' => '2026-04-06 12:00:00'], CodeCheck::INVALID],
+            'used'             => [['consumed_at' => '2026-04-06 12:00:00'], CodeCheck::USED],
             'deleted'          => [[], CodeCheck::INVALID],
         ];
     }
@@ -544,7 +544,7 @@ final class OneTimeCodesTest extends TestCase
      */
     public function testABindingWithNoCodeAcceptsNothing(): void
     {
-        self::assertSame(CodeCheck::INVALID, self::codes()->check(self::binding(), self::challenge(), '123456', $this->now));
+        self::assertSame(CodeCheck::NOT_FOUND, self::codes()->check(self::binding(), self::challenge(), '123456', $this->now));
         self::assertSame(0, DB::table('one_time_codes')->count());
     }
 
@@ -882,7 +882,7 @@ final class OneTimeCodesTest extends TestCase
             }
         }
 
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($reset, self::challenge($reset), '000000', $this->now));
+        self::assertSame(CodeCheck::USED, self::codes()->check($reset, self::challenge($reset), '000000', $this->now));
         self::assertSame(0, self::codes()->invalidate([$signIn, $reset]));
     }
 
@@ -919,7 +919,7 @@ final class OneTimeCodesTest extends TestCase
 
     /**
      * A check that names another challenge than the live one, a well-formed id
-     * or a stale one, is invalid and spends no attempt, even with the right
+     * or a stale one, is not found and spends no attempt, even with the right
      * code; the live challenge still accepts it.
      *
      * @return void
@@ -938,7 +938,7 @@ final class OneTimeCodesTest extends TestCase
         $issued = self::issued($binding);
 
         foreach ([self::NO_CHALLENGE, $first->challengeId] as $other) {
-            self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $other, $issued->code(), $this->now));
+            self::assertSame(CodeCheck::NOT_FOUND, self::codes()->check($binding, $other, $issued->code(), $this->now));
         }
 
         self::assertSame(0, self::attempts());

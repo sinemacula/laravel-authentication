@@ -19,9 +19,18 @@ enum CodeCheck: string
     // The code matched the live code, which this check used up
     case ACCEPTED = 'accepted';
 
-    // No live code was issued for the binding, it was used up or replaced, or
-    // the challenge or its transaction is another; no attempt was counted
+    // A check that read a live issuance could not count an attempt against it,
+    // as it was replaced or deleted meanwhile, or no fresher read says why; no
+    // attempt was counted
     case INVALID = 'invalid';
+
+    // No code was issued for the binding, it was replaced, or the challenge or
+    // its transaction is another; no attempt was counted
+    case NOT_FOUND = 'not_found';
+
+    // The binding's challenge was used up, by an accepted code or by being
+    // ended; no attempt was counted
+    case USED = 'used';
 
     // The code was checked against the live code, its attempt counted, and did
     // not match it, or another check used the code up first
@@ -46,6 +55,8 @@ enum CodeCheck: string
             self::EXPIRED   => FailureReason::CODE_EXPIRED,
             self::EXHAUSTED => FailureReason::CODE_EXHAUSTED,
             self::INVALID,
+            self::NOT_FOUND,
+            self::USED,
             self::WRONG => FailureReason::INVALID_CREDENTIALS,
         };
     }

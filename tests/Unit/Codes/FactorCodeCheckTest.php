@@ -54,7 +54,7 @@ final class FactorCodeCheckTest extends TestCase
     public function testTheOutcomes(): void
     {
         self::assertSame(
-            ['verified', 'invalid', 'expired', 'exhausted', 'locked', 'refused', 'rate_limited'],
+            ['verified', 'invalid', 'not_found', 'used', 'expired', 'exhausted', 'locked', 'refused', 'rate_limited'],
             array_column(FactorCodeOutcome::cases(), 'value'),
         );
     }

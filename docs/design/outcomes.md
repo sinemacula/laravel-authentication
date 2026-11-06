@@ -64,6 +64,10 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 - `passkeys()->verifyFactor()` answers a `PasskeyFactorResult`: verified with a `PasskeyFactorAssertion` (the passkey,
   its observed properties and its summary as its use left it), or failed with the reason (not concealed: the caller
   already holds the identity).
+- `codes()->verifyFactorCode()` answers a `FactorCodeCheck` whose `outcome`, a `FactorCodeOutcome`, is `verified`,
+  `invalid` (a malformed or wrong code; only a wrong one counts), `not_found` (a malformed, unknown, replaced or
+  other-binding challenge), `used` (the binding's own challenge, used up), `expired`, `exhausted`, `locked`, `refused`
+  or `rate_limited`. Neither `not_found` nor `used` counts an attempt, and both report `invalid_credentials`.
 - `passkeys()->register()` answers a `PasskeyRegistration`: `registered` with the passkey's summary and the factor
   gate's association, if any, or `challenge_invalid`, `response_invalid` or `already_registered`. The association may
   carry the factor package's completion of the registration (`completion`, an opaque `?object`).

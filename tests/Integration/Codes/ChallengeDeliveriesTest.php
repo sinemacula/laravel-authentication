@@ -529,8 +529,8 @@ final class ChallengeDeliveriesTest extends TestCase
         self::assertInstanceOf(IssuedCode::class, $other);
         self::assertNotSame($issued->challengeId, $other->challengeId);
         self::assertSame([1, 2], [DB::table('one_time_codes')->count(), self::column('deliveries')]);
-        self::assertSame(CodeCheck::INVALID, $codes->check($first, $other->challengeId, '222222', $this->now->addSeconds(60)));
-        self::assertSame(CodeCheck::INVALID, $codes->check($second, $issued->challengeId, '111111', $this->now->addSeconds(60)));
+        self::assertSame(CodeCheck::NOT_FOUND, $codes->check($first, $other->challengeId, '222222', $this->now->addSeconds(60)));
+        self::assertSame(CodeCheck::NOT_FOUND, $codes->check($second, $issued->challengeId, '111111', $this->now->addSeconds(60)));
         self::assertSame(0, self::attempts());
         self::assertSame(CodeCheck::ACCEPTED, $codes->check($second, $other->challengeId, '222222', $this->now->addSeconds(60)));
     }

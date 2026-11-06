@@ -69,8 +69,9 @@ final class CodeRowsTest extends TestCase
     public static function provideRows(): iterable
     {
         yield from [
-            'none'                => [null, 5, CodeCheck::INVALID],
-            'used'                => [['consumed_at' => '2026-04-06 11:59:00'], 5, CodeCheck::INVALID],
+            'none'                => [null, 5, CodeCheck::NOT_FOUND],
+            'used'                => [['consumed_at' => '2026-04-06 11:59:00'], 5, CodeCheck::USED],
+            'used and expired'    => [['consumed_at' => '2026-04-06 11:59:00', 'expires_at' => '2026-04-06 12:00:00'], 5, CodeCheck::USED],
             'expired this second' => [['expires_at' => '2026-04-06 12:00:00'], 5, CodeCheck::EXPIRED],
             'out of attempts'     => [['attempts' => 5], 5, CodeCheck::EXHAUSTED],
             'one attempt left'    => [['attempts' => 4], 5, null],
