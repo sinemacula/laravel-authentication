@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordReset;
@@ -153,7 +154,10 @@ final class EndedSessionsCancelChangesTest extends TestCase
 
         self::assertSame(1, self::rows('identifier_changes'));
         self::assertNull($this->changes()->pending($identity, 'email'));
-        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($link))->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::INVALID,
+            $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))->outcome,
+        );
         self::assertSame(
             IdentifierChangeOutcome::INVALID,
             $this->changes('admin')->confirmByCode($identity, 'phone', self::changeChallenge($identity, 'phone'), self::CODE, self::requestClient())->outcome,
@@ -240,7 +244,10 @@ final class EndedSessionsCancelChangesTest extends TestCase
         };
 
         self::assertNotNull($session->fresh()?->revoked_at);
-        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByLink(Request::create($link))->outcome);
+        self::assertSame(
+            IdentifierChangeOutcome::CHANGED,
+            $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))->outcome,
+        );
     }
 
     /**

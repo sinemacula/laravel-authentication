@@ -9,7 +9,6 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Http\Request;
 use Illuminate\Routing\UrlGenerator;
 use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Codes\CodeKeys;
@@ -32,6 +31,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Freshness\Operations;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
@@ -264,14 +264,18 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * Confirm the pending change a request to a change link names, and make it.
-     * The link must be validly signed, unexpired, for this guard, and name the
+     * Confirm the pending change a change link names, as
+     * `SignedLink::fromRequest()` captured it from the request to it, and make
+     * it. The link's signature and expiry are checked again from those values;
+     * it must be validly signed, unexpired, for this guard, and name the
      * identity's pending change of its type as it stands: the same request and
      * the same new identifier; and the identity must be active. Call it from a
      * form the link's page posts back to the same signed address, not from the
      * link's `GET` itself, which mail scanners and link previews fetch unasked.
+     * Every refusal and the change describe the client given.
      *
-     * @param  \Illuminate\Http\Request  $request
+     * @param  \SineMacula\Laravel\Authentication\Http\SignedLink  $signed
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\RateLimiting\LimitedOutcome<\SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome>
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -282,11 +286,10 @@ final readonly class IdentifierChangeService
      *
      * @phpstan-impure
      */
-    public function confirmByLink(Request $request): LimitedOutcome
+    public function confirmByLink(SignedLink $signed, ClientContext $client): LimitedOutcome
     {
-        $client  = ClientContext::fromRequest($request);
         $context = new EventContext($this->context->name(), $client);
-        $link    = $this->links()->read($request);
+        $link    = $this->links()->read($signed->toRequest());
 
         if ($link instanceof FailureReason) {
             $outcome = $link === FailureReason::LINK_EXPIRED ? IdentifierChangeOutcome::EXPIRED : IdentifierChangeOutcome::INVALID;

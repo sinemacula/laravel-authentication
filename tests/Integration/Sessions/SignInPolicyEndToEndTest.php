@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -134,7 +135,10 @@ final class SignInPolicyEndToEndTest extends TestCase
             return ['refresh_token' => $result->session->tokens->refreshToken?->reveal()];
         });
 
-        Route::get('/verify', static fn (Request $request): array => ['outcome' => app(VerificationLinks::class)->consume($request)->value])->name('verify');
+        Route::get(
+            '/verify',
+            static fn (Request $request): array => ['outcome' => app(VerificationLinks::class)->consume(SignedLink::fromRequest($request), self::requestClient($request))->value],
+        )->name('verify');
     }
 
     /**

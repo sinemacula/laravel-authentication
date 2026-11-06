@@ -16,6 +16,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRequestStatus;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeNotice;
@@ -313,7 +314,7 @@ final class IdentifierChangeRoutesTest extends TestCase
      */
     private static function confirmByLink(Request $request): Response
     {
-        return self::confirmed(Auth::identifierChanges('web')->confirmByLink($request)->outcome);
+        return self::confirmed(Auth::identifierChanges('web')->confirmByLink(SignedLink::fromRequest($request), self::requestClient($request))->outcome);
     }
 
     /**

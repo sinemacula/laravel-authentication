@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeLinks;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
@@ -199,7 +200,7 @@ final class IdentifierChangeServiceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('is a machine identity: it has no identifiers to change.');
 
-        $this->changes('machines')->confirmByLink(Request::create($link));
+        $this->changes('machines')->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)));
     }
 
     /**

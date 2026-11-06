@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeConfirmation;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
@@ -345,7 +346,11 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
             self::requestClient(),
         )->link()?->reveal();
 
-        $outcome = $this->assertQueryBudget(5, 3, static fn (): IdentifierChangeOutcome => $changes->confirmByLink(Request::create($link))->outcome);
+        $outcome = $this->assertQueryBudget(
+            5,
+            3,
+            static fn (): IdentifierChangeOutcome => $changes->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))->outcome,
+        );
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $outcome);
     }

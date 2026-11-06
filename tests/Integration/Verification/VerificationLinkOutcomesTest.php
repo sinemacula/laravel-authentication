@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
@@ -123,7 +124,7 @@ final class VerificationLinkOutcomesTest extends TestCase
             default  => null,
         };
 
-        self::assertSame($outcome, $this->links()->consume(Request::create($link)));
+        self::assertSame($outcome, $this->links()->consume(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link))));
         self::assertSame($verifiedAt, self::verifiedAt());
         self::assertSame($events, $this->recordedSequence());
     }
@@ -146,7 +147,7 @@ final class VerificationLinkOutcomesTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertSame(VerificationLinkOutcome::VERIFIED, $this->links()->consume(Request::create($link)));
+        self::assertSame(VerificationLinkOutcome::VERIFIED, $this->links()->consume(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link))));
         self::assertSame([], $this->recordedSequence());
 
         DB::rollBack();
@@ -155,7 +156,10 @@ final class VerificationLinkOutcomesTest extends TestCase
         self::assertNull(self::verifiedAt());
 
         DB::transaction(function () use ($link): void {
-            self::assertSame(VerificationLinkOutcome::VERIFIED, $this->links()->consume(Request::create($link)));
+            self::assertSame(
+                VerificationLinkOutcome::VERIFIED,
+                $this->links()->consume(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link))),
+            );
             self::assertSame([], $this->recordedSequence());
         });
 

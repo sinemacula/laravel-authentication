@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Database\IdentityLock;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -161,7 +162,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'delete from',
             'identifier_changes',
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))->outcome->value,
             static fn (): string => Auth::passwords('web')->set(
                 self::reloaded($identity),
                 self::NEW_PASSWORD,
@@ -193,7 +194,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'update',
             'one_time_codes',
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))->outcome->value,
             static fn (): string => Auth::passwords('web')->set(
                 self::reloaded($identity),
                 self::NEW_PASSWORD,
@@ -223,7 +224,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         [$first, $second] = $this->race(
             'delete from',
             'identifier_changes',
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))->outcome->value,
             static fn (): string => Auth::passwords('web')->reset(
                 ['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD],
                 self::requestClient(),
@@ -284,7 +285,7 @@ final class ConcurrentProofSpendingTest extends TestCase
             'delete from',
             'identifier_changes',
             static fn (): string => (string) Auth::sessions('web')->revokeSessions(self::reloaded($identity), RevocationReason::REVOKED),
-            fn (): string => $this->changes()->confirmByLink(Request::create($link))->outcome->value,
+            fn (): string => $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))->outcome->value,
         );
 
         self::assertSame(['1', 'invalid'], [$first, $second['result']]);
@@ -328,7 +329,7 @@ final class ConcurrentProofSpendingTest extends TestCase
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertSame(0, DB::table('identifier_changes')->count());
         self::assertIsString($link);
-        self::assertSame('invalid', $this->changes()->confirmByLink(Request::create($link))->outcome->value);
+        self::assertSame('invalid', $this->changes()->confirmByLink(SignedLink::fromRequest(Request::create($link)), self::requestClient(Request::create($link)))->outcome->value);
         self::assertSame(self::EMAIL, self::reloaded($identity)->email);
     }
 

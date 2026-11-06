@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
@@ -29,7 +30,8 @@ use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome
 /**
  * Verifies identifiers by signed link: `create()` signs a link to a route of
  * the application's for one identity, guard and identifier, and `consume()`
- * checks a request to that route and verifies the identifier.
+ * checks a link to that route, as `SignedLink::fromRequest()` captured it from
+ * the request, and verifies the identifier.
  *
  * A link is bound to its purpose (`verify_identifier`), its guard, its
  * identity, the identifier type, and the identifier itself through a SHA-256
@@ -142,30 +144,34 @@ final readonly class VerificationLinks
     }
 
     /**
-     * Check a request to a verification link and verify the identifier it
-     * proves. The link's fields, purpose, signature and expiry are checked
-     * before any identity is read: a link that is malformed, tampered with or
-     * signed for something else is `invalid`, and an authentic one whose time
-     * has passed `expired`. A link that names no JWT guard, no identity of it
-     * that can verify identifiers, or not the identity's current identifier, is
+     * Check a verification link, as `SignedLink::fromRequest()` captured it
+     * from the request to it, and verify the identifier it proves. The link's
+     * fields, purpose, signature and expiry are checked again from those values
+     * (with every key and previous key the application signs with) before any
+     * identity is read: a link that is malformed, tampered with or signed for
+     * something else is `invalid`, and an authentic one whose time has passed
+     * `expired`. A link that names no JWT guard, no identity of it that can
+     * verify identifiers, or not the identity's current identifier, is
      * `invalid` too, so a refusal says nothing about the account. Each refusal
      * is reported by `AuthenticationFailed` on the `identifier_verification`
      * flow, as `invalid_credentials` or `link_expired`. Otherwise the
      * verifier's answer: `verified`, `already_verified`, or `mismatch` for an
      * identifier that changed while it was being verified, with nothing
-     * recorded or reported.
+     * recorded or reported. Every refusal and the verification describe the
+     * client given.
      *
-     * @param  \Illuminate\Http\Request  $request
+     * @param  \SineMacula\Laravel\Authentication\Http\SignedLink  $signed
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function consume(Request $request): VerificationLinkOutcome
+    public function consume(SignedLink $signed, ClientContext $client): VerificationLinkOutcome
     {
-        $client = ClientContext::fromRequest($request);
-        $link   = self::link($request);
+        $request = $signed->toRequest();
+        $link    = self::link($request);
 
         if ($link === null || !$this->urls->hasCorrectSignature($request)) {
             return $this->refuse(new EventContext(null, $client), FailureReason::INVALID_CREDENTIALS);
