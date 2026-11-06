@@ -267,13 +267,14 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     /**
      * A cookie application's satisfaction given a same-site client, though the
      * guard's own request comes from another site, costs what a satisfaction
-     * without a client costs: judging the client given reads nothing.
+     * given the client of a same-site request costs: judging the client given
+     * reads nothing.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASatisfactionGivenASameSiteClientCostsWhatOneWithoutCosts(): void
+    public function testASatisfactionGivenASameSiteClientCostsWhatOneFromASameSiteRequestCosts(): void
     {
         config()->set('auth.guards.admin.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
 

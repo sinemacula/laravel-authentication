@@ -1678,27 +1678,29 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * The check follows the guard's request from one request to the next: a
-     * guard that signed a same-site request in refuses the cross-site request
-     * it serves next.
+     * One guard judges each context it is given on its own, keeping nothing
+     * from the last: after signing a same-site context in, it refuses a
+     * cross-site context it is handed next, and signs the same-site one in
+     * again, while it serves the same request throughout.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testEachRequestOnOneGuardIsJudgedOnItsOwn(): void
+    public function testOneGuardJudgesEachContextItIsGivenOnItsOwn(): void
     {
         $this->seedIdentity();
 
-        self::assertTrue($this->sessionsOn(self::BROWSER, self::SAME_SITE)->signIn('password', self::credentials(), self::requestContext())->isSignedIn());
+        $sessions  = $this->sessionsOn(self::BROWSER, self::SAME_SITE);
+        $guard     = app('auth')->guard(self::BROWSER);
+        $sameSite  = SignInContext::fromRequest(self::requestWith(self::SAME_SITE));
+        $crossSite = SignInContext::fromRequest(self::requestWith(['Origin' => 'https://evil.example.test']));
 
-        $guard = app('auth')->guard(self::BROWSER);
-
-        app()->instance('request', self::requestWith(['Origin' => 'https://evil.example.test']));
-
+        self::assertTrue($sessions->signIn('password', self::credentials(), $sameSite)->isSignedIn());
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $sessions->signIn('password', self::credentials(), $crossSite)->reason);
+        self::assertTrue($sessions->signIn('password', self::credentials(), $sameSite)->isSignedIn());
         self::assertSame($guard, app('auth')->guard(self::BROWSER));
-        self::assertSame(FailureReason::CROSS_SITE_REQUEST, Auth::sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext())->reason);
-        self::assertSame(1, Session::query()->count());
+        self::assertSame(2, Session::query()->count());
     }
 
     /**
@@ -2131,8 +2133,9 @@ final class SessionServiceTest extends TestCase
      * with that context's client: `signIn()` and `start()` alike, their bind's
      * `PrincipalAssigned` and `SessionAuthenticated` carry it, and with a
      * last-use throttle that records every use the session's last use is that
-     * client's, not the guard's own request's. Without a context the bind
-     * describes the guard's request, as before.
+     * client's, not the guard's own request's. A context built from the request
+     * being served (`SignInContext::fromRequest()`) binds with that request's
+     * client, as any context given does.
      *
      * @return void
      *
@@ -2173,7 +2176,7 @@ final class SessionServiceTest extends TestCase
      * check refuses, as `cross_site_request`, though the guard's own request is
      * same-site: before the pending session is read, reported with the client
      * given, the session left pending and the proof unstored, so the same
-     * satisfaction without a client then activates it.
+     * satisfaction given the same-site request's client then activates it.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
