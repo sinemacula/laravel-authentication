@@ -5,20 +5,27 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Passkeys;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Translation\Translator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
+use SineMacula\Laravel\Authentication\Database\IdentityLock;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PasskeyAdded;
 use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\ClientText;
 use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
+use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengeRefusal;
@@ -27,6 +34,10 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
+use SineMacula\Laravel\Authentication\Sessions\PendingLookup;
+use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
@@ -161,13 +172,42 @@ final readonly class PasskeyService
      * satisfied) with it, and is answered as `already_registered`. A passkey
      * registered is `registered`, with its summary and the factor association
      * the gate answered, if any, and dispatches `PasskeyAdded` once its row is
-     * committed.
+     * committed. The gate is also handed the client.
+     *
+     * A registration that enrols a factor on a pending sign-in (a bootstrap
+     * enrolment: the options were asked for with a `ProofBinding` naming the
+     * pending session) hands in that sign-in's pending credential as
+     * `$pending`: what `PendingCredential::extract()` answered, once the
+     * controller has answered its absence, or the application's own `Secret` or
+     * string. It is `null` for an ordinary registration, which behaves as it
+     * always did. `pending_invalid` is the one reason that may be handed in
+     * (any other reason is a caller's error, an `InvalidArgumentException`
+     * raised before anything is read or consumed), and is refused as a
+     * credential that names no live pending session is. Given a pending
+     * credential, a cookie application's client that did not come from a page
+     * of its own site is refused as `cross_site_request` before the pending
+     * session is read or the gate asked (an ordinary registration sets no
+     * cookie, so it is not judged). Then, in the registration's transaction and
+     * before the gate is asked or a row written, the identity's row is locked
+     * and then the pending session's, and held until the transaction ends: the
+     * credential must name a live pending session of this guard whose owner is
+     * this identity and, when the challenge records a binding, the very session
+     * it names; otherwise `pending_invalid`, whichever of these failed, with
+     * the gate not asked, nothing stored and no `PasskeyAdded`. The credential
+     * is never used to retarget a bound challenge. The gate gets the credential
+     * as a `Secret` and completes the session's factor itself (see
+     * `PasskeyFactorGate::registering()`). Either refusal is reported once, as
+     * a pending action refused is (Laravel's `Failed` and
+     * `AuthenticationFailed` for the sign-in flow, with the client and the
+     * identity, never the credential). The challenge is used up whatever the
+     * outcome, a refusal included, so a retry needs fresh options.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $challenge
      * @param  array<array-key, mixed>|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?string  $name
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Secrets\Secret|string|null  $pending
      * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -182,10 +222,12 @@ final readonly class PasskeyService
         #[\SensitiveParameter] array|string $credential,
         ClientContext $client,
         ?string $name = null,
+        #[\SensitiveParameter] FailureReason|Secret|string|null $pending = null,
     ): PasskeyRegistration {
-        $owner = PasskeyOwner::of($identity);
-        $rp    = $this->relyingParty();
-        $now   = CarbonImmutable::now()->startOfSecond();
+        $presented = $pending === null ? null : SessionPreconditions::pendingCredential($pending);
+        $owner     = PasskeyOwner::of($identity);
+        $rp        = $this->relyingParty();
+        $now       = CarbonImmutable::now()->startOfSecond();
 
         $consumed = $this->assertions()->challenges()->consume($challenge, ChallengePurpose::REGISTER, $rp, $owner, $now);
 
@@ -195,6 +237,12 @@ final readonly class PasskeyService
                 ChallengeRefusal::EXPIRED   => PasskeyRegistration::challengeExpired(),
                 ChallengeRefusal::USED      => PasskeyRegistration::challengeUsed(),
             };
+        }
+
+        $held = $presented === null ? null : $this->presented($presented, $owner, $rp, $client);
+
+        if ($held instanceof PasskeyRegistration) {
+            return $held;
         }
 
         $webauthn = $this->webauthn();
@@ -217,9 +265,12 @@ final readonly class PasskeyService
         $binding = PasskeyChallenges::bindingOf($consumed, $owner);
 
         try {
-            $association = $passkey->getConnection()->transaction(fn (): ?PasskeyFactorAssociation => $this->store($owner, $rp, $passkey, [$seen, $binding, $cleaned]));
+            $stored      = [$seen, $binding, $cleaned, $client, $held];
+            $association = $passkey->getConnection()->transaction(fn (): ?PasskeyFactorAssociation => $this->store($owner, $rp, $passkey, $stored));
         } catch (ConcurrentPasskeyChange) {
             return PasskeyRegistration::alreadyRegistered();
+        } catch (UnheldPendingSession) {
+            return $this->refusedPending($owner, $rp, $client, FailureReason::PENDING_INVALID);
         }
 
         $this->dispatchOnceCommitted($passkey, new PasskeyAdded(PasskeyAssertions::context($rp, $client, $owner, $passkey->id)));
@@ -453,9 +504,9 @@ final readonly class PasskeyService
         $gate = $this->gate();
 
         try {
-            $completion = $passkey->getConnection()->transaction(static function () use ($gate, $owner, $rp, $passkey): ?object {
+            $completion = $passkey->getConnection()->transaction(static function () use ($gate, $owner, $rp, $passkey, $client): ?object {
 
-                $completion = $gate->removing($owner, $rp->guard, $passkey->id, $passkey->credential_id);
+                $completion = $gate->removing($owner, $rp->guard, $passkey->id, $passkey->credential_id, $client);
 
                 PasskeyCredentials::delete($passkey) || throw new ConcurrentPasskeyChange;
 
@@ -495,9 +546,12 @@ final readonly class PasskeyService
     }
 
     /**
-     * Ask the factor gate about the passkey, then store it, inside the
-     * registration's transaction; a credential the insert finds registered
-     * already throws, so the transaction rolls back whatever the gate did.
+     * Prove the pending credential, if one was handed in, then ask the factor
+     * gate about the passkey, then store it, inside the registration's
+     * transaction; a credential the insert finds registered already throws, so
+     * the transaction rolls back whatever the gate did, and a pending
+     * credential that proves no pending session of the identity throws before
+     * the gate is asked.
      *
      * @formatter:off
      *
@@ -506,7 +560,7 @@ final readonly class PasskeyService
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
-     * @param  array{0: \SineMacula\Laravel\Authentication\Passkeys\RegisteredPasskey, 1: ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding, 2: ?string}  $registration
+     * @param  array{0: \SineMacula\Laravel\Authentication\Passkeys\RegisteredPasskey, 1: ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding, 2: ?string, 3: \SineMacula\Laravel\Authentication\Http\ClientContext, 4: ?\SineMacula\Laravel\Authentication\Secrets\Secret}  $registration
      * @return ?\SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssociation
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -514,16 +568,102 @@ final readonly class PasskeyService
      * @formatter:on
      *
      * @throws \SineMacula\Laravel\Authentication\Passkeys\ConcurrentPasskeyChange
+     * @throws \SineMacula\Laravel\Authentication\Passkeys\UnheldPendingSession
      */
     private function store(Identity&Model $owner, RelyingParty $rp, Passkey $passkey, array $registration): ?PasskeyFactorAssociation
     {
-        [$seen, $binding, $name] = $registration;
+        [$seen, $binding, $name, $client, $pending] = $registration;
 
-        $association = $this->gate()->registering($owner, $rp->guard, $seen, $binding, $name);
+        if ($pending !== null) {
+            $this->holdPending($owner, $binding, $pending);
+        }
+
+        $association = $this->gate()->registering($owner, $rp->guard, $seen, $binding, $name, $client, $pending);
 
         PasskeyCredentials::insert($passkey) || throw new ConcurrentPasskeyChange;
 
         return $association;
+    }
+
+    /**
+     * The pending credential handed in as the secret the gate is given, or the
+     * registration's refusal: `cross_site_request` for a cookie application's
+     * client that did not come from a page of its own site, `pending_invalid`
+     * for `pending_invalid` handed in or a credential that is empty. Read
+     * before the pending session, and so before any query.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Secrets\Secret|string  $presented
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
+     * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration|\SineMacula\Laravel\Authentication\Secrets\Secret
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    private function presented(Refused|Secret|string $presented, Identity&Model $owner, RelyingParty $rp, ClientContext $client): PasskeyRegistration|Secret
+    {
+        $transport = RefreshTokenTransport::forGuard($rp->guard, $this->container->make(Repository::class));
+
+        if (SessionPreconditions::crossSite($transport, $client) !== null) {
+            return $this->refusedPending($owner, $rp, $client, FailureReason::CROSS_SITE_REQUEST);
+        }
+
+        if ($presented instanceof Refused || $presented === '') {
+            return $this->refusedPending($owner, $rp, $client, FailureReason::PENDING_INVALID);
+        }
+
+        return $presented instanceof Secret ? $presented : new Secret($presented);
+    }
+
+    /**
+     * Prove, under the locks held until the transaction ends, that the pending
+     * credential names a live pending session of this guard whose owner is the
+     * identity and, when the challenge was bound, the session it names. The
+     * identity's row is locked first, then the session's, before the gate's own
+     * locks and the passkey's row, as the package's lock order puts them. The
+     * session is found as the pending-session actions find it
+     * (`PendingLookup`), so a credential that names none of the guard's live
+     * pending sessions fails here exactly as it does there.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
+     * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $pending
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Passkeys\UnheldPendingSession
+     */
+    private function holdPending(Identity&Model $owner, ?ProofBinding $binding, #[\SensitiveParameter] Secret $pending): void
+    {
+        $found = IdentityLock::acquire($owner) === null ? null : (new PendingLookup($this->context))->find($pending, CarbonImmutable::now()->startOfSecond(), true);
+
+        $session = $found[0] ?? null;
+        $named   = $binding === null ? null : IdentifierCoercion::stringify($binding->sessionId);
+        $held    = $session !== null
+            && SessionOwnership::isOwner($session, $owner)
+            && ($binding === null || IdentifierCoercion::stringify($session->getSessionIdentifier()) === $named);
+
+        $held || throw new UnheldPendingSession;
+    }
+
+    /**
+     * Report a registration on a pending sign-in refused, as a pending action
+     * refused is reported (Laravel's `Failed` and `AuthenticationFailed` for
+     * the sign-in flow, carrying the client and the identity and never the
+     * credential), and answer it.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
+     * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration
+     */
+    private function refusedPending(Identity&Model $owner, RelyingParty $rp, ClientContext $client, FailureReason $reason): PasskeyRegistration
+    {
+        $this->context->dispatch(new Failed($rp->guard, $owner, []));
+        $this->context->dispatch(new AuthenticationFailed(new EventContext($rp->guard, $client, $owner), AuthenticationFlow::SIGN_IN, $reason));
+
+        return $reason === FailureReason::CROSS_SITE_REQUEST ? PasskeyRegistration::crossSiteRequest() : PasskeyRegistration::pendingInvalid();
     }
 
     /**

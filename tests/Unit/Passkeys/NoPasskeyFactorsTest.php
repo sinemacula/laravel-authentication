@@ -9,9 +9,11 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Passkeys\NoPasskeyFactors;
 use SineMacula\Laravel\Authentication\Passkeys\RegisteredPasskey;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * Unit tests for the default passkey factor gate.
@@ -39,10 +41,13 @@ final class NoPasskeyFactorsTest extends TestCase
         $gate     = new NoPasskeyFactors;
         $passkey  = new RegisteredPasskey('0192f6b2-0000-7000-8000-000000000001', 'Y3JlZGVudGlhbA', 'example.test', new ObservedProperties, CarbonImmutable::now());
 
+        $client = new ClientContext('203.0.113.7', 'agent');
+
         $identity->shouldNotReceive('getAuthIdentifier');
 
-        self::assertNull($gate->registering($identity, 'api', $passkey, null, 'Laptop'));
+        self::assertNull($gate->registering($identity, 'api', $passkey, null, 'Laptop', $client, null));
+        self::assertNull($gate->registering($identity, 'api', $passkey, null, 'Laptop', $client, new Secret('key.secret')));
 
-        self::assertNull($gate->removing($identity, 'api', $passkey->id, $passkey->credentialId));
+        self::assertNull($gate->removing($identity, 'api', $passkey->id, $passkey->credentialId, $client));
     }
 }

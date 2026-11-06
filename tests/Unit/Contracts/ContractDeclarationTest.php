@@ -41,6 +41,8 @@ use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
 use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * Reflection-based structural tests for the package contracts.
@@ -534,6 +536,30 @@ final class ContractDeclarationTest extends TestCase
     public function testPasskeyFactorGateDeclaresItsTwoChanges(): void
     {
         self::assertSame(['registering', 'removing'], self::declaredMethods(PasskeyFactorGate::class));
+    }
+
+    /**
+     * Both changes of the passkey factor gate end in the client of the request
+     * they act for, required, and a registration is also handed the pending
+     * credential, a nullable secret, last.
+     *
+     * @return void
+     */
+    public function testPasskeyFactorGateIsHandedTheClientAndThePendingCredential(): void
+    {
+        $names = static fn (array $parameters): array => array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters);
+
+        $registering = (new \ReflectionMethod(PasskeyFactorGate::class, 'registering'))->getParameters();
+        $removing    = (new \ReflectionMethod(PasskeyFactorGate::class, 'removing'))->getParameters();
+
+        self::assertSame(['identity', 'application', 'passkey', 'binding', 'name', 'client', 'pending'], $names($registering));
+        self::assertSame(['identity', 'application', 'passkeyId', 'credentialId', 'client'], $names($removing));
+        self::assertSame(ClientContext::class, (string) $registering[5]->getType());
+        self::assertSame('?' . Secret::class, (string) $registering[6]->getType());
+        self::assertSame(ClientContext::class, (string) $removing[4]->getType());
+        self::assertFalse($registering[5]->isOptional());
+        self::assertFalse($registering[6]->isOptional());
+        self::assertFalse($removing[4]->isOptional());
     }
 
     /**

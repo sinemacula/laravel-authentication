@@ -70,8 +70,11 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
   or `rate_limited`. Neither `not_found` nor `used` counts an attempt, and both report `invalid_credentials`.
 - `passkeys()->register()` answers a `PasskeyRegistration`: `registered` with the passkey's summary and the factor
   gate's association, if any, or `challenge_invalid`, `challenge_expired`, `challenge_used`, `response_invalid` or
-  `already_registered`. The association may carry the factor package's completion of the registration (`completion`, an
-  opaque `?object`).
+  `already_registered`; given a pending sign-in's credential, also `pending_invalid` (the credential proves no live
+  pending session of this identity on this guard, or none the challenge was bound to, without saying which check
+  failed) or `cross_site_request` (a cookie application's client from outside its own site, answered before the
+  pending session is read). The association may carry the factor package's completion of the registration
+  (`completion`, an opaque `?object`).
 - `passkeys()->remove()` answers a `PasskeyRemoval`: removed by this call (`isRemoved()`), with the factor gate's
   completion of the removal, if any (an opaque `?object`, such as the factor package's own result carrying a new
   pending credential), or not removed, with none: it would be a `bool`, but its success carries a payload.

@@ -6,7 +6,9 @@ namespace SineMacula\Laravel\Authentication\Passkeys;
 
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 
 /**
  * The package's default passkey factor gate: no passkey is a factor, so there
@@ -27,11 +29,20 @@ final readonly class NoPasskeyFactors implements PasskeyFactorGate
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RegisteredPasskey  $passkey
      * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
      * @param  ?string  $name
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  ?\SineMacula\Laravel\Authentication\Secrets\Secret  $pending
      * @return null
      */
     #[\Override]
-    public function registering(Identity $identity, string $application, RegisteredPasskey $passkey, ?ProofBinding $binding, ?string $name): null
-    {
+    public function registering(
+        Identity $identity,
+        string $application,
+        RegisteredPasskey $passkey,
+        ?ProofBinding $binding,
+        ?string $name,
+        ClientContext $client,
+        #[\SensitiveParameter] ?Secret $pending,
+    ): null {
         return null;
     }
 
@@ -42,10 +53,11 @@ final readonly class NoPasskeyFactors implements PasskeyFactorGate
      * @param  string  $application
      * @param  string  $passkeyId
      * @param  string  $credentialId
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return null
      */
     #[\Override]
-    public function removing(Identity $identity, string $application, string $passkeyId, #[\SensitiveParameter] string $credentialId): null
+    public function removing(Identity $identity, string $application, string $passkeyId, #[\SensitiveParameter] string $credentialId, ClientContext $client): null
     {
         return null;
     }

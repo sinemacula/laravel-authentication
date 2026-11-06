@@ -555,7 +555,12 @@ seam has a default that works alone.
 - Bind a `Contracts\PasskeyFactorGate` to take part in the passkeys' lifecycle: `registering()` is asked inside the
   transaction that inserts a new passkey and may associate it as a factor (`PasskeyFactorAssociation`, carried in the
   `PasskeyRegistration`'s `factor`), and `removing()` inside the one that deletes it; either may refuse by throwing,
-  which rolls the change back whole. A gate that associates a passkey as a factor from an active session calls
+  which rolls the change back whole. Each is handed the `ClientContext` the registration or removal was given, and
+  `registering()` also the pending credential (a `Secret`, or `null`) of a registration made on a pending sign-in,
+  which the package has already proved names a live pending session of the identity (see [Registering on a pending
+  sign-in](signing-in.md#registering-on-a-pending-sign-in)): the gate completes that session's factor by calling
+  `satisfy()` itself, whose refusal is answered, not thrown, so a gate that requires the completion throws to roll the
+  registration back. A gate that associates a passkey as a factor from an active session calls
   `factorChanged(..., FactorChangeMade::PASSKEY_FACTOR_REGISTERED, ...)`, and one that removes a passkey factor calls
   `factorRemoved()`; each may hand its completion of the change (the judgement, with any pending credential) back to the
   passkey service's caller, uninterpreted: as the association's `completion`
