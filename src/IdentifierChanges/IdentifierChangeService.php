@@ -193,10 +193,13 @@ final readonly class IdentifierChangeService
     /**
      * Confirm the identity's pending change of the type, requested through this
      * guard, with the code sent to the new identifier for the challenge named,
-     * and make it, while the identity is active. A well-formed code and
-     * challenge id count against the identity's account and the IP address
-     * (`identifier_change`), given back once the change is made; once either is
-     * used up the confirmation is `rate_limited`, with the wait.
+     * and make it, while the identity is active. Every confirmation counts
+     * against the identity's account and the IP address (`identifier_change`)
+     * before the code and challenge id are judged, so a malformed one uses up
+     * its slots too; they are given back once the change is made, and once
+     * either is used up the confirmation is `rate_limited`, with the wait,
+     * which is still reported, so the volume of events is bounded by the
+     * application's own request throttling.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -220,10 +223,6 @@ final readonly class IdentifierChangeService
         $codes      = $this->collaborator(OneTimeCodes::class);
         $challenge  = $codes->isWellFormedChallenge($challengeId) ? $challengeId : null;
 
-        if ($challenge === null || !$codes->isWellFormed($code)) {
-            return new LimitedOutcome($this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context, $challenge));
-        }
-
         $limiter     = $this->collaborator(AttemptLimiter::class);
         $reservation = $limiter->acquire(
             new AttemptSubject($this->context->name(), AttemptFlow::IDENTIFIER_CHANGE, null, null, $context->client->ip, AccountAttempts::account($changeable)),
@@ -236,6 +235,10 @@ final readonly class IdentifierChangeService
             $this->context->dispatch($failure);
 
             return new LimitedOutcome(IdentifierChangeOutcome::RATE_LIMITED, $retryAfter);
+        }
+
+        if ($challenge === null || !$codes->isWellFormed($code)) {
+            return new LimitedOutcome($this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context, $challenge));
         }
 
         // `#[\SensitiveParameter]` does not cover what a closure captures,

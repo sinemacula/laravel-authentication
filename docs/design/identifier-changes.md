@@ -56,6 +56,10 @@ outdates, and why the change stands when the notice to the old identifier fails.
   cancel. A password proof racing a revocation that leaves the password as it is is not serialised. The current
   identifier and whether it is verified are read from the row as locked. A refusal under the lock writes nothing,
   commits, and gives the `identifier_change` slots back.
+- A confirmation by code takes the account's and the IP address's `identifier_change` slots before the challenge id and
+  the code are judged, so a full limit answers `rate_limited` even for a malformed check, and a malformed one keeps its
+  slots; only a made change gives them back. A rate-limited refusal is still reported, so the volume of failure events
+  is bounded by the application's own request throttling.
 - A request needs a new identifier the type's normaliser accepts (a type without a normaliser is a misconfiguration)
   that is not the current one in canonical form, and a slot of `rate_limits.identifier_change` for the new identifier,
   the identity's account and the IP address, given back only by a refusal under the lock. It never looks for another

@@ -386,18 +386,19 @@ verifies nothing else, signs no one in, and stops working when the identifier ch
 and the delivery job reads the identity again from the write connection and sends nothing once its identifier is no
 longer the one the code is bound to. Requests are held to the `code_request` limits, the resend cooldown and the
 delivery cap, and the code to the same lifetime, attempts and single use as a sign-in code, a resend keeping its
-challenge (see [One-time codes](configuration.md#one-time-codes)). Each check of a well-formed code and challenge id
-counts against the identity's account and the IP address (`rate_limits.identifier_verification`), and a correct one
-gives its slots back; an identity or address out of checks answers `rate_limited`, with the wait on the result and on
-the report. `verify()` answers a `RateLimiting\LimitedOutcome`, whose `outcome`, a `VerificationOutcome`, is `verified`
-when this call recorded the identifier verified (`is(VerificationOutcome::VERIFIED)`), `already_verified` when it was
-before. A refused check answers `invalid`, `expired` or `exhausted` as it is (the caller already holds the identity),
-and reports `invalid_credentials`, `code_expired` or `code_exhausted` with `AuthenticationFailed` on the
-`identifier_verification` flow. A right code whose identifier changed after the identity you passed was loaded is used
-up and answers `mismatch`, as a link does: nothing is recorded or reported, and the identity can request a code for its
-new identifier. An identity with no identifier of the type, or one its normaliser rejects, is `identifier_invalid` when
-a code is sent and `invalid` when one is checked; an identity that cannot verify identifiers throws a `LogicException`,
-and a machine identity, which has none to verify, an `InvalidArgumentException`.
+challenge (see [One-time codes](configuration.md#one-time-codes)). Each check counts against the identity's account and
+the IP address (`rate_limits.identifier_verification`) before the code and challenge id are judged, so a malformed one
+uses up its slots too, and a correct one gives its slots back; an identity or address out of checks answers
+`rate_limited`, with the wait on the result and on the report. `verify()` answers a `RateLimiting\LimitedOutcome`, whose
+`outcome`, a `VerificationOutcome`, is `verified` when this call recorded the identifier verified
+(`is(VerificationOutcome::VERIFIED)`), `already_verified` when it was before. A refused check answers `invalid`,
+`expired` or `exhausted` as it is (the caller already holds the identity), and reports `invalid_credentials`,
+`code_expired` or `code_exhausted` with `AuthenticationFailed` on the `identifier_verification` flow. A right code whose
+identifier changed after the identity you passed was loaded is used up and answers `mismatch`, as a link does: nothing
+is recorded or reported, and the identity can request a code for its new identifier. An identity with no identifier of
+the type, or one its normaliser rejects, is `identifier_invalid` when a code is sent and `invalid` when one is checked;
+an identity that cannot verify identifiers throws a `LogicException`, and a machine identity, which has none to verify,
+an `InvalidArgumentException`.
 
 Match the result's `outcome`, and answer `rate_limited` with its `retryAfter`:
 

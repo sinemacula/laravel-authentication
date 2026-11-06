@@ -686,9 +686,9 @@ final class FactorCodesTest extends TestCase
 
     /**
      * Rows of `[challenge id, code, the outcome, challenge id reported]` a
-     * check refuses before anything else: a challenge id not in the form the
-     * engine issues is not found and never reported, a code not in the form is
-     * invalid, and a check malformed in both is not found.
+     * check refuses once its IP slot is taken: a challenge id not in the form
+     * the engine issues is not found and never reported, a code not in the form
+     * is invalid, and a check malformed in both is not found.
      *
      * @return iterable<string, array{0: string, 1: string, 2: \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeOutcome, 3: ?string}>
      */
@@ -705,7 +705,8 @@ final class FactorCodesTest extends TestCase
 
     /**
      * A malformed code is invalid and a malformed challenge id not found, with
-     * nothing counted, the counters not asked and nothing reported to them.
+     * no attempt counted, the counters not asked and nothing reported to them;
+     * the IP slot is taken and kept.
      *
      * @param  string  $challenge
      * @param  string  $code
@@ -716,7 +717,7 @@ final class FactorCodesTest extends TestCase
      * @throws \Throwable
      */
     #[DataProvider('provideMalformedChecks')]
-    public function testAMalformedCheckCountsNothing(string $challenge, string $code, FactorCodeOutcome $outcome, ?string $reported): void
+    public function testAMalformedCheckKeepsItsIpSlotAndCountsNoAttempt(string $challenge, string $code, FactorCodeOutcome $outcome, ?string $reported): void
     {
         $this->send($this->binding());
 
@@ -730,7 +731,45 @@ final class FactorCodesTest extends TestCase
         self::assertSame([$outcome, $challenge], [$check->outcome, $check->challengeId]);
         self::assertSame([FailureReason::INVALID_CREDENTIALS, AuthenticationFlow::FACTOR_CODE, $reported], [$failed->reason, $failed->flow, $failed->challengeId]);
         self::assertSame([[], []], [$this->counters->admitted, $this->counters->reports]);
-        self::assertSame([0, 0], [self::column('attempts'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);
+        self::assertSame([0, 1], [self::column('attempts'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);
+    }
+
+    /**
+     * Once the IP address's checks are used up a malformed check is
+     * `rate_limited`, with the wait, not `not_found` or `invalid`: the limit is
+     * taken before the input is judged. The refusal is reported with the
+     * rate-limited reason, and the counters are neither asked nor told.
+     *
+     * @param  string  $challenge
+     * @param  string  $code
+     * @param  \SineMacula\Laravel\Authentication\Codes\Enums\FactorCodeOutcome  $outcome
+     * @param  ?string  $reported
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideMalformedChecks')]
+    public function testAMalformedCheckIsRateLimitedOnceTheLimitIsUsedUp(string $challenge, string $code, FactorCodeOutcome $outcome, ?string $reported): void
+    {
+        unset($outcome, $reported);
+
+        config()->set('authentication.rate_limits.factor_code.per_ip', ['max' => 1, 'decay_seconds' => 300]);
+
+        $this->send($this->binding());
+
+        $this->verify($this->binding(), $challenge, $code);
+
+        $this->counters->admitted = [];
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $check  = $this->verify($this->binding(), $challenge, $code);
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([FactorCodeOutcome::RATE_LIMITED, 300, $challenge], [$check->outcome, $check->retryAfter, $check->challengeId]);
+        self::assertSame([FailureReason::RATE_LIMITED, 300], [$failed->reason, $failed->retryAfter]);
+        self::assertSame([[], []], [$this->counters->admitted, $this->counters->reports]);
+        self::assertSame([0, 1], [self::column('attempts'), self::counterHits('mobile', 'factor_code', 'per_ip', self::IP)]);
     }
 
     /**

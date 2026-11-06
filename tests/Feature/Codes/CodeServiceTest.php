@@ -489,19 +489,78 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * A malformed code is refused without counting against the code.
+     * A malformed code is refused without counting against the code, but it
+     * takes the identity's slot and the IP address's, and keeps them.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAMalformedVerificationCodeCountsNothing(): void
+    public function testAMalformedVerificationCodeTakesItsSlotsAndCountsNoAttempt(): void
     {
         $identity = self::seedCodeIdentity(verified: false);
 
         $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
         $this->codeService()->verify($identity, 'phone', self::challenge(), '13579', self::requestClient());
 
+        self::assertSame(0, self::storedAttempts());
+        self::assertSame(1, self::counterHits('identifier_verification', 'per_account', AccountAttempts::account($identity)));
+        self::assertSame(1, self::counterHits('mobile', 'identifier_verification', 'per_ip', self::requestClient()->ip));
+    }
+
+    /**
+     * Rows of `[challenge id, code]` a verification check refuses as malformed,
+     * and a type the identity has no identifier of, which has no binding to
+     * check against.
+     *
+     * @return iterable<string, array{0: ?string, 1: string, 2: bool}>
+     */
+    public static function provideUnjudgedVerifications(): iterable
+    {
+        yield from [
+            'a malformed code'      => [null, '13579', true],
+            'a malformed challenge' => ['0195F4A2-7B1C-4000-8000-00000000000A', self::CODE, true],
+            'an unbound type'       => [null, self::CODE, false],
+        ];
+    }
+
+    /**
+     * Once the identity's checks are used up, a malformed check or one for an
+     * unbound type is `rate_limited`, with the wait, not `invalid`: the limit
+     * is taken before the input is judged.
+     *
+     * @param  ?string  $challengeId
+     * @param  string  $code
+     * @param  bool  $bound
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideUnjudgedVerifications')]
+    public function testAMalformedOrUnboundVerificationIsRateLimitedOnceTheLimitIsUsedUp(?string $challengeId, string $code, bool $bound): void
+    {
+        config()->set('authentication.rate_limits.identifier_verification.per_identifier', ['max' => 1, 'decay_seconds' => 900]);
+
+        $identity = self::seedCodeIdentity(verified: false);
+
+        $this->codeService()->sendVerification($identity, 'phone', self::requestClient());
+
+        if (!$bound) {
+            $identity->forceFill(['phone' => null])->save();
+        }
+
+        $challenge = $challengeId ?? self::challenge();
+
+        self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', $challenge, $code, self::requestClient())->outcome);
+        self::assertSame(1, self::counterHits('identifier_verification', 'per_account', AccountAttempts::account($identity)));
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $limited = $this->codeService()->verify($identity, 'phone', $challenge, $code, self::requestClient());
+        $failed  = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([VerificationOutcome::RATE_LIMITED, 900], [$limited->outcome, $limited->retryAfter]);
+        self::assertSame([FailureReason::RATE_LIMITED, 900], [$failed->reason, $failed->retryAfter]);
         self::assertSame(0, self::storedAttempts());
     }
 
@@ -896,9 +955,9 @@ final class CodeServiceTest extends TestCase
 
     /**
      * A verification check names its challenge: a malformed id is `invalid`,
-     * counts nothing and is never reported as a challenge; another challenge's
-     * id is `invalid`, spends no attempt on the live one and is reported as the
-     * challenge the check answered.
+     * counts no attempt and is never reported as a challenge; another
+     * challenge's id is `invalid`, spends no attempt on the live one and is
+     * reported as the challenge the check answered.
      *
      * @return void
      *
@@ -912,7 +971,7 @@ final class CodeServiceTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertSame(VerificationOutcome::INVALID, $this->codeService()->verify($identity, 'phone', strtoupper($challenge), self::CODE, self::requestClient())->outcome);
-        self::assertSame(0, self::counterHits('identifier_verification', 'per_account', AccountAttempts::account($identity)));
+        self::assertSame(1, self::counterHits('identifier_verification', 'per_account', AccountAttempts::account($identity)));
         self::assertNull($this->recordedEvent(AuthenticationFailed::class)->challengeId);
 
         $this->recordEvents([AuthenticationFailed::class]);

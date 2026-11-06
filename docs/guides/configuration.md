@@ -828,7 +828,7 @@ a cache. Publish the migration with the others (`authentication-migrations` crea
 | `identifier_change`       | `per_ip`         | 50 per 3600 seconds | Every change request or code confirmation from the IP address, given back as above                                                                                                      |
 | `identifier_verification` | `per_identifier` | 10 per 900 seconds  | Every verification code check by the identity; a correct code is given back                                                                                                             |
 | `identifier_verification` | `per_ip`         | 50 per 900 seconds  | Every verification code check from the IP address; a correct code is given back                                                                                                         |
-| `factor_code`             | `per_ip`         | 50 per 300 seconds  | Every factor code check from the IP address; a verified code is given back                                                                                                              |
+| `factor_code`             | `per_ip`         | 50 per 300 seconds  | Every factor code check from the IP address, malformed or not; a verified code is given back                                                                                            |
 
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
 `decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
@@ -844,6 +844,11 @@ A sign-in guesses a secret, so it reserves its slots before the method runs: a r
 `rate_limited` and a wait in seconds, without checking the password, and a successful one gives its own slots back.
 Earlier failures are not forgiven: they count until their window ends, so concurrent attempts can never exceed `max`.
 When the IP address's limit is full, the slot just taken for the identifier is given back.
+
+A factor code check, a verification code check and a confirmation of an identifier change by code take their slots
+before the challenge id and the code are judged, so a malformed one uses up its slots like any other and, once they are
+used up, is answered `rate_limited` rather than `not_found` or `invalid`. A rate-limited refusal is still reported by
+`AuthenticationFailed`, so the volume of those events is bounded by the application's own request throttling.
 
 The password method also counts every password it checks against the account it checks it for, under the guard's
 `per_identifier` limit, and holds that slot with the sign-in's own: it is given back only when the sign-in starts its

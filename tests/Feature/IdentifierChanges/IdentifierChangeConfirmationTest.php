@@ -225,7 +225,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
     /**
      * A request by code answers the challenge id its confirmation names; a
-     * malformed one is invalid, counts nothing and is never reported, and
+     * malformed one is invalid, counts no attempt and is never reported, and
      * another challenge's id spends no attempt on the live one.
      *
      * @return void
@@ -245,7 +245,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', strtoupper($challenge), self::CODE, self::requestClient())->outcome);
-        self::assertSame($hits, (int) DB::table('rate_limits')->sum('hits'));
+        self::assertSame($hits + 2, (int) DB::table('rate_limits')->sum('hits'));
         self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::NO_CHALLENGE, self::CODE, self::requestClient())->outcome);
         self::assertSame(0, self::codeAttempts());
         self::assertSame([null, self::NO_CHALLENGE], $this->failedChallenges());

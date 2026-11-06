@@ -579,7 +579,8 @@ seam has a default that works alone.
   accepted only for that very binding: another session, factor, purpose or grant, and an `mfa` code as an `enrollment`
   one or the reverse, is `not_found`, as a malformed, unknown or replaced challenge id is, so another binding's
   challenge cannot be told from an absent one; the binding's own challenge, once used, is `used`; a wrong code is
-  `invalid` and counted, while a malformed one is `invalid` and not counted; neither `not_found` nor `used` counts an
+  `invalid` and counted, while a malformed one is `invalid` and not counted
+  against the challenge (it still takes its IP slot, before it is judged); neither `not_found` nor `used` counts an
   attempt or is reported to the counters. The delivery key is the destination and the identity, never the factor, so the
   cooldown and the delivery cap hold across an enrolment restarted with a new factor and grant. Bind
   `Contracts\FactorCodeCounters` (the default, `RefuseFactorCodes`, refuses every code): `admit()` is asked before each

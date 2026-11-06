@@ -70,8 +70,11 @@ the same whether or not anyone has the identifier, and who a code is ever delive
   code is verified only when it is admitted. The default counters refuse every code. A factor code check tells the
   adapter `not_found` (a malformed, unknown, replaced or other-binding challenge id) and `used` (the binding's own
   challenge, used up) from `invalid` (a malformed code, or a wrong one, which alone is counted and reported). Neither
-  `not_found` nor `used` is a guess, so neither counts or reports, though a well-formed request takes its IP slot and
-  every refusal reports `AuthenticationFailed` as `invalid_credentials`. Code sign-in and verification by code keep
+  `not_found` nor `used` is a guess, so neither counts or reports, though every check takes its IP slot first, before
+  the challenge id and the code are judged: a full limit answers `rate_limited` even for a malformed check, and a
+  malformed one keeps its slot. Every refusal reports `AuthenticationFailed`: as `rate_limited` with its wait once the
+  limit is full, and as `invalid_credentials` otherwise. A rate-limited refusal is reported too, so the volume of
+  failure events is bounded by the application's own request throttling. Code sign-in and verification by code keep
   one concealed answer for all of them, so they say nothing about the challenge.
 - Every time is a whole second; one `now` per operation; a deadline has passed from the second it names.
 - Every read that decides a code, its recipient or a verification is on the write connection.
@@ -115,8 +118,11 @@ the same whether or not anyone has the identifier, and who a code is ever delive
   verifier's outcome as a `LimitedOutcome` (`verified`, `already_verified`, `mismatch`); a refused check answers
   `invalid`, `expired` or `exhausted`, unconcealed, a limited one `rate_limited` with its wait, and reports
   `invalid_credentials`, `code_expired` or `code_exhausted` on the `identifier_verification` flow. It never signs anyone
-  in. A machine identity is refused with an `InvalidArgumentException`, an identity without `HasVerifiableIdentifiers`
-  with a `LogicException`.
+  in. The account's and the IP address's slots (`identifier_verification`) are taken before the challenge id, the code
+  and the identity's identifier are judged, so a full limit answers `rate_limited` even for a malformed check or a type
+  with no identifier, and a malformed check keeps its slots; a rate-limited refusal is still reported, so the volume of
+  failure events is bounded by the application's own request throttling. A machine identity is refused with an
+  `InvalidArgumentException`, an identity without `HasVerifiableIdentifiers` with a `LogicException`.
 
 ## Success Path
 

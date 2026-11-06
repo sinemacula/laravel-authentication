@@ -168,13 +168,17 @@ final readonly class CodeService
      * `expired`, `exhausted` or `rate_limited`; not concealed, since the caller
      * already holds the identity), reported by `AuthenticationFailed` as
      * `invalid_credentials`, `code_expired`, `code_exhausted` or
-     * `rate_limited`, the last with the wait on the result. A check of a
-     * well-formed code and challenge id counts against the identity's account
-     * and the IP address (`identifier_verification`) and gives them back once
-     * the code is accepted. A code sent before the identifier changed is bound
-     * to the old one, so it verifies nothing; one whose identifier changed
-     * after the identity was loaded is used up and answers `mismatch`, with
-     * nothing recorded or reported, as the verifier gives it.
+     * `rate_limited`, the last with the wait on the result. Every check counts
+     * against the identity's account and the IP address
+     * (`identifier_verification`) before the code, the challenge id and the
+     * identity's identifier are judged, so a malformed check, or one for a type
+     * with no identifier, uses up its slots and, once they are used up, answers
+     * `rate_limited`; only an accepted code gives them back. A rate-limited
+     * refusal is still reported, so the volume of events is bounded by the
+     * application's own request throttling. A code sent before the identifier
+     * changed is bound to the old one, so it verifies nothing; one whose
+     * identifier changed after the identity was loaded is used up and answers
+     * `mismatch`, with nothing recorded or reported, as the verifier gives it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -194,19 +198,19 @@ final readonly class CodeService
         $codes     = $this->collaborator(OneTimeCodes::class);
         $challenge = $codes->isWellFormedChallenge($challengeId) ? $challengeId : null;
 
-        if ($binding === null || $challenge === null || !$codes->isWellFormed($code)) {
-            return $this->refuseVerification($context, FailureReason::INVALID_CREDENTIALS, $challenge);
-        }
-
         $limiter     = $this->collaborator(AttemptLimiter::class);
         $reservation = $limiter->acquire(
-            new AttemptSubject($binding->guard, AttemptFlow::IDENTIFIER_VERIFICATION, null, null, $context->client->ip, AccountAttempts::account($identity)),
+            new AttemptSubject($this->context->name(), AttemptFlow::IDENTIFIER_VERIFICATION, null, null, $context->client->ip, AccountAttempts::account($identity)),
         );
 
         if ($reservation->retryAfter !== null) {
             $this->report($context, AuthenticationFlow::IDENTIFIER_VERIFICATION, FailureReason::RATE_LIMITED, null, $reservation->retryAfter, $challenge);
 
             return new LimitedOutcome(VerificationOutcome::RATE_LIMITED, $reservation->retryAfter);
+        }
+
+        if ($binding === null || $challenge === null || !$codes->isWellFormed($code)) {
+            return $this->refuseVerification($context, FailureReason::INVALID_CREDENTIALS, $challenge);
         }
 
         $failure = $codes->check($binding, $challengeId, $code, CarbonImmutable::now()->startOfSecond())->failure();
@@ -263,23 +267,28 @@ final readonly class CodeService
      * for another application than this guard is a misconfiguration
      * (`InvalidArgumentException`).
      *
-     * A malformed challenge id is `not_found` and a malformed code `invalid`
-     * (the id first, when both are), with nothing counted and nothing reported
-     * to the factor package. A check counts per IP address (`factor_code`),
-     * then, in one transaction on the storage connection (a savepoint of the
-     * caller's): asks the bound `FactorCodeCounters` first (`locked` or
-     * `refused`, the challenge untouched, nothing reported); locks the
-     * challenge's row; answers a challenge that is unknown, replaced, or of
-     * another binding or transaction as `not_found`, so another binding's is
-     * indistinguishable from an absent one even when it was used; the binding's
-     * own used challenge as `used`, even once expired; an expired or exhausted
-     * one as such, without counting or reporting; otherwise counts the attempt,
-     * compares the code, uses the challenge up when it matches, and reports the
-     * attempt to the counters exactly once, whose answer stands: a matching
-     * code is `verified` only when they admit it, and `locked` or `refused`
-     * otherwise (the challenge stays used up); a wrong one is `invalid`,
-     * carrying any lock they reported. A verified code gives its IP slot back.
-     * Every refusal is reported by `AuthenticationFailed` (flow `factor_code`).
+     * A check counts per IP address (`factor_code`) before the challenge id and
+     * the code are judged, so once the limit is used up every check is
+     * `rate_limited`, a malformed one included, and a malformed one uses up its
+     * slot. A malformed challenge id is `not_found` and a malformed code
+     * `invalid` (the id first, when both are), with no attempt counted and
+     * nothing reported to the factor package. A rate-limited refusal is still
+     * reported, so the volume of events is bounded by the application's own
+     * request throttling. Then, for a well-formed check, in one transaction on
+     * the storage connection (a savepoint of the caller's): asks the bound
+     * `FactorCodeCounters` first (`locked` or `refused`, the challenge
+     * untouched, nothing reported); locks the challenge's row; answers a
+     * challenge that is unknown, replaced, or of another binding or transaction
+     * as `not_found`, so another binding's is indistinguishable from an absent
+     * one even when it was used; the binding's own used challenge as `used`,
+     * even once expired; an expired or exhausted one as such, without counting
+     * or reporting; otherwise counts the attempt, compares the code, uses the
+     * challenge up when it matches, and reports the attempt to the counters
+     * exactly once, whose answer stands: a matching code is `verified` only
+     * when they admit it, and `locked` or `refused` otherwise (the challenge
+     * stays used up); a wrong one is `invalid`, carrying any lock they
+     * reported. A verified code gives its IP slot back. Every refusal is
+     * reported by `AuthenticationFailed` (flow `factor_code`).
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding  $binding
      * @param  string  $challengeId
