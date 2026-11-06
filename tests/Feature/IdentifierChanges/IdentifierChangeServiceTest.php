@@ -598,13 +598,72 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
+     * Rows of `[challenge id or null for the live one, code]` a confirmation
+     * refuses as malformed.
+     *
+     * @return iterable<string, array{0: ?string, 1: string}>
+     */
+    public static function provideMalformedConfirmations(): iterable
+    {
+        yield from [
+            'a malformed challenge' => ['0195F4A2-7B1C-4000-8000-00000000000A', self::CODE],
+            'a malformed code'      => [null, '12345'],
+        ];
+    }
+
+    /**
+     * A malformed confirmation takes and keeps one slot of the identity's
+     * account and one of the IP address, counts no attempt against the code and
+     * is `invalid`; once the account's are used up the next is `rate_limited`,
+     * with the wait its `AuthenticationFailed` reports, not `invalid`.
+     *
+     * @param  ?string  $challengeId
+     * @param  string  $code
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideMalformedConfirmations')]
+    public function testAMalformedConfirmationTakesItsSlotsAndIsThenRateLimited(?string $challengeId, string $code): void
+    {
+        config()->set('authentication.rate_limits.identifier_change.per_identifier', ['max' => 2, 'decay_seconds' => 3600]);
+
+        $identity = self::seedChangeable();
+
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, self::freshSession($identity), self::requestClient());
+
+        $challenge = $challengeId ?? self::changeChallenge($identity, 'email');
+        $hits      = static fn (): int => (int) DB::table('rate_limits')->sum('hits');
+        $before    = $hits();
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', $challenge, $code, self::requestClient())->outcome);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame($before + 2, $hits());
+        self::assertSame(0, self::codeAttempts());
+
+        $this->changes()->confirmByCode($identity, 'email', $challenge, $code, self::requestClient());
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $limited = $this->changes()->confirmByCode($identity, 'email', $challenge, $code, self::requestClient());
+        $failed  = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame(IdentifierChangeOutcome::RATE_LIMITED, $limited->outcome);
+        self::assertSame([FailureReason::RATE_LIMITED, $limited->retryAfter], [$failed->reason, $failed->retryAfter]);
+        self::assertGreaterThan(0, $limited->retryAfter);
+        self::assertSame(0, self::codeAttempts());
+    }
+
+    /**
      * A confirmation by code answers as the check of its code does: a code for
      * another challenge is `invalid`, one out of attempts `exhausted` and one
      * past its expiry `expired`, the identifier unchanged; a malformed
-     * challenge is `invalid` with nothing counted, even with a well-formed
-     * code. Each refusal is reported once as an `identifier_change` failure
-     * with its reason and the challenge it checked, which is none for a
-     * malformed one.
+     * challenge is `invalid` with no attempt counted, even with a well-formed
+     * code, and takes its slots like any other. Each refusal is reported once
+     * as an `identifier_change` failure with its reason and the challenge it
+     * checked, which is none for a malformed one.
      *
      * @return void
      *
@@ -632,7 +691,7 @@ final class IdentifierChangeServiceTest extends TestCase
 
         self::assertSame(IdentifierChangeOutcome::INVALID, $confirm('not-a-challenge'));
         self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::INVALID_CREDENTIALS, null], $reported());
-        self::assertSame($before, $hits());
+        self::assertSame($before + 2, $hits());
         self::assertSame(IdentifierChangeOutcome::INVALID, $confirm(self::NO_CHALLENGE));
         self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::INVALID_CREDENTIALS, self::NO_CHALLENGE], $reported());
 

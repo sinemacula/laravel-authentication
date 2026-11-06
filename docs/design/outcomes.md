@@ -67,7 +67,9 @@ type: each flow keeps its own type, and the convention is the shape. Laravel's g
 - `codes()->verifyFactorCode()` answers a `FactorCodeCheck` whose `outcome`, a `FactorCodeOutcome`, is `verified`,
   `invalid` (a malformed or wrong code; only a wrong one counts), `not_found` (a malformed, unknown, replaced or
   other-binding challenge), `used` (the binding's own challenge, used up), `expired`, `exhausted`, `locked`, `refused`
-  or `rate_limited`. Neither `not_found` nor `used` counts an attempt, and both report `invalid_credentials`.
+  or `rate_limited`. Neither `not_found` nor `used` counts an attempt, and both report `invalid_credentials`. The IP
+  address's slot is taken before the challenge id and the code are judged, so a full limit answers `rate_limited` even
+  for a malformed check, and a malformed one uses up its slot.
 - `passkeys()->register()` answers a `PasskeyRegistration`: `registered` with the passkey's summary and the factor
   gate's association, if any, or `challenge_invalid`, `challenge_expired`, `challenge_used`, `response_invalid` or
   `already_registered`; given a pending sign-in's credential, also `pending_invalid` (the credential proves no live

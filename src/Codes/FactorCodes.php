@@ -109,17 +109,17 @@ final readonly class FactorCodes
         $context = new EventContext($guard, $client, $binding->binding->identity);
         $codes   = $this->container->make(OneTimeCodes::class);
 
-        if (!$codes->isWellFormedChallenge($challengeId) || !$codes->isWellFormed($code)) {
-            $outcome = $codes->isWellFormedChallenge($challengeId) ? FactorCodeOutcome::INVALID : FactorCodeOutcome::NOT_FOUND;
-
-            return $this->refuseCheck(new FactorCodeCheck($outcome, $challengeId), $context);
-        }
-
         $limiter     = $this->container->make(AttemptLimiter::class);
         $reservation = $limiter->acquire(new AttemptSubject($guard, AttemptFlow::FACTOR_CODE, null, null, $context->client->ip));
 
         if ($reservation->retryAfter !== null) {
             return $this->refuseCheck(new FactorCodeCheck(FactorCodeOutcome::RATE_LIMITED, $challengeId, retryAfter: $reservation->retryAfter), $context);
+        }
+
+        if (!$codes->isWellFormedChallenge($challengeId) || !$codes->isWellFormed($code)) {
+            $outcome = $codes->isWellFormedChallenge($challengeId) ? FactorCodeOutcome::INVALID : FactorCodeOutcome::NOT_FOUND;
+
+            return $this->refuseCheck(new FactorCodeCheck($outcome, $challengeId), $context);
         }
 
         // `#[\SensitiveParameter]` does not cover what a closure captures,
