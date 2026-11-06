@@ -69,7 +69,7 @@ final class SignedLinkTest extends TestCase
         $link   = SignedLink::fromRequest(Request::create($signed));
 
         self::assertSame('http://localhost/links/7', $link->url);
-        self::assertSame((string) parse_url($signed, PHP_URL_QUERY), $link->query);
+        self::assertSame((string) parse_url($signed, PHP_URL_QUERY), $link->query());
 
         $request = $link->toRequest();
 
@@ -173,7 +173,34 @@ final class SignedLinkTest extends TestCase
     }
 
     /**
-     * A request without a query string is captured with an empty one.
+     * The raw query string Vapor hands over is the one captured, not the query
+     * string the server re-encoded: the link stays authentic through it, and
+     * fails from the re-encoded one alone.
+     *
+     * @return void
+     */
+    public function testVaporsRawQueryIsCapturedOverTheServersOne(): void
+    {
+        $query   = 'note=a%20b&id=7';
+        $address = 'http://localhost/links/7';
+        $signed  = $query . '&signature=' . hash_hmac('sha256', "{$address}?{$query}", Config::string('app.key'));
+        $request = Request::create("{$address}?{$signed}");
+
+        $request->server->set('QUERY_STRING', str_replace('a%20b', 'a+b', $signed));
+
+        self::assertFalse($this->urls()->hasCorrectSignature(SignedLink::fromRequest($request)->toRequest()));
+
+        $request->server->set('VAPOR_RAW_QUERY_STRING', $signed);
+
+        $link = SignedLink::fromRequest($request);
+
+        self::assertSame($signed, $link->query());
+        self::assertTrue($this->urls()->hasCorrectSignature($link->toRequest()));
+    }
+
+    /**
+     * A request without a query string is captured with an empty one, as is a
+     * request whose server gives none at all.
      *
      * @return void
      */
@@ -181,8 +208,36 @@ final class SignedLinkTest extends TestCase
     {
         $link = SignedLink::fromRequest(Request::create('http://localhost/links/7/'));
 
-        self::assertSame(['http://localhost/links/7', ''], [$link->url, $link->query]);
+        self::assertSame(['http://localhost/links/7', ''], [$link->url, $link->query()]);
         self::assertFalse($this->urls()->hasCorrectSignature($link->toRequest()));
+
+        $request = Request::create('http://localhost/links/7?id=7');
+
+        $request->server->remove('QUERY_STRING');
+
+        self::assertSame('', SignedLink::fromRequest($request)->query());
+    }
+
+    /**
+     * The query string, which carries the link's signature, is kept out of a
+     * dump, an export and a JSON encoding of the link, and a link cannot be
+     * serialised; only `query()` reveals it.
+     *
+     * @return void
+     */
+    public function testTheQueryIsKeptOutOfDumpsAndEncodings(): void
+    {
+        $link = new SignedLink('https://accounts.example.test/links/7', 'expires=1&signature=deadbeef');
+
+        self::assertStringNotContainsString('deadbeef', print_r($link, true));
+        self::assertStringNotContainsString('deadbeef', var_export($link, true));
+        self::assertSame('{"url":"https:\/\/accounts.example.test\/links\/7"}', json_encode($link, JSON_THROW_ON_ERROR));
+        self::assertSame('expires=1&signature=deadbeef', $link->query());
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Serialization of \'SensitiveParameterValue\' is not allowed');
+
+        serialize($link);
     }
 
     /**

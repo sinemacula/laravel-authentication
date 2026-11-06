@@ -18,8 +18,9 @@ use Illuminate\Http\Request;
  * it: it checks the signature and the expiry again from these values, with
  * every key the application signs with and every previous key
  * (`app.previous_keys`), so an address or a query changed on the way fails as a
- * link that was never signed. The query string is the credential: keep it out
- * of logs.
+ * link that was never signed. The query string is the credential, so it is kept
+ * out of every dump, encoding and stack trace, and a link cannot be serialised:
+ * `query()` reveals it.
  *
  * @api
  *
@@ -28,6 +29,9 @@ use Illuminate\Http\Request;
  */
 final readonly class SignedLink
 {
+    /** @var \SensitiveParameterValue The query string as received, undecoded, with the link's fields and signature. */
+    private \SensitiveParameterValue $query;
+
     /**
      * Constructor.
      *
@@ -39,10 +43,13 @@ final readonly class SignedLink
         /** The absolute address the link was signed for, without its query string. */
         public string $url,
 
-        /** The query string as received, undecoded, with the link's fields and signature. */
+        // The query string as received, undecoded, with the link's fields and
+        // signature.
         #[\SensitiveParameter]
-        public string $query,
-    ) {}
+        string $query,
+    ) {
+        $this->query = new \SensitiveParameterValue($query);
+    }
 
     /**
      * The signed link the request arrived at: its address as Laravel signs it,
@@ -62,6 +69,17 @@ final readonly class SignedLink
     }
 
     /**
+     * The query string as received, undecoded, with the link's fields and
+     * signature: the link's credential.
+     *
+     * @return string
+     */
+    public function query(): string
+    {
+        return $this->query->getValue();
+    }
+
+    /**
      * The request the link names, rebuilt from these values alone, for the
      * framework's signature and expiry checks: the address as given and the raw
      * query string, its fields parsed from it.
@@ -73,10 +91,11 @@ final readonly class SignedLink
     public function toRequest(): Request
     {
         $request = Request::create($this->url);
+        $query   = $this->query();
 
-        parse_str($this->query, $fields);
+        parse_str($query, $fields);
 
-        $request->server->set('QUERY_STRING', $this->query);
+        $request->server->set('QUERY_STRING', $query);
         $request->query->replace($fields);
 
         return $request;

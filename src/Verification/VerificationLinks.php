@@ -168,7 +168,7 @@ final readonly class VerificationLinks
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function consume(SignedLink $signed, ClientContext $client): VerificationLinkOutcome
+    public function consume(#[\SensitiveParameter] SignedLink $signed, ClientContext $client): VerificationLinkOutcome
     {
         $request = $signed->toRequest();
         $link    = self::link($request);

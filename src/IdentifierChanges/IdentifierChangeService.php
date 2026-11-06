@@ -286,7 +286,7 @@ final readonly class IdentifierChangeService
      *
      * @phpstan-impure
      */
-    public function confirmByLink(SignedLink $signed, ClientContext $client): LimitedOutcome
+    public function confirmByLink(#[\SensitiveParameter] SignedLink $signed, ClientContext $client): LimitedOutcome
     {
         $context = new EventContext($this->context->name(), $client);
         $link    = $this->links()->read($signed->toRequest());
