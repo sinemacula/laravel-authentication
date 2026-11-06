@@ -436,12 +436,13 @@ final class AdmissionRecheck
         }
 
         $refusal = $this->checks['principal'] ? $this->standing($session, $current, FailureReason::PRINCIPAL_INACTIVE) : null;
+        $checked = $this->checks['tenant'] ? $tenant : null;
 
-        if ($refusal !== null || !$this->checks['tenant']) {
+        if ($refusal !== null || $checked === null) {
             return $refusal;
         }
 
-        $tenantId = IdentifierCoercion::stringify($tenant?->getTenantIdentifier());
+        $tenantId = IdentifierCoercion::stringify($checked->getTenantIdentifier());
 
         return TenantAdmission::recorded($current, $tenantId, false) instanceof FailureReason ? FailureReason::TENANT_INACTIVE : null;
     }
