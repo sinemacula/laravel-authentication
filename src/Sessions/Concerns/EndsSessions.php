@@ -137,8 +137,21 @@ trait EndsSessions
      * client passes the cookie's same-site checks and the token was not refused
      * as `refresh_token_conflict`, so a cross-site page cannot clear it.
      *
+     * A route scoped to one session (`DELETE /sessions/{session}`) passes that
+     * session's id as `$expectedSession`, so a token proving another session is
+     * refused as `session_mismatch` (reported with the flow `sign_out`) and
+     * nothing is revoked. The check follows the proof of the token, so a replay
+     * still revokes the session as `rotation_reuse`, and a token that fails any
+     * of the token's own checks reports that reason instead; it precedes the
+     * owner's lookup, so a mismatch revokes nothing and changes no binding. The
+     * refusal carries no expired cookie, so refusing a request about another
+     * session never signs the browser out of its own. The id compares as a
+     * string, so `42` matches `'42'` and `'042'` does not; only `null` accepts
+     * any session.
+     *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  int|string|null  $expectedSession
      * @return \SineMacula\Laravel\Authentication\Sessions\SignOutResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -148,9 +161,12 @@ trait EndsSessions
      *
      * @imperative
      */
-    public function signOutWith(#[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented, ClientContext $client): SignOutResult
-    {
-        return $this->signOuts->signOutWith($presented, $client);
+    public function signOutWith(
+        #[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented,
+        ClientContext $client,
+        int|string|null $expectedSession = null,
+    ): SignOutResult {
+        return $this->signOuts->signOutWith($presented, $client, $expectedSession);
     }
 
     /**

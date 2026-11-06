@@ -2798,6 +2798,224 @@ final class SessionSwitchTest extends TestCase
     }
 
     /**
+     * A switch that expects the session its token proves is made, whatever the
+     * session was read as, and so is one that expects none; the expected id is
+     * compared as the string it is, so an integer that is not the session's id
+     * does not match.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchExpectingItsOwnSessionIsMade(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        $switched = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+            expectedSession: IdentifierCoercion::stringify($session->record->getSessionIdentifier()),
+        );
+
+        self::assertTrue($switched->isSwitched());
+
+        $this->advance(5);
+
+        self::assertTrue(
+            $this->sessions(self::GUARD)->switchTo(
+                PresentedRefreshToken::fromBody($switched->session?->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($first),
+                self::requestClient(),
+                expectedSession: null,
+            )->isSwitched(),
+        );
+    }
+
+    /**
+     * A token proving another session than the one expected is refused as
+     * `session_mismatch`, reported as a `switch` failure that describes the
+     * token's own session, and counted by the refresh limits against it; the
+     * session is left as it was and nothing is switched, revoked or bound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchProvingAnotherSessionThanExpectedIsRefused(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+        $other   = $this->signIn();
+        $id      = IdentifierCoercion::stringify($session->record->getSessionIdentifier());
+        $before  = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->where('id', $id)->sole());
+
+        $this->advance(5);
+
+        $limiter = \Mockery::mock(AttemptLimiter::class);
+        $limiter->shouldReceive('blocked')->once()->andReturnNull();
+        $limiter->shouldReceive('recordFailure')->once()->with(\Mockery::on(static fn (AttemptSubject $subject): bool => $subject->flow === AttemptFlow::REFRESH
+            && $subject->guard                                                                                                          === self::GUARD
+            && $subject->identifier                                                                                                     === $id
+            && $subject->ip                                                                                                             === self::CLIENT_IP));
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $this->recordEvents([AuthenticationFailed::class, PrincipalSwitched::class, SessionRevoked::class, PrincipalAssigned::class]);
+
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+            expectedSession: $other->record->getSessionIdentifier(),
+        );
+
+        self::assertSame(FailureReason::SESSION_MISMATCH, $result->reason);
+        self::assertNull($result->session);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame(AuthenticationFlow::SWITCH, $failed->flow);
+        self::assertSame(FailureReason::SESSION_MISMATCH, $failed->reason);
+        self::assertSame(self::GUARD, $failed->context->guard);
+        self::assertSame('password', $failed->context->method);
+        EventContextAssertions::assertSession($session->record, $failed->context);
+        self::assertEquals($before, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->where('id', $id)->sole()));
+        self::assertTrue(Auth::guard(self::GUARD)->guest());
+    }
+
+    /**
+     * An integer that is not the session's id is not the session: only `null`
+     * accepts any session, and an id is compared as a string.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchExpectingAnIntegerThatIsNotTheSessionIdIsRefused(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        foreach ([42, 0, '', '0'] as $expected) {
+
+            $result = $this->sessions(self::GUARD)->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+                expectedSession: $expected,
+            );
+
+            self::assertSame(FailureReason::SESSION_MISMATCH, $result->reason);
+        }
+    }
+
+    /**
+     * The old token of the session, retried inside the grace window, still
+     * matches its own session and is answered with the current credential, and
+     * is refused as a mismatch for any other.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGraceRetryIsHeldToTheExpectedSession(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+        $other   = $this->signIn();
+        $id      = $session->record->getSessionIdentifier();
+
+        $this->advance(5);
+        $this->switched($session, $second);
+        $this->advance(5);
+
+        $row = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->where('id', $id)->sole());
+
+        $retry = fn (mixed $expected) => $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+            expectedSession: $expected,
+        );
+
+        self::assertSame(FailureReason::SESSION_MISMATCH, $retry($other->record->getSessionIdentifier())->reason);
+        self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->where('id', $id)->sole()));
+        self::assertNull(DB::table('authentication_sessions')->where('id', $id)->value('revoked_at'));
+        self::assertTrue($retry($id)->isSwitched());
+    }
+
+    /**
+     * The token is judged before the session is compared: a replay on a wrong
+     * expected session still revokes the session as `rotation_reuse`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReplayExpectingAnotherSessionStillRevokesAsReuse(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+        $other   = $this->signIn();
+
+        $this->advance(5);
+        $this->switched($session, $second);
+        $this->advance(31);
+
+        $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class]);
+
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($first),
+            self::requestClient(),
+            expectedSession: $other->record->getSessionIdentifier(),
+        );
+
+        self::assertSame(FailureReason::ROTATION_REUSE, $result->reason);
+        self::assertSame([SessionRevoked::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(FailureReason::ROTATION_REUSE, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame('rotation_reuse', DB::table('authentication_sessions')->where('id', $session->record->getSessionIdentifier())->value('revoked_reason'));
+        self::assertNull(DB::table('authentication_sessions')->where('id', $other->record->getSessionIdentifier())->value('revoked_at'));
+    }
+
+    /**
+     * A session the token's own checks refuse reports its own reason, not the
+     * mismatch, whatever session was expected.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARevokedSessionExpectingAnotherReportsItsOwnReason(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+        $other   = $this->signIn();
+
+        DB::table('authentication_sessions')->where('id', $session->record->getSessionIdentifier())->update(['revoked_at' => $this->now, 'revoked_reason' => 'revoked']);
+
+        $result = $this->sessions(self::GUARD)->switchTo(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+            expectedSession: $other->record->getSessionIdentifier(),
+        );
+
+        self::assertSame(FailureReason::SESSION_REVOKED, $result->reason);
+    }
+
+    /**
      * Register the guards.
      *
      * @param  mixed  $app

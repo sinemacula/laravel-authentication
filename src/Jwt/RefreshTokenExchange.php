@@ -156,6 +156,7 @@ final readonly class RefreshTokenExchange
      *
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  int|string|null  $expectedSession
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending
      *
      * @throws \InvalidArgumentException
@@ -166,15 +167,18 @@ final readonly class RefreshTokenExchange
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Throwable
      */
-    public function exchange(#[\SensitiveParameter] Secret|string $refreshToken, ClientContext $client): AuthenticationFailed|ExchangedRefresh|ReturnedToPending
-    {
+    public function exchange(
+        #[\SensitiveParameter] Secret|string $refreshToken,
+        ClientContext $client,
+        int|string|null $expectedSession = null,
+    ): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
         $claims  = $this->tokens->parse($refreshToken, TokenType::REFRESH);
         $subject = new AttemptSubject($this->context->name(), AttemptFlow::REFRESH, IdentifierCoercion::stringify($claims[Claims::SESSION_ID->value] ?? null), null, $client->ip);
         $limiter = Container::getInstance()->make(AttemptLimiter::class);
         $wait    = $limiter->blocked($subject);
 
         $outcome = $wait === null
-            ? $this->exchangeClaims($claims, $client)
+            ? $this->exchangeClaims($claims, $client, $expectedSession)
             : $this->refused(FailureReason::RATE_LIMITED, new EventContext($this->context->name(), $client, sessionId: $subject->identifier), $wait);
 
         if ($outcome instanceof AuthenticationFailed && $wait === null) {
@@ -218,6 +222,7 @@ final readonly class RefreshTokenExchange
      *
      * @param  ?array<string, mixed>  $claims
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  int|string|null  $expectedSession
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending
      *
      * @throws \InvalidArgumentException
@@ -228,8 +233,11 @@ final readonly class RefreshTokenExchange
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Throwable
      */
-    private function exchangeClaims(#[\SensitiveParameter] ?array $claims, ClientContext $client): AuthenticationFailed|ExchangedRefresh|ReturnedToPending
-    {
+    private function exchangeClaims(
+        #[\SensitiveParameter] ?array $claims,
+        ClientContext $client,
+        int|string|null $expectedSession,
+    ): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
         $claims = $this->extractRefreshClaims($claims, $client);
 
         if ($claims instanceof AuthenticationFailed) {
@@ -248,12 +256,12 @@ final readonly class RefreshTokenExchange
             return $unknown();
         }
 
-        $exchange = function () use ($record, $rotationId, $principalHint, $client, $unknown): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
+        $exchange = function () use ($record, $rotationId, $principalHint, $client, $expectedSession, $unknown): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
             $held = IssuanceGuard::write($record) ? $this->store->reload($record) : null;
 
             return $held === null
                 ? $unknown()
-                : $this->exchangeOn($held, $rotationId, $principalHint, CarbonImmutable::now()->startOfSecond(), $client);
+                : $this->exchangeOn($held, $rotationId, $principalHint, CarbonImmutable::now()->startOfSecond(), $client, $expectedSession);
         };
 
         return WriteConnection::during($record, static fn (): ?string => $record->getGuard()) === $this->context->name()
@@ -270,6 +278,7 @@ final readonly class RefreshTokenExchange
      * @param  mixed  $principalHint
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  int|string|null  $expectedSession
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending
      *
      * @throws \InvalidArgumentException
@@ -284,11 +293,16 @@ final readonly class RefreshTokenExchange
         mixed $principalHint,
         CarbonImmutable $now,
         ClientContext $client,
+        int|string|null $expectedSession,
     ): AuthenticationFailed|ExchangedRefresh|ReturnedToPending {
         $verdict = RefreshJudgment::classify($record, $rotationId, $now, $this->tokens->lifetimes());
 
         if ($verdict instanceof FailureReason) {
             return $this->fail($record, $verdict, $now, $client);
+        }
+
+        if ($expectedSession !== null && !IdentifierCoercion::matches($record->getSessionIdentifier(), $expectedSession)) {
+            return $this->refused(FailureReason::SESSION_MISMATCH, $this->sessionContext($client, $record));
         }
 
         $session = $this->hydrateRefreshContext($record, $principalHint, $client);

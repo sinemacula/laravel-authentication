@@ -851,6 +851,156 @@ final class SessionSignOutTest extends TestCase
     }
 
     /**
+     * A sign-out that expects the session its token proves signs it out, and so
+     * does one that expects none; an expected id that is not the session's is
+     * not matched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignOutExpectingItsOwnSessionSignsItOut(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn();
+        $client  = self::requestClient();
+        $id      = IdentifierCoercion::stringify($session->record->getSessionIdentifier());
+
+        self::assertSame(FailureReason::SESSION_MISMATCH, $this->serving()->signOutWith(PresentedRefreshToken::fromBody(self::refreshOf($session)), $client, 42)->reason);
+        self::assertNull($this->revokedReasonOf($session));
+        self::assertTrue($this->serving()->signOutWith(PresentedRefreshToken::fromBody(self::refreshOf($session)), $client, $id)->isSignedOut());
+        self::assertSame('signed_out', $this->revokedReasonOf($session));
+
+        $other = $this->signedIn();
+
+        self::assertTrue($this->serving()->signOutWith(PresentedRefreshToken::fromBody(self::refreshOf($other)), $client, null)->isSignedOut());
+    }
+
+    /**
+     * A token proving another session than the one expected is refused as
+     * `session_mismatch`, reported with the flow `sign_out` and the token's own
+     * session, and revokes nothing: no `SessionRevoked`, no `Logout`, the
+     * session live and the guard still bound to it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignOutProvingAnotherSessionThanExpectedRevokesNothing(): void
+    {
+        $this->seedIdentity();
+
+        $session  = $this->signedIn();
+        $other    = $this->signedIn();
+        $sessions = $this->serving(bearer: $session->tokens->accessToken->reveal());
+
+        self::assertTrue(Auth::guard('api')->check());
+
+        $this->recordEvents(self::EVENTS);
+
+        $result = $sessions->signOutWith(PresentedRefreshToken::fromBody(self::refreshOf($session)), self::requestClient(), $other->record->getSessionIdentifier());
+
+        self::assertFalse($result->isSignedOut());
+        self::assertSame([FailureReason::SESSION_MISMATCH, RefreshTokenSource::BODY], [$result->reason, $result->source]);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([AuthenticationFlow::SIGN_OUT, FailureReason::SESSION_MISMATCH], [$failed->flow, $failed->reason]);
+        EventContextAssertions::assertSession($session->record, $failed->context);
+        self::assertNull($this->revokedReasonOf($session));
+        self::assertNull($this->revokedReasonOf($other));
+        self::assertTrue(Auth::guard('api')->check());
+    }
+
+    /**
+     * Refusing a sign-out as a mismatch attaches no expired cookie, so a
+     * request about another session never signs the browser out of its own;
+     * the same client signing its own session out still does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMismatchedSignOutOnACookieApplicationClearsNoCookie(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn(self::BROWSER);
+        $other   = $this->signedIn(self::BROWSER);
+        $client  = self::sameSiteClient();
+        $token   = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
+
+        $result = $this->serving(guard: self::BROWSER)->signOutWith($token, $client, $other->record->getSessionIdentifier());
+
+        self::assertSame([FailureReason::SESSION_MISMATCH, RefreshTokenSource::COOKIE], [$result->reason, $result->source]);
+        self::assertNull($result->forgetCookie);
+        self::assertSame([], $result->attachTo(new Response)->headers->getCookies());
+        self::assertNull($this->revokedReasonOf($session));
+
+        $own = $this->serving(guard: self::BROWSER)->signOutWith($token, $client, $session->record->getSessionIdentifier());
+
+        self::assertTrue($own->isSignedOut());
+        self::assertClears($own);
+    }
+
+    /**
+     * The token is proven before the session is compared: a replay expecting
+     * another session still revokes its session as `rotation_reuse`, a retry
+     * inside the grace window matches its own session, and a revoked session
+     * reports its own reason.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheTokenIsProvenBeforeTheExpectedSessionIsCompared(): void
+    {
+        $this->seedIdentity();
+
+        $graced   = $this->signedIn(self::BROWSER);
+        $replayed = $this->signedIn(self::BROWSER);
+        $revoked  = $this->signedIn(self::BROWSER);
+        $other    = $this->signedIn(self::BROWSER);
+        $client   = self::sameSiteClient();
+
+        foreach ([$graced, $replayed] as $session) {
+            $presented = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
+
+            self::assertTrue($this->serving(guard: self::BROWSER)->refresh($presented, $client)->isRefreshed());
+        }
+
+        $stale   = self::presentedToken(self::cookieTokenOf($graced), RefreshTokenSource::COOKIE);
+        $retried = $this->serving(guard: self::BROWSER)->signOutWith($stale, $client, $graced->record->getSessionIdentifier());
+
+        self::assertTrue($retried->isSignedOut());
+
+        $this->moveTo(CarbonImmutable::now()->addMinutes(2));
+
+        $reused = $this->serving(guard: self::BROWSER)->signOutWith(
+            self::presentedToken(self::cookieTokenOf($replayed), RefreshTokenSource::COOKIE),
+            $client,
+            $other->record->getSessionIdentifier(),
+        );
+
+        self::assertSame(FailureReason::ROTATION_REUSE, $reused->reason);
+        self::assertSame('rotation_reuse', $this->revokedReasonOf($replayed));
+
+        DB::table('authentication_sessions')
+            ->where('id', $revoked->record->getSessionIdentifier())
+            ->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'revoked']);
+
+        $gone = $this->serving(guard: self::BROWSER)->signOutWith(
+            self::presentedToken(self::cookieTokenOf($revoked), RefreshTokenSource::COOKIE),
+            $client,
+            $other->record->getSessionIdentifier(),
+        );
+
+        self::assertSame(FailureReason::SESSION_REVOKED, $gone->reason);
+    }
+
+    /**
      * A reason the extraction never answers, handed in, is the caller's error,
      * `cross_site_request` included: it throws before anything is dispatched.
      *

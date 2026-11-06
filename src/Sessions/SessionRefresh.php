@@ -113,10 +113,13 @@ final readonly class SessionRefresh
      * `null`, dispatching nothing; a reason handed in (`handedIn()`) or a
      * refusal of the judgement dispatches `Attempting`, `Failed` and
      * `AuthenticationFailed`, touching no session; otherwise the token is
-     * exchanged. A presented token's result says where it was presented.
+     * exchanged, refused as `session_mismatch` when it proves a session other
+     * than the one expected. A presented token's result says where it was
+     * presented.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  int|string|null  $expectedSession
      * @return ?\SineMacula\Laravel\Authentication\Sessions\RefreshResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -125,8 +128,11 @@ final readonly class SessionRefresh
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function refresh(#[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented, ClientContext $client): ?RefreshResult
-    {
+    public function refresh(
+        #[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented,
+        ClientContext $client,
+        int|string|null $expectedSession = null,
+    ): ?RefreshResult {
         $transport = $this->transport();
 
         if ($presented instanceof FailureReason) {
@@ -138,7 +144,7 @@ final readonly class SessionRefresh
         }
 
         $refusal = $transport->judge($presented, $client);
-        $result  = $refusal === null ? $this->exchange($presented->token, $transport, $client) : $this->refusePresented($refusal, $client);
+        $result  = $refusal === null ? $this->exchange($presented->token, $transport, $client, $expectedSession) : $this->refusePresented($refusal, $client);
 
         return $result->withSource($presented->source);
     }
@@ -284,6 +290,7 @@ final readonly class SessionRefresh
      * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transport
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  int|string|null  $expectedSession
      * @return \SineMacula\Laravel\Authentication\Sessions\RefreshResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -292,11 +299,15 @@ final readonly class SessionRefresh
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function exchange(#[\SensitiveParameter] Secret $refreshToken, RefreshTokenTransport $transport, ClientContext $client): RefreshResult
-    {
+    private function exchange(
+        #[\SensitiveParameter] Secret $refreshToken,
+        RefreshTokenTransport $transport,
+        ClientContext $client,
+        int|string|null $expectedSession,
+    ): RefreshResult {
         $this->context->dispatch(new Attempting($this->context->name(), [], false));
 
-        $outcome = $this->exchange->exchange($refreshToken, $client);
+        $outcome = $this->exchange->exchange($refreshToken, $client, $expectedSession);
 
         if ($outcome instanceof AuthenticationFailed) {
             return $this->refuse($outcome);

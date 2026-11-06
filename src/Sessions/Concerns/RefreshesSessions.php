@@ -90,15 +90,31 @@ trait RefreshesSessions
      * refreshed pair carries the cookie that sets the new refresh token
      * (`RefreshCookie::attachTo()`), never the token itself.
      *
+     * A route scoped to one session (`/sessions/{session}`) passes that
+     * session's id as `$expectedSession`, so a token proving another session is
+     * refused as `session_mismatch` inside the exchange, counted by the same
+     * attempt limit as any refused refresh. The check follows the judgement of
+     * the token, so a replay still revokes the session as `rotation_reuse`, a
+     * retry inside the grace window still matches its own session, and a token
+     * that fails any of the token's own checks reports that reason instead; it
+     * precedes the owner's admission, so a mismatch rotates nothing and binds
+     * nothing (the issuance guard's sequence bump still commits, as it does for
+     * any refusal). The id compares as a string, so `42` matches `'42'` and
+     * `'042'` does not; only `null` accepts any session.
+     *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  int|string|null  $expectedSession
      * @return ($presented is null ? null : \SineMacula\Laravel\Authentication\Sessions\RefreshResult)
      *
      * @throws \Throwable
      */
-    public function refresh(#[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented, ClientContext $client): ?RefreshResult
-    {
-        return $this->refreshes->refresh($presented, $client);
+    public function refresh(
+        #[\SensitiveParameter] FailureReason|PresentedRefreshToken|null $presented,
+        ClientContext $client,
+        int|string|null $expectedSession = null,
+    ): ?RefreshResult {
+        return $this->refreshes->refresh($presented, $client, $expectedSession);
     }
 
     /**

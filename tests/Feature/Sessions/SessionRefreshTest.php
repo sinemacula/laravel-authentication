@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -38,13 +39,17 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\RefreshesSessions;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\SessionRefresh;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\TestCase;
@@ -70,7 +75,7 @@ use Tests\TestCase;
 #[CoversTrait(HoldsARotatedSession::class)]
 final class SessionRefreshTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InspectsIssuanceGuards, InteractsWithSessions;
 
     /** @var string The cookie application, over the same identities. */
     private const string BROWSER = 'admin';
@@ -1079,6 +1084,132 @@ final class SessionRefreshTest extends TestCase
         self::assertSame([Attempting::class], $this->recordedClasses());
         self::assertFalse($guard->hasUser());
         self::assertSame($before, $this->refreshKeyOf($rolledBack));
+    }
+
+    /**
+     * A refresh that expects the session its token proves is made, and so is
+     * one that expects none; an expected id that is not the session's is not
+     * matched, and refuses the refresh without rotating.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshExpectingItsOwnSessionIsMade(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn();
+        $id      = IdentifierCoercion::stringify($session->record->getSessionIdentifier());
+        $token   = (string) $session->tokens->refreshToken?->reveal();
+        $before  = $this->refreshKeyOf($session);
+
+        self::assertSame(FailureReason::SESSION_MISMATCH, $this->sessions()->refresh(PresentedRefreshToken::fromBody($token), self::requestClient(), 42)->reason);
+        self::assertSame($before, $this->refreshKeyOf($session));
+
+        $refreshed = $this->sessions()->refresh(PresentedRefreshToken::fromBody($token), self::requestClient(), $id);
+
+        self::assertTrue($refreshed->isRefreshed());
+        self::assertNotSame($before, $this->refreshKeyOf($session));
+
+        $next = (string) $refreshed->session?->tokens->refreshToken?->reveal();
+
+        self::assertTrue($this->sessions()->refresh(PresentedRefreshToken::fromBody($next), self::requestClient(), null)->isRefreshed());
+    }
+
+    /**
+     * A token proving another session than the one expected is refused as
+     * `session_mismatch`: `Attempting`, `Failed` and `AuthenticationFailed`
+     * (flow `refresh`, describing the token's own session) are dispatched, the
+     * refusal is counted by the refresh limits against the token's session, and
+     * the session is not rotated, revoked or bound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefreshProvingAnotherSessionThanExpectedIsRefused(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn();
+        $other   = $this->signedIn();
+        $id      = IdentifierCoercion::stringify($session->record->getSessionIdentifier());
+        $before  = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->where('id', $id)->sole());
+        $limiter = \Mockery::mock(AttemptLimiter::class);
+
+        $limiter->shouldReceive('blocked')->once()->andReturnNull();
+        $limiter->shouldReceive('recordFailure')->once()->with(\Mockery::on(static fn (AttemptSubject $subject): bool => $subject->flow === AttemptFlow::REFRESH
+            && $subject->guard                                                                                                          === 'api'
+            && $subject->identifier                                                                                                     === $id
+            && $subject->ip                                                                                                             === self::CLIENT_IP));
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $this->recordEvents([...self::EVENTS, SessionRevoked::class]);
+
+        $result = $this->sessions()->refresh(
+            PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal()),
+            self::requestClient(),
+            $other->record->getSessionIdentifier(),
+        );
+
+        self::assertSame([false, FailureReason::SESSION_MISMATCH], [$result->isRefreshed(), $result->reason]);
+        self::assertSame(self::REFUSAL, $this->recordedClasses());
+
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([AuthenticationFlow::REFRESH, FailureReason::SESSION_MISMATCH], [$failed->flow, $failed->reason]);
+        EventContextAssertions::assertSession($session->record, $failed->context);
+        self::assertEquals($before, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->where('id', $id)->sole()));
+        self::assertTrue(Auth::guard('api')->guest());
+    }
+
+    /**
+     * The token is judged before the session is compared: the old token inside
+     * the grace window matches its own session and is answered with the current
+     * credential, and is refused as a mismatch for another; after the window it
+     * is a replay and revokes the session as `rotation_reuse` whichever session
+     * is expected; and a revoked session reports its own reason.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheTokenIsJudgedBeforeTheExpectedSessionIsCompared(): void
+    {
+        $this->seedIdentity();
+
+        $session = $this->signedIn();
+        $other   = $this->signedIn();
+        $revoked = $this->signedIn();
+        $id      = $session->record->getSessionIdentifier();
+        $old     = PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal());
+
+        self::assertTrue($this->sessions()->refresh($old, self::requestClient())->isRefreshed());
+
+        $current = $this->refreshKeyOf($session);
+
+        self::assertSame(FailureReason::SESSION_MISMATCH, $this->sessions()->refresh($old, self::requestClient(), $other->record->getSessionIdentifier())->reason);
+        self::assertSame($current, $this->refreshKeyOf($session));
+        self::assertTrue($this->sessions()->refresh($old, self::requestClient(), $id)->isRefreshed());
+
+        Session::query()->whereKey($revoked->record->getKey())->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'revoked']);
+
+        self::assertSame(
+            FailureReason::SESSION_REVOKED,
+            $this->sessions()->refresh(PresentedRefreshToken::fromBody((string) $revoked->tokens->refreshToken?->reveal()), self::requestClient(), $id)->reason,
+        );
+
+        $this->moveTo(CarbonImmutable::now()->addMinutes(2));
+        $this->recordEvents([SessionRevoked::class]);
+
+        $replayed = $this->sessions()->refresh($old, self::requestClient(), $other->record->getSessionIdentifier());
+
+        self::assertSame(FailureReason::ROTATION_REUSE, $replayed->reason);
+        self::assertSame('rotation_reuse', Session::query()->whereKey($id)->value('revoked_reason'));
+        self::assertNull(Session::query()->whereKey($other->record->getKey())->value('revoked_at'));
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
     }
 
     /**

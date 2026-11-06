@@ -144,16 +144,17 @@ final class PlainValueActionsTest extends TestCase
      */
     public static function provideSessionActions(): iterable
     {
-        yield 'refresh' => ['refresh', ['presented', 'client']];
-        yield 'switch' => ['switchTo', ['presented', 'target', 'client']];
-        yield 'sign out by refresh credential' => ['signOutWith', ['presented', 'client']];
+        yield 'refresh' => ['refresh', ['presented', 'client', 'expectedSession']];
+        yield 'switch' => ['switchTo', ['presented', 'target', 'client', 'expectedSession']];
+        yield 'sign out by refresh credential' => ['signOutWith', ['presented', 'client', 'expectedSession']];
         yield 'satisfy' => ['satisfy', ['credential', 'proof', 'client']];
         yield 'choose' => ['choose', ['credential', 'principal', 'client', 'tenant']];
     }
 
     /**
      * Each of the five session actions is one method, taking what was presented
-     * first, its own values, and then the client.
+     * first, its own values, and then the client; the three refresh-credential
+     * actions end with the optional expected session.
      *
      * @param  string  $action
      * @param  list<string>  $parameters
@@ -168,6 +169,40 @@ final class PlainValueActionsTest extends TestCase
     }
 
     /**
+     * Rows of a refresh-credential action that takes the optional expected
+     * session.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideExpectedSessionActions(): iterable
+    {
+        yield 'refresh' => ['refresh'];
+        yield 'switch' => ['switchTo'];
+        yield 'sign out by refresh credential' => ['signOutWith'];
+    }
+
+    /**
+     * The expected session is an optional integer or string, and only `null`
+     * leaves it unchecked.
+     *
+     * @param  string  $action
+     * @return void
+     */
+    #[DataProvider('provideExpectedSessionActions')]
+    public function testTheExpectedSessionIsAnOptionalIdentifierDefaultingToNull(string $action): void
+    {
+        $parameters = (new \ReflectionMethod(SessionService::class, $action))->getParameters();
+        $parameter  = end($parameters);
+
+        self::assertInstanceOf(\ReflectionParameter::class, $parameter);
+
+        self::assertSame('expectedSession', $parameter->getName());
+        self::assertSame(['int', 'null', 'string'], self::sortedTypeNames($parameter));
+        self::assertTrue($parameter->isDefaultValueAvailable());
+        self::assertNull($parameter->getDefaultValue());
+    }
+
+    /**
      * The public methods of the service, its traits' included.
      *
      * @param  class-string  $service
@@ -179,6 +214,31 @@ final class PlainValueActionsTest extends TestCase
             (new \ReflectionClass($service))->getMethods(\ReflectionMethod::IS_PUBLIC),
             static fn (\ReflectionMethod $method): bool => !$method->isConstructor(),
         ));
+    }
+
+    /**
+     * The sorted type names of the parameter's type.
+     *
+     * @param  \ReflectionParameter  $parameter
+     * @return list<string>
+     */
+    private static function sortedTypeNames(\ReflectionParameter $parameter): array
+    {
+        $type = $parameter->getType();
+
+        self::assertInstanceOf(\ReflectionUnionType::class, $type);
+
+        $names = [];
+
+        foreach ($type->getTypes() as $member) {
+            self::assertInstanceOf(\ReflectionNamedType::class, $member);
+
+            $names[] = $member->getName();
+        }
+
+        sort($names);
+
+        return $names;
     }
 
     /**

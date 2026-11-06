@@ -1167,6 +1167,109 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * An exchange that expects the session the token names rotates it, as does
+     * one that expects none; an id that is not the session's, whatever its
+     * type, refuses it.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testAnExchangeExpectingTheSessionTheTokenNamesRotatesIt(): void
+    {
+        $exchange = $this->makeExchange();
+
+        $this->recordEvents();
+
+        foreach ([60 => null, 61 => 'own'] as $ownerId => $form) {
+
+            $session = $this->seedSession($ownerId, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+
+            $this->expectRefreshContext($ownerId);
+
+            self::assertInstanceOf(
+                ExchangedRefresh::class,
+                $exchange->exchange($this->tokenFor($session, self::ROTATION_ID), self::client(), $form === null ? null : $session->id),
+            );
+        }
+
+        $session = $this->seedSession(62, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+
+        $this->limiter->shouldReceive('recordFailure')->times(3);
+
+        foreach ([42, '', strtoupper($session->id)] as $other) {
+            self::assertSame(FailureReason::SESSION_MISMATCH, $this->refused($exchange->exchange($this->tokenFor($session, self::ROTATION_ID), self::client(), $other))->reason);
+        }
+    }
+
+    /**
+     * A token naming a session other than the one expected is refused as
+     * `session_mismatch` before the owner is read: the failure describes the
+     * token's own session, is counted by the limiter once, is returned and not
+     * dispatched, and the row is written nothing but the issuance guard.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testAnExchangeNamingAnotherSessionThanExpectedIsRefusedBeforeTheOwnerIsRead(): void
+    {
+        $session = $this->seedSession(64, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
+        $before  = $this->row($session);
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->limiter->shouldReceive('recordFailure')->once();
+        $this->events->shouldNotReceive('dispatch');
+
+        $failure = $this->refused($this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client(), 'another-session'));
+
+        self::assertSame([AuthenticationFlow::REFRESH, FailureReason::SESSION_MISMATCH], [$failure->flow, $failure->reason]);
+        self::assertSame(self::GUARD_NAME, $failure->context->guard);
+        self::assertSame($session->id, $failure->context->sessionId);
+        self::assertSame(self::guarded($before), $this->row($session));
+    }
+
+    /**
+     * The token is classified before the session is compared: the old rotation
+     * id inside the grace window gets the current credential for its own
+     * session and is refused for another, a replay revokes the session as
+     * `rotation_reuse` whichever session is expected, and a session that has
+     * ended reports its own reason.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testTheTokenIsClassifiedBeforeTheExpectedSessionIsCompared(): void
+    {
+        $graced = $this->seedRotatedSession(65, rotatedSecondsAgo: 5);
+        $ended  = $this->seedSession(66, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID), 'revoked_at' => $this->now, 'revoked_reason' => 'revoked']);
+
+        $this->expectRefreshContext(65);
+        $this->recordEvents();
+
+        $exchange = $this->makeExchange();
+
+        $exchangeFor = fn (StubSession $session, string $expected) => $exchange->exchange($this->tokenFor($session, self::ROTATION_ID), self::client(), $expected);
+
+        self::assertSame(FailureReason::SESSION_MISMATCH, $this->refused($exchangeFor($graced, 'another-session'))->reason);
+        self::assertInstanceOf(ExchangedRefresh::class, $exchangeFor($graced, $graced->id));
+        self::assertSame(FailureReason::SESSION_REVOKED, $this->refused($exchangeFor($ended, 'another-session'))->reason);
+
+        $replayed = $this->seedRotatedSession(67, rotatedSecondsAgo: 3600);
+
+        $this->failures   = [];
+        $this->dispatched = [];
+
+        self::assertSame(FailureReason::ROTATION_REUSE, $this->refused($exchangeFor($replayed, 'another-session'))->reason);
+
+        $this->assertRevokedForReuse($replayed);
+    }
+
+    /**
      * Refreshing a session with no absolute deadline rotates it with the same
      * compare-and-swap, matching the absent deadline as such, moves its idle
      * deadline the full idle lifetime, and adds no absolute deadline.

@@ -76,7 +76,8 @@ enum FailureReason: string
     // is not
     case IDENTIFIER_UNVERIFIED = 'identifier_unverified';
 
-    // The pinned session is not one of the identity's live sessions
+    // The pinned session is not one of the identity's live sessions, or a
+    // refresh credential proves a session other than the one expected
     case SESSION_MISMATCH = 'session_mismatch';
 
     // A further factor is required, which an access-only sign-in (attempt()),
