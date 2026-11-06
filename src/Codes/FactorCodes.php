@@ -109,8 +109,10 @@ final readonly class FactorCodes
         $context = new EventContext($guard, $client, $binding->binding->identity);
         $codes   = $this->container->make(OneTimeCodes::class);
 
-        if (!$codes->isWellFormed($code) || !$codes->isWellFormedChallenge($challengeId)) {
-            return $this->refuseCheck(new FactorCodeCheck(FactorCodeOutcome::INVALID, $challengeId), $context);
+        if (!$codes->isWellFormedChallenge($challengeId) || !$codes->isWellFormed($code)) {
+            $outcome = $codes->isWellFormedChallenge($challengeId) ? FactorCodeOutcome::INVALID : FactorCodeOutcome::NOT_FOUND;
+
+            return $this->refuseCheck(new FactorCodeCheck($outcome, $challengeId), $context);
         }
 
         $limiter     = $this->container->make(AttemptLimiter::class);
@@ -216,6 +218,8 @@ final readonly class FactorCodes
 
         return match ($codes->check($bound, $challengeId, $code, $now, true)) {
             CodeCheck::INVALID   => new FactorCodeCheck(FactorCodeOutcome::INVALID, $challengeId),
+            CodeCheck::NOT_FOUND => new FactorCodeCheck(FactorCodeOutcome::NOT_FOUND, $challengeId),
+            CodeCheck::USED      => new FactorCodeCheck(FactorCodeOutcome::USED, $challengeId),
             CodeCheck::EXPIRED   => new FactorCodeCheck(FactorCodeOutcome::EXPIRED, $challengeId),
             CodeCheck::EXHAUSTED => new FactorCodeCheck(FactorCodeOutcome::EXHAUSTED, $challengeId),
             CodeCheck::ACCEPTED  => self::checked($counters->report($binding, $challengeId, true), $challengeId, $now),
@@ -228,7 +232,8 @@ final readonly class FactorCodes
      * at the time given, when they admitted a matching code; `locked` or
      * `refused` when they did not admit one, or did not admit the check at
      * all; `invalid`, carrying any lock or refusal they reported, for a wrong
-     * code.
+     * code. A challenge that is absent or used is answered before the counters
+     * are told, so is never one of these.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\FactorCodeAdmission  $admission
      * @param  string  $challengeId

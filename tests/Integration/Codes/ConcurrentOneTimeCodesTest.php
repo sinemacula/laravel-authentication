@@ -103,8 +103,8 @@ final class ConcurrentOneTimeCodesTest extends TestCase
 
     /**
      * Of two checks of the right code, the one whose transaction commits first
-     * accepts it; the one that waited on its row finds the code used and is
-     * invalid.
+     * accepts it; the one that waited on its row finds the code used and says
+     * so.
      *
      * @return void
      *
@@ -121,7 +121,7 @@ final class ConcurrentOneTimeCodesTest extends TestCase
         );
 
         self::assertSame(CodeCheck::ACCEPTED->value, $first);
-        self::assertSame(CodeCheck::INVALID->value, $second['result']);
+        self::assertSame(CodeCheck::USED->value, $second['result']);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertSame(1, self::attempts());
     }
@@ -182,8 +182,8 @@ final class ConcurrentOneTimeCodesTest extends TestCase
     /**
      * Of two locking checks of the right code, the second waits on the row the
      * first locked until the first's transaction commits, then finds the code
-     * used and is invalid without counting: so a factor code's counters, asked
-     * and told inside that transaction, hear of the one attempt only.
+     * used and says so without counting: so a factor code's counters, asked and
+     * told inside that transaction, hear of the one attempt only.
      *
      * @return void
      *
@@ -200,7 +200,7 @@ final class ConcurrentOneTimeCodesTest extends TestCase
         );
 
         self::assertSame(CodeCheck::ACCEPTED->value, $first);
-        self::assertSame(CodeCheck::INVALID->value, $second['result']);
+        self::assertSame(CodeCheck::USED->value, $second['result']);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertSame(1, self::attempts());
     }

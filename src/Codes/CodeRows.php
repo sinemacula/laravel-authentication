@@ -48,8 +48,8 @@ final class CodeRows
 
     /**
      * The key's row when its code can still be checked, or why not: there is
-     * none, or it was used (`invalid`), it has expired, or it has used up its
-     * attempts.
+     * none (`not_found`), it was used (`used`), it has expired, or it has used
+     * up its attempts. A used row that has also expired is `used`.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Models\OneTimeCode  $row
      * @param  int  $max
@@ -59,7 +59,8 @@ final class CodeRows
     public static function live(?OneTimeCode $row, int $max, CarbonImmutable $now): CodeCheck|OneTimeCode
     {
         return match (true) {
-            $row === null, $row->consumed_at !== null                => CodeCheck::INVALID,
+            $row === null                                            => CodeCheck::NOT_FOUND,
+            $row->consumed_at !== null                               => CodeCheck::USED,
             $row->expires_at->getTimestamp() <= $now->getTimestamp() => CodeCheck::EXPIRED,
             $row->attempts >= $max                                   => CodeCheck::EXHAUSTED,
             default                                                  => $row,

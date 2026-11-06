@@ -259,17 +259,20 @@ final readonly class CodeService
     /**
      * Check a further factor's code, or an enrolment's, sent for the challenge
      * named, against the binding: the same identity, guard, session, factor and
-     * purpose (or grant) the code was sent for, or it is `invalid`. A binding
+     * purpose (or grant) the code was sent for, or it is `not_found`. A binding
      * for another application than this guard is a misconfiguration
      * (`InvalidArgumentException`).
      *
-     * A malformed code or challenge id is `invalid`, with nothing counted and
-     * nothing reported to the factor package. A check counts per IP address
-     * (`factor_code`), then, in one transaction on the storage connection (a
-     * savepoint of the caller's): asks the bound `FactorCodeCounters` first
-     * (`locked` or `refused`, the challenge untouched, nothing reported); locks
-     * the challenge's row; answers a challenge that is not the live one, or
-     * whose transaction is another, as `invalid`, and an expired or exhausted
+     * A malformed challenge id is `not_found` and a malformed code `invalid`
+     * (the id first, when both are), with nothing counted and nothing reported
+     * to the factor package. A check counts per IP address (`factor_code`),
+     * then, in one transaction on the storage connection (a savepoint of the
+     * caller's): asks the bound `FactorCodeCounters` first (`locked` or
+     * `refused`, the challenge untouched, nothing reported); locks the
+     * challenge's row; answers a challenge that is unknown, replaced, or of
+     * another binding or transaction as `not_found`, so another binding's is
+     * indistinguishable from an absent one even when it was used; the binding's
+     * own used challenge as `used`, even once expired; an expired or exhausted
      * one as such, without counting or reporting; otherwise counts the attempt,
      * compares the code, uses the challenge up when it matches, and reports the
      * attempt to the counters exactly once, whose answer stands: a matching

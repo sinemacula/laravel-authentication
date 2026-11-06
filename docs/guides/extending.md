@@ -572,7 +572,10 @@ seam has a default that works alone.
   key, and `sign_in` or `step_up` for an `mfa` challenge, `enrollment` for an enrolment's), the factor's reference, the
   `Channel` (`sms` or `email`, with the destination in its normal form) and, for an enrolment, its grant. A code is
   accepted only for that very binding: another session, factor, purpose or grant, and an `mfa` code as an `enrollment`
-  one or the reverse, is `invalid`. The delivery key is the destination and the identity, never the factor, so the
+  one or the reverse, is `not_found`, as a malformed, unknown or replaced challenge id is, so another binding's
+  challenge cannot be told from an absent one; the binding's own challenge, once used, is `used`; a wrong code is
+  `invalid` and counted, while a malformed one is `invalid` and not counted; neither `not_found` nor `used` counts an
+  attempt or is reported to the counters. The delivery key is the destination and the identity, never the factor, so the
   cooldown and the delivery cap hold across an enrolment restarted with a new factor and grant. Bind
   `Contracts\FactorCodeCounters` (the default, `RefuseFactorCodes`, refuses every code): `admit()` is asked before each
   delivery and each check, and `report($binding, $challengeId, $passed)` exactly once for each attempt a check counts,

@@ -19,7 +19,7 @@ the same whether or not anyone has the identifier, and who a code is ever delive
   session, the pending factor and the grant), stored as `HMAC-SHA256(key''', "context\0purpose\0transaction")`, so a
   new session, factor or grant on the same destination is a new challenge under the same cooldown and delivery cap.
 - Every challenge has a public id (`challenge_id`, a UUID): a resend keeps it, a new challenge draws another. A check
-  names it; a check whose id or transaction is not the live challenge's is `invalid` and counts nothing.
+  names it; a check whose id or transaction is not the binding's challenge's is `not_found` and counts nothing.
 - Deliveries belong to the key's delivery window (`window_started_at`, `deliveries`), which lasts
   `delivery_window_seconds` from its first delivery and allows `max_deliveries`, across every challenge it holds. An
   issue, after the cooldown since `issued_at`: starts a new window when the window has ended (or there is no row);
@@ -54,18 +54,25 @@ the same whether or not anyone has the identifier, and who a code is ever delive
   its own (an identifier change's), tries the insert before the read.
 - A check reads the row on the write connection (a factor code's with `FOR UPDATE`, after the factor package's counters
   admitted it, so the counters' locks come first and the check holds the challenge until the transaction ends). No row,
-  another challenge or transaction, or a used code is `invalid`; an expired code (`expires_at <=
-  now`) is `expired`; one with `attempts >= max_attempts` is `exhausted`; none of these counts. Otherwise the attempt is
-  counted before anything is compared, by `UPDATE ... SET attempts = attempts + 1 WHERE id AND issue_id AND consumed_at
-  IS NULL AND expires_at > now AND attempts < max`. A check whose increment matched no row never compares: it answers
-  from a fresh read (`expired` or `exhausted` when that issuance now is, otherwise `invalid`). A matching code is
-  accepted only when `UPDATE ... SET consumed_at = now WHERE id AND issue_id AND consumed_at IS NULL` changed the row,
-  so of two correct submissions exactly one is accepted; a counted attempt that is not accepted is `wrong`.
+  another challenge or transaction is `not_found`, whether or not that challenge was used, so a challenge of another
+  binding cannot be told from an absent one; a used code of the binding's own challenge is `used`, even once expired; an
+  expired code (`expires_at <= now`) is `expired`; one with `attempts >= max_attempts` is `exhausted`; none of these
+  counts. Otherwise the attempt is counted before anything is compared, by `UPDATE ... SET attempts = attempts + 1 WHERE
+  id AND issue_id AND consumed_at IS NULL AND expires_at > now AND attempts < max`. A check whose increment matched no
+  row never compares: it answers from a fresh read (`expired`, `exhausted` or `used` when that issuance now is,
+  otherwise `invalid`). A matching code is accepted only when `UPDATE ... SET consumed_at = now WHERE id AND issue_id
+  AND consumed_at IS NULL` changed the row, so of two correct submissions exactly one is accepted; a counted attempt
+  that is not accepted is `wrong`.
 - A factor code (`CodeService::sendFactorCode()`, `verifyFactorCode()`) asks the bound `FactorCodeCounters` inside one
   transaction on the storage connection: `admit()` before the delivery or the check (not admitted: `locked` or
   `refused`, nothing written), and `report($binding, $challengeId, $passed)` exactly once for each counted attempt, in
   the transaction that counts it; a check that counts nothing reports nothing. The report's answer stands: a matching
-  code is verified only when it is admitted. The default counters refuse every code.
+  code is verified only when it is admitted. The default counters refuse every code. A factor code check tells the
+  adapter `not_found` (a malformed, unknown, replaced or other-binding challenge id) and `used` (the binding's own
+  challenge, used up) from `invalid` (a malformed code, or a wrong one, which alone is counted and reported). Neither
+  `not_found` nor `used` is a guess, so neither counts or reports, though a well-formed request takes its IP slot and
+  every refusal reports `AuthenticationFailed` as `invalid_credentials`. Code sign-in and verification by code keep
+  one concealed answer for all of them, so they say nothing about the challenge.
 - Every time is a whole second; one `now` per operation; a deadline has passed from the second it names.
 - Every read that decides a code, its recipient or a verification is on the write connection.
 - A request for a sign-in code does no identity-dependent work: the method must be allowed, the identifier must be one
