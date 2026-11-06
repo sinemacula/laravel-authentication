@@ -18,10 +18,19 @@ enum FactorCodeOutcome: string
     // factor package admitted the outcome
     case VERIFIED = 'verified';
 
-    // The code or the challenge id is malformed, no live challenge was issued
-    // for the binding, it was used up or replaced, its transaction is another,
-    // or the code did not match
+    // The code is malformed, or it did not match the live challenge of the
+    // binding, which counted an attempt when the code was well formed
     case INVALID = 'invalid';
+
+    // The challenge id is malformed or unknown, or the challenge was replaced,
+    // or is bound to another identity, session, factor, purpose, grant or
+    // transaction; another binding's challenge answers as an absent one, and no
+    // attempt is counted
+    case NOT_FOUND = 'not_found';
+
+    // The binding's own challenge was used up, by its code or by being ended,
+    // whether or not it has expired since; no attempt is counted
+    case USED = 'used';
 
     // The challenge's code has expired
     case EXPIRED = 'expired';

@@ -153,16 +153,18 @@ final readonly class OneTimeCodes
      * Check the code against the live challenge of the binding's key, and use
      * it up when it matches.
      *
-     * A key with no challenge, one whose code was used, or whose challenge id
-     * or transaction is not the one given, is `invalid`; one whose code has
-     * expired or used up its attempts says so; none of these counts an attempt.
-     * A check that can count an attempt against the issuance it read compares
-     * the code, and accepts it only when it also uses that issuance up, and is
-     * otherwise `wrong`; one that cannot (a concurrent resend, check or expiry
-     * got there first) never compares, and answers from a fresh read. With
-     * `$lock`, the row is read with a lock held until the caller's transaction
-     * ends, so the check, and whatever the caller does in that transaction, is
-     * the only one made on the challenge meanwhile.
+     * A key with no challenge, or whose challenge id or transaction is not the
+     * one given, is `not_found`; one whose challenge was used is `used`, even
+     * when it has also expired; one whose code has expired or used up its
+     * attempts says so; none of these counts an attempt. A check that can count
+     * an attempt against the issuance it read compares the code, and accepts it
+     * only when it also uses that issuance up, and is otherwise `wrong`; one
+     * that cannot (a concurrent resend, check or expiry got there first) never
+     * compares, and answers from a fresh read, `invalid` when that read finds
+     * the issuance replaced, deleted or still live. With `$lock`, the row is
+     * read with a lock held until the caller's transaction ends, so the check,
+     * and whatever the caller does in that transaction, is the only one made on
+     * the challenge meanwhile.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  string  $challengeId
@@ -325,7 +327,8 @@ final readonly class OneTimeCodes
     /**
      * The answer for a check that could not count its attempt against the
      * issuance it read: why that issuance refuses checks when it is still the
-     * binding's code and does; otherwise `invalid`.
+     * binding's code and does; otherwise `invalid`, as when it was replaced or
+     * deleted.
      *
      * @param  string  $digest
      * @param  string  $issueId
@@ -338,7 +341,12 @@ final readonly class OneTimeCodes
     private function recheck(string $digest, string $issueId, int $max, CarbonImmutable $now): CodeCheck
     {
         $fresh = CodeRows::find($digest);
-        $live  = CodeRows::live($fresh?->issue_id === $issueId ? $fresh : null, $max, $now);
+
+        if ($fresh?->issue_id !== $issueId) {
+            return CodeCheck::INVALID;
+        }
+
+        $live = CodeRows::live($fresh, $max, $now);
 
         return $live instanceof CodeCheck ? $live : CodeCheck::INVALID;
     }
