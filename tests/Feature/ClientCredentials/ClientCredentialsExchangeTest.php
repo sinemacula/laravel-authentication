@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsRequest;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsResult;
+use SineMacula\Laravel\Authentication\ClientCredentials\Enums\ClientAuthentication;
 use SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\ClientCredentialsGranted;
@@ -73,8 +74,21 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         self::freezeMachineClockAt(CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0));
 
-        Route::match(['GET', 'POST'], '/oauth/token', static fn (): ClientCredentialsResult => Auth::clientCredentials('m2m')->fromRequest());
-        Route::post('/oauth/accounts/token', static fn (): ClientCredentialsResult => Auth::clientCredentials('m2m_accounts')->fromRequest());
+        Route::match(
+            ['GET', 'POST'],
+            '/oauth/token',
+            static fn (Request $request): ClientCredentialsResult => Auth::clientCredentials('m2m')->exchange(
+                ClientCredentialsRequest::extract($request),
+                ClientContext::fromRequest($request),
+            ),
+        );
+        Route::post(
+            '/oauth/accounts/token',
+            static fn (Request $request): ClientCredentialsResult => Auth::clientCredentials('m2m_accounts')->exchange(
+                ClientCredentialsRequest::extract($request),
+                ClientContext::fromRequest($request),
+            ),
+        );
 
         $this->recordMachineEvents([AuthenticationFailed::class, ClientCredentialsGranted::class]);
     }
@@ -732,7 +746,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
     /**
      * The exchange may be called directly with a client id and secret, for the
-     * client of the guard's request by default or the one given.
+     * client given.
      *
      * @return void
      *
@@ -744,7 +758,10 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         $this->startMachineRequest();
 
-        $result = Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key()->reveal(), 20), 'read', new ClientContext('192.0.2.1', 'Agent'));
+        $result = Auth::clientCredentials('m2m')->exchange(
+            self::basicClient($issued->summary->publicId, substr($issued->key()->reveal(), 20), 'read'),
+            new ClientContext('192.0.2.1', 'Agent'),
+        );
 
         self::assertTrue($result->isGranted());
         self::assertSame(['read'], $result->scopes);
@@ -754,7 +771,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         $this->startMachineRequest();
 
-        $refused = Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, str_repeat('a', 40));
+        $refused = Auth::clientCredentials('m2m')->exchange(self::basicClient($issued->summary->publicId, str_repeat('a', 40)), self::requestClient());
 
         self::assertFalse($refused->isGranted());
         self::assertSame('invalid_client', $refused->error);
@@ -764,13 +781,73 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * `fromRequest()` reads the request it is given rather than the guard's.
+     * The exchange judges what it is handed before any query and without
+     * counting it: an error `extract()` answered is refused with it, reported
+     * as invalid credentials with the client given; a client authenticated in
+     * the body, built as plain values, is refused as `invalid_client` where the
+     * application does not allow `client_secret_post`, and granted where it
+     * does; any other string is the caller's error, nothing dispatched.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testReadsTheRequestItIsGiven(): void
+    public function testWhatIsHandedInIsJudgedBeforeAnyQuery(): void
+    {
+        [$account, $membership] = $this->seedAccount();
+
+        $issued  = $this->apiKeys('m2m_accounts')->issue($account, $membership);
+        $client  = new ClientContext('192.0.2.5', 'Agent');
+        $posted  = new PresentedClient($issued->summary->publicId, substr($issued->key()->reveal(), 20), null, ClientAuthentication::POST);
+        $queries = [];
+
+        $this->startMachineRequest();
+
+        DB::listen(static function (QueryExecuted $query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
+
+        foreach (['invalid_request', 'unsupported_grant_type', 'invalid_client'] as $error) {
+            self::assertSame($error, Auth::clientCredentials('m2m_accounts')->exchange($error, $client)->error);
+        }
+
+        self::assertSame('invalid_client', Auth::clientCredentials('m2m_accounts')->exchange($posted, $client)->error);
+        self::assertSame([], $queries);
+        self::assertSame(0, DB::table('rate_limits')->count());
+
+        $failures = $this->machineEventsOf(AuthenticationFailed::class);
+
+        self::assertCount(4, $failures);
+
+        foreach ($failures as $failure) {
+            self::assertSame([FailureReason::INVALID_CREDENTIALS, null, $client], [$failure->reason, $failure->identifier, $failure->context->client]);
+        }
+
+        try {
+            Auth::clientCredentials('m2m_accounts')->exchange('invalid_grant', $client);
+
+            self::fail('The exchange took an error extract() never answers.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('`invalid_grant`', $exception->getMessage());
+        }
+
+        self::assertCount(4, $this->machineEventsOf(AuthenticationFailed::class));
+        [, $machine] = $this->machineKey();
+
+        $allowed = new PresentedClient($machine->summary->publicId, substr($machine->key()->reveal(), 20), null, ClientAuthentication::POST);
+
+        self::assertTrue(Auth::clientCredentials('m2m')->exchange($allowed, $client)->isGranted());
+    }
+
+    /**
+     * A controller extracts the request it is given and hands its client on,
+     * whatever request the guard serves.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testTheRequestTheControllerExtractsIsExchanged(): void
     {
         [, $issued] = $this->machineKey();
 
@@ -781,16 +858,15 @@ final class ClientCredentialsExchangeTest extends TestCase
         $this->startMachineRequest();
 
         $request = Request::create('/oauth/token', 'POST', $parameters, [], [], ['CONTENT_TYPE' => self::FORM, 'REMOTE_ADDR' => '192.0.2.9'], $body);
-        $result  = Auth::clientCredentials('m2m')->fromRequest($request);
+        $result  = Auth::clientCredentials('m2m')->exchange(ClientCredentialsRequest::extract($request), ClientContext::fromRequest($request));
 
         self::assertTrue($result->isGranted());
         self::assertSame('192.0.2.9', $this->machineEventsOf(ClientCredentialsGranted::class)[0]->context->client->ip);
     }
 
     /**
-     * An exchange handed out before the guard's request and dispatcher were
-     * rebound reads both as they are when it runs: it reads the token request
-     * the guard now serves and reports to the dispatcher the guard now has.
+     * An exchange handed out before the guard's dispatcher was rebound reports
+     * to the dispatcher the guard now has, with the client each call is given.
      *
      * @return void
      *
@@ -819,8 +895,8 @@ final class ClientCredentialsExchangeTest extends TestCase
         app()->instance('request', Request::create('/oauth/token', 'POST', $parameters, [], [], ['CONTENT_TYPE' => self::FORM, 'REMOTE_ADDR' => '192.0.2.9'], $body));
         $guard->setDispatcher($swapped);
 
-        self::assertTrue($exchange->fromRequest()->isGranted());
-        self::assertFalse($exchange->exchange($issued->summary->publicId, str_repeat('a', 40))->isGranted());
+        self::assertTrue($exchange->exchange(ClientCredentialsRequest::extract(request()), self::requestClient())->isGranted());
+        self::assertFalse($exchange->exchange(self::basicClient($issued->summary->publicId, str_repeat('a', 40)), self::requestClient())->isGranted());
         self::assertSame([], $this->machineEvents);
         self::assertCount(2, $received);
         self::assertInstanceOf(ClientCredentialsGranted::class, $received[0]);

@@ -11,6 +11,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\QueryException;
 use Illuminate\Events\Dispatcher;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
@@ -28,6 +29,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\RequestBody;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
@@ -147,8 +149,16 @@ final class ResetSubmissionsTest extends TestCase
     {
         self::seedResettable();
 
-        Route::post('/password/reset/body', static fn (): array => self::answer(Auth::passwords('web')->resetFromRequest(self::requestClient())));
-        Route::post('/password/reset/code/body', static fn (): array => self::answer(Auth::passwords('web')->resetWithCodeFromRequest('phone', self::requestClient())));
+        Route::post(
+            '/password/reset/body',
+            static fn (Request $request): array => self::answer(Auth::passwords('web')->reset(RequestBody::fields($request), ClientContext::fromRequest($request))),
+        );
+        Route::post(
+            '/password/reset/code/body',
+            static fn (Request $request): array => self::answer(
+                Auth::passwords('web')->resetWithCode('phone', RequestBody::fields($request), ClientContext::fromRequest($request)),
+            ),
+        );
 
         $token = $this->requestLink();
         $query = http_build_query(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);

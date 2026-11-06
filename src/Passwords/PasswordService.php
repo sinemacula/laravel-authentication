@@ -12,7 +12,6 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Http\RequestBody;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
@@ -29,14 +28,13 @@ use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
  * were made from and end every other. `sendResetLink()` and `sendResetCode()`
  * send a reset without saying whether anyone holds the identifier, and
  * `reset()` and `resetWithCode()` spend it with the new password, from input
- * read from a request's body only (`resetFromRequest()` and
- * `resetWithCodeFromRequest()` read it so). `set()` is a trusted call, as
- * `login()` is: the caller has decided the identity may have the password (a
- * registration, a reset or a change the application verified itself), and
- * chooses the flow on the server, never from input, since a registration ends
- * no session. Each applies the policy, and only a password that passes is
- * hashed and stored (see `PasswordWriter`). The policy never applies to the
- * automatic rehash on sign-in.
+ * read from a request's body only (`RequestBody::fields()` reads it so).
+ * `set()` is a trusted call, as `login()` is: the caller has decided the
+ * identity may have the password (a registration, a reset or a change the
+ * application verified itself), and chooses the flow on the server, never from
+ * input, since a registration ends no session. Each applies the policy, and
+ * only a password that passes is hashed and stored (see `PasswordWriter`). The
+ * policy never applies to the automatic rehash on sign-in.
  *
  * A non-human identity (`MachineIdentity`) has no password, so setting one is a
  * misconfiguration. The service keeps no state between calls: it reads the
@@ -247,7 +245,9 @@ final readonly class PasswordService
      * and the end of every session of the identity, or not at all (see
      * `ResetSubmissions`). Pass the request's body only, never its query
      * string, which access logs, proxies and `Referer` headers record:
-     * `resetFromRequest()` reads it so.
+     * `RequestBody::fields($request)` reads it so. Link to a page that carries
+     * the token in the URL's fragment, which no browser sends to a server, and
+     * have it post the token in the body.
      *
      * @param  array<array-key, mixed>  $input
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -264,7 +264,7 @@ final readonly class PasswordService
      * Reset the password with a code: the input names the identifier under the
      * type, the `code`, the `challenge` it was sent for and the new `password`,
      * as `reset()` does with a token. Pass the request's body only:
-     * `resetWithCodeFromRequest()` reads it so.
+     * `RequestBody::fields($request)` reads it so.
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input
@@ -276,38 +276,6 @@ final readonly class PasswordService
     public function resetWithCode(string $type, #[\SensitiveParameter] array $input, ClientContext $client): ResetResult
     {
         return (new ResetSubmissions($this->context, $this->revocations, $this->container))->code($type, $input, $client);
-    }
-
-    /**
-     * Reset the password with a link's token read from the body of the request
-     * the guard is serving (its JSON or form fields, never the query string),
-     * as `reset()` does. Link to a page that carries the token in the URL's
-     * fragment, which no browser sends to a server, and have it post the token
-     * in the body.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
-     *
-     * @throws \Throwable
-     */
-    public function resetFromRequest(ClientContext $client): ResetResult
-    {
-        return $this->reset(RequestBody::fields($this->context->request()), $client);
-    }
-
-    /**
-     * Reset the password with a code read from the body of the request the
-     * guard is serving, never its query string, as `resetWithCode()` does.
-     *
-     * @param  string  $type
-     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
-     *
-     * @throws \Throwable
-     */
-    public function resetWithCodeFromRequest(string $type, ClientContext $client): ResetResult
-    {
-        return $this->resetWithCode($type, RequestBody::fields($this->context->request()), $client);
     }
 
     /**

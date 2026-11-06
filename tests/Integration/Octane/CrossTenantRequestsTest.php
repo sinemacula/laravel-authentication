@@ -22,12 +22,14 @@ use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsRequest;
 use SineMacula\Laravel\Authentication\Context\ContextContributors;
 use SineMacula\Laravel\Authentication\Context\GuardAuthenticationContexts;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -504,7 +506,13 @@ final class CrossTenantRequestsTest extends TestCase
             return ['key' => Auth::apiKeys(request()->string('guard')->value())->issue($account, $membership, $scopes)->key()->reveal()];
         });
 
-        Route::post('/oauth/token', static fn (): array => ['access' => Auth::clientCredentials('m2m')->fromRequest()->accessToken?->reveal()]);
+        Route::post(
+            '/oauth/token',
+            static fn (Request $request): array => ['access' => Auth::clientCredentials('m2m')->exchange(
+                ClientCredentialsRequest::extract($request),
+                ClientContext::fromRequest($request),
+            )->accessToken?->reveal()],
+        );
     }
 
     /**

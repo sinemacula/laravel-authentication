@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
+use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsRequest;
 use SineMacula\Laravel\Authentication\Events\ApiKeyIssued;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\ClientCredentialsGranted;
@@ -85,7 +86,7 @@ final class MachineCredentialRequestsTest extends TestCase
 
             $this->recordInThisRequest([ClientCredentialsGranted::class]);
 
-            return ['access' => $exchange->fromRequest()->accessToken?->reveal()];
+            return ['access' => $exchange->exchange(ClientCredentialsRequest::extract(request()), self::requestClient())->accessToken?->reveal()];
         });
 
         Route::post('/sign-in', static function (): array {

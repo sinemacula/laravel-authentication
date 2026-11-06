@@ -1069,8 +1069,10 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($machine, $machine);
         $this->recordSequence();
 
-        self::assertTrue(Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key()->reveal(), 20))->isGranted());
-        self::assertFalse(Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, 'wrong')->isGranted());
+        self::assertTrue(
+            Auth::clientCredentials('m2m')->exchange(self::basicClient($issued->summary->publicId, substr($issued->key()->reveal(), 20)), self::requestClient())->isGranted(),
+        );
+        self::assertFalse(Auth::clientCredentials('m2m')->exchange(self::basicClient($issued->summary->publicId, 'wrong'), self::requestClient())->isGranted());
         self::assertSame([
             'ClientCredentialsGranted m2m i1/p1/-',
             'AuthenticationFailed m2m client_credentials:credential_invalid -/-/-',

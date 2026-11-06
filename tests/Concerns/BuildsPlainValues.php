@@ -6,6 +6,8 @@ namespace Tests\Concerns;
 
 use Illuminate\Config\Repository;
 use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\ClientCredentials\Enums\ClientAuthentication;
+use SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
@@ -55,6 +57,21 @@ trait BuildsPlainValues
     protected static function servedToken(string $guard = 'api', ?Request $request = null): FailureReason|PresentedRefreshToken|null
     {
         return self::transportOf($guard)->extract($request ?? self::servedRequest());
+    }
+
+    /**
+     * The client a token request authenticated with HTTP Basic, as
+     * `ClientCredentialsRequest::extract()` answers it: its id and secret, and
+     * the scope it asked for.
+     *
+     * @param  string  $clientId
+     * @param  string  $clientSecret
+     * @param  ?string  $scope
+     * @return \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient
+     */
+    protected static function basicClient(string $clientId, #[\SensitiveParameter] string $clientSecret, ?string $scope = null): PresentedClient
+    {
+        return new PresentedClient($clientId, $clientSecret, $scope, ClientAuthentication::BASIC);
     }
 
     /**

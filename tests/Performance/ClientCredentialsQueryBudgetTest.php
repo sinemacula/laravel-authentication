@@ -11,9 +11,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
+use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsRequest;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsResult;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithMachineCredentials;
@@ -91,14 +93,22 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
         $this->startMachineRequest();
 
-        $granted = $this->assertQueryBudget(3, 1, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange($public, $secret));
+        $granted = $this->assertQueryBudget(
+            3,
+            1,
+            static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange(self::basicClient($public, $secret), self::requestClient()),
+        );
 
         self::assertTrue($granted->isGranted());
 
         $this->startMachineRequest();
 
         $wrong   = str_repeat('a', 40);
-        $refused = $this->assertQueryBudget(2, 2, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange('ak_zzzzzzzzzzzzzzzz', $wrong));
+        $refused = $this->assertQueryBudget(
+            2,
+            2,
+            static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange(self::basicClient('ak_zzzzzzzzzzzzzzzz', $wrong), self::requestClient()),
+        );
 
         self::assertSame('invalid_client', $refused->error);
 
@@ -106,7 +116,11 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
         $this->startMachineRequest();
 
-        $mistaken = $this->assertQueryBudget(2, 2, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange($public, $wrong));
+        $mistaken = $this->assertQueryBudget(
+            2,
+            2,
+            static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange(self::basicClient($public, $wrong), self::requestClient()),
+        );
 
         self::assertSame($refused->toArray(), $mistaken->toArray());
     }
@@ -129,8 +143,12 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
         $this->startMachineRequest();
 
-        $granted = $this->assertQueryBudget(5, 1, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m_accounts')->exchange($public, $secret));
-        $claims  = PackageAuth::manager()->jwt('m2m_accounts')->parse((string) $granted->accessToken?->reveal());
+        $granted = $this->assertQueryBudget(
+            5,
+            1,
+            static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m_accounts')->exchange(self::basicClient($public, $secret), self::requestClient()),
+        );
+        $claims = PackageAuth::manager()->jwt('m2m_accounts')->parse((string) $granted->accessToken?->reveal());
 
         self::assertTrue($granted->isGranted());
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $claims[Claims::TENANT_ID->value] ?? null);
@@ -159,7 +177,14 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
         $this->startMachineRequest();
 
-        $post = $this->assertQueryBudget(0, 0, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->fromRequest($request));
+        $post = $this->assertQueryBudget(
+            0,
+            0,
+            static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange(
+                ClientCredentialsRequest::extract($request),
+                ClientContext::fromRequest($request),
+            ),
+        );
 
         self::assertSame('invalid_client', $post->error);
 
@@ -167,7 +192,11 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
         $this->startMachineRequest();
 
-        $off = $this->assertQueryBudget(0, 0, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange($public, $secret));
+        $off = $this->assertQueryBudget(
+            0,
+            0,
+            static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange(self::basicClient($public, $secret), self::requestClient()),
+        );
 
         self::assertSame('unauthorized_client', $off->error);
     }
@@ -187,7 +216,10 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
         $this->startMachineRequest();
 
-        $token = PackageAuth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key()->reveal(), 20))->accessToken?->reveal();
+        $token = PackageAuth::clientCredentials('m2m')->exchange(
+            self::basicClient($issued->summary->publicId, substr($issued->key()->reveal(), 20)),
+            self::requestClient(),
+        )->accessToken?->reveal();
 
         self::assertNotNull($token);
 

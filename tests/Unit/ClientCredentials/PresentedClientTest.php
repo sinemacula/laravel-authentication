@@ -7,6 +7,7 @@ namespace Tests\Unit\ClientCredentials;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\ClientCredentials\Enums\ClientAuthentication;
 use SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient;
 use Symfony\Component\VarDumper\Cloner\VarCloner;
 use Symfony\Component\VarDumper\Dumper\CliDumper;
@@ -53,7 +54,7 @@ final class PresentedClientTest extends TestCase
     #[DataProvider('provideClientIds')]
     public function testReportsOnlyAClientIdInForm(string $clientId, ?string $reported): void
     {
-        self::assertSame($reported, (new PresentedClient($clientId, 'secret', null))->reportedId());
+        self::assertSame($reported, (new PresentedClient($clientId, 'secret', null, ClientAuthentication::BASIC))->reportedId());
     }
 
     /**
@@ -64,7 +65,7 @@ final class PresentedClientTest extends TestCase
      */
     public function testTheSecretIsShownByNoDump(): void
     {
-        $presented = new PresentedClient('ak_abcdefghijklmnop', self::SECRET, 'read');
+        $presented = new PresentedClient('ak_abcdefghijklmnop', self::SECRET, 'read', ClientAuthentication::POST);
 
         self::assertSame(self::SECRET, $presented->clientSecret());
 
