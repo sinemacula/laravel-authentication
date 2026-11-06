@@ -58,6 +58,7 @@ use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Passkeys\RecordingPasskeyFactorGate;
@@ -2325,6 +2326,12 @@ final class PasskeyServiceTest extends TestCase
 
         $this->recordEvents([PasskeyAdded::class, Failed::class, AuthenticationFailed::class]);
 
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() === 'sqlite') {
+            $connection->setQueryGrammar(new LockMarkingSQLiteGrammar($connection));
+        }
+
         $client       = self::requestClient();
         $queries      = $this->recordQueries();
         $registration = Auth::passkeys('api')->register($identity, $challenge, $answer, $client, 'Laptop', $form === 'secret' ? new Secret($credential) : $credential);
@@ -2345,6 +2352,7 @@ final class PasskeyServiceTest extends TestCase
         $passkeyWrite = self::firstQueryOn($queries->getArrayCopy(), '/^insert.* into [`"]?passkeys[`"]? /i');
 
         self::assertLessThan($sessionRead, $identityRead);
+        self::assertStringContainsString('for update', strtolower($queries[$sessionRead]));
         self::assertLessThan($passkeyWrite, $sessionRead);
     }
 

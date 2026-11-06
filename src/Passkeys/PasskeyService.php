@@ -654,7 +654,9 @@ final readonly class PasskeyService
             && SessionOwnership::isOwner($session, $owner)
             && ($binding === null || IdentifierCoercion::stringify($session->getSessionIdentifier()) === $named);
 
-        $held || throw new UnheldPendingSession;
+        if (!$held) {
+            throw new UnheldPendingSession;
+        }
     }
 
     /**

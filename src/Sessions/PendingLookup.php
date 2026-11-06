@@ -85,6 +85,34 @@ final readonly class PendingLookup
      */
     public function find(#[\SensitiveParameter] Secret|string $credential, CarbonImmutable $now, bool $lock): ?array
     {
+        $session  = $this->session($credential, $now, $lock);
+        $identity = $session === null ? null : $this->owner($session);
+
+        if ($session === null || $identity === null) {
+            return null;
+        }
+
+        $principal = $this->principalOf($session, $identity);
+
+        return $principal === false ? null : [$session, $identity, $principal];
+    }
+
+    /**
+     * The live pending session of the guard the credential names, read on the
+     * write connection (locked for update when asked), or `null`. A credential
+     * that cannot name one (no key or secret, or a key longer than any the
+     * session can have) is rejected without a query.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  bool  $lock
+     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentSession)|null
+     *
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    private function session(#[\SensitiveParameter] Secret|string $credential, CarbonImmutable $now, bool $lock): (EloquentSession&Model)|null
+    {
         $plain  = Plaintext::of($credential);
         $dot    = strrpos($plain, '.');
         $key    = $dot === false ? '' : substr($plain, 0, $dot);
@@ -96,14 +124,7 @@ final readonly class PendingLookup
 
         $session = $lock ? SessionLookup::lock($key) : SessionLookup::find($key);
 
-        if ($session === null || !$this->isLive($session, $secret, $now)) {
-            return null;
-        }
-
-        $identity  = $this->owner($session);
-        $principal = $identity === null ? false : $this->principalOf($session, $identity);
-
-        return $identity === null || $principal === false ? null : [$session, $identity, $principal];
+        return $session !== null && $this->isLive($session, $secret, $now) ? $session : null;
     }
 
     /**
