@@ -1118,8 +1118,8 @@ final class AdmissionRecheckTest extends TestCase
         [$member, $membership, $tenant] = $this->seedRechecked();
 
         $active  = ActivatableTenant::query()->create(['name' => 'Active', 'is_active' => true]);
-        $second  = RecheckedMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey(), 'is_active' => true]);
         $session = $this->signIn();
+        $second  = RecheckedMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey(), 'is_active' => true]);
 
         app()->instance(TenantResolver::class, new DescendantTenants);
 
@@ -1225,8 +1225,8 @@ final class AdmissionRecheckTest extends TestCase
     {
         [$member, $membership, $tenant] = $this->seedRechecked();
 
-        $second  = RecheckedMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey(), 'is_active' => true]);
         $session = $this->signIn();
+        $second  = RecheckedMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey(), 'is_active' => true]);
 
         DB::beginTransaction();
 
