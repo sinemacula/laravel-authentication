@@ -27,8 +27,8 @@ Auth::scopes();         // list<string>|null - the credential's scope ceiling (n
 
 Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on
 routes without `auth` middleware. A request is authenticated at most once, whether its token is accepted or rejected,
-and after `Auth::logout()` it stays signed out for the rest of the request. `Auth::tenant()` is the active tenant: the one
-the request's session records, or the principal's own for a token without a session, read when the request is
+and after `Auth::logout()` it stays signed out for the rest of the request. `Auth::tenant()` is the active tenant: the
+one the request's session records, or the principal's own for a token without a session, read when the request is
 authenticated and held until the guard is bound again. For a principal bound through `login()`, `setUser()` or
 `setPrincipal()`, which skip the activity check, it is the bound session's recorded tenant, or with no session the
 principal's own, even when it is inactive. `null` only ever means the request acts in no tenant: when the tenant such a
@@ -267,6 +267,7 @@ Evidence it does not accept is never recorded (see [Proofs and provenance](sessi
 ```php
 use SineMacula\Laravel\Authentication\External\ExternalResult;
 use SineMacula\Laravel\Authentication\External\ProviderContext;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 $result = Auth::sessions('api')->signInExternally(new ExternalResult(
     connectionId: $redeemed->connectionId,
@@ -280,7 +281,7 @@ $result = Auth::sessions('api')->signInExternally(new ExternalResult(
     linkId: $redeemed->linkId,
     requestReference: $redeemed->requestReference,
     providerContext: new ProviderContext(['protocol' => $redeemed->protocol]),
-));
+), SignInContext::fromRequest($request));
 ```
 
 Once the session commits, active or pending, `ExternalResultRedeemed` (flow `sign_in`) reports the redemption after the
@@ -383,11 +384,13 @@ Two routes of your own ask for a code and sign in with it, through `Auth::codes(
 ```php
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 Route::post('/codes', function (Request $request) {
     $input  = $request->validate(['phone' => ['required', 'string']]);
-    $result = Auth::codes('mobile')->send('phone_code', ['phone' => $input['phone']]);
+    $result = Auth::codes('mobile')->send('phone_code', ['phone' => $input['phone']], ClientContext::fromRequest($request));
 
     // The same answer whether or not anyone has the number.
     return match ($result->status) {
@@ -407,7 +410,7 @@ Route::post('/codes', function (Request $request) {
 
 Route::post('/sign-in/code', function (Request $request) {
     $input  = $request->validate(['phone' => ['required', 'string'], 'challenge' => ['required', 'string'], 'code' => ['required', 'string']]);
-    $result = Auth::sessions('mobile')->signIn('phone_code', ['phone' => $input['phone'], 'challenge' => $input['challenge'], 'code' => $input['code']]);
+    $result = Auth::sessions('mobile')->signIn('phone_code', ['phone' => $input['phone'], 'challenge' => $input['challenge'], 'code' => $input['code']], SignInContext::fromRequest($request));
 
     abort_unless($result->isSignedIn(), 401);
 
@@ -503,6 +506,7 @@ $result = Auth::passkeys('api')->register(
     Auth::identity(),
     $input['challenge'],
     $input['credential'],
+    ClientContext::fromRequest($request),
     $input['name'] ?? null,
 );
 
@@ -533,10 +537,10 @@ Signing in takes options and then the session service:
 
 ```php
 // POST /sign-in/passkey/options
-return Auth::passkeys('api')->signInOptions();
+return Auth::passkeys('api')->signInOptions(ClientContext::fromRequest($request));
 
 // POST /sign-in/passkey
-$result = Auth::sessions('api')->signIn('passkey', $request->only('challenge', 'credential'));
+$result = Auth::sessions('api')->signIn('passkey', $request->only('challenge', 'credential'), SignInContext::fromRequest($request));
 ```
 
 `signInOptions()` names no credential, so the browser offers every passkey it holds for the relying party. Anyone may
@@ -574,7 +578,7 @@ $binding = new ProofBinding($identity, 'api', $pending->id, Purpose::SIGN_IN);
 // Allows only the credentials named that the identity holds; null when it holds none of them.
 $options = Auth::passkeys('api')->factorOptions($identity, $binding, $credentialIds);
 
-$result = Auth::passkeys('api')->verifyFactor($identity, $binding, $challenge, $credential);
+$result = Auth::passkeys('api')->verifyFactor($identity, $binding, $challenge, $credential, $client);
 
 if ($result->isFailed()) {
     // $result->reason
@@ -776,7 +780,7 @@ $this->callAfterResolving(SignInMethodManager::class, static function (SignInMet
 ```
 
 ```php
-$result = Auth::sessions('kiosk')->signIn('badge', $request->only('badge_number', 'pin'));
+$result = Auth::sessions('kiosk')->signIn('badge', $request->only('badge_number', 'pin'), SignInContext::fromRequest($request));
 ```
 
 ## Pending sessions
@@ -857,9 +861,19 @@ A pending credential allows only the actions of the session's first outstanding 
 So no principal is listed or chosen while a factor is outstanding, and nothing is allowed because of a route. The
 `mfa.*` names follow the factor package's actions, spelt with this package's identifiers (`enrollment`), so the
 integration between the two maps them by case rather than by value. Listing factors and enrolling one are the factor
-package's calls, which check the credential here first with `pending()`:
+package's calls, which check the credential here first with `pending()`. A controller reads the credential with
+`PendingCredential::extract($request)`, from the configured body field (`session.pending_credential_field`, never the
+query string or a header): `null` when the body has none, so nothing was presented and nothing is reported;
+`pending_invalid` when the field is not a non-empty string; otherwise the credential as a `Secret`:
 
 ```php
+use SineMacula\Laravel\Authentication\Secrets\Secret;
+use SineMacula\Laravel\Authentication\Sessions\PendingCredential;
+
+$credential = PendingCredential::extract($request);
+
+abort_unless($credential instanceof Secret, 401); // absent or malformed
+
 $pending = Auth::sessions('api')->pending($credential, PendingAction::VERIFY);
 
 if ($pending === null) {
@@ -878,11 +892,25 @@ package's to judge.
 
 ### Satisfying a further factor
 
-The factor package verifies the factor for `$pending->identity` and hands its proof to `satisfy()`:
+The factor package verifies the factor for `$pending->identity` and hands its proof to `satisfy()`, with the credential
+and the request's client as plain values:
 
 ```php
-$result = Auth::sessions('api')->satisfy($credential, $proof);
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Sessions\PendingCredential;
+
+// Controller: HTTP stays here.
+$credential = PendingCredential::extract($request);
+
+abort_if($credential === null, 401); // nothing presented, and nothing reported
+
+// Service: plain values only.
+$result = Auth::sessions('api')->satisfy($credential, $proof, ClientContext::fromRequest($request));
 ```
+
+The credential is what `extract()` answered once its absence is answered: the `Secret`, or `pending_invalid`, which is
+refused and reported as a credential that names no pending session is (after the same-site check, with no query); any
+other reason is the caller's error (`InvalidArgumentException`, nothing dispatched).
 
 `$proof` is the `Proofs\ProofResult` the adapter verified: its kind (`additional_factor`, or `recovery_code` for the
 fallback), method, channel and factor, what was observed, the adapter's `Evaluation` (accepted, and whether it amounts
@@ -911,7 +939,7 @@ and retry the whole transaction (see [Issuance order](sessions.md#issuance-order
 ### Choosing a principal
 
 ```php
-$result = Auth::sessions('api')->choose($credential, $principal, TenantSelection::principalDefault());
+$result = Auth::sessions('api')->choose($credential, $principal, ClientContext::fromRequest($request), TenantSelection::principalDefault());
 ```
 
 `choose()` takes one of `$pending->principals` (also listed by `Auth::sessions('api')->principals($identity,
@@ -929,10 +957,10 @@ retry whole (see [Issuance order](sessions.md#issuance-order)).
 
 ### Discarding
 
-`discard($credential)` ends a pending session (a factor that failed, a choice abandoned): it is revoked as `signed_out`
-and `SessionRevoked` reports it, so its credential works no more. It returns whether the credential named a live pending
-session of this guard. Revoking an identity's sessions, signing out everywhere and pruning reach pending sessions too:
-they are sessions like any other.
+`discard($credential, $client)` ends a pending session (a factor that failed, a choice abandoned): it is revoked as
+`signed_out` and `SessionRevoked` reports it with the client given, so its credential works no more. It returns whether
+the credential named a live pending session of this guard. Revoking an identity's sessions, signing out everywhere and
+pruning reach pending sessions too: they are sessions like any other.
 
 ### The session it activates
 
@@ -950,14 +978,14 @@ leaving it pending, its credential unconsumed and the proof unstored (see
 
 ### Acting from plain values
 
-`satisfy()` and `choose()` judge the guard's request unless they are given a client: a service layer that keeps HTTP
-out passes the `ClientContext` its controller built from the request, as the last argument.
+`satisfy()` and `choose()` take the client as a required plain value, never reading the guard's request: the controller
+builds the request's `ClientContext` and a service layer that keeps HTTP out hands it on.
 
 ```php
 $client = ClientContext::fromRequest($request);
 
 $result = Auth::sessions('browser')->satisfy($credential, $proof, $client);
-$result = Auth::sessions('browser')->choose($credential, $principal, TenantSelection::principalDefault(), $client);
+$result = Auth::sessions('browser')->choose($credential, $principal, $client, TenantSelection::principalDefault());
 ```
 
 A cookie application judges the same-site check on that client alone, failing closed: one built without its `Origin`,
@@ -967,10 +995,10 @@ guard's request. The client is your trusted description of the request (see
 is carried by the events that report the action (`AuthenticationFailed`, `SessionCreated` or `SessionActivated`,
 `SignedIn`, a superseded session's `SessionRevoked`) and by the guard's bind (`PrincipalAssigned` and
 `SessionAuthenticated`), so a last use the bind records is that client's too, whatever
-`session.last_used_throttle_seconds` is. The same holds for `signIn()`, `start()` and `signInExternally()` given a
-`SignInContext`: every event of the sign-in, the bind's included, and the session's last use carry its client. The
-client describes that bind only: the guard keeps no client, so its later events describe its own request. A body
-application is never held to the check, with a client or without.
+`session.last_used_throttle_seconds` is. The same holds for `signIn()`, `start()` and `signInExternally()`, which take
+the `SignInContext` as a required value: every event of the sign-in, the bind's included, and the session's last use
+carry its client. The client describes that bind only: the guard keeps no client, so its later events describe its own
+request. A body application is never held to the check.
 
 ## Additional factors
 

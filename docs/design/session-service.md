@@ -105,14 +105,14 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   one a client holds; no other key material exists. Passing it in `SignInContext::$refreshToken` is the application's
   opt-in (D21).
 - Replacing a proven session (`SessionWriter::replace()`) revokes it with one compare-and-swap on the row exactly as it
-  was proven (digest, owner, principal, guard, active, not revoked), writing `revoked_at`, the reason `superseded` and null
-  digests as any revocation does, then inserts the new session as `create()` does, except that a client name or platform
-  the sign-in does not give is the proven session's. The proven row keeps everything else. A swap that misses
+  was proven (digest, owner, principal, guard, active, not revoked), writing `revoked_at`, the reason `superseded` and
+  null digests as any revocation does, then inserts the new session as `create()` does, except that a client name or
+  platform the sign-in does not give is the proven session's. The proven row keeps everything else. A swap that misses
   reconsiders the sign-in without the session, factor policy included: it creates a session and revokes nothing, or
   writes it pending when the factor policy now asks for a factor; it never retries. A pending session supersedes only at
-  its first activation, with the same compare-and-swap on the digest it recorded; a miss there writes nothing and
-  judges the session again without the proven one, factor policy included: it activates and revokes nothing, or stays
-  pending when the factor policy now asks for a factor.
+  its first activation, with the same compare-and-swap on the digest it recorded; a miss there writes nothing and judges
+  the session again without the proven one, factor policy included: it activates and revokes nothing, or stays pending
+  when the factor policy now asks for a factor.
 - After the session's transaction, `SessionRevoked` (`superseded`, for a replaced session), `SessionCreated` and
   `SignedIn` are scheduled, in that order and in one callback, on the commit of the session's connection; a second
   callback on the same commit then binds the guard, with the usual bind events, and only after the bind gives back the
@@ -144,15 +144,15 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `revokePrincipalSessions()` and the security-change methods delegate to `SessionRevocations` (see
   `session-lifecycle.md`), on the guard's context, with the guard as the `Contracts\GuardBinding` the two sign-out calls
   read and forget. The guard's `logout()` and the password writer use the same revocations without a session service.
-- Refreshing is the service's too, beside switching principal or tenant: `refresh()`, `refreshFromRequest()` and
-  `refreshPresented()` (from what the transport's `extract()` answered and a `ClientContext`, judged again with
-  `judge()`, see `refresh-token-transport.md`) delegate to `SessionRefresh`, which runs the refresh exchange the service
-  builds on the guard's context and token service, schedules `Refreshed` and `SignedIn` (a refresh) for the rotation's
-  commit, and only then, at the same commit, binds the guard as a sign-in through the binding's `loginVerified()`, with
-  the tenant and the sign-in method the exchange established. Every refusal is a failed `RefreshResult` with the
-  exchange's or the transport's reason, `rate_limited` with its wait, never a thrown 429; `refreshFromRequest()` answers
-  `null` only for a request without a token, and says where it read one (see `refresh-rotation-and-replay.md` and
-  `refresh-token-transport.md`).
+- Refreshing is the service's too, beside switching principal or tenant: `refresh()` (from what the transport's
+  `extract()` answered, or a `PresentedRefreshToken` the application built, and a `ClientContext`, judged again with
+  `judge()`, see `refresh-token-transport.md`) delegates to `SessionRefresh`, which runs the refresh exchange the
+  service builds on the guard's context and token service, schedules `Refreshed` and `SignedIn` (a refresh) for the
+  rotation's commit, and only then, at the same commit, binds the guard as a sign-in through the binding's
+  `loginVerified()`, with the tenant and the sign-in method the exchange established. Every refusal is a failed
+  `RefreshResult` with the exchange's or the transport's reason, `rate_limited` with its wait, never a thrown 429;
+  `refresh()` answers `null` only when nothing was presented, and says where a presented token came from (see
+  `refresh-rotation-and-replay.md` and `refresh-token-transport.md`).
 - Looking up is the service's too, in `Sessions\Concerns\LooksUpSessions`: `session($identity, $id)` and `principal()`
   (see `callers.md`), and `proofs($session, $since, $kinds, $limit)` and `firstFactor($session)`, which read the
   counting proofs and the first factor of one of this guard's live, active sessions of a person through
@@ -222,19 +222,16 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 ## Implementation Anchors
 
 - `src/Sessions/SessionService.php`: `signIn()`, `start()`, `pending()`, `satisfy()`, `choose()`, `discard()`,
-  `bound()`;
-  `src/Sessions/Concerns/EndsSessions.php`: the methods it delegates to `src/Sessions/SessionRevocations.php` (a trait
-  only so the service stays within phpcs's limit of methods a class may declare), and
+  `bound()`; `src/Sessions/Concerns/EndsSessions.php`: the methods it delegates to `src/Sessions/SessionRevocations.php`
+  (a trait only so the service stays within phpcs's limit of methods a class may declare), and
   `src/Sessions/Concerns/EndsSessionsOnDeletion.php`: `identityDeleted()` and `principalDeleted()`, delegated there too
-  (a trait for the same reason);
-  `src/Sessions/Concerns/RefreshesSessions.php`: `refresh()`, `refreshFromRequest()` and `refreshPresented()`,
+  (a trait for the same reason); `src/Sessions/Concerns/RefreshesSessions.php`: `refresh()` and `refreshCredential()`,
   delegated to `src/Sessions/SessionRefresh.php` (a trait for the same reason), and `src/Sessions/RefreshResult.php`.
   `src/Sessions/Concerns/ProvesSessions.php`: `stepUp()` and `reauthenticate()`, delegated to
   `src/Sessions/SessionStepUp.php` and `src/Sessions/SessionReauthentication.php` over `src/Sessions/ProofIssuance.php`
-  (see `proofs-and-freshness.md`).
-  `src/Sessions/Concerns/LooksUpSessions.php`: `session()`, `principal()`, `proofs()` and `firstFactor()`, delegated to
-  `src/Sessions/ActiveSessions.php`, `src/Sessions/PendingEvaluation.php` and `src/Sessions/ActiveSessionProofs.php` (a
-  trait for the same reason).
+  (see `proofs-and-freshness.md`). `src/Sessions/Concerns/LooksUpSessions.php`: `session()`, `principal()`, `proofs()`
+  and `firstFactor()`, delegated to `src/Sessions/ActiveSessions.php`, `src/Sessions/PendingEvaluation.php` and
+  `src/Sessions/ActiveSessionProofs.php` (a trait for the same reason).
 - `src/Sessions/SessionEstablishment.php`: `select()`, `proceed()`, `establish()`, `wait()`, `write()`, `signedIn()`:
   the session, the factor policy and the scheduled reports, never the bind.
 - `src/Sessions/DeferredBind.php`: the bind of a sign-in, a refresh and a switch once the session commits, and the

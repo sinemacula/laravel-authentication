@@ -432,8 +432,8 @@ Every timestamp is a `datetime` stored to the whole second, so a deadline years 
 the revocation time and the tenant. Every authentication that binds a persisted session (a bearer request or a refresh)
 records its last use: the time, the client's IP address (only when it is a valid IPv4 or IPv6 address), and its user
 agent (without NUL bytes, as valid UTF-8, at most 512 characters), at most once per `last_used_throttle_seconds` (0
-records every use). The client is the request's, or the one a refresh, sign-in or pending action made from plain values
-was given.
+records every use). The client is the bearer request's, or the one a refresh, a switch, a sign-in or a pending action
+was given as a plain value.
 
 Like Laravel's own `datetime` columns, these times are stored as wall-clock times in the application timezone, without
 an offset, so keep `app.timezone` at Laravel's default of `UTC` or another zone without daylight saving. In a zone with

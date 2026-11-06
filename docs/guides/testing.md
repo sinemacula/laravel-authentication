@@ -70,8 +70,9 @@ service (`Auth::sessions()->signIn()` or `start()`), which records the first fac
 application those calls are held to the [same-site check](refreshing.md#refresh-token-cookie), so a test's request,
 which carries no `Origin`, is refused as `cross_site_request`: pass a `SignInContext` whose client carries the facts
 (`new SignInContext(new ClientContext(null, null, 'http://localhost', 'http://localhost', ['X-Requested-With']))`, fixed
-values a test may use and an application must not), or send `Origin` and the `csrf_header` on the request the guard
-serves, which `satisfy()` and `choose()` judge.
+values a test may use and an application must not), or send `Origin` and the `csrf_header` on the test's request and
+pass `SignInContext::fromRequest($request)`; `satisfy()` and `choose()` judge the `ClientContext` they are given the
+same way.
 
 `Auth::context()` under the helpers is built from what they bound, as it is for any trusted bind: `credential` is `null`
 (no credential was presented, a machine acted as with scopes included), and `amr`, `auth_time`, `mfa` and the other

@@ -24,7 +24,8 @@ uses for the caller's own instance, are the application's: the package binds no 
   request is read afresh, and nothing outlives the request (no static state; Octane-safe).
   - access: the guard must be a package `ContextualGuard` (else `LogicException`); its identity, principal, active
     tenant and session (none for an access-only token or an API key). The guard reports its own failures.
-  - refresh: `SessionService::refreshCredentialFromRequest()`, which reads the guard's transport (cookie or body),
+  - refresh: the guard's transport's `extract()` and, once it answered something, the request's `ClientContext`,
+    handed to `SessionService::refreshCredential()`, which judges the token on that client (cookie or body),
     proves and admits the token as a refresh would, without rotating it (`refresh-token-transport.md`), and judges the
     session against its tenant's authentication policy as a refresh does, writing nothing: `sso_required` for a session
     the next refresh would revoke, `additional_factor_required` for one it would return to pending. A replayed token

@@ -148,8 +148,9 @@ only duplicate them.
   of two establishments, or an establishment and a reset, at most one writes. Every other session ends
   (`password_changed`, `password_established`); `PasswordSet` follows the commit. Refusals are reported on the
   `password_change` flow.
-- Reset tokens and codes reach the API only in a request's body: `resetFromRequest()` and `resetWithCodeFromRequest()`
-  read `Http\RequestBody::fields()` (JSON or form, never the query string). There is no reset status lookup.
+- Reset tokens and codes reach the API only in a request's body: a controller passes `reset()` and `resetWithCode()`
+  what `Http\RequestBody::fields()` reads (JSON or form, never the query string), with the request's `ClientContext`.
+  There is no reset status lookup.
 
 ## Reset requests (`sendResetLink()`, `sendResetCode()`)
 

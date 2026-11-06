@@ -297,6 +297,8 @@ delivery:
 
 ```php
 use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 
@@ -306,7 +308,7 @@ $url = app(VerificationLinks::class)->create('api', $user, 'email', 'verificatio
 
 // Your route: verified, already_verified, mismatch, invalid or expired.
 Route::get('/verify-email', function (Request $request, VerificationLinks $links) {
-    return match ($links->consume($request)) {
+    return match ($links->consume(SignedLink::fromRequest($request), ClientContext::fromRequest($request))) {
         VerificationLinkOutcome::VERIFIED, VerificationLinkOutcome::ALREADY_VERIFIED => response()->noContent(),
         VerificationLinkOutcome::EXPIRED                                             => abort(410, 'Request a new link.'),
         VerificationLinkOutcome::MISMATCH, VerificationLinkOutcome::INVALID          => abort(403),
@@ -323,8 +325,11 @@ lifetime in minutes (1 to 10080, a week, like the configured one). Consuming a l
 guard's identity provider from the write connection and verifies the identifier; it never signs anyone in. Following it
 again reports `already_verified`.
 
-`consume()` answers a `VerificationLinkOutcome`. It checks the link's fields and purpose, then its signature, then its
-expiry, before it reads any identity: a link that was tampered with, signed for something else or carries no
+`consume($link, $client)` takes the link as `SignedLink::fromRequest($request)` captured it from the request (the address
+the client used, through the application's trusted proxies, and the raw query string as received) and the request's
+`ClientContext`, which its events describe, and answers a `VerificationLinkOutcome`. It checks the link's fields and
+purpose, then its signature (with every key and previous key the application signs with), then its expiry, again from
+those values, before it reads any identity: a link that was tampered with, signed for something else or carries no
 well-formed expiry is `invalid` (expired or not), and an authentic link past its lifetime is `expired`, whatever has
 become of its identity since. A link for a guard that is no longer a JWT guard, an identity that is gone or cannot
 verify identifiers, or an identifier that has changed or been removed is `invalid` too, so the answer says nothing
@@ -339,10 +344,12 @@ apart.
 `consume()` answers one enum, `VerificationLinkOutcome`. Match it:
 
 ```php
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\SignedLink;
 use SineMacula\Laravel\Authentication\Verification\Enums\VerificationLinkOutcome;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 
-$outcome = app(VerificationLinks::class)->consume($request);
+$outcome = app(VerificationLinks::class)->consume(SignedLink::fromRequest($request), ClientContext::fromRequest($request));
 
 return match ($outcome) {
     VerificationLinkOutcome::VERIFIED, VerificationLinkOutcome::ALREADY_VERIFIED => response()->noContent(),
@@ -358,13 +365,14 @@ verification:
 ```php
 use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 // Send it: a code to the signed-in identity's phone number, delivered by your OneTimeCodeSender.
-$request = Auth::codes('mobile')->sendVerification(Auth::identity(), 'phone');   // sent, rate_limited, deliveries_exhausted or identifier_invalid
-$request->challengeId;                                                            // hand it to the client with the request
+$sent = Auth::codes('mobile')->sendVerification(Auth::identity(), 'phone', ClientContext::fromRequest($request)); // sent, rate_limited, deliveries_exhausted or identifier_invalid
+$sent->challengeId;                                                                                                // hand it to the client with the request
 
 // Check it: verified, already_verified, mismatch, invalid, expired, exhausted or rate_limited.
-$result = Auth::codes('mobile')->verify(Auth::identity(), 'phone', $input['challenge'], $input['code']);
+$result = Auth::codes('mobile')->verify(Auth::identity(), 'phone', $input['challenge'], $input['code'], ClientContext::fromRequest($request));
 
 abort_unless(in_array($result->outcome, [VerificationOutcome::VERIFIED, VerificationOutcome::ALREADY_VERIFIED], true), 422);
 ```
@@ -394,7 +402,7 @@ Match the result's `outcome`, and answer `rate_limited` with its `retryAfter`:
 use SineMacula\Laravel\Authentication\Codes\Enums\VerificationOutcome;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 
-$result = Auth::codes('mobile')->verify($identity, 'phone', $challenge, $code);
+$result = Auth::codes('mobile')->verify($identity, 'phone', $challenge, $code, $client);
 
 return match ($result->outcome) {
     VerificationOutcome::VERIFIED, VerificationOutcome::ALREADY_VERIFIED => response()->noContent(),

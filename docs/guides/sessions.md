@@ -111,7 +111,7 @@ hold and its provenance as committed, whatever your transaction read before the 
 judgement counts, a proof voided before it never does, and a session whose key another sign-in reused is judged on its
 own proofs. On MySQL and MariaDB that read takes a shared lock, as the issuance's does; at PostgreSQL's REPEATABLE READ
 the session's lock or guard fails to serialise instead, for you to retry. A judgement made without the session's lock
-reads plainly: a refresh credential's (`refreshCredentialFromRequest()`), and `pending()`'s. What a bound
+reads plainly: a refresh credential's (`Auth::caller()`'s), and `pending()`'s. What a bound
 `RequirementCheck`, `ExternalEvidencePolicy` or `TenantAuthenticationPolicy` reads of its own tables is its own.
 
 Every freshness judgement made while the package holds the session's row reads the same way: the factor-change gate's
@@ -243,11 +243,12 @@ proof on the session and issues the session a new access token, and nothing else
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 Route::middleware('auth:api')->post('/step-up', function (Request $request) {
     $proof  = $factors->verify(Auth::identity(), Auth::session(), $request->input('code')); // your adapter's ProofResult
-    $result = Auth::sessions('api')->stepUp($proof);
+    $result = Auth::sessions('api')->stepUp($proof, ClientContext::fromRequest($request));
 
     return $result->isIssued()
         ? SecretResponse::json(['access_token' => $result->accessToken, 'expires_at' => $result->expiresAt->toIso8601String()])
@@ -272,7 +273,8 @@ derived from the session's proofs each time a token is issued. The session's row
 before the proof (see [Issuance order](#issuance-order)). No refresh token is issued and nothing is bound to the
 request, which is already authenticated. `SteppedUp` reports it once committed, with the proof's kind and, as the
 context's method, the method the adapter verified it with; a refusal is an `AccessTokenResult` whose `reason` says why,
-reported by `AuthenticationFailed` with the flow `step_up` and the same method, and never thrown.
+reported by `AuthenticationFailed` with the flow `step_up` and the same method, and never thrown. Every event describes
+the client given, never the guard's request.
 
 ## Reauthenticating
 
@@ -282,10 +284,11 @@ and the input the client sent:
 ```php
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 
 Route::middleware('auth:api')->post('/reauthenticate', function (Request $request) {
-    $result = Auth::sessions('api')->reauthenticate(Auth::session(), 'password', $request->only('email', 'password'));
+    $result = Auth::sessions('api')->reauthenticate(Auth::session(), 'password', $request->only('email', 'password'), ClientContext::fromRequest($request));
 
     return match (true) {
         $result->isIssued()                                => SecretResponse::json(['access_token' => $result->accessToken]),
@@ -310,8 +313,8 @@ credential's nor `external_provider` (an `InvalidArgumentException`; see [At the
 provider](#at-the-external-provider)). The session must still be the one given, as stored (a session put under its key
 since, of the same owner or not, records another generation and is `session_unknown`), and one of the guard's live
 sessions of a person, as for a step-up. The attempt counts against the guard's `sign_in` limits, on the identifier and
-the IP address, before any transaction opens (`rate_limited`, with the wait), and the method verifies the input in the
-guard's credential timebox, its account checks counted as a sign-in's are. The identity it verifies must be the
+the client's IP address, before any transaction opens (`rate_limited`, with the wait), and the method verifies the input
+in the guard's credential timebox, its account checks counted as a sign-in's are. The identity it verifies must be the
 session's owner: another identity's correct credential is `invalid_credentials`, as a wrong one is, and never says whose
 it was. A concealed reason (`account_rate_limited`, an expired or exhausted code, a passkey's sign counter that did not
 advance) is answered as `invalid_credentials`, with no wait. The session is then locked, checked again (still the
@@ -326,9 +329,10 @@ refusal is reported by `AuthenticationFailed` with the flow `reauthentication`.
 ### At the external provider
 
 A session an external identity provider established reauthenticates at that provider through
-`reauthenticateExternally($sessionId, $result)`, which a trusted server-side adapter calls with the identifier of the
-session its handoff names (never the session the request happens to be authenticated with) and the result the provider
-verified (from a reauthentication handoff it redeemed, say), never a client:
+`reauthenticateExternally($sessionId, $result, $client)`, which a trusted server-side adapter calls with the identifier
+of the session its handoff names (never the session the request happens to be authenticated with), the result the
+provider verified (from a reauthentication handoff it redeemed, say), never one a client sent, and the
+`ClientContext` of the request it serves, which its events describe:
 
 ```php
 $result = Auth::sessions('api')->reauthenticateExternally($redeemed->sessionId, new ExternalResult(
@@ -338,7 +342,7 @@ $result = Auth::sessions('api')->reauthenticateExternally($redeemed->sessionId, 
     authenticatedAt: $redeemed->authenticatedAt,
     evidence: $redeemed->evidence,
     requestReference: $redeemed->requestReference,
-));
+), ClientContext::fromRequest($request));
 ```
 
 Only on an application that allows `external_provider` (`method_not_allowed`), only for one of the guard's live, active
@@ -529,6 +533,7 @@ active tenant the same way. A `SwitchTarget` says where the session goes:
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Secrets\SecretResponse;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
@@ -537,7 +542,8 @@ $target = $request->has('membership')
     ? SwitchTarget::principal(Membership::findOrFail($request->input('membership')))  // in its own tenant
     : SwitchTarget::tenant(TenantSelection::of($request->input('tenant')));           // the same principal
 
-$result = Auth::sessions('api')->switchFromRequest($target);
+// The controller reads the request with the helpers; a service layer takes the three values as they are.
+$result = Auth::sessions('api')->switchTo(Auth::refreshTransport('api')->extract($request), $target, ClientContext::fromRequest($request));
 
 abort_if($result === null, 401); // no refresh token in the request
 
@@ -589,15 +595,18 @@ the write connection, or the resolver's default for an identity that is its own 
 only the one the id names, so it is found exactly when the list holds it. The switch checks its destination again.
 
 The refresh token proves the session, never an access token: a stolen access token lives minutes and must not mint a
-refresh credential. `switchFromRequest()` reads it as the session service's `refreshFromRequest()` does (see
-[Refreshing](refreshing.md)), through the application's refresh token transport, so it comes by the application's own
-transport and a token from the refresh cookie gets the cookie's cross-site checks; put the switch route under the
-cookie's path. It returns `null` when the request carries no token, and a token the transport refuses fails with its
-reason (`refresh_token_conflict`, `refresh_transport_mismatch`, `cross_site_request`, `token_invalid`, reported as an
-`AuthenticationFailed` of flow `switch`) without the session being touched. The result's `source` says where the token
-came from, and a cookie application's switched pair carries the cookie that sets the new refresh token, never the
-token, as a refresh does. `switchTo($refreshToken, $target)` remains for a body application's token your code reads
-itself; on a cookie application it throws a `LogicException`.
+refresh credential. `switchTo($presented, $target, $client)` takes the token as `refresh()` takes it (see
+[Refreshing](refreshing.md)): what the transport's `extract()` answered, or a `PresentedRefreshToken` the application
+built (`fromBody()` for a body application's own read), with the request's `ClientContext`, on a cookie application as
+on a body one, and judges it again on the client, so a token from the refresh cookie gets the cookie's cross-site
+checks; put the switch route under the cookie's path. It returns `null` when nothing was presented, and a token the
+judgement refuses fails with its reason (`refresh_token_conflict`, `refresh_transport_mismatch`, `cross_site_request`,
+or a reason `extract()` answered, reported as an `AuthenticationFailed` of flow `switch` with the client given, and no
+`Attempting` or `Failed`) without the session being touched. The result's `source` says where the token came from, and
+a cookie application's switched pair carries the cookie that sets the new refresh token, never the token, as a refresh
+does. Every event the switch dispatches, its return to pending's `SessionReturnedToPending` and a replay's
+`SessionRevoked` included, and the guard's bind, and so the session's last use, describe the client given, never the
+guard's request; the attempt limit counts its IP address.
 
 A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`, with the wait in the
 result's `retryAfter`: a switch returns its refusal, as a refresh does, so answer it with `Retry-After` as above), the
@@ -672,49 +681,9 @@ without a persisted session (an access-only token) has nothing to revoke and is 
 nothing. `Auth::sessions('api')->signOut()` does the same and returns whether it revoked a session.
 
 Both need a live access token. A client whose access token has expired, or that holds none, signs out with its refresh
-credential instead, and a logout route answers either way with `signOutFromRequest()`:
-
-```php
-use SineMacula\Laravel\Authentication\Facades\Auth;
-
-Route::post('/auth/logout', function () {
-    $result = Auth::sessions('browser')->signOutFromRequest();
-
-    // The expired cookie, when the result carries one, clears the browser's either way.
-    return $result->attachTo($result->isFailed() ? response()->json(['reason' => $result->reason?->value], 401) : response()->noContent());
-});
-```
-
-A request whose access token is bound to a stored session is signed out as `signOut()` signs it out, and its refresh
-credential is not read. Otherwise any binding is forgotten first (an access-only token's, with `Logout`, the guard
-staying signed out), and the refresh credential is read through the application's transport, as a refresh reads it:
-the cookie of a cookie application, with its cross-site checks, or the body field or header of a body application. The
-session it proves is revoked (`signed_out`, `SessionRevoked` once committed), `Logout` fires for its owner when the
-guard's provider still returns it and none fired already, and a binding to it is forgotten. The token is judged as a
-refresh judges it, short of rotating it: one the transport refuses fails with its reason (`refresh_token_conflict`,
-`refresh_transport_mismatch`, `cross_site_request`, `token_invalid`), and so does one whose session is unknown, of
-another guard, revoked, pending, expired or no longer recording the principal the token names; a replayed token revokes
-its session as `rotation_reuse`, as a refresh does, and a token inside the grace window of a rotation still signs its
-session out. A refusal is reported by `AuthenticationFailed` with the flow `sign_out` and its reason, and by no
-`Failed`: a sign-out is not an attempt to authenticate. No attempt limit applies, since nothing is issued and a refresh
-token cannot be guessed.
-
-The `Sessions\SignOutResult` says whether this call revoked a session (`isSignedOut()`, `signedOut`), why the refresh
-credential was refused when it was (`isFailed()`, `reason`), where it was read from (`source`), and, for a cookie
-application, carries the expired cookie (`forgetCookie`), which `attachTo($response)` adds. It carries the cookie when
-the access token signed its session out, which a cross-site page cannot send, and otherwise only when the request passes
-the cookie's same-site checks (its `Origin` and the custom header, as a refresh from the cookie needs them) and was not
-refused as `refresh_token_conflict`. So a cross-site page that auto-submits a form to the logout route clears nothing,
-though a browser keeps a cookie the response to such a navigation sets, and a request that fails the checks leaves the
-cookie in place with the session it still proves; a failed result is answered as a failure, as above.
-`signOutWith($refreshToken)` signs out with a body application's token your code read itself, and forgets only a binding
-to the session it revoked: a guard bound to another session stays bound to it, whether the token is refused or proves
-another session. On a cookie application it throws a `LogicException`: use `signOutPresented()`.
-
-A service layer that keeps HTTP out signs out by the refresh credential from plain values, on a cookie application as
-on a body one, with `signOutPresented()`: its controller extracts the token from the request
-(`Auth::refreshTransport('browser')->extract($request)`, which leaves the same-site judgement out) and builds the
-request's `ClientContext`, and the service hands both on:
+credential instead, with `signOutWith($presented, $client)`: what the transport's `extract()` answered, or a
+`PresentedRefreshToken` the application built, with the request's `ClientContext`, on a cookie application as on a body
+one. A logout route signs out by the access token first, and by the refresh credential unless that revoked a session:
 
 ```php
 use Illuminate\Http\Request;
@@ -722,41 +691,58 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 Route::post('/auth/logout', function (Request $request) {
-    $presented = Auth::refreshTransport('browser')->extract($request);
+    $transport = Auth::refreshTransport('browser');
 
-    abort_if($presented === null, 401); // no refresh credential in the request
+    // A bound session: an access token, which a cross-site page cannot send, so the cookie may be cleared.
+    if (Auth::sessions('browser')->signOut()) {
+        $response = response()->noContent();
 
-    $result = Auth::sessions('browser')->signOutPresented($presented, ClientContext::fromRequest($request));
+        $response->headers->setCookie($transport->forgetCookie());
 
+        return $response;
+    }
+
+    $result = Auth::sessions('browser')->signOutWith($transport->extract($request), ClientContext::fromRequest($request));
+
+    // The expired cookie, when the result carries one, clears the browser's either way.
     return $result->attachTo($result->isFailed() ? response()->json(['reason' => $result->reason?->value], 401) : response()->noContent());
 });
 ```
 
-It signs out by the refresh credential alone, as `signOutWith()` does: the guard's binding is not consulted, and only a
-binding to the session it revokes is forgotten, so a guard bound to another session stays bound to it. Unlike
-`signOutFromRequest()`, it never ends the session the guard is bound to through its access token, so a request that
-carries the access token and no refresh credential revokes nothing: answer a `null` extraction as not signed out, as the
-example does, or end the bound session with `Auth::sessions('browser')->signOut()` as well. The package judges the token
-again with the client, never trusting how the value was built (see [Refreshing from plain
-values](refreshing.md#refreshing-from-plain-values)): carriers that are not its source alone are
-`refresh_token_conflict`, a source that is not the application's transport `refresh_transport_mismatch`, and a token
-from the cookie whose client fails the same-site check (one built without its `Origin`, scheme and host or header names
-among them) `cross_site_request`. A reason `extract()` answered, handed in, is reported as `signOutFromRequest()`
-reports it, and any other is the caller's error (`InvalidArgumentException`, nothing dispatched); `null` signs nothing
-out. Otherwise the token is proven and its session revoked as above, inside the grace window too, a replay revoking it
-as `rotation_reuse`; `AuthenticationFailed` and `SessionRevoked` carry the client given, and since it binds nothing, no
-event it dispatches describes the guard's own request (Laravel's `Logout` carries no client). A cookie application's
-result carries the expired cookie only when the client passes the same-site check and the token was not refused as
-`refresh_token_conflict`, on the same terms as `signOutFromRequest()`'s; a body application's never does. The actions on
-a pending session take the client the same way: `satisfy()` and `choose()` judge the `ClientContext` they are given (see
-[Acting from plain values](signing-in.md#acting-from-plain-values)).
+`signOut()` revokes the session the access token is bound to, or forgets an access-only token's binding with `Logout`,
+or does nothing for a guest. `signOutWith()` signs out by the refresh credential alone: the guard's binding is not
+consulted, and only a binding to the session it revokes is forgotten, so a guard bound to another session stays bound to
+it, and an access-only token beside a refresh credential reports a `Logout` for each. The token is judged again with the
+client, never trusting how the value was built (see [What a refresh judges](refreshing.md#what-a-refresh-judges)):
+carriers that are not its source alone are `refresh_token_conflict`, a source that is not the application's transport
+`refresh_transport_mismatch`, and a token from the cookie whose client fails the same-site check (one built without its
+`Origin`, scheme and host or header names among them) `cross_site_request`. A reason `extract()` answered, handed in, is
+reported as these are, and any other is the caller's error (`InvalidArgumentException`, nothing dispatched); `null`
+signs nothing out. The session the token proves is revoked (`signed_out`, `SessionRevoked` once committed), `Logout`
+fires for its owner when the guard's provider still returns it, and a binding to it is forgotten. The token is judged as
+a refresh judges it, short of rotating it: one whose session is unknown, of another guard, revoked, pending, expired or
+no longer recording the principal the token names fails with that reason; a replayed token revokes its session as
+`rotation_reuse`, as a refresh does, and a token inside the grace window of a rotation still signs its session out. A
+refusal is reported by `AuthenticationFailed` with the flow `sign_out` and its reason, and by no `Failed`: a sign-out is
+not an attempt to authenticate. No attempt limit applies, since nothing is issued and a refresh token cannot be guessed.
+`AuthenticationFailed` and `SessionRevoked` carry the client given (Laravel's `Logout` carries no client).
+
+The `Sessions\SignOutResult` says whether this call revoked a session (`isSignedOut()`, `signedOut`), why the refresh
+credential was refused when it was (`isFailed()`, `reason`), where it was presented from (`source`), and, for a cookie
+application, carries the expired cookie (`forgetCookie`), which `attachTo($response)` adds. It carries the cookie only
+when the client passes the cookie's same-site checks (its `Origin` and the custom header, as a refresh from the cookie
+needs them) and the token was not refused as `refresh_token_conflict`. So a cross-site page that auto-submits a form to
+the logout route clears nothing, though a browser keeps a cookie the response to such a navigation sets, and a request
+that fails the checks leaves the cookie in place with the session it still proves; a failed result is answered as a
+failure, as above. A body application's result never carries one.
 
 `logout()` and `signOut()` cannot reach the response either, so a route that calls them clears a cookie application's
 cookie with `Auth::refreshTransport('browser')->forgetCookie()` only when `signOut()` returned `true` (or
 `Auth::check()` held before `logout()`): a cross-site page cannot send the access token, but it can make a browser post
 to the route, and a response that clears the cookie whatever the request carried lets any site sign the browser out. A
 route that must also clear for a request without an access token checks `isSameSiteRequest($request)` first, or uses
-`signOutFromRequest()`, which makes both checks (see [Refresh token cookie](refreshing.md#refresh-token-cookie)).
+`signOutWith()`'s result, which makes the check on the client (see [Refresh token
+cookie](refreshing.md#refresh-token-cookie)).
 
 The session service also revokes sessions for the application's own screens and flows:
 
@@ -911,12 +897,11 @@ mode does not stop the read), or an `InvalidArgumentException` is thrown before 
 tenant already deleted or soft-deleted still works, since a principal whose `TenantUnavailableException` names that very
 tenant (its class and key, as `ActsAsPrincipal` reports it) acts within it, so restoring the tenant later revives no
 session; a tenant that does not implement `CanBeActive` reads as no tenant once it cannot be loaded, so call
-`tenantDeactivated()` inside the transaction that deletes it, before the delete (it then ends the tenant's sessions again
-once the delete commits, so a sign-in racing the delete keeps no session; called before the delete outside a
+`tenantDeactivated()` inside the transaction that deletes it, before the delete (it then ends the tenant's sessions
+again once the delete commits, so a sign-in racing the delete keeps no session; called before the delete outside a
 transaction, such a sign-in can keep its session past a restore); a principal listed twice counts once, and every
-principal's sessions end in
-one transaction on the storage connection, with one `SignedOutEverywhere` per principal. Deactivation already stops
-every token at once through the live activity checks (see [Active-state
+principal's sessions end in one transaction on the storage connection, with one `SignedOutEverywhere` per principal.
+Deactivation already stops every token at once through the live activity checks (see [Active-state
 enforcement](identity-models.md#active-state-enforcement)); revoking makes the end outlast a reactivation and records
 why. `identityDeleted()` and `principalDeleted()` take the model as it was deleted, or soft-deleted (it keeps its key),
 or one about to be; calling one again is safe: it revokes only a session written since, keeps the first revocation's
@@ -1384,7 +1369,7 @@ A refresh that returns a session to pending hands out no pair: `RefreshResult::i
 waits on, `["mfa"]`) and `credential`, and `SessionReturnedToPending` reports it. A guard the request already bound to
 that session forgets it, with no event, as a switch's return does, so nothing later in the request acts in it. From then
 on the session's access tokens and its refresh token are refused (`session_pending`, never taken for a replay), until
-the factor is satisfied with `Auth::sessions()->satisfy($credential, $proof)` (see [Pending
+the factor is satisfied with `Auth::sessions()->satisfy($credential, $proof, $client)` (see [Pending
 sessions](signing-in.md#pending-sessions)): the session activates again in place, same id and proofs, with a new pair,
 `SessionActivated` reports it, and every token issued before the return stays refused.
 
@@ -1422,7 +1407,7 @@ Every revocation records one of these reasons in the session's `revoked_reason` 
 
 | Reason                  | Recorded when                                                                                                                              |
 |-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutFromRequest()`, `signOutWith()`, `signOutPresented()`    |
+| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`, `signOutWith()`                                                  |
 | `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions; or a sign-in, choice or switch whose identity's or principal's cutoff moved meanwhile |
 | `revoked`               | The application revoked it: `revokeSession()`, `revokeSessions()`, `revokePrincipalSessions()`                                             |
 | `rotation_reuse`        | A rotated refresh token was replayed, by a refresh, a switch, a sign-out or the caller of a refresh credential                             |
@@ -1458,23 +1443,25 @@ yet.
 
 A route authenticates with the access credential of its guard (the one `auth:<guard>` makes the default) unless it
 declares another. `authentication.refresh[:<guard>]` declares the refresh credential: the one the guard's refresh token
-transport reads (see [Refreshing](refreshing.md)), proven and admitted as a refresh would be, without rotating it, and
-judged against the tenant's authentication policy as a refresh judges it, without writing: a session the next refresh
-would revoke has no caller (`sso_required`), nor does one it would return to pending (`additional_factor_required`). A
-replayed refresh token revokes its session as `rotation_reuse`, as a refresh does, so a read route behind
-`authentication.refresh` can revoke one. A cookie application's route lives under its cookie's path, where the browser
-sends the cookie. `authentication.pending:<action>[,<guard>]` declares the pending credential for a pending action by
-its stable name (`mfa.verify`, `choose_principal`, ...), read from the `session.pending_credential_field` body field
-(`pending_credential`; a JSON or form body, never the query string or a header): there is a caller only while it names a
-live pending session of the guard that allows that action now, and the operation the route then takes (`satisfy()`,
-`choose()`, an adapter's action after `pending()`) makes its own checks. An action that is not a pending action is an
-`InvalidArgumentException`. Each makes a guard it names the default for the request, as `auth:<guard>` does, and records
-the declaration, nothing else: the credential is never inferred from what a request carries, so a refresh cookie that
-rides on every request does not turn a read route into one a refresh token authenticates. The package orders both before
-`SubstituteBindings` in the HTTP kernel's middleware priority once the kernel is resolved, so the declaration is in
-place before any route parameter is bound however a route lists them, also when the application sets the whole list with
-`withMiddleware()`'s `priority()`, as long as that list holds `SubstituteBindings`; one that replaces the list later
-must put `SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential` and `UsePendingCredential` before
+transport extracts, judged on the request's client (see [Refreshing](refreshing.md)), proven and admitted as a refresh
+would be, without rotating it, and judged against the tenant's authentication policy as a refresh judges it, without
+writing: a session the next refresh would revoke has no caller (`sso_required`), nor does one it would return to pending
+(`additional_factor_required`). A replayed refresh token revokes its session as `rotation_reuse`, as a refresh does, so
+a read route behind `authentication.refresh` can revoke one. A cookie application's route lives under its cookie's path,
+where the browser sends the cookie. `authentication.pending:<action>[,<guard>]` declares the pending credential for a
+pending action by its stable name (`mfa.verify`, `choose_principal`, ...), read as `PendingCredential::extract()` reads
+it, from the `session.pending_credential_field` body field (`pending_credential`; a JSON or form body, never the query
+string or a header): there is a caller only while it names a live pending session of the guard that allows that action
+now, and the operation the route then takes (`satisfy()`, `choose()`, an adapter's action after `pending()`) makes its
+own checks; a controller that read `Auth::caller()` as `null` answers it without calling the action, so a refused
+credential is reported once. An action that is not a pending action is an `InvalidArgumentException`. Each makes a guard
+it names the default for the request, as `auth:<guard>` does, and records the declaration, nothing else: the credential
+is never inferred from what a request carries, so a refresh cookie that rides on every request does not turn a read
+route into one a refresh token authenticates. The package orders both before `SubstituteBindings` in the HTTP kernel's
+middleware priority once the kernel is resolved, so the declaration is in place before any route parameter is bound
+however a route lists them, also when the application sets the whole list with `withMiddleware()`'s `priority()`, as
+long as that list holds `SubstituteBindings`; one that replaces the list later must put
+`SineMacula\Laravel\Authentication\Http\Middleware\UseRefreshCredential` and `UsePendingCredential` before
 `SubstituteBindings` itself.
 
 The caller is read only when it is asked for, and once per request for a guard and a credential, so asking twice proves

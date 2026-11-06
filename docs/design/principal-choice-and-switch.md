@@ -148,14 +148,14 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
    (`Validated`, `Login` and the bind events), and the slots are given back after the bind. With no transaction open
    on the session's connection that is `SessionCreated`, `SignedIn`, then `Login`; inside a caller's transaction all
    of it follows the commit in that order, or none of it runs on a rollback.
-3. Later, `switchFromRequest(SwitchTarget::principal($other))` (or `switchTo($refreshToken, $target)` with a token read
-   by the caller) rotates the session to the other principal, in its own tenant unless one is named, or with
-   `SwitchTarget::tenant()` to another tenant, and schedules `PrincipalSwitched` for the commit on the session's
-   connection before it binds the guard to the destination in the destination tenant (`Authenticated`,
-   `PrincipalAssigned`, `SessionAuthenticated`), so a bind listener that throws cannot withhold the report. With no
-   transaction open there `PrincipalSwitched` is dispatched at once, before the bind events; inside a caller's
-   transaction both follow the commit, in that order, or are dropped on a rollback. Every access token
-   issued before the switch fails on the bearer path from then on.
+3. Later, `switchTo($presented, SwitchTarget::principal($other), $client)` (the token the transport's `extract()`
+   answered, or one a body application read, and the request's client) rotates the session to the other principal, in
+   its own tenant unless one is named, or with `SwitchTarget::tenant()` to another tenant, and schedules
+   `PrincipalSwitched` for the commit on the session's connection before it binds the guard to the destination in the
+   destination tenant (`Authenticated`, `PrincipalAssigned`, `SessionAuthenticated`), so a bind listener that throws
+   cannot withhold the report. With no transaction open there `PrincipalSwitched` is dispatched at once, before the bind
+   events; inside a caller's transaction both follow the commit, in that order, or are dropped on a rollback. Every
+   access token issued before the switch fails on the bearer path from then on.
 
 ## Failure / Edge Cases
 
@@ -185,7 +185,7 @@ pending, are in `pending-sessions.md`; the active tenant and the tenant authenti
 ## Implementation Anchors
 
 - `src/Sessions/SessionService.php`: `principals()`, `pending()`, `choose()`;
-  `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`, `switchFromRequest()`, `switched()`;
+  `src/Sessions/Concerns/SwitchesSessions.php`: `switchTo()`, `refuseSwitch()`, `switched()`;
   `src/Sessions/Concerns/LooksUpSessions.php`: `principal()`; a chosen session is activated by
   `src/Sessions/PendingSessions.php` (`choose()`) over `src/Sessions/SessionActivation.php` and then bound by the
   service.

@@ -96,8 +96,10 @@ outdates, and why the change stands when the notice to the old identifier fails.
    transaction the code is accepted and used up, the change deleted, no other holder found, the outdated proofs
    invalidated, the identifier replaced and verified. After commit: `IdentifierChanged`, and the notice to `previous` is
    queued.
-3. `requestByLink(...)` / `confirmByLink($request)` are the same with a signed link in place of the code: the link is
-   returned for the application to send, and the confirmation checks its signature, purpose, guard, request and digest.
+3. `requestByLink(...)` / `confirmByLink($link, $client)` are the same with a signed link in place of the code: the link
+   is returned for the application to send, and the confirmation takes it as `SignedLink::fromRequest()` captured it
+   (the address and the raw query string) and checks its signature, expiry, purpose, guard, request and digest again
+   from those values.
 
 ## Failure / Edge Cases
 
