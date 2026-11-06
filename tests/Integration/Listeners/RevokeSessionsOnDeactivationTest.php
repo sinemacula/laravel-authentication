@@ -18,6 +18,7 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
@@ -179,6 +180,35 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
     }
 
     /**
+     * Rows of `[the deactivation made inside the sign-in's transaction after the
+     * sign-in admitted the member, the reactivation, the reason the answered
+     * session is revoked with]`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return iterable<string, array{0: \Closure(\Tests\Integration\Fixtures\RecheckedMember, \Tests\Integration\Fixtures\RecheckedMembership): mixed, 1: \Closure(\Tests\Integration\Fixtures\RecheckedMember, \Tests\Integration\Fixtures\RecheckedMembership): mixed, 2: \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason}>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    public static function provideDeactivationsInsideASignInsTransaction(): iterable
+    {
+        yield 'identity' => [
+            static fn (RecheckedMember $member): bool => $member->update(['is_active' => false]),
+            static fn (RecheckedMember $member): bool => $member->update(['is_active' => true]),
+            RevocationReason::IDENTITY_DEACTIVATED,
+        ];
+        yield 'principal' => [
+            static fn (RecheckedMember $member, RecheckedMembership $membership): bool => $membership->update(['is_active' => false]),
+            static fn (RecheckedMember $member, RecheckedMembership $membership): bool => $membership->update(['is_active' => true]),
+            RevocationReason::PRINCIPAL_DEACTIVATED,
+        ];
+    }
+
+    /**
      * A sign-in inside a caller's transaction that admitted the member before a
      * deactivation made in that transaction is answered with its session, which
      * is ended once the transaction commits: after the reactivation neither its
@@ -190,6 +220,7 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
      *
      * @param  \Closure(\Tests\Integration\Fixtures\RecheckedMember, \Tests\Integration\Fixtures\RecheckedMembership): mixed  $deactivate
      * @param  \Closure(\Tests\Integration\Fixtures\RecheckedMember, \Tests\Integration\Fixtures\RecheckedMembership): mixed  $reactivate
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @return void
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -198,8 +229,8 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
      *
      * @throws \Throwable
      */
-    #[DataProvider('provideDeactivationsDuringASignIn')]
-    public function testASignInAnsweredInsideTheDeactivationsTransactionIsEndedAtItsCommit(\Closure $deactivate, \Closure $reactivate): void
+    #[DataProvider('provideDeactivationsInsideASignInsTransaction')]
+    public function testASignInAnsweredInsideTheDeactivationsTransactionIsEndedAtItsCommit(\Closure $deactivate, \Closure $reactivate, RevocationReason $reason): void
     {
         [$member, $membership] = $this->seedRechecked(self::EMAIL);
 
@@ -218,6 +249,7 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
         $this->moveClocksTo(CarbonImmutable::now()->addMinute());
 
         self::assertNotNull(DB::table('authentication_sessions')->where('id', $answered->record->getKey())->value('revoked_at'));
+        self::assertSame($reason->value, DB::table('authentication_sessions')->where('id', $answered->record->getKey())->value('revoked_reason'));
 
         $this->bearer($answered->tokens->accessToken->reveal())->assertUnauthorized();
         $this->postJson('/refresh', ['refresh_token' => $answered->tokens->refreshToken?->reveal()])->assertOk()->assertExactJson(['refreshed' => false]);
