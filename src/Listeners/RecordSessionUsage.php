@@ -28,10 +28,12 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * write connection, and one that is gone records nothing. A session bound that
  * is not an Eloquent session records nothing either.
  *
- * The client is the one the event carries: the request being served when the
- * session was bound, or the client a refresh, sign-in or pending action made
- * from plain values was given, so a long-running worker records that client,
- * not one the listener saw before.
+ * The client is the one the event carries: the client the bind was given (a
+ * sign-in, a pending action, a refresh and a switch each hand in their own), or
+ * the guard's request's for a bind given none (a request authenticating with
+ * its own credential, or `login()` or `authenticateAs()` called without one),
+ * so a long-running worker records that client, not one the listener saw
+ * before.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

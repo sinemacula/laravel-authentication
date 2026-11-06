@@ -41,10 +41,13 @@ are caught on the server.
 - **JWT guard** with guard-bound, kid-rotated HMAC tokens in a private profile that borrows RFC 9068's claims
   (`client_id`, `auth_time`, `amr`, an `at+jwt` header type) and OpenID Connect's `sid`, refresh rotation with replay
   detection, and a refresh transport per application: the body, or for a browser application a host-only `HttpOnly`
-  cookie named after it, with CSRF checks, whose results never hand its code the plain refresh token. Every action takes
-  plain values: a controller reads the request with the package's helpers (`ClientContext::fromRequest()`, the refresh
-  transport's `extract()`, `PendingCredential::extract()`, `SignedLink::fromRequest()`), and the service layer hands
-  them on to one method per action, which judges every fact itself and records the client, last use included.
+  cookie named after it, with CSRF checks, whose results never hand its code the plain refresh token. Every sign-in,
+  session and credential action takes plain values: a controller reads the request with the package's helpers
+  (`SignInContext::fromRequest()`, `ClientContext::fromRequest()`, `RequestBody::fields()`, the refresh transport's
+  `extract()`, `PendingCredential::extract()`, `SignedLink::fromRequest()`, `ClientCredentialsRequest::extract()`) or
+  builds the values itself (`PresentedRefreshToken::fromBody()`, say), and the service layer hands them on to one method
+  per action, which judges every fact itself and records the client given, last use included (`signOut()`,
+  `signOutEverywhere()`, the revocations and API key management take none and report the guard's request's).
 - **Sign-in methods**: password, one-time code to a phone or email, and passkeys, behind one contract that custom
   methods plug into; a further-factor package can use passkeys as a factor too, with a ceremony bound to the session and
   the credentials it names, and a gate it takes part in when a passkey is registered or removed.

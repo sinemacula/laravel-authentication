@@ -105,7 +105,7 @@ final readonly class EventContext implements Arrayable
         /** Name of the guard the event is about; `null` only for a session that records none, or a verification link refused before its guard could be trusted. */
         public ?string $guard,
 
-        /** Client of the request being served (in a queue job or a console command, that process's request). */
+        /** Client the flow was given, or the guard's request's for a flow that takes none. */
         public ClientContext $client,
 
         // Identity the event is about, if known; only its type and identifier

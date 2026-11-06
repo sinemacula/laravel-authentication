@@ -316,12 +316,12 @@ return [
     | body (`client_secret_post`); off, only HTTP Basic is accepted (RFC 6749
     | requires every server to accept it) and a client authenticated in the
     | body is refused as `invalid_client`, however its `PresentedClient` was
-    | built. A malformed value, or an unknown key, fails closed with
-    | an `InvalidArgumentException` naming the guard and the key when the
-    | guard's policy is first used. Which principals may use an application,
-    | and which tenants they may act in, are not settings here but the
-    | `ApplicationAccess` and `TenantAccess` contracts: by default any
-    | principal may use any application, in its own tenant only.
+    | built. A malformed value, or an unknown key, fails closed with an
+    | `InvalidArgumentException` naming the guard and the key when the guard's
+    | policy is first used. Which principals may use an application, and which
+    | tenants they may act in, are not settings here but the `ApplicationAccess`
+    | and `TenantAccess` contracts: by default any principal may use any
+    | application, in its own tenant only.
     |
     */
 

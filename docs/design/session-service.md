@@ -23,15 +23,16 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   reads the guard's request for it: `signIn()`, `start()` and `signInExternally()` (the `SignInContext`), `refresh()`,
   `switchTo()`, `signOutWith()`, `satisfy()`, `choose()`, `discard()`, `stepUp()`, `reauthenticate()` and
   `reauthenticateExternally()` (the `ClientContext`), as the code, passkey, password, identifier change and client
-  credentials services and the identifier verifier do; a password the password service sets reports the sessions it
-  ends with its client too (`SessionRevocations::revokeSessions()` given it). The rest report the client of the guard's request:
-  `signOut()` and `signOutEverywhere()`, which act on the guard's own binding, and the guard is request-scoped by
-  Laravel's contract; the revocation and security-change methods an application calls from its own administrative
+  credentials services and the identifier verifier do; a password the password service sets reports the sessions it ends
+  with its client too (`SessionRevocations::revokeSessions()` given it). The rest report the client of the guard's
+  request: `signOut()` and `signOutEverywhere()`, which act on the guard's own binding, and the guard is request-scoped
+  by Laravel's contract; the revocation and security-change methods an application calls from its own administrative
   flows or listeners, the package's opt-in listeners among them (`revokeSession()`, `revokeSessions()`,
   `revokePrincipalSessions()`, `passwordChanged()`, `passwordReset()`, `credentialRemoved()`, `factorRemoved()`,
   `factorChanged()`, `factorReset()`, `identityDeactivated()`, `principalDeactivated()`, `tenantDeactivated()`,
-  `tenantPolicyChanged()`, `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()`, `linkScopeWidened()`); and
-  `ApiKeyService`'s `issue()`, `rotate()` and `revoke()`.
+  `tenantPolicyChanged()`, `connectionDisabled()`, `connectionDeleted()`, `linkRemoved()`, `linkScopeWidened()`); the
+  deletion methods (`identityDeleted()`, `principalDeleted()`) and the opt-in `RevokeSessionsOnDeletion` observer that
+  calls them; and `ApiKeyService`'s `issue()`, `rotate()` and `revoke()`.
 - No event ever receives the sign-in input. `Attempting` and `Failed` carry only `[type => identifier]` (or
   `['identifier' => ...]` for a method without a type, or nothing); `AuthenticationFailed` carries the identifier as
   given.
