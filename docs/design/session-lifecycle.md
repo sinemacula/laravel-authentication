@@ -198,37 +198,43 @@ revoked, and when a session that ended is deleted. Starting a session is in
   choice: the principal and tenant; a switch: what it changed) and judges standing only (exists, active, and for an
   identity or principal with `HasTokensValidAfter` a cutoff not moved to a later second than the call began in, nor than
   a revocation that kept the session moved it to: `Sessions\KeptSessions`, scoped, records the session a bulk revocation
-  excepts with each cutoff it moved, since that revocation saw it; a switch of tenant alone also needs its principal to
-  resolve). No access contract, application policy or tenant authentication policy is asked. A failure revokes the
-  session (`RevocationWriter::revoke()`, conditional) with the matching reason; reports the call routes through
-  `AdmissionRecheck::then()` (a switch's `SessionReturnedToPending` among them, through
-  `PendingTransitions::reportingThrough()`) run only after a pass, and those through `afterCheck()` (a superseded
-  session's `SessionRevoked`) after the check whatever it found, the check being registered before either so no listener
-  can keep it from running; a failure before the call answers becomes the call's refusal (`refusal()`, naming the
-  session for a choice or a switch), with no `SessionRevoked` for a sign-in's own new session, while a failure after it
-  (a caller's transaction) or of a session that existed before the call (choice, switch) reports `SessionRevoked` and
-  forgets a guard binding to it. (B) The five deactivation and deletion revocations (`identityDeactivated()`,
-  `identityDeleted()`, `principalDeactivated()`, `principalDeleted()`, `tenantDeactivated()`) run their scopes again
-  (`RevocationWriter::revokeAgain()`, `keepingCutoff()`, only `SessionRevoked` reported, not counted) once the
-  transactions open, when they ran, on the session model's connection and the changed model's own have committed. Proof:
-  let W be the call's commit, C its check (after W, reading committed state), D the change's commit, Rd the revocation's
-  read (the observer's after D, or the second pass's after D). If Rd sees the session it is ended; otherwise Rd's
-  snapshot predates W, so D committed before W, hence before C, and C sees the change, unless something undid it before
-  C: then the revocation in between moved the cutoff past the call's start, which C refuses. The residual is a change
-  undone within the call's window for a subject without a cutoff (a tenant always; a hard-deleted identity or principal
-  whose key is inserted again before C), or one whose revocation ran within the second the call began, whenever it was
-  undone. Option (a) alone, judging every session against the cutoff, was rejected: it does not cover an admission
-  before the cutoff and a `signed_in_at` after it, it would end the sessions `signOutEverywhere(keep current)` and the
-  password changes keep, and it leaves subjects without a cutoff open. Option (b) as row locks taken by the sign-in and
-  waited on by the revocation was withdrawn: it adds a lock order (identity, principal, tenants before session rows)
-  with a deadlock against a switch's replacement, gap locks on MySQL, and partial commits across connections. Costs: a
-  sign-in reads the identity again (a 2D identity, its own principal, once) and in 3D its principal and that principal's
-  tenant; a choice and a switch to another principal its principal and tenant; a switch of tenant alone its principal
-  (the instance it admitted may hold its own tenant as loaded before the change), that principal's tenant and the tenant
-  switched to; the five revocations scan their scopes once more only inside a transaction. The guarantee holds for
-  Eloquent identity, principal and tenant models whose standing is read on their own connection: what the check reads
-  elsewhere (a non-Eloquent principal or tenant through its resolver, a principal's own tenant on another connection,
-  derived activity) is read as that connection gives it.
+  excepts with each cutoff it moved, since that revocation saw it, and forgets it when the move of an Eloquent holder's
+  cutoff rolls back; a switch of tenant alone also needs its principal to resolve). A later switch or choice of the same
+  session in the same request or job takes what it changed out of a check still waiting (`Sessions\WatchedSessions`,
+  scoped, and put back if its write rolls back), and judges an active tenant the session keeps under another principal
+  in its place, so a check never ends a session for a subject it left. No access contract, application policy or tenant
+  authentication policy is asked. A failure revokes the session (`RevocationWriter::revoke()`, conditional) with the
+  matching reason; reports the call routes through `AdmissionRecheck::then()` (a switch's `SessionReturnedToPending`
+  among them, through `PendingTransitions::reportingThrough()`) run only after a pass, and those through `afterCheck()`
+  (a superseded session's `SessionRevoked`) after the check whatever it found, the check being registered before either
+  so no listener can keep it from running; a failure before the call answers becomes the call's refusal (`refusal()`,
+  naming the session for a choice or a switch), with no `SessionRevoked` for a sign-in's own new session, while a
+  failure after it (a caller's transaction) or of a session that existed before the call (choice, switch) reports
+  `SessionRevoked` and forgets a guard binding to it. (B) The five deactivation and deletion revocations
+  (`identityDeactivated()`, `identityDeleted()`, `principalDeactivated()`, `principalDeleted()`, `tenantDeactivated()`)
+  run their scopes again (`RevocationWriter::revokeAgain()`, `keepingCutoff()`, only `SessionRevoked` reported, not
+  counted) once the transactions open, when they ran, on the session model's connection and the changed model's own have
+  committed. The check and the second pass are required work (`Database\RequiredWork`, scoped): every callback
+  `AfterCommit` registers runs the required work that is due before an exception it throws leaves it, since Laravel
+  stops a commit's callbacks at the first that throws, so a listener on a report cannot skip them; an application's own
+  commit callback that throws still can. Proof: let W be the call's commit, C its check (after W, reading committed
+  state), D the change's commit, Rd the revocation's read (the observer's after D, or the second pass's after D). If Rd
+  sees the session it is ended; otherwise Rd's snapshot predates W, so D committed before W, hence before C, and C sees
+  the change, unless something undid it before C: then the revocation in between moved the cutoff past the call's start,
+  which C refuses. The residual is a change undone within the call's window for a subject without a cutoff (a tenant
+  always; a hard-deleted identity or principal whose key is inserted again before C), or one whose revocation ran within
+  the second the call began, whenever it was undone. Option (a) alone, judging every session against the cutoff, was
+  rejected: it does not cover an admission before the cutoff and a `signed_in_at` after it, it would end the sessions
+  `signOutEverywhere(keep current)` and the password changes keep, and it leaves subjects without a cutoff open. Option
+  (b) as row locks taken by the sign-in and waited on by the revocation was withdrawn: it adds a lock order (identity,
+  principal, tenants before session rows) with a deadlock against a switch's replacement, gap locks on MySQL, and
+  partial commits across connections. Costs: a sign-in reads the identity again (a 2D identity, its own principal, once)
+  and in 3D its principal and that principal's tenant; a choice and a switch to another principal its principal and
+  tenant; a switch of tenant alone its principal (the instance it admitted may hold its own tenant as loaded before the
+  change), that principal's tenant and the tenant switched to; the five revocations scan their scopes once more only
+  inside a transaction. The guarantee holds for Eloquent identity, principal and tenant models whose standing is read on
+  their own connection: what the check reads elsewhere (a non-Eloquent principal or tenant through its resolver, a
+  principal's own tenant on another connection, derived activity) is read as that connection gives it.
 - The password-change observer ignores a save of the user the container's scoped `Sessions\Methods\Rehashing` marks, and
   a save is a rehash only when it re-encodes the password signed in with: both the previous hash (the model's original,
   which Eloquent has not yet synced in `updated`) and the saved hash verify it (the hasher's `check()`; a hash it
@@ -342,7 +348,9 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - `src/Sessions/AdmissionRecheck.php` (the check after commit of a sign-in, choice or switch),
   `src/Sessions/KeptSessions.php` (the sessions a bulk revocation kept, recorded by `RevocationWriter::revokeScopes()`),
   `src/Sessions/RevocationWriter.php` (`revokeAgain()`, the second pass), `src/Database/AfterCommit.php`
-  (`runOnceEnded()` for the check, `runAcross()` for the second pass)
+  (`runOnceEnded()` for the check, `runAcross()` for the second pass), `src/Database/RequiredWork.php` (the work a
+  throwing callback runs first), `src/Sessions/WatchedSessions.php` (the checks still waiting per session),
+  `src/Support/RowKey.php`
 
 ## Authoritative Tests
 
@@ -369,10 +377,13 @@ revoked, and when a session that ended is deleted. Starting a session is in
 - `tests/Integration/Listeners/RevokeSessionsOnDeletionTest.php`: a soft-deleted identity's or principal's session
   refused at the `auth` middleware and at refresh beyond a restore, a force delete after a restore, a foreign-key
   cascade from the identity, the cutoff a soft delete moves, and a sign-in admitted before an identity's or principal's
-  soft delete never outliving the restore, on SQLite, PostgreSQL and MySQL
+  soft delete never outliving the restore, on SQLite, PostgreSQL and MySQL;
+  `tests/Integration/Listeners/RevokeSessionsOnDeactivationTest.php`: the same for a deactivation and a reactivation
 - `tests/Feature/Sessions/AdmissionRecheckTest.php`: every refusal of the check after commit and its revocation reason,
   the cutoff before, at and after the call's start, a cutoff moved by a revocation that kept the session, and the
-  deferral across connections; `tests/Feature/Sessions/KeptSessionsTest.php`: the kept sessions' floor;
+  deferral across connections, a check of a session moved on by a later switch, and a report that throws at the commit;
+  `tests/Feature/Sessions/KeptSessionsTest.php`: the kept sessions' floor; `tests/Feature/Database/AfterCommitTest.php`:
+  the required work a callback that throws runs;
   `tests/Feature/Sessions/SessionRevocationsTest.php`, `tests/Feature/Sessions/RevocationWriterTest.php`: the second
   pass; `tests/Integration/Sessions/ConcurrentSignInAndDeactivationTest.php`: a sign-in, choice and switch racing a
   deactivation or deletion in two processes on PostgreSQL and MySQL, at READ COMMITTED and REPEATABLE READ, the change
