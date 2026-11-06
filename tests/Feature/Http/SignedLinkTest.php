@@ -112,6 +112,40 @@ final class SignedLinkTest extends TestCase
     }
 
     /**
+     * An application served from a subdirectory signs its links under its base
+     * path, and the link is captured with it, so it stays authentic.
+     *
+     * @return void
+     */
+    public function testALinkUnderABasePathIsCapturedWithIt(): void
+    {
+        $script = [
+            'SCRIPT_NAME'     => '/app/index.php',
+            'SCRIPT_FILENAME' => '/srv/public/app/index.php',
+            'PHP_SELF'        => '/app/index.php',
+        ];
+
+        $served = $this->urls()->getRequest();
+
+        $this->urls()->setRequest(Request::create('http://localhost/app/', server: $script));
+
+        $signed = $this->urls()->signedRoute('links.show', ['id' => 7]);
+
+        $this->urls()->setRequest($served);
+
+        self::assertStringStartsWith('http://localhost/app/links/7?', $signed);
+
+        $request = Request::create($signed, server: $script);
+
+        self::assertSame('/app', $request->getBaseUrl());
+
+        $link = SignedLink::fromRequest($request);
+
+        self::assertSame('http://localhost/app/links/7', $link->url);
+        self::assertTrue($this->urls()->hasCorrectSignature($link->toRequest()));
+    }
+
+    /**
      * The raw query string is checked as it was sent: a link whose query
      * encodes its fields otherwise than the framework would re-encode them
      * stays authentic, and one whose query was changed on the way does not.

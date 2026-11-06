@@ -599,6 +599,33 @@ final class PasswordChangesTest extends TestCase
     }
 
     /**
+     * An establishment that goes through reports the client handed in on every
+     * event, the session it ends and the `SignedOutEverywhere` as well as
+     * `PasswordSet`, while the guard serves a request from another address.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnEstablishmentReportsTheClientHandedInOnEveryEvent(): void
+    {
+        $identity = self::seedPasswordIdentity(attributes: ['password' => null]);
+        $kept     = $this->started($identity);
+        $client   = new ClientContext('198.51.100.9', 'Other/1.0');
+
+        $this->started($identity, 'admin');
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
+
+        self::assertNotSame($client->ip, self::requestClient()->ip);
+        self::assertSame(1, Auth::passwords('web')->establish($kept, self::NEW_PASSWORD, $client)->revoked);
+        self::assertSame([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame([$client, $client, $client], array_map(
+            static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
+            $this->recorded,
+        ));
+    }
+
+    /**
      * Rows of `[setting, malformed value, message]` a change reads before it
      * reads anything else.
      *
