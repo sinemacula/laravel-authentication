@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Events\SteppedUp;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -210,7 +211,13 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
 
             [, $second] = $this->race(
                 fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target))),
+                fn (): array => self::describe(
+                    $this->sessions(self::GUARD)->switchTo(
+                        PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                        SwitchTarget::principal($target),
+                        self::requestClient(),
+                    ),
+                ),
                 $commit,
             );
 
@@ -250,8 +257,17 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
             $session = $this->signIn($first);
 
             [$refreshed, $second] = $this->race(
-                fn (): bool => self::sessionsOf($this->freshGuard(self::GUARD))->refresh($session->tokens->refreshToken?->reveal())->isRefreshed(),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target))),
+                fn (): bool => self::sessionsOf($this->freshGuard(self::GUARD))->refresh(
+                    PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                    self::requestClient(),
+                )->isRefreshed(),
+                fn (): array => self::describe(
+                    $this->sessions(self::GUARD)->switchTo(
+                        PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                        SwitchTarget::principal($target),
+                        self::requestClient(),
+                    ),
+                ),
                 $commit,
             );
 
@@ -295,8 +311,20 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
             $session = $this->signIn($default);
 
             [$first, $second] = $this->race(
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target))),
-                fn (): array => self::describe($this->sessions(self::GUARD)->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($target))),
+                fn (): array => self::describe(
+                    $this->sessions(self::GUARD)->switchTo(
+                        PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                        SwitchTarget::principal($target),
+                        self::requestClient(),
+                    ),
+                ),
+                fn (): array => self::describe(
+                    $this->sessions(self::GUARD)->switchTo(
+                        PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                        SwitchTarget::principal($target),
+                        self::requestClient(),
+                    ),
+                ),
                 $commit,
             );
 
@@ -617,12 +645,12 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
         $token  = $session->tokens->refreshToken?->reveal() ?? '';
         $answer = $retry === 'refresh'
             ? function () use ($token): array {
-                $result = self::sessionsOf($this->freshGuard(self::GUARD))->refresh($token);
+                $result = self::sessionsOf($this->freshGuard(self::GUARD))->refresh(PresentedRefreshToken::fromBody($token), self::requestClient());
 
                 return ['answered' => $result->isRefreshed(), 'reason' => $result->reason?->value];
             }
         : function () use ($token, $target): array {
-            $result = $this->sessions(self::GUARD)->switchTo($token, SwitchTarget::principal($target));
+            $result = $this->sessions(self::GUARD)->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($target), self::requestClient());
 
             return ['answered' => $result->isSwitched(), 'reason' => $result->reason?->value];
         };

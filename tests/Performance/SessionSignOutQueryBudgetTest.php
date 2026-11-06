@@ -91,7 +91,7 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->serving(['refresh_token' => $this->signedIn()]);
 
-        self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => $sessions->signOutFromRequest()->isSignedOut()));
+        self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => self::signOutServed($sessions)->isSignedOut()));
     }
 
     /**
@@ -106,11 +106,11 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
     {
         $invalid = $this->serving(['refresh_token' => 'not-a-token']);
 
-        self::assertSame(FailureReason::TOKEN_INVALID, $this->assertQueryBudget(0, 0, static fn (): ?FailureReason => $invalid->signOutFromRequest()->reason));
+        self::assertSame(FailureReason::TOKEN_INVALID, $this->assertQueryBudget(0, 0, static fn (): ?FailureReason => self::signOutServed($invalid)->reason));
 
         $conflict = $this->serving(['refresh_token' => 'one-token'], ['HTTP_X_REFRESH_TOKEN' => 'another-token']);
 
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $this->assertQueryBudget(0, 0, static fn (): ?FailureReason => $conflict->signOutFromRequest()->reason));
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $this->assertQueryBudget(0, 0, static fn (): ?FailureReason => self::signOutServed($conflict)->reason));
     }
 
     /**
@@ -136,19 +136,19 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->serving([]);
 
-        self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => $sessions->signOutPresented($body, self::crossSiteClient())->isSignedOut()));
+        self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => $sessions->signOutWith($body, self::crossSiteClient())->isSignedOut()));
 
         $browser   = self::sessionsOf($this->crossSiteGuard('admin'));
         $presented = self::presentedToken($cookie, RefreshTokenSource::COOKIE);
 
-        $reasonOf = static fn (FailureReason|PresentedRefreshToken $given, ClientContext $client): ?FailureReason => $browser->signOutPresented($given, $client)->reason;
+        $reasonOf = static fn (FailureReason|PresentedRefreshToken $given, ClientContext $client): ?FailureReason => $browser->signOutWith($given, $client)->reason;
 
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn (): ?FailureReason => $reasonOf($presented, self::crossSiteClient())));
         $handedIn = static fn (): ?FailureReason => $reasonOf(FailureReason::TOKEN_INVALID, self::sameSiteClient());
 
         self::assertSame(FailureReason::TOKEN_INVALID, $this->assertQueryBudget(0, 0, $handedIn));
-        self::assertFalse($this->assertQueryBudget(0, 0, static fn (): bool => $browser->signOutPresented(null, self::sameSiteClient())->isSignedOut()));
-        self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => $browser->signOutPresented($presented, self::sameSiteClient())->isSignedOut()));
+        self::assertFalse($this->assertQueryBudget(0, 0, static fn (): bool => $browser->signOutWith(null, self::sameSiteClient())->isSignedOut()));
+        self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => $browser->signOutWith($presented, self::sameSiteClient())->isSignedOut()));
     }
 
     /**
@@ -165,7 +165,10 @@ final class SessionSignOutQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->serving(['refresh_token' => $this->signedIn()]);
 
-        self::assertInstanceOf(RefreshCredential::class, $this->assertQueryBudget(2, 0, static fn (): mixed => $sessions->refreshCredentialFromRequest()));
+        self::assertInstanceOf(
+            RefreshCredential::class,
+            $this->assertQueryBudget(2, 0, static fn (): mixed => $sessions->refreshCredential(self::servedToken(), self::requestClient())),
+        );
     }
 
     /**

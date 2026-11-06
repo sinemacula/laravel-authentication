@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -68,7 +69,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->reason === FailureReason::TOKEN_INVALID),
             );
 
-        self::assertNull(GuardSessions::of($guard)->refresh('not-a-jwt')->session);
+        self::assertNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody('not-a-jwt'), self::requestClient($guard->getRequest()))->session);
     }
 
     /**
@@ -94,7 +95,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->reason === FailureReason::TOKEN_INVALID),
             );
 
-        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
+        self::assertNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session);
     }
 
     /**
@@ -124,7 +125,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->context->sessionId === '01HZZZZZZZZZZZZZZZZZZZZZZZ'),
             );
 
-        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
+        self::assertNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session);
     }
 
     /**
@@ -152,7 +153,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $dispatched = $this->recordDispatchedEvents();
 
-        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
+        self::assertNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session);
 
         $events = $dispatched->getArrayCopy();
 
@@ -197,7 +198,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->context->sessionId === null),
             );
 
-        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
+        self::assertNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session);
     }
 
     /**
@@ -228,7 +229,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->context->sessionId === 'session-non-string-jti'),
             );
 
-        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
+        self::assertNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session);
     }
 
     /**
@@ -271,7 +272,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                     && $event->reason === FailureReason::SESSION_REVOKED),
             );
 
-        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
+        self::assertNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session);
     }
 
     /**
@@ -336,7 +337,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $dispatched = $this->recordDispatchedEvents();
 
-        self::assertNull(GuardSessions::of($guard)->refresh($token)->session);
+        self::assertNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session);
         self::assertContains(SessionRevoked::class, array_map(static fn (object $event): string => $event::class, $dispatched->getArrayCopy()));
 
         $fresh = StubSession::query()->findOrFail($session->id);
@@ -396,13 +397,13 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $dispatched = $this->recordDispatchedEvents();
 
-        $rotated = GuardSessions::of($this->makeGuard($this->makeRequest(null)))->refresh($oldToken)->session?->tokens;
+        $rotated = GuardSessions::of($this->makeGuard($this->makeRequest(null)))->refresh(PresentedRefreshToken::fromBody($oldToken), self::requestClient())->session?->tokens;
 
         self::assertInstanceOf(TokenPair::class, $rotated);
 
         Carbon::setTestNow($this->now->copy()->addSeconds(29));
 
-        $retried = GuardSessions::of($this->makeGuard($this->makeRequest(null)))->refresh($oldToken)->session?->tokens;
+        $retried = GuardSessions::of($this->makeGuard($this->makeRequest(null)))->refresh(PresentedRefreshToken::fromBody($oldToken), self::requestClient())->session?->tokens;
 
         self::assertInstanceOf(TokenPair::class, $retried);
         self::assertSame(
@@ -413,7 +414,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         Carbon::setTestNow($this->now->copy()->addSeconds(30));
 
-        self::assertNull(GuardSessions::of($this->makeGuard($this->makeRequest(null)))->refresh($oldToken)->session);
+        self::assertNull(GuardSessions::of($this->makeGuard($this->makeRequest(null)))->refresh(PresentedRefreshToken::fromBody($oldToken), self::requestClient())->session);
         self::assertSame('rotation_reuse', StubSession::query()->findOrFail($session->id)->revoked_reason);
     }
 
@@ -442,7 +443,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                 $failedEvent = $event;
             });
 
-        GuardSessions::of($guard)->refresh('not-a-jwt');
+        GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody('not-a-jwt'), self::requestClient($guard->getRequest()));
 
         self::assertInstanceOf(Failed::class, $failedEvent);
         self::assertSame(self::GUARD_NAME, $failedEvent->guard);

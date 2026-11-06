@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Sessions\RevocationWriter;
 use SineMacula\Laravel\Authentication\Sessions\SessionRevocations;
 use Tests\Concerns\BindsSignInPolicyDoubles;
+use Tests\Concerns\BuildsPlainValues;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\FirstFactorRecorder;
@@ -51,7 +52,7 @@ use Tests\Unit\Stubs\StubSession;
  */
 abstract class JwtGuardTestCase extends TestCase
 {
-    use BindsSignInPolicyDoubles, InteractsWithProofs, InteractsWithSessionRecords, MockeryPHPUnitIntegration;
+    use BindsSignInPolicyDoubles, BuildsPlainValues, InteractsWithProofs, InteractsWithSessionRecords, MockeryPHPUnitIntegration;
 
     /** @var string The guard name forwarded to JwtGuard's constructor. */
     protected const string GUARD_NAME = 'jwt-test';

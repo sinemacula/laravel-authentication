@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Applications\GuardApplicationPolicy;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
@@ -68,7 +69,7 @@ final class EmptyApplicationIntegrationTest extends TestCase
 
         Route::post('/refresh', static function (Request $request): array {
 
-            $result = Auth::sessions('api')->refresh($request->string('refresh_token')->toString());
+            $result = Auth::sessions('api')->refresh(PresentedRefreshToken::fromBody($request->string('refresh_token')->toString()), self::requestClient());
 
             return ['refreshed' => $result->isRefreshed(), 'reason' => $result->reason?->value];
         });

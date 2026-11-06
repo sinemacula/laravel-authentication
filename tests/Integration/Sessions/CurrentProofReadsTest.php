@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
 use SineMacula\Laravel\Authentication\Freshness\Operations;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\SubjectType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
@@ -446,7 +447,10 @@ final class CurrentProofReadsTest extends TestCase
         $refreshed = $this->judgeAfter(
             $level,
             fn () => $this->stepUpElsewhere($member, $session, 'factor-1'),
-            fn (): bool => $this->sessions('members')->refresh((string) $session->tokens->refreshToken?->reveal())->isRefreshed(),
+            fn (): bool => $this->sessions('members')->refresh(
+                PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal()),
+                self::requestClient(),
+            )->isRefreshed(),
         );
 
         self::assertTrue($refreshed);
@@ -481,7 +485,10 @@ final class CurrentProofReadsTest extends TestCase
         $outstanding = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere('members', $key, 'factor-1'),
-            fn (): ?array => $this->sessions('members')->refresh((string) $session->tokens->refreshToken?->reveal())->pending?->requirement->kinds(),
+            fn (): ?array => $this->sessions('members')->refresh(
+                PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal()),
+                self::requestClient(),
+            )->pending?->requirement->kinds(),
         );
 
         self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $outstanding);
@@ -520,7 +527,11 @@ final class CurrentProofReadsTest extends TestCase
         $switched = $this->judgeAfter(
             $level,
             fn () => $this->stepUpElsewhere($member, $session, 'factor-1'),
-            fn (): bool => $this->sessions('members')->switchTo((string) $session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched(),
+            fn (): bool => $this->sessions('members')->switchTo(
+                PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->isSwitched(),
         );
 
         self::assertTrue($switched);
@@ -555,7 +566,7 @@ final class CurrentProofReadsTest extends TestCase
         $session   = $result->session;
         $presented = (string) $session->tokens->refreshToken?->reveal();
 
-        self::assertTrue($this->sessions('members')->switchTo($presented, SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue($this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($presented), SwitchTarget::principal($second), self::requestClient())->isSwitched());
 
         $rotated = DB::table('authentication_sessions')->value('refresh_key');
 
@@ -566,7 +577,7 @@ final class CurrentProofReadsTest extends TestCase
         $retried = $this->judgeAfter(
             $level,
             fn () => $this->stepUpElsewhere($member, $session, 'factor-1'),
-            fn (): bool => $this->sessions('members')->switchTo($presented, SwitchTarget::principal($second))->isSwitched(),
+            fn (): bool => $this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($presented), SwitchTarget::principal($second), self::requestClient())->isSwitched(),
         );
 
         self::assertTrue($retried);
@@ -612,7 +623,11 @@ final class CurrentProofReadsTest extends TestCase
         $outstanding = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere('members', $key, 'factor-1'),
-            fn (): ?array => $this->sessions('members')->switchTo($presented, SwitchTarget::principal($second))->pending?->requirement->kinds(),
+            fn (): ?array => $this->sessions('members')->switchTo(
+                PresentedRefreshToken::fromBody($presented),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->pending?->requirement->kinds(),
         );
 
         self::assertSame([RequirementKind::ADDITIONAL_VERIFICATION, RequirementKind::MULTIFACTOR], $outstanding);
@@ -642,14 +657,18 @@ final class CurrentProofReadsTest extends TestCase
         self::assertNotNull($pending->credential);
 
         $credential = $pending->credential->reveal();
-        $satisfied  = $this->sessions(self::CHOOSERS)->satisfy($credential, $this->proof($member, self::CHOOSERS, $pending->pending->id, 'factor-1', Purpose::SIGN_IN));
+        $satisfied  = $this->sessions(self::CHOOSERS)->satisfy(
+            $credential,
+            $this->proof($member, self::CHOOSERS, $pending->pending->id, 'factor-1', Purpose::SIGN_IN),
+            self::requestClient(),
+        );
 
         self::assertSame([PendingRequirement::PRINCIPAL], $satisfied->pending?->requires);
 
         $chosen = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere(self::CHOOSERS, $pending->pending->id, 'factor-1'),
-            fn (): ?array => $this->sessions(self::CHOOSERS)->choose($credential, $first)->pending?->requires,
+            fn (): ?array => $this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient())->pending?->requires,
         );
 
         self::assertSame([PendingRequirement::MFA], $chosen);
@@ -681,7 +700,11 @@ final class CurrentProofReadsTest extends TestCase
         self::assertNotNull($pending->credential);
 
         $credential = $pending->credential->reveal();
-        $satisfied  = $this->sessions(self::CHOOSERS)->satisfy($credential, $this->proof($member, self::CHOOSERS, $pending->pending->id, 'factor-1', Purpose::SIGN_IN));
+        $satisfied  = $this->sessions(self::CHOOSERS)->satisfy(
+            $credential,
+            $this->proof($member, self::CHOOSERS, $pending->pending->id, 'factor-1', Purpose::SIGN_IN),
+            self::requestClient(),
+        );
 
         self::assertSame([PendingRequirement::PRINCIPAL], $satisfied->pending?->requires);
 
@@ -692,7 +715,7 @@ final class CurrentProofReadsTest extends TestCase
         $chosen = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere(self::CHOOSERS, $pending->pending->id, 'factor-1'),
-            fn (): ?array => $this->sessions(self::CHOOSERS)->choose($credential, $first)->pending?->requires,
+            fn (): ?array => $this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient())->pending?->requires,
         );
 
         self::assertSame([PendingRequirement::MFA], $chosen);
@@ -725,12 +748,12 @@ final class CurrentProofReadsTest extends TestCase
         $credential = $pending->credential->reveal();
         $key        = $pending->pending->id;
 
-        self::assertTrue($this->sessions()->satisfy($credential, $this->proof($identity, 'api', $key, 'factor-1', Purpose::SIGN_IN))->isPending());
+        self::assertTrue($this->sessions()->satisfy($credential, $this->proof($identity, 'api', $key, 'factor-1', Purpose::SIGN_IN), self::requestClient())->isPending());
 
         $satisfied = $this->judgeAfter(
             $level,
             fn () => $this->voidElsewhere('api', $key, 'factor-1'),
-            fn (): bool => $this->sessions()->satisfy($credential, $this->proof($identity, 'api', $key, 'factor-2', Purpose::SIGN_IN))->isPending(),
+            fn (): bool => $this->sessions()->satisfy($credential, $this->proof($identity, 'api', $key, 'factor-2', Purpose::SIGN_IN), self::requestClient())->isPending(),
         );
 
         self::assertTrue($satisfied);
@@ -769,7 +792,10 @@ final class CurrentProofReadsTest extends TestCase
 
                 self::assertTrue($this->sessions('members')->reauthenticateExternally($session->record->getKey(), $result)->isIssued());
             }),
-            fn (): bool => $this->sessions('members')->refresh((string) $session->tokens->refreshToken?->reveal())->isRefreshed(),
+            fn (): bool => $this->sessions('members')->refresh(
+                PresentedRefreshToken::fromBody((string) $session->tokens->refreshToken?->reveal()),
+                self::requestClient(),
+            )->isRefreshed(),
         );
 
         self::assertTrue($refreshed);
@@ -1357,7 +1383,11 @@ final class CurrentProofReadsTest extends TestCase
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
 
-        $session = $this->sessions($guard)->satisfy($pending->credential->reveal(), $this->proof($identity, $guard, $pending->pending->id, $factor, Purpose::SIGN_IN))->session;
+        $session = $this->sessions($guard)->satisfy(
+            $pending->credential->reveal(),
+            $this->proof($identity, $guard, $pending->pending->id, $factor, Purpose::SIGN_IN),
+            self::requestClient(),
+        )->session;
 
         self::assertNotNull($session);
 

@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -122,7 +123,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         Route::post('/refresh', static function (Request $request): array {
 
-            $result = Auth::sessions('members')->refresh($request->string('refresh_token')->toString());
+            $result = Auth::sessions('members')->refresh(PresentedRefreshToken::fromBody($request->string('refresh_token')->toString()), self::requestClient());
 
             if ($result->reason === FailureReason::RATE_LIMITED) {
                 throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
@@ -571,8 +572,8 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $proof = self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN);
 
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential->reveal(), $proof)->reason);
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential->reveal(), $proof)->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential->reveal(), $proof, self::requestClient())->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($result->credential->reveal(), $proof, self::requestClient())->reason);
         self::assertSame(1, Session::query()->where('status', 'pending')->whereNull('revoked_at')->count());
         self::assertSame(0, Session::query()->where('status', 'active')->count());
         self::assertSame(1, SessionProof::query()->count());
@@ -637,7 +638,9 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertNull(self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNull(
+            self::sessionsOf($this->freshGuard('members'))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull(self::stored($session)->getRevokedAt());
     }

@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChange;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
@@ -313,7 +314,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
             $credential = $result->credential->reveal();
             $proof      = self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN);
 
-            return static fn (): ?Secret => $sessions->satisfy($credential, $proof)->session?->tokens->accessToken;
+            return static fn (): ?Secret => $sessions->satisfy($credential, $proof, self::requestClient())->session?->tokens->accessToken;
         }
 
         $session = $sessions->signIn('password', self::credentials())->session;
@@ -323,7 +324,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
         if ($holder === 'refresh') {
             $refresh = $session->tokens->refreshToken?->reveal() ?? '';
 
-            return static fn (): ?Secret => $sessions->refresh($refresh)->session?->tokens->accessToken;
+            return static fn (): ?Secret => $sessions->refresh(PresentedRefreshToken::fromBody($refresh), self::requestClient())->session?->tokens->accessToken;
         }
 
         if ($holder === 'factor change') {
@@ -386,7 +387,7 @@ final class ConcurrentIssuanceAndSignInTest extends TestCase
         $refresh  = $session->tokens->refreshToken?->reveal() ?? '';
 
         return match ($holder) {
-            'refresh' => static fn (): ?Secret => $sessions->refresh($refresh)->session?->tokens->accessToken,
+            'refresh' => static fn (): ?Secret => $sessions->refresh(PresentedRefreshToken::fromBody($refresh), self::requestClient())->session?->tokens->accessToken,
             'gate'    => $this->gateOf($identity, $session),
             default   => $this->factorChangeOf($identity, $session),
         };

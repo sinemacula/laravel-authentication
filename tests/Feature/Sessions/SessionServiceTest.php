@@ -1148,7 +1148,7 @@ final class SessionServiceTest extends TestCase
 
         [$credential, $proof] = $this->pendingWithProof($identity);
 
-        $result = Auth::sessions('api')->satisfy($credential, $proof);
+        $result = Auth::sessions('api')->satisfy($credential, $proof, self::requestClient());
 
         self::assertTrue($result->isSignedIn());
         self::assertSame($identity->getKey(), Auth::guard('api')->id());
@@ -1245,7 +1245,7 @@ final class SessionServiceTest extends TestCase
             throw new \RuntimeException('listener failed');
         });
 
-        self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->satisfy($credential, $proof)));
+        self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->satisfy($credential, $proof, self::requestClient())));
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertCount(0, $limiter->released);
         self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
@@ -1275,7 +1275,7 @@ final class SessionServiceTest extends TestCase
             self::assertCount(0, $limiter->released);
         });
 
-        self::assertTrue($this->sessions()->satisfy($credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($credential, $proof, self::requestClient())->isSignedIn());
         self::assertCount(count($held), $limiter->released);
         $windows = static fn (AttemptReservation $reservation): array => $reservation->windows;
 
@@ -1309,7 +1309,7 @@ final class SessionServiceTest extends TestCase
             throw new \RuntimeException('listener failed');
         });
 
-        $satisfy = fn (): SignInResult => $this->sessions()->satisfy($credential, $proof);
+        $satisfy = fn (): SignInResult => $this->sessions()->satisfy($credential, $proof, self::requestClient());
 
         DB::beginTransaction();
 
@@ -1366,7 +1366,7 @@ final class SessionServiceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertTrue($sessions->satisfy($credential, $proof)->isSignedIn());
+        self::assertTrue($sessions->satisfy($credential, $proof, self::requestClient())->isSignedIn());
         self::assertFalse($guard->hasUser());
 
         DB::rollBack();
@@ -1375,7 +1375,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame([], $this->recordedClasses());
         self::assertCount(0, $limiter->released);
 
-        DB::transaction(static fn (): bool => $sessions->satisfy($credential, $proof)->isSignedIn());
+        DB::transaction(static fn (): bool => $sessions->satisfy($credential, $proof, self::requestClient())->isSignedIn());
 
         self::assertSame($identity->getKey(), $guard->id());
         self::assertSame([Login::class], $this->recordedClasses());
@@ -1737,7 +1737,7 @@ final class SessionServiceTest extends TestCase
 
         $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class]);
 
-        $refused = $this->sessionsOn(self::BROWSER, $headers)->satisfy($credential, $proof);
+        $refused = $this->sessionsOn(self::BROWSER, $headers)->satisfy($credential, $proof, self::requestClient());
 
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $refused->reason);
         self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
@@ -1746,7 +1746,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame($proofs, DB::table('authentication_proofs')->count());
         self::assertTrue(app('auth')->guard(self::BROWSER)->guest());
 
-        $activated = self::sessionOf($this->sessionsOn(self::BROWSER, self::SAME_SITE)->satisfy($credential, $proof));
+        $activated = self::sessionOf($this->sessionsOn(self::BROWSER, self::SAME_SITE)->satisfy($credential, $proof, self::requestClient()));
 
         self::assertNotNull($activated->tokens->refreshCookie);
         self::assertSame([SessionStatus::ACTIVE->value], Session::query()->pluck('status')->all());
@@ -1771,12 +1771,12 @@ final class SessionServiceTest extends TestCase
 
         $this->recordEvents([Failed::class, AuthenticationFailed::class, PrincipalAssigned::class]);
 
-        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER_CHOOSERS, $headers)->choose($credential, $chosen)->reason);
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER_CHOOSERS, $headers)->choose($credential, $chosen, self::requestClient())->reason);
         self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame([SessionStatus::PENDING->value], Session::query()->pluck('status')->all());
         self::assertSame([null], Session::query()->pluck('principal_id')->all());
 
-        $activated = self::sessionOf($this->sessionsOn(self::BROWSER_CHOOSERS, self::SAME_SITE)->choose($credential, $chosen));
+        $activated = self::sessionOf($this->sessionsOn(self::BROWSER_CHOOSERS, self::SAME_SITE)->choose($credential, $chosen, self::requestClient()));
 
         self::assertNotNull($activated->tokens->refreshCookie);
         self::assertSame($chosen->getKey(), $activated->principal->getPrincipalIdentifier());
@@ -1860,7 +1860,7 @@ final class SessionServiceTest extends TestCase
 
         $this->recordEvents([PrincipalAssigned::class, SessionAuthenticated::class]);
 
-        self::assertTrue($this->sessionsOn(self::BROWSER_CHOOSERS, ['Origin' => 'https://evil.example.test'])->choose($choice, $chosen, null, $client)->isSignedIn());
+        self::assertTrue($this->sessionsOn(self::BROWSER_CHOOSERS, ['Origin' => 'https://evil.example.test'])->choose($choice, $chosen, $client)->isSignedIn());
 
         $chosenSession = Session::query()->sole();
 
@@ -2179,7 +2179,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame([SessionStatus::PENDING->value], Session::query()->pluck('status')->all());
         self::assertSame($proofs, DB::table('authentication_proofs')->count());
         self::assertTrue(app('auth')->guard(self::BROWSER)->guest());
-        self::assertTrue($this->sessionsOn(self::BROWSER, self::SAME_SITE)->satisfy($credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessionsOn(self::BROWSER, self::SAME_SITE)->satisfy($credential, $proof, self::requestClient())->isSignedIn());
     }
 
     /**
@@ -2201,13 +2201,13 @@ final class SessionServiceTest extends TestCase
 
         $this->recordEvents([Failed::class, AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER_CHOOSERS, self::SAME_SITE)->choose($credential, $chosen, null, $client)->reason);
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER_CHOOSERS, self::SAME_SITE)->choose($credential, $chosen, $client)->reason);
         self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
         self::assertSame([null], Session::query()->pluck('principal_id')->all());
 
         $sessions  = $this->sessionsOn(self::BROWSER_CHOOSERS, ['Origin' => 'https://evil.example.test']);
-        $activated = self::sessionOf($sessions->choose($credential, $chosen, null, self::sameSiteClient()));
+        $activated = self::sessionOf($sessions->choose($credential, $chosen, self::sameSiteClient()));
 
         self::assertNotNull($activated->tokens->refreshCookie);
         self::assertSame($chosen->getKey(), $activated->principal->getPrincipalIdentifier());
@@ -2238,9 +2238,90 @@ final class SessionServiceTest extends TestCase
 
             $this->recordEvents([AuthenticationFailed::class]);
 
-            self::assertSame(FailureReason::PENDING_INVALID, $this->sessionsOn($guard, [])->choose('1.not-a-credential', $identity, null, $client)->reason);
+            self::assertSame(FailureReason::PENDING_INVALID, $this->sessionsOn($guard, [])->choose('1.not-a-credential', $identity, $client)->reason);
             self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
         }
+    }
+
+    /**
+     * A pending credential `PendingCredential::extract()` refused as
+     * `pending_invalid`, handed in, is reported as a credential that names no
+     * pending session is, with `Failed` and `AuthenticationFailed` carrying the
+     * client given and no query, and only after the same-site check, which
+     * refuses a cross-site client first.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingInvalidHandedInIsReportedAsAnUnknownCredential(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [, $proof] = $this->pendingWithProof($identity, self::BROWSER);
+
+        $actions = [
+            'satisfy' => static fn (SessionService $sessions, ClientContext $client): SignInResult => $sessions->satisfy(FailureReason::PENDING_INVALID, $proof, $client),
+            'choose'  => static fn (SessionService $sessions, ClientContext $client): SignInResult => $sessions->choose(FailureReason::PENDING_INVALID, $identity, $client),
+        ];
+
+        foreach ($actions as $name => $action) {
+            foreach ([self::BROWSER => self::sameSiteClient(), 'api' => self::crossSiteClient()] as $guard => $client) {
+
+                $sessions = $this->sessionsOn($guard, []);
+
+                $this->recordEvents([Failed::class, AuthenticationFailed::class]);
+
+                $queries = 0;
+
+                DB::listen(static function () use (&$queries): void {
+                    $queries++;
+                });
+
+                self::assertSame(FailureReason::PENDING_INVALID, $action($sessions, $client)->reason, $name);
+                self::assertSame(0, $queries, $name);
+                self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses(), $name);
+                self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
+                self::assertSame(AuthenticationFlow::SIGN_IN, $this->recordedEvent(AuthenticationFailed::class)->flow);
+            }
+
+            self::assertSame(FailureReason::CROSS_SITE_REQUEST, $action($this->sessionsOn(self::BROWSER, []), self::crossSiteClient())->reason, $name);
+        }
+    }
+
+    /**
+     * A reason `PendingCredential::extract()` never answers, handed in to a
+     * pending action, is the caller's error: it throws before anything is
+     * dispatched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnotherReasonHandedInToAPendingActionIsTheCallersError(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [, $proof] = $this->pendingWithProof($identity, 'api');
+
+        $this->recordEvents([Failed::class, AuthenticationFailed::class]);
+
+        $actions = [
+            static fn (SessionService $sessions): SignInResult => $sessions->satisfy(FailureReason::SESSION_UNKNOWN, $proof, self::sameSiteClient()),
+            static fn (SessionService $sessions): SignInResult => $sessions->choose(FailureReason::PENDING_ACTION_NOT_ALLOWED, $identity, self::sameSiteClient()),
+        ];
+
+        foreach ($actions as $action) {
+            try {
+                $action($this->sessionsOn(self::BROWSER, []));
+
+                self::fail('A pending action took a reason the extraction never answers.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertStringContainsString('hand in only what `PendingCredential::extract()` answered', $exception->getMessage());
+            }
+        }
+
+        self::assertSame([], $this->recordedClasses());
     }
 
     /**
@@ -2262,11 +2343,11 @@ final class SessionServiceTest extends TestCase
 
         [$credential, $chosen] = $this->pendingChoice('choosers');
 
-        self::assertTrue($this->sessionsOn('choosers', $crossSite)->choose($credential, $chosen)->isSignedIn());
+        self::assertTrue($this->sessionsOn('choosers', $crossSite)->choose($credential, $chosen, self::requestClient())->isSignedIn());
 
         [$credential, $proof] = $this->pendingWithProof($identity, 'api');
 
-        self::assertTrue($this->sessionsOn('api', $crossSite)->satisfy($credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessionsOn('api', $crossSite)->satisfy($credential, $proof, self::requestClient())->isSignedIn());
     }
 
     /**

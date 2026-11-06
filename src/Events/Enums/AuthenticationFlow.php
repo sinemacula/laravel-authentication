@@ -19,16 +19,14 @@ enum AuthenticationFlow: string
     // A request's access token
     case BEARER = 'bearer';
 
-    // A refresh-token exchange: the session service's refresh(),
-    // refreshFromRequest() and refreshPresented()
+    // A refresh-token exchange: the session service's refresh()
     case REFRESH = 'refresh';
 
     // A switch of the principal a session acts as, its active tenant, or both:
-    // the session service's switchTo() and switchFromRequest()
+    // the session service's switchTo()
     case SWITCH = 'switch';
 
-    // A sign-out by refresh credential: the session service's
-    // signOutFromRequest(), signOutWith() and signOutPresented()
+    // A sign-out by refresh credential: the session service's signOutWith()
     case SIGN_OUT = 'sign_out';
 
     // A request for a one-time code: a sign-in code or an identifier

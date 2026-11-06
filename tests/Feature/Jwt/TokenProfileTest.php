@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenProfile;
@@ -263,13 +264,13 @@ final class TokenProfileTest extends TestCase
 
         $this->clockAt(CarbonImmutable::now()->addMinute());
 
-        $refreshed = $this->sessions('members')->refresh($session->tokens->refreshToken?->reveal())->session;
+        $refreshed = $this->sessions('members')->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 
         $this->clockAt(CarbonImmutable::now()->addSeconds(5));
 
-        $retried = $this->sessions('members')->refresh($session->tokens->refreshToken?->reveal())->session;
+        $retried = $this->sessions('members')->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertNotNull($retried);
 

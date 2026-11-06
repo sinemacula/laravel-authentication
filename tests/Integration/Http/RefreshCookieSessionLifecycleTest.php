@@ -98,7 +98,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
         Route::post('/auth/sign-in', static fn (Request $request): JsonResponse => self::signInRoute($request));
         Route::post('/auth/refresh', static fn (): JsonResponse => self::refreshRoute());
         Route::post('/auth/switch', static fn (Request $request): JsonResponse => self::switchRoute($request));
-        Route::post('/auth/logout', static fn (): Response => Auth::sessions(self::GUARD)->signOutFromRequest()->attachTo(new Response(status: 204)));
+        Route::post('/auth/logout', static fn (): Response => self::signOutServed(Auth::sessions(self::GUARD), self::GUARD)->attachTo(new Response(status: 204)));
         Route::post('/logout', static fn (): JsonResponse => self::logoutRoute());
         Route::middleware('auth:' . self::GUARD)->get('/me', static fn (): array => ['principal' => Auth::principal()?->getPrincipalIdentifier()]);
     }
@@ -442,7 +442,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     private static function signInRoute(Request $request): JsonResponse
     {
         $member    = ActivatableTenantMember::query()->where('email', 'member@example.test')->firstOrFail();
-        $presented = Auth::refreshTransport(self::GUARD)->read($request);
+        $presented = Auth::refreshTransport(self::GUARD)->extract($request);
         $proven    = $presented instanceof PresentedRefreshToken ? $presented->token : null;
         $context   = SignInContext::fromRequest($request, principal: $member->resolveDefaultPrincipal(), refreshToken: $proven);
         $result    = Auth::sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context);
@@ -469,7 +469,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
      */
     private static function refreshRoute(): JsonResponse
     {
-        $result = Auth::sessions(self::GUARD)->refreshFromRequest();
+        $result = Auth::sessions(self::GUARD)->refresh(self::servedToken(self::GUARD), self::requestClient());
 
         if ($result?->reason === FailureReason::RATE_LIMITED) {
             throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
@@ -500,7 +500,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     private static function switchRoute(Request $request): JsonResponse
     {
         $target = ActivatableTenantMembership::query()->findOrFail($request->integer('membership'));
-        $result = Auth::sessions(self::GUARD)->switchFromRequest(SwitchTarget::principal($target));
+        $result = Auth::sessions(self::GUARD)->switchTo(self::servedToken(self::GUARD), SwitchTarget::principal($target), self::requestClient());
 
         if ($result?->reason === FailureReason::RATE_LIMITED) {
             throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);

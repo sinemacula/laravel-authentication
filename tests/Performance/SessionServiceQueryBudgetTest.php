@@ -244,14 +244,20 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         request()->headers->set('Origin', 'https://evil.example.test');
         request()->headers->remove('X-Requested-With');
 
-        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->reason);
-        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->choose($credential, $identity))->reason);
+        self::assertSame(
+            FailureReason::CROSS_SITE_REQUEST,
+            $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->satisfy($credential, $proof, self::requestClient()))->reason,
+        );
+        self::assertSame(
+            FailureReason::CROSS_SITE_REQUEST,
+            $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->choose($credential, $identity, self::requestClient()))->reason,
+        );
         self::assertNotNull($this->sessions('admin')->pending($credential));
 
         $sessions = $this->sessions('admin');
         $client   = self::crossSiteClient();
         $satisfy  = static fn (): SignInResult => $sessions->satisfy($credential, $proof, $client);
-        $choose   = static fn (): SignInResult => $sessions->choose($credential, $identity, null, $client);
+        $choose   = static fn (): SignInResult => $sessions->choose($credential, $identity, $client);
 
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, $satisfy)->reason);
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, $choose)->reason);
@@ -416,7 +422,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
         $proof    = self::proofFor($identity, $result->pending->id);
 
-        self::assertTrue($this->assertQueryBudget(5, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(5, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof, self::requestClient()))->isSignedIn());
     }
 
     /**
@@ -448,7 +454,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions('members');
         $proof    = self::proofFor($member, $result->pending->id, 'members');
 
-        self::assertTrue($this->assertQueryBudget(8, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(8, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof, self::requestClient()))->isSignedIn());
     }
 
     /**
@@ -483,7 +489,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions('members');
         $proof    = self::proofFor($member, $result->pending->id, 'members');
 
-        self::assertTrue($this->assertQueryBudget(8, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(8, 6, static fn (): SignInResult => $sessions->satisfy($credential, $proof, self::requestClient()))->isSignedIn());
         self::assertSame(1, $this->firstFactorReads());
     }
 
@@ -515,7 +521,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $credential = $pending->credential->reveal();
         $proof      = self::proofFor($identity, $pending->pending->id);
         $sessions   = $this->sessions();
-        $result     = $this->assertQueryBudget(6, 7, static fn (): SignInResult => $sessions->satisfy($credential, $proof));
+        $result     = $this->assertQueryBudget(6, 7, static fn (): SignInResult => $sessions->satisfy($credential, $proof, self::requestClient()));
 
         self::assertSame($pending->pending->id, $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));
@@ -569,14 +575,17 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $credential = $result->credential->reveal();
         $proof      = self::proofFor($identity, $result->pending->id);
 
-        self::assertTrue($this->sessions()->satisfy($credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($credential, $proof, self::requestClient())->isSignedIn());
 
         $sessions = $this->sessions();
 
-        self::assertSame(FailureReason::PENDING_INVALID, $this->assertQueryBudget(1, 0, static fn (): SignInResult => $sessions->satisfy($credential, $proof))->reason);
         self::assertSame(
             FailureReason::PENDING_INVALID,
-            $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->satisfy('not-a-pending-credential', $proof))->reason,
+            $this->assertQueryBudget(1, 0, static fn (): SignInResult => $sessions->satisfy($credential, $proof, self::requestClient()))->reason,
+        );
+        self::assertSame(
+            FailureReason::PENDING_INVALID,
+            $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->satisfy('not-a-pending-credential', $proof, self::requestClient()))->reason,
         );
     }
 

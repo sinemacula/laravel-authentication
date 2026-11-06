@@ -87,6 +87,18 @@ final readonly class PendingTransitions
     ) {}
 
     /**
+     * These transitions with each return reported with the client given, for a
+     * flow acting for a client it was given as plain values (a switch).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return self
+     */
+    public function forClient(ClientContext $client): self
+    {
+        return new self($this->context, $this->afterCommit, $this->config, $client, $this->schedule);
+    }
+
+    /**
      * These transitions with each return's report handed to `$schedule` once
      * the return applied, in place of being scheduled for the commit, so a
      * caller that holds its reports to a check of its own (a switch) holds this

@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsSession;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Fixtures\Sessions\GuardSessions;
@@ -162,7 +163,9 @@ final class UncastRevokedSessionIntegrationTest extends TestCase
 
         Event::fake([AuthenticationFailed::class]);
 
-        self::assertNull(GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh($refreshToken)->session);
+        self::assertNull(
+            GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient())->session,
+        );
 
         Event::assertDispatched(
             AuthenticationFailed::class,

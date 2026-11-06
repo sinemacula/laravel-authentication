@@ -27,12 +27,11 @@ use Tests\Unit\Stubs\PlainSessionFixture;
 /**
  * Unit tests for an application's refresh token transport: every carrier is
  * inspected whatever the transport, a token carried twice is a conflict, one
- * carried by another transport than the application's is a mismatch, and a
- * cookie must pass the cross-site checks; the extract-only read, which answers
- * as the read does but leaves the same-site judgement out, and the judgement of
- * a presented token from plain values; and for delivering a cookie
- * application's pair with its refresh token in the cookie, and the cookie that
- * clears it.
+ * carried by another transport than the application's is a mismatch, and the
+ * extraction leaves the same-site judgement out; the judgement of a presented
+ * token from plain values, under which a cookie must pass the cross-site checks
+ * on its client; and for delivering a cookie application's pair with its
+ * refresh token in the cookie, and the cookie that clears it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,8 +72,8 @@ final class RefreshTokenTransportTest extends TestCase
      */
     public function testARequestWithoutATokenPresentsNothing(): void
     {
-        self::assertNull(self::transport()->read(Request::create('/auth/refresh', 'POST')));
-        self::assertNull(self::transport(Transport::COOKIE)->read(Request::create('/auth/refresh', 'POST')));
+        self::assertNull(self::transport()->extract(Request::create('/auth/refresh', 'POST')));
+        self::assertNull(self::transport(Transport::COOKIE)->extract(Request::create('/auth/refresh', 'POST')));
         self::assertNull(self::transport()->extract(Request::create('/auth/refresh', 'POST')));
         self::assertNull(self::transport(Transport::COOKIE)->extract(Request::create('/auth/refresh', 'POST')));
     }
@@ -96,9 +95,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A token in the one carrier of the application's transport is presented,
-     * as a secret, with where it was carried, that carrier alone, by the read
-     * and the extract-only read alike.
+     * A token in the one carrier of the application's transport is extracted,
+     * as a secret, with where it was carried, that carrier alone.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
@@ -109,31 +107,30 @@ final class RefreshTokenTransportTest extends TestCase
     {
         $transport = self::transport($source === RefreshTokenSource::COOKIE ? Transport::COOKIE : Transport::BODY);
 
-        foreach ([$transport->read($request()), $transport->extract($request())] as $presented) {
-            self::assertInstanceOf(PresentedRefreshToken::class, $presented);
-            self::assertInstanceOf(Secret::class, $presented->token);
-            self::assertSame(self::TOKEN, $presented->token->reveal());
-            self::assertSame($source, $presented->source);
-            self::assertSame([$source], $presented->carriers);
-        }
+        $presented = $transport->extract($request());
+
+        self::assertInstanceOf(PresentedRefreshToken::class, $presented);
+        self::assertInstanceOf(Secret::class, $presented->token);
+        self::assertSame(self::TOKEN, $presented->token->reveal());
+        self::assertSame($source, $presented->source);
+        self::assertSame([$source], $presented->carriers);
     }
 
     /**
-     * A token `read()` accepts passes the judgement of the same token with the
-     * request's client: the plain values a controller copies from a request it
-     * read are judged as the request was.
+     * A token `extract()` answers from a request of the API's own site passes
+     * the judgement with the request's client: the plain values a controller
+     * hands on from a request it read are judged as the request was.
      *
      * @param  \Closure(): \Illuminate\Http\Request  $request
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
      * @return void
      */
     #[DataProvider('provideCarriedTokens')]
-    public function testATokenTheReadAcceptsPassesTheJudgement(\Closure $request, RefreshTokenSource $source): void
+    public function testAnExtractedTokenPassesTheJudgement(\Closure $request, RefreshTokenSource $source): void
     {
         $transport = self::transport($source === RefreshTokenSource::COOKIE ? Transport::COOKIE : Transport::BODY);
         $sent      = $request();
 
-        self::assertNull($transport->judge(self::presented($transport->read($sent)), ClientContext::fromRequest($sent)));
         self::assertNull($transport->judge(self::presented($transport->extract($sent)), ClientContext::fromRequest($sent)));
     }
 
@@ -164,8 +161,8 @@ final class RefreshTokenTransportTest extends TestCase
     #[DataProvider('provideUnreadPlaces')]
     public function testATokenWhereNoApplicationReadsIsNotPresented(\Closure $request): void
     {
-        self::assertNull(self::transport()->read($request()));
-        self::assertNull(self::transport(Transport::COOKIE)->read($request()));
+        self::assertNull(self::transport()->extract($request()));
+        self::assertNull(self::transport(Transport::COOKIE)->extract($request()));
         self::assertNull(self::transport()->extract($request()));
         self::assertNull(self::transport(Transport::COOKIE)->extract($request()));
     }
@@ -180,9 +177,9 @@ final class RefreshTokenTransportTest extends TestCase
     {
         $transport = self::transport(Transport::BODY, null);
 
-        self::assertNull($transport->read(self::withHeaders(['X-Refresh-Token' => self::TOKEN])));
         self::assertNull($transport->extract(self::withHeaders(['X-Refresh-Token' => self::TOKEN])));
-        self::assertSame(RefreshTokenSource::BODY, self::presented($transport->read(self::json(['refresh_token' => self::TOKEN], ['X-Refresh-Token' => self::TOKEN])))->source);
+        self::assertNull($transport->extract(self::withHeaders(['X-Refresh-Token' => self::TOKEN])));
+        self::assertSame(RefreshTokenSource::BODY, self::presented($transport->extract(self::json(['refresh_token' => self::TOKEN], ['X-Refresh-Token' => self::TOKEN])))->source);
         self::assertSame(RefreshTokenSource::BODY, self::presented($transport->extract(self::json(['refresh_token' => self::TOKEN], ['X-Refresh-Token' => self::TOKEN])))->source);
     }
 
@@ -233,7 +230,7 @@ final class RefreshTokenTransportTest extends TestCase
     #[DataProvider('provideConflicts')]
     public function testATokenInMoreThanOneCarrierIsAConflict(\Closure $request, Transport $transport): void
     {
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport($transport)->read($request()));
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport($transport)->extract($request()));
         self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport($transport)->extract($request()));
     }
 
@@ -266,7 +263,7 @@ final class RefreshTokenTransportTest extends TestCase
     #[DataProvider('provideMismatches')]
     public function testATokenByAnotherTransportIsAMismatch(\Closure $request, Transport $transport): void
     {
-        self::assertSame(FailureReason::REFRESH_TRANSPORT_MISMATCH, self::transport($transport)->read($request()));
+        self::assertSame(FailureReason::REFRESH_TRANSPORT_MISMATCH, self::transport($transport)->extract($request()));
         self::assertSame(FailureReason::REFRESH_TRANSPORT_MISMATCH, self::transport($transport)->extract($request()));
     }
 
@@ -308,9 +305,9 @@ final class RefreshTokenTransportTest extends TestCase
         $request = self::cookie('planted', 'http://localhost', 'XMLHttpRequest');
         $request->headers->set('Cookie', $headers);
 
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(Transport::COOKIE)->read($request));
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(Transport::COOKIE)->read(self::crossSite($request)));
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport()->read($request));
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(Transport::COOKIE)->extract($request));
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(Transport::COOKIE)->extract(self::crossSite($request)));
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport()->extract($request));
         self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(Transport::COOKIE)->extract($request));
         self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(Transport::COOKIE)->extract(self::crossSite($request)));
         self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport()->extract($request));
@@ -349,7 +346,7 @@ final class RefreshTokenTransportTest extends TestCase
         $request = self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest');
         $request->headers->set('Cookie', $header);
 
-        self::assertSame(self::TOKEN, self::presented(self::transport(Transport::COOKIE)->read($request))->token->reveal());
+        self::assertSame(self::TOKEN, self::presented(self::transport(Transport::COOKIE)->extract($request))->token->reveal());
         self::assertSame([RefreshTokenSource::COOKIE], self::presented(self::transport(Transport::COOKIE)->extract($request))->carriers);
     }
 
@@ -387,7 +384,7 @@ final class RefreshTokenTransportTest extends TestCase
     #[DataProvider('provideInvalidValues')]
     public function testAValueThatIsNotOneNonEmptyStringIsInvalid(\Closure $request, Transport $transport): void
     {
-        self::assertSame(FailureReason::TOKEN_INVALID, self::transport($transport)->read($request()));
+        self::assertSame(FailureReason::TOKEN_INVALID, self::transport($transport)->extract($request()));
         self::assertSame(FailureReason::TOKEN_INVALID, self::transport($transport)->extract($request()));
     }
 
@@ -408,33 +405,18 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A cookie refresh to a cookie application without the request's own or an
-     * allowed origin, or without the custom header, is refused as cross-site
-     * before its value is looked at.
+     * The extraction leaves the same-site judgement out: a cross-site cookie is
+     * extracted with its token, and an empty one answers `token_invalid`; the
+     * judgement of the extracted token with the request's client refuses it as
+     * cross-site, without the request's own or an allowed origin, or without
+     * the custom header.
      *
      * @param  ?string  $origin
      * @param  ?string  $csrf
      * @return void
      */
     #[DataProvider('provideCrossSiteRequests')]
-    public function testACookieRefreshMustBeSameSite(?string $origin, ?string $csrf): void
-    {
-        self::assertSame(FailureReason::CROSS_SITE_REQUEST, self::transport(Transport::COOKIE)->read(self::cookie('', $origin, $csrf)));
-    }
-
-    /**
-     * The extract-only read leaves the same-site judgement out: a cross-site
-     * cookie is extracted with its token, and an empty one answers
-     * `token_invalid`, where the read answers `cross_site_request` for both;
-     * the judgement of the extracted token with the request's client then
-     * refuses it as cross-site.
-     *
-     * @param  ?string  $origin
-     * @param  ?string  $csrf
-     * @return void
-     */
-    #[DataProvider('provideCrossSiteRequests')]
-    public function testTheExtractOnlyReadLeavesTheSameSiteJudgementOut(?string $origin, ?string $csrf): void
+    public function testTheExtractionLeavesTheSameSiteJudgementOut(?string $origin, ?string $csrf): void
     {
         $transport = self::transport(Transport::COOKIE);
         $request   = self::cookie(self::TOKEN, $origin, $csrf);
@@ -442,7 +424,6 @@ final class RefreshTokenTransportTest extends TestCase
 
         self::assertSame(self::TOKEN, $extracted->token->reveal());
         self::assertSame(RefreshTokenSource::COOKIE, $extracted->source);
-        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $transport->read($request));
         self::assertSame(FailureReason::TOKEN_INVALID, $transport->extract(self::cookie('', $origin, $csrf)));
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $transport->judge($extracted, ClientContext::fromRequest($request)));
     }
@@ -545,10 +526,11 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The check and a cookie read leave the IP address unread: a same-site
-     * request from a trusted proxy whose forwarded client addresses conflict is
-     * judged same-site however often it is checked, its token is read, and the
-     * request still refuses those addresses to the application afterwards.
+     * The check and a cookie's extraction leave the IP address unread: a
+     * same-site request from a trusted proxy whose forwarded client addresses
+     * conflict is judged same-site however often it is checked, its token is
+     * extracted, and the request still refuses those addresses to the
+     * application afterwards.
      *
      * @return void
      */
@@ -566,7 +548,6 @@ final class RefreshTokenTransportTest extends TestCase
 
         self::assertTrue($transport->isSameSiteRequest($request));
         self::assertTrue($transport->isSameSiteRequest($request));
-        self::assertSame(self::TOKEN, self::presented($transport->read($request))->token->reveal());
         self::assertSame(self::TOKEN, self::presented($transport->extract($request))->token->reveal());
 
         $this->expectException(ConflictingHeadersException::class);
@@ -575,7 +556,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * A request whose host Symfony refuses is not same-site, and reading it
+     * A request whose host Symfony refuses is not same-site, and checking it
      * throws nothing, though it carries the header and an origin naming that
      * host.
      *
@@ -591,8 +572,8 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * The application's own body field, header, cookie and CSRF header names
-     * are the ones read.
+     * The application's own body field, header and cookie names are the ones
+     * extracted from.
      *
      * @return void
      */
@@ -602,25 +583,24 @@ final class RefreshTokenTransportTest extends TestCase
         $cookie = new RefreshTokenTransport(new RefreshTokenSettings(Transport::COOKIE, 'token', 'X-Token', 'refresh', '/auth', [], 'X-CSRF'));
         $sent   = Request::create('/auth/refresh', 'POST', [], ['refresh' => self::TOKEN], [], ['HTTP_ORIGIN' => 'http://localhost', 'HTTP_X_CSRF' => '1']);
 
-        self::assertSame(RefreshTokenSource::BODY, self::presented($body->read(self::json(['token' => self::TOKEN])))->source);
-        self::assertSame(RefreshTokenSource::HEADER, self::presented($body->read(self::withHeaders(['X-Token' => self::TOKEN])))->source);
-        self::assertSame(RefreshTokenSource::COOKIE, self::presented($cookie->read($sent))->source);
-        self::assertSame(FailureReason::REFRESH_TRANSPORT_MISMATCH, $body->read($sent));
-        self::assertNull($body->read(self::json(['refresh_token' => self::TOKEN])));
-        self::assertNull($cookie->read(self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest')));
+        self::assertSame(RefreshTokenSource::BODY, self::presented($body->extract(self::json(['token' => self::TOKEN])))->source);
+        self::assertSame(RefreshTokenSource::HEADER, self::presented($body->extract(self::withHeaders(['X-Token' => self::TOKEN])))->source);
+        self::assertSame(RefreshTokenSource::COOKIE, self::presented($cookie->extract($sent))->source);
+        self::assertSame(FailureReason::REFRESH_TRANSPORT_MISMATCH, $body->extract($sent));
+        self::assertNull($body->extract(self::json(['refresh_token' => self::TOKEN])));
+        self::assertNull($cookie->extract(self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest')));
     }
 
     /**
-     * Reading and extracting change nothing on the request.
+     * Extracting changes nothing on the request.
      *
      * @return void
      */
-    public function testReadingHasNoSideEffects(): void
+    public function testExtractingHasNoSideEffects(): void
     {
         $request = self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest');
         $before  = [$request->cookies->all(), $request->headers->all(), $request->request->all()];
 
-        self::transport(Transport::COOKIE)->read($request);
         self::transport(Transport::COOKIE)->extract($request);
 
         self::assertSame($before, [$request->cookies->all(), $request->headers->all(), $request->request->all()]);
@@ -648,8 +628,8 @@ final class RefreshTokenTransportTest extends TestCase
 
         self::assertFalse($transport->usesCookie());
         self::assertTrue(RefreshTokenTransport::forGuard('browser', $config)->usesCookie());
-        self::assertSame(RefreshTokenSource::HEADER, self::presented($transport->read(self::withHeaders(['X-Token' => self::TOKEN])))->source);
-        self::assertNull($transport->read(self::withHeaders(['X-Refresh-Token' => self::TOKEN])));
+        self::assertSame(RefreshTokenSource::HEADER, self::presented($transport->extract(self::withHeaders(['X-Token' => self::TOKEN])))->source);
+        self::assertNull($transport->extract(self::withHeaders(['X-Refresh-Token' => self::TOKEN])));
     }
 
     /**
@@ -798,13 +778,13 @@ final class RefreshTokenTransportTest extends TestCase
     {
         $transport = new RefreshTokenTransport(new RefreshTokenSettings(Transport::BODY, 'refresh_token', 'X-Refresh-Token', null, null, [], 'X-Requested-With'));
 
-        $fromBody   = self::presented($transport->read(self::cookie('another-value', 'http://localhost', 'XMLHttpRequest', ['refresh_token' => self::TOKEN])));
-        $fromHeader = self::presented($transport->read(self::withHeaders(['X-Refresh-Token' => self::TOKEN])));
+        $fromBody   = self::presented($transport->extract(self::cookie('another-value', 'http://localhost', 'XMLHttpRequest', ['refresh_token' => self::TOKEN])));
+        $fromHeader = self::presented($transport->extract(self::withHeaders(['X-Refresh-Token' => self::TOKEN])));
 
         self::assertSame(RefreshTokenSource::BODY, $fromBody->source);
         self::assertSame(self::TOKEN, $fromBody->token->reveal());
         self::assertSame(RefreshTokenSource::HEADER, $fromHeader->source);
-        self::assertNull($transport->read(self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest')));
+        self::assertNull($transport->extract(self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest')));
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('This application\'s refresh token travels in the body: set its `refresh_token.transport` to `cookie`');
@@ -843,8 +823,8 @@ final class RefreshTokenTransportTest extends TestCase
     /**
      * A presented token whose carriers are not its source alone is judged a
      * conflict, from the same-site client too and before a mismatch, as the
-     * read judges a request that carries more than one: a value an application
-     * built is never trusted to have been the only one.
+     * extraction judges a request that carries more than one: a value an
+     * application built is never trusted to have been the only one.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\Transport  $transport
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
@@ -1046,7 +1026,7 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
-     * Narrow a read to the token it presented.
+     * Narrow an extraction to the token it presented.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null  $read
      * @return \SineMacula\Laravel\Authentication\Http\PresentedRefreshToken

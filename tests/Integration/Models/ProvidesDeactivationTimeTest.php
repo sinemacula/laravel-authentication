@@ -19,6 +19,7 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesDeactivationTime;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnDeactivation;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -164,7 +165,7 @@ final class ProvidesDeactivationTimeTest extends TestCase
         DeactivatableMembership::query()->whereKey($membership->getKey())->update(['deactivated_at' => null]);
         DeactivatableTenant::query()->whereKey($tenant->getKey())->update(['deactivated_at' => $this->now->toDateTimeString()]);
 
-        $refreshed = $this->sessions(self::GUARD)->refresh($session->tokens->refreshToken?->reveal() ?? '');
+        $refreshed = $this->sessions(self::GUARD)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal() ?? ''), self::requestClient());
 
         self::assertSame(FailureReason::TENANT_INACTIVE, $refreshed->reason);
     }

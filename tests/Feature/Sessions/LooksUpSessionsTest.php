@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
@@ -206,7 +207,7 @@ final class LooksUpSessionsTest extends TestCase
 
         $current   = $this->signIn('api', 'Phone');
         $other     = $this->signIn('api', 'Other', 'grace@example.test');
-        $refreshed = $this->sessions()->refresh((string) $current->tokens->refreshToken?->reveal())->session;
+        $refreshed = $this->sessions()->refresh(PresentedRefreshToken::fromBody((string) $current->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 

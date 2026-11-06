@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\SignsInWithCredentials;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -191,7 +192,10 @@ final class SecretRedactionTest extends TestCase
             throw new \RuntimeException('a bug in a refresh listener');
         });
 
-        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->refresh($presented));
+        $exception = self::withArgumentsInTraces(
+            \RuntimeException::class,
+            fn (): mixed => $this->sessions()->refresh(PresentedRefreshToken::fromBody($presented), self::requestClient()),
+        );
 
         self::assertSame('a bug in a refresh listener', $exception->getMessage());
         self::assertFalse(self::dumpsInTrace($exception, $presented));
@@ -223,7 +227,10 @@ final class SecretRedactionTest extends TestCase
             throw new \RuntimeException('a bug in a switch listener');
         });
 
-        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions('members')->switchTo($presented, SwitchTarget::principal($second)));
+        $exception = self::withArgumentsInTraces(
+            \RuntimeException::class,
+            fn (): mixed => $this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($presented), SwitchTarget::principal($second), self::requestClient()),
+        );
 
         self::assertSame('a bug in a switch listener', $exception->getMessage());
         self::assertFalse(self::dumpsInTrace($exception, $presented));
@@ -257,7 +264,7 @@ final class SecretRedactionTest extends TestCase
             throw new \RuntimeException('a bug in an activation listener');
         });
 
-        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->satisfy($credential, $proof));
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->satisfy($credential, $proof, self::requestClient()));
 
         self::assertSame('a bug in an activation listener', $exception->getMessage());
         self::assertFalse(self::dumpsInTrace($exception, $credential));
@@ -309,7 +316,10 @@ final class SecretRedactionTest extends TestCase
             throw new \RuntimeException('a bug in a sign-out listener');
         });
 
-        $exception = self::withArgumentsInTraces(\RuntimeException::class, static fn (): mixed => $sessions->signOutWith($presented));
+        $exception = self::withArgumentsInTraces(
+            \RuntimeException::class,
+            static fn (): mixed => $sessions->signOutWith(PresentedRefreshToken::fromBody($presented), self::requestClient()),
+        );
 
         self::assertSame('a bug in a sign-out listener', $exception->getMessage());
         self::assertFalse(self::dumpsInTrace($exception, $presented));
@@ -418,8 +428,8 @@ final class SecretRedactionTest extends TestCase
         });
 
         $actions = [
-            'satisfy' => [$satisfied, PendingSessions::class, 'atomically', fn (): mixed => $this->sessions()->satisfy($satisfied, $proof)],
-            'choose'  => [$choosing, PendingSessions::class, 'atomically', fn (): mixed => $this->sessions('members')->choose($choosing, $first)],
+            'satisfy' => [$satisfied, PendingSessions::class, 'atomically', fn (): mixed => $this->sessions()->satisfy($satisfied, $proof, self::requestClient())],
+            'choose'  => [$choosing, PendingSessions::class, 'atomically', fn (): mixed => $this->sessions('members')->choose($choosing, $first, self::requestClient())],
             'discard' => [$discarding, Connection::class, 'transaction', fn (): mixed => $this->sessions()->discard($discarding)],
         ];
 
@@ -494,17 +504,17 @@ final class SecretRedactionTest extends TestCase
         self::assertNotNull($credential);
         self::assertNotNull($pending->pending);
 
-        $active = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->pending->id, Purpose::SIGN_IN))->session;
+        $active = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->pending->id, Purpose::SIGN_IN), self::requestClient())->session;
 
         self::assertNotNull($active);
 
-        $refreshed = $this->sessions()->refresh($active->tokens->refreshToken?->reveal())->session;
+        $refreshed = $this->sessions()->refresh(PresentedRefreshToken::fromBody($active->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 
         $sessions = $this->sessions();
 
-        self::assertTrue($sessions->refresh($refreshed->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue($sessions->refresh(PresentedRefreshToken::fromBody($refreshed->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
         self::assertTrue($sessions->signOut());
 
         $secrets = [$credential, self::PASSWORD, $active->tokens->accessToken->reveal(), $refreshed->tokens->refreshToken?->reveal()];

@@ -99,7 +99,7 @@ final class PendingSessionTest extends TestCase
 
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinute());
 
-        $pending = $this->sessions()->satisfy($signIn->credential, self::adapterProof($identity, 'api', $signIn->pending->id, Purpose::SIGN_IN))->pending;
+        $pending = $this->sessions()->satisfy($signIn->credential, self::adapterProof($identity, 'api', $signIn->pending->id, Purpose::SIGN_IN), self::requestClient())->pending;
 
         self::assertNotNull($pending);
         self::assertSame([ProofKind::ADDITIONAL_FACTOR], array_column($pending->proofs(limit: 1), 'kind'));
@@ -124,7 +124,7 @@ final class PendingSessionTest extends TestCase
 
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinute());
 
-        $pending = $this->sessions()->satisfy($signIn->credential, self::adapterProof($identity, 'api', $signIn->pending->id, Purpose::SIGN_IN))->pending;
+        $pending = $this->sessions()->satisfy($signIn->credential, self::adapterProof($identity, 'api', $signIn->pending->id, Purpose::SIGN_IN), self::requestClient())->pending;
 
         self::assertNotNull($pending);
         self::assertSame([ProofKind::ADDITIONAL_FACTOR], array_column($pending->proofs(Carbon::instance(CarbonImmutable::now())), 'kind'));

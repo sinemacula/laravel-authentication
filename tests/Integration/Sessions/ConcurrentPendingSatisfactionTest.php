@@ -283,7 +283,7 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
 
         DB::beginTransaction();
 
-        $first = $this->sessions()->satisfy(...$pending);
+        $first = $this->sessions()->satisfy(...$pending, client: self::requestClient());
 
         touch("{$this->outcomes}/start");
         usleep(self::HOLD_MICROSECONDS);
@@ -319,7 +319,7 @@ final class ConcurrentPendingSatisfactionTest extends TestCase
             }
 
             $started = microtime(true);
-            $result  = $this->sessions()->satisfy($credential, $proof);
+            $result  = $this->sessions()->satisfy($credential, $proof, self::requestClient());
             $failed  = array_values(array_filter($this->recorded, static fn (object $event): bool => $event instanceof AuthenticationFailed));
 
             $outcome = [

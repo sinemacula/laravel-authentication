@@ -31,6 +31,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
@@ -238,11 +239,15 @@ final class FactorRevocationsTest extends TestCase
 
         self::assertFalse($this->authenticates($current->tokens->accessToken));
 
-        $refresh = $this->sessions()->refresh((string) $current->tokens->refreshToken?->reveal());
+        $refresh = $this->sessions()->refresh(PresentedRefreshToken::fromBody((string) $current->tokens->refreshToken?->reveal()), self::requestClient());
 
         self::assertFalse($refresh->isRefreshed());
 
-        $again = $this->sessions()->satisfy($removal->credential, $this->proof($current->identity, $current->record->getKey(), 'factor-b', Purpose::SIGN_IN));
+        $again = $this->sessions()->satisfy(
+            $removal->credential,
+            $this->proof($current->identity, $current->record->getKey(), 'factor-b', Purpose::SIGN_IN),
+            self::requestClient(),
+        );
 
         self::assertTrue($again->isSignedIn());
         self::assertSame('active', $this->rowOf($current->record->getKey())->status);
@@ -529,7 +534,11 @@ final class FactorRevocationsTest extends TestCase
         self::assertNotNull($signIn->credential);
         self::assertSame([PendingRequirement::MFA, PendingRequirement::PRINCIPAL], $signIn->pending->requires);
 
-        $moved = $this->sessions(self::CHOOSERS)->satisfy($signIn->credential, $this->proof($member, $signIn->pending->id, 'factor-a', Purpose::SIGN_IN, self::CHOOSERS));
+        $moved = $this->sessions(self::CHOOSERS)->satisfy(
+            $signIn->credential,
+            $this->proof($member, $signIn->pending->id, 'factor-a', Purpose::SIGN_IN, self::CHOOSERS),
+            self::requestClient(),
+        );
 
         self::assertSame([PendingRequirement::PRINCIPAL], $moved->pending?->requires);
 
@@ -539,7 +548,7 @@ final class FactorRevocationsTest extends TestCase
         self::assertFalse($removal->isPending());
         self::assertSame(['factor-a' => $this->now->toDateTimeString()], $this->voidedOn($record->getKey()));
 
-        $chosen = $this->sessions(self::CHOOSERS)->choose($signIn->credential, $memberships[0]);
+        $chosen = $this->sessions(self::CHOOSERS)->choose($signIn->credential, $memberships[0], self::requestClient());
 
         self::assertTrue($chosen->isPending());
         self::assertNull($chosen->session);
@@ -1039,9 +1048,9 @@ final class FactorRevocationsTest extends TestCase
         self::assertSame(AuthenticationFlow::FACTOR_CHANGE, $this->recordedEvent(SessionReturnedToPending::class)->flow);
 
         self::assertFalse($this->authenticates($current->tokens->accessToken));
-        self::assertFalse($this->sessions()->refresh((string) $current->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertFalse($this->sessions()->refresh(PresentedRefreshToken::fromBody((string) $current->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
 
-        $again = $this->sessions()->satisfy($change->credential, $this->proof($current->identity, $current->record->getKey(), 'factor-a', Purpose::SIGN_IN));
+        $again = $this->sessions()->satisfy($change->credential, $this->proof($current->identity, $current->record->getKey(), 'factor-a', Purpose::SIGN_IN), self::requestClient());
 
         self::assertTrue($again->isSignedIn());
         self::assertSame($current->record->getKey(), $again->session?->record->getKey());
@@ -1617,7 +1626,7 @@ final class FactorRevocationsTest extends TestCase
 
         $proof = $this->proof($returned->identity, $returned->record->getKey(), 'factor-b', Purpose::SIGN_IN);
 
-        self::assertTrue($this->sessions()->satisfy($removal->credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($removal->credential, $proof, self::requestClient())->isSignedIn());
 
         IntegrationIdentity::query()->where('email', 'alan@example.test')->update(['is_active' => false]);
 
@@ -1706,7 +1715,7 @@ final class FactorRevocationsTest extends TestCase
 
         $proof = $this->proof($kept->identity, $kept->record->getKey(), 'factor-b', Purpose::SIGN_IN);
 
-        self::assertTrue($this->sessions()->satisfy($change->credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($change->credential, $proof, self::requestClient())->isSignedIn());
     }
 
     /**
@@ -1881,7 +1890,11 @@ final class FactorRevocationsTest extends TestCase
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
 
-        $result = Auth::sessions($guard)->satisfy($pending->credential, $this->proof($pending->pending->identity, $pending->pending->id, $factor, Purpose::SIGN_IN, $guard));
+        $result = Auth::sessions($guard)->satisfy(
+            $pending->credential,
+            $this->proof($pending->pending->identity, $pending->pending->id, $factor, Purpose::SIGN_IN, $guard),
+            self::requestClient(),
+        );
 
         self::assertNotNull($result->session);
 

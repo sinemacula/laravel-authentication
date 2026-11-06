@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -237,14 +238,17 @@ final class ActiveTenantTest extends TestCase
     {
         [$descendant, $session] = $this->signedInBelow();
 
-        $refreshed = self::sessionsOf($this->freshGuard('members'))->refresh($session->tokens->refreshToken?->reveal())->session;
+        $refreshed = self::sessionsOf($this->freshGuard('members'))->refresh(
+            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            self::requestClient(),
+        )->session;
 
         self::assertNotNull($refreshed);
         self::assertSame(IdentifierCoercion::stringify($descendant->getKey()), $this->accessClaims($refreshed)['tenant_id'] ?? null);
 
         app()->instance(TenantAccess::class, new DescendantTenants);
 
-        $refused = self::sessionsOf($this->freshGuard('members'))->refresh($refreshed->tokens->refreshToken?->reveal());
+        $refused = self::sessionsOf($this->freshGuard('members'))->refresh(PresentedRefreshToken::fromBody($refreshed->tokens->refreshToken?->reveal()), self::requestClient());
 
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
         self::assertNull(Session::query()->sole()->getRevokedAt());

@@ -412,13 +412,16 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * is given); only a machine identity takes scopes. The active tenant is the
      * one given, as given; with none given, the one the session records, or the
      * principal's own without a session, unchecked, as for `login()` (see
-     * `tenant()`).
+     * `tenant()`). `PrincipalAssigned` and `SessionAuthenticated` (and so the
+     * session's last use) describe the client given, as for `login()`, or the
+     * guard's request without one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?list<string>  $scopes
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -426,11 +429,27 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * @throws \LogicException
      */
     #[\Override]
-    public function authenticateAs(Identity $identity, Principal $principal, ?Session $session = null, ?array $scopes = null, ?Tenant $tenant = null): void
-    {
+    public function authenticateAs(
+        Identity $identity,
+        Principal $principal,
+        ?Session $session = null,
+        ?array $scopes = null,
+        ?Tenant $tenant = null,
+        ?ClientContext $client = null,
+    ): void {
         self::assertScopable($identity, $scopes);
 
-        $this->bindVerifiedContext($identity, $principal, $session, $tenant ?? self::trustedTenant($principal, $session), $session?->getSignInMethod(), false, null, $scopes);
+        $this->bindVerifiedContext(
+            $identity,
+            $principal,
+            $session,
+            $tenant ?? self::trustedTenant($principal, $session),
+            $session?->getSignInMethod(),
+            false,
+            null,
+            $scopes,
+            client: $client,
+        );
     }
 
     /**

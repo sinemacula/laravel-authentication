@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -167,7 +168,7 @@ final class SessionModelOverrideTest extends TestCase
 
         $guard = $this->makeJwtGuard();
 
-        $result = GuardSessions::of($guard)->refresh($refreshToken)->session?->tokens;
+        $result = GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient($guard->getRequest()))->session?->tokens;
 
         self::assertInstanceOf(TokenPair::class, $result);
         self::assertNotSame('', $result->accessToken->reveal());

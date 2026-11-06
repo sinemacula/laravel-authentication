@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -126,7 +127,8 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
 
         $guard  = $this->freshGuard();
         $result = GuardSessions::of($guard)->refresh(
-            $jwt->issueRefreshToken($session, $plainRotationId, $staffPrincipal)->reveal(),
+            PresentedRefreshToken::fromBody($jwt->issueRefreshToken($session, $plainRotationId, $staffPrincipal)->reveal()),
+            self::requestClient(),
         )->session?->tokens;
 
         self::assertInstanceOf(TokenPair::class, $result);

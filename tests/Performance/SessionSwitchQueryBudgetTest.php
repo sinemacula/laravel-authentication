@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
@@ -126,7 +127,15 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($session);
 
         $sessions = $this->sessions('members');
-        $result   = $this->assertQueryBudget(10, 2, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
+        $result   = $this->assertQueryBudget(
+            10,
+            2,
+            static fn (): SwitchResult => $sessions->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            ),
+        );
 
         self::assertTrue($result->isSwitched());
     }
@@ -161,7 +170,11 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions('members');
         $target   = SwitchTarget::tenant(TenantSelection::of($descendant->getKey()));
-        $result   = $this->assertQueryBudget(12, 2, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), $target));
+        $result   = $this->assertQueryBudget(
+            12,
+            2,
+            static fn (): SwitchResult => $sessions->switchTo(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), $target, self::requestClient()),
+        );
 
         self::assertTrue($result->isSwitched());
     }
@@ -186,7 +199,15 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v2', new Requirement(new RequirementPart))));
 
         $sessions = $this->sessions('members');
-        $result   = $this->assertQueryBudget(10, 2, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
+        $result   = $this->assertQueryBudget(
+            10,
+            2,
+            static fn (): SwitchResult => $sessions->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            ),
+        );
 
         self::assertTrue($result->isPending());
     }
@@ -236,7 +257,11 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions('members');
         $token    = $session->tokens->refreshToken?->reveal();
-        $result   = $this->assertQueryBudget($reads, 2, static fn (): SwitchResult => $sessions->switchTo($token, SwitchTarget::principal($second)));
+        $result   = $this->assertQueryBudget(
+            $reads,
+            2,
+            static fn (): SwitchResult => $sessions->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($second), self::requestClient()),
+        );
 
         self::assertSame([$meets, !$meets], [$result->isSwitched(), $result->isPending()]);
     }
@@ -344,7 +369,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $chosen = ChoosingMembership::query()->firstOrFail();
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(9, 4, static fn (): SignInResult => $sessions->choose($token, $chosen));
+        $result   = $this->assertQueryBudget(9, 4, static fn (): SignInResult => $sessions->choose($token, $chosen, self::requestClient()));
 
         self::assertTrue($result->isSignedIn());
     }
@@ -369,7 +394,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         request()->headers->remove('X-Requested-With');
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(9, 4, static fn (): SignInResult => $sessions->choose($token, $chosen, null, self::sameSiteClient()));
+        $result   = $this->assertQueryBudget(9, 4, static fn (): SignInResult => $sessions->choose($token, $chosen, self::sameSiteClient()));
 
         self::assertTrue($result->isSignedIn());
         self::assertNotNull($result->session?->tokens->refreshCookie);
@@ -396,7 +421,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(8, 1, static fn (): SignInResult => $sessions->choose($token, $chosen));
+        $result   = $this->assertQueryBudget(8, 1, static fn (): SignInResult => $sessions->choose($token, $chosen, self::requestClient()));
 
         self::assertTrue($result->isPending());
         self::assertSame(1, $this->firstFactorReads());
@@ -416,7 +441,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     {
         $token  = $this->offerChoice();
         $chosen = ChoosingMembership::query()->firstOrFail();
-        $first  = $this->sessions('choosers')->choose($token, $chosen)->session;
+        $first  = $this->sessions('choosers')->choose($token, $chosen, self::requestClient())->session;
 
         self::assertNotNull($first);
 
@@ -426,7 +451,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($choice);
 
         $sessions = $this->sessions('choosers');
-        $result   = $this->assertQueryBudget(10, 5, static fn (): SignInResult => $sessions->choose($choice, $chosen));
+        $result   = $this->assertQueryBudget(10, 5, static fn (): SignInResult => $sessions->choose($choice, $chosen, self::requestClient()));
 
         self::assertNotSame($first->record->getKey(), $result->session?->record->getKey());
         self::assertSame('superseded', Session::query()->whereKey($first->record->getKey())->value('revoked_reason'));
@@ -445,7 +470,11 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         [$session, $second] = $this->signInWithASecondMembership();
 
         $sessions = self::sessionsOf($this->guardForRequest(['refresh_token' => $session->tokens->refreshToken?->reveal()]));
-        $result   = $this->assertQueryBudget(10, 2, static fn (): ?SwitchResult => $sessions->switchFromRequest(SwitchTarget::principal($second)));
+        $result   = $this->assertQueryBudget(
+            10,
+            2,
+            static fn (): ?SwitchResult => $sessions->switchTo(self::servedToken('members'), SwitchTarget::principal($second), self::requestClient()),
+        );
 
         self::assertTrue($result?->isSwitched());
     }
@@ -464,10 +493,24 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     {
         [$session, $second] = $this->signInWithASecondMembership();
 
-        self::assertTrue($this->sessions('members')->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second))->isSwitched());
+        self::assertTrue(
+            $this->sessions('members')->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            )->isSwitched(),
+        );
 
         $sessions = $this->sessions('members');
-        $result   = $this->assertQueryBudget(8, 1, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
+        $result   = $this->assertQueryBudget(
+            8,
+            1,
+            static fn (): SwitchResult => $sessions->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            ),
+        );
 
         self::assertTrue($result->isSwitched());
     }
@@ -488,7 +531,15 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         [, $foreign] = $this->seedMember('other@example.test');
 
         $sessions = $this->sessions('members');
-        $result   = $this->assertQueryBudget(6, 5, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($foreign)));
+        $result   = $this->assertQueryBudget(
+            6,
+            5,
+            static fn (): SwitchResult => $sessions->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($foreign),
+                self::requestClient(),
+            ),
+        );
 
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $result->reason);
     }
@@ -507,10 +558,21 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
 
         config()->set('auth.guards.members.rate_limits', ['refresh' => ['per_identifier' => null, 'per_ip' => ['max' => 1, 'decay_seconds' => 60]]]);
 
-        self::assertSame(FailureReason::TOKEN_INVALID, $this->sessions('members')->switchTo('not a token', SwitchTarget::principal($second))->reason);
+        self::assertSame(
+            FailureReason::TOKEN_INVALID,
+            $this->sessions('members')->switchTo(PresentedRefreshToken::fromBody('not a token'), SwitchTarget::principal($second), self::requestClient())->reason,
+        );
 
         $sessions = $this->sessions('members');
-        $result   = $this->assertQueryBudget(1, 0, static fn (): SwitchResult => $sessions->switchTo($session->tokens->refreshToken?->reveal(), SwitchTarget::principal($second)));
+        $result   = $this->assertQueryBudget(
+            1,
+            0,
+            static fn (): SwitchResult => $sessions->switchTo(
+                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                SwitchTarget::principal($second),
+                self::requestClient(),
+            ),
+        );
 
         self::assertSame(FailureReason::RATE_LIMITED, $result->reason);
     }
@@ -536,12 +598,12 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $token   = $session->tokens->refreshToken?->reveal();
         $targets = [$second, $first];
 
-        self::assertNotNull($this->sessions('members')->switchTo($token, SwitchTarget::principal($foreign))->reason);
+        self::assertNotNull($this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($foreign), self::requestClient())->reason);
 
         $started = hrtime(true);
 
         for ($switch = 0; $switch < self::TIMED_SWITCHES; $switch++) {
-            $result = $this->sessions('members')->switchTo($token, SwitchTarget::principal($targets[$switch % 2]));
+            $result = $this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($targets[$switch % 2]), self::requestClient());
 
             self::assertTrue($result->isSwitched());
 
@@ -551,19 +613,24 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         $switches = hrtime(true) - $started;
         $previous = $token;
 
-        $this->sessions('members')->switchTo($token, SwitchTarget::principal($targets[0]));
+        $this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($targets[0]), self::requestClient());
 
         $started = hrtime(true);
 
         for ($retry = 0; $retry < self::TIMED_SWITCHES; $retry++) {
-            self::assertTrue($this->sessions('members')->switchTo($previous, SwitchTarget::principal($targets[0]))->isSwitched());
+            self::assertTrue(
+                $this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($previous), SwitchTarget::principal($targets[0]), self::requestClient())->isSwitched(),
+            );
         }
 
         $retries = hrtime(true) - $started;
         $started = hrtime(true);
 
         for ($refusal = 0; $refusal < self::TIMED_SWITCHES; $refusal++) {
-            self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $this->sessions('members')->switchTo($previous, SwitchTarget::principal($foreign))->reason);
+            self::assertSame(
+                FailureReason::PRINCIPAL_MISMATCH,
+                $this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($previous), SwitchTarget::principal($foreign), self::requestClient())->reason,
+            );
         }
 
         $refusals = hrtime(true) - $started;

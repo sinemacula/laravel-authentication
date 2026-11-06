@@ -192,7 +192,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($session, $rotationId, $identity)->reveal();
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        $result = $this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refresh($token)->session?->tokens);
+        $result = $this->assertQueryBudget(
+            5,
+            2,
+            static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session?->tokens,
+        );
 
         self::assertNotNull($result);
     }
@@ -226,7 +230,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertTrue($this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refreshFromRequest())?->isRefreshed());
+        self::assertTrue(
+            $this->assertQueryBudget(
+                5,
+                2,
+                static fn () => GuardSessions::of($guard)->refresh(self::servedToken($guard->getName(), $guard->getRequest()), self::requestClient($guard->getRequest())),
+            )?->isRefreshed(),
+        );
     }
 
     /**
@@ -259,7 +269,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
 
-        $result = $this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refreshFromRequest());
+        $result = $this->assertQueryBudget(
+            5,
+            2,
+            static fn () => GuardSessions::of($guard)->refresh(self::servedToken($guard->getName(), $guard->getRequest()), self::requestClient($guard->getRequest())),
+        );
 
         self::assertTrue($result?->isRefreshed());
         self::assertNull($result->session?->tokens->refreshToken);
@@ -280,7 +294,14 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
 
-        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshFromRequest())?->reason);
+        self::assertSame(
+            FailureReason::CROSS_SITE_REQUEST,
+            $this->assertQueryBudget(
+                0,
+                0,
+                static fn () => GuardSessions::of($guard)->refresh(self::servedToken($guard->getName(), $guard->getRequest()), self::requestClient($guard->getRequest())),
+            )?->reason,
+        );
     }
 
     /**
@@ -321,25 +342,25 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
 
-        $crossSite = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshPresented($presented, new ClientContext('192.0.2.44', 'Plain/1.0')));
-        $conflict  = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshPresented(
+        $crossSite = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refresh($presented, new ClientContext('192.0.2.44', 'Plain/1.0')));
+        $conflict  = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refresh(
             new PresentedRefreshToken($token, RefreshTokenSource::COOKIE, [RefreshTokenSource::COOKIE, RefreshTokenSource::COOKIE]),
             $sameSite,
         ));
 
-        $mismatch = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshPresented(
+        $mismatch = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refresh(
             new PresentedRefreshToken($token, RefreshTokenSource::BODY, [RefreshTokenSource::BODY]),
             $sameSite,
         ));
-        $handedIn = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshPresented(FailureReason::TOKEN_INVALID, $sameSite));
+        $handedIn = $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refresh(FailureReason::TOKEN_INVALID, $sameSite));
 
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $crossSite->reason);
         self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $conflict->reason);
         self::assertSame(FailureReason::REFRESH_TRANSPORT_MISMATCH, $mismatch->reason);
         self::assertSame(FailureReason::TOKEN_INVALID, $handedIn->reason);
-        self::assertNull($this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshPresented(null, $sameSite)));
+        self::assertNull($this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refresh(null, $sameSite)));
 
-        $result = $this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refreshPresented($presented, $sameSite));
+        $result = $this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refresh($presented, $sameSite));
 
         self::assertTrue($result->isRefreshed());
         self::assertSame(self::COOKIE_NAME, $result->session?->tokens->refreshCookie?->name);
@@ -376,7 +397,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        $result = $this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refreshPresented($presented, new ClientContext('192.0.2.44', 'Plain/1.0')));
+        $result = $this->assertQueryBudget(5, 2, static fn () => GuardSessions::of($guard)->refresh($presented, new ClientContext('192.0.2.44', 'Plain/1.0')));
 
         self::assertTrue($result->isRefreshed());
         self::assertNotNull($result->session?->tokens->refreshToken);
@@ -396,7 +417,14 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $this->assertQueryBudget(0, 0, static fn () => GuardSessions::of($guard)->refreshFromRequest())?->reason);
+        self::assertSame(
+            FailureReason::REFRESH_TOKEN_CONFLICT,
+            $this->assertQueryBudget(
+                0,
+                0,
+                static fn () => GuardSessions::of($guard)->refresh(self::servedToken($guard->getName(), $guard->getRequest()), self::requestClient($guard->getRequest())),
+            )?->reason,
+        );
     }
 
     /**
@@ -419,7 +447,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        $result = $this->assertQueryBudget(2, 4, static fn () => GuardSessions::of($guard)->refresh($token)->session?->tokens);
+        $result = $this->assertQueryBudget(
+            2,
+            4,
+            static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session?->tokens,
+        );
 
         self::assertNull($result);
     }
@@ -445,7 +477,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        $result = $this->assertQueryBudget(1, 4, static fn () => GuardSessions::of($guard)->refresh($token)->session?->tokens);
+        $result = $this->assertQueryBudget(
+            1,
+            4,
+            static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session?->tokens,
+        );
 
         self::assertNull($result);
     }
@@ -468,7 +504,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $this->tokens()->issueRefreshToken($session, 'replayed-rotation-id')->reveal();
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertNull($this->assertQueryBudget(3, 6, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull(
+            $this->assertQueryBudget(
+                3,
+                6,
+                static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+            )->session,
+        );
         self::assertSame('rotation_reuse', Session::query()->whereKey($session->getKey())->firstOrFail()->getRevokedReason());
     }
 
@@ -495,7 +537,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $this->tokens()->issueRefreshToken($session, 'previous-rotation-id', $identity)->reveal();
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertNotNull($this->assertQueryBudget(5, 1, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNotNull(
+            $this->assertQueryBudget(
+                5,
+                1,
+                static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+            )->session,
+        );
     }
 
     /**
@@ -541,7 +589,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
                 ]);
         });
 
-        self::assertNotNull($this->assertQueryBudget(7, 2, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNotNull(
+            $this->assertQueryBudget(
+                7,
+                2,
+                static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+            )->session,
+        );
     }
 
     /**
@@ -562,7 +616,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(3, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull(
+            $this->assertQueryBudget(
+                3,
+                5,
+                static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+            )->session,
+        );
         self::assertSame([[FailureReason::REFRESH_KEY_MISSING, $session->getKey()]], self::failures($events));
     }
 
@@ -589,7 +649,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(3, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull(
+            $this->assertQueryBudget(
+                3,
+                5,
+                static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+            )->session,
+        );
         self::assertSame([[FailureReason::SESSION_REVOKED, $session->getKey()]], self::failures($events));
     }
 
@@ -616,7 +682,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
                 $guard = $this->freshJwtGuard(self::GUARD);
 
                 $started = hrtime(true);
-                $result  = GuardSessions::of($guard)->refresh($token)->session?->tokens;
+                $result  = GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session?->tokens;
                 $elapsed = hrtime(true) - $started;
 
                 self::assertSame($path !== 'replay', $result !== null, $path);
@@ -661,7 +727,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(3, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull(
+            $this->assertQueryBudget(
+                3,
+                5,
+                static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+            )->session,
+        );
         self::assertSame([[FailureReason::SESSION_EXPIRED, $session->getKey()]], self::failures($events));
     }
 
@@ -681,7 +753,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard   = $this->freshJwtGuard(self::GUARD);
         $events  = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(2, 4, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull(
+            $this->assertQueryBudget(
+                2,
+                4,
+                static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+            )->session,
+        );
         self::assertSame([[FailureReason::SESSION_GUARD_MISMATCH, $session->getKey()]], self::failures($events));
     }
 
@@ -702,7 +780,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard    = $this->freshJwtGuard(self::GUARD);
         $events   = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(4, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull(
+            $this->assertQueryBudget(
+                4,
+                5,
+                static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+            )->session,
+        );
         self::assertSame([[FailureReason::METHOD_NOT_ALLOWED, $session->getKey()]], self::failures($events));
     }
 
@@ -726,7 +810,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(4, 5, static fn () => GuardSessions::of($guard)->refresh($token))->session);
+        self::assertNull(
+            $this->assertQueryBudget(
+                4,
+                5,
+                static fn () => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+            )->session,
+        );
         self::assertSame([[FailureReason::PRINCIPAL_INELIGIBLE, $session->getKey()]], self::failures($events));
     }
 
@@ -754,7 +844,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $events   = $this->recordRefreshEvents();
         $sessions = GuardSessions::of($guard);
-        $result   = $this->assertQueryBudget(1, 0, static fn (): RefreshResult => $sessions->refresh($token));
+        $result   = $this->assertQueryBudget(1, 0, static fn (): RefreshResult => $sessions->refresh(PresentedRefreshToken::fromBody($token), self::requestClient()));
 
         self::assertSame(FailureReason::RATE_LIMITED, $result->reason);
         self::assertCount(1, $events);
@@ -793,7 +883,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
         $result = $this->assertQueryBudget(6, 2, static function () use ($guard, $token): ?TokenPair {
-            $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
+            $tokens = GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session?->tokens;
             $guard->principal()?->getIdentity();
             $guard->tenant();
 
@@ -833,7 +923,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
         $result = $this->assertQueryBudget(6, 2, static function () use ($guard, $token): ?TokenPair {
-            $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
+            $tokens = GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session?->tokens;
             $guard->principal()?->getIdentity();
             $guard->tenant();
 
@@ -896,7 +986,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $token  = $jwt->issueRefreshToken($session, $rotationId, $principal)->reveal();
         $guard  = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
-        $result = $this->assertQueryBudget(6, $writes, static fn (): RefreshResult => GuardSessions::of($guard)->refresh($token));
+        $result = $this->assertQueryBudget(
+            6,
+            $writes,
+            static fn (): RefreshResult => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+        );
 
         self::assertNull($result->session);
         self::assertSame($reason, $result->reason);
@@ -968,7 +1062,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $token  = $jwt->issueRefreshToken($session, $rotationId, $principal)->reveal();
         $guard  = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
-        $result = $this->assertQueryBudget($reads, 2, static fn (): RefreshResult => GuardSessions::of($guard)->refresh($token));
+        $result = $this->assertQueryBudget(
+            $reads,
+            2,
+            static fn (): RefreshResult => GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest())),
+        );
 
         self::assertSame([$meets, !$meets], [$result->isRefreshed(), $result->isPending()]);
     }
@@ -1005,7 +1103,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
         $result = $this->assertQueryBudget(5, 5, static function () use ($guard, $token): ?TokenPair {
-            $tokens = GuardSessions::of($guard)->refresh($token)->session?->tokens;
+            $tokens = GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->session?->tokens;
             $guard->tenant();
 
             return $tokens;

@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Events\SessionCreated;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
@@ -198,13 +199,13 @@ final class EventSequenceTest extends TestCase
 
         DB::beginTransaction();
 
-        self::assertNotNull(self::sessionsOf($guard)->refresh($refresh)->session);
+        self::assertNotNull(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($refresh), self::requestClient())->session);
 
         DB::rollBack();
 
         self::assertSame(['Attempting api'], $this->recordedSequence());
         self::assertFalse($guard->hasUser());
-        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($refresh)->session);
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($refresh), self::requestClient())->session);
     }
 
     /**
@@ -250,7 +251,7 @@ final class EventSequenceTest extends TestCase
         $this->recordSequence();
         $this->throwOn(Authenticated::class);
 
-        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->satisfy($credential, $proof)));
+        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->satisfy($credential, $proof, self::requestClient())));
         self::assertSame([...self::REPORT, 'Validated api i1', 'Login api i1', 'Authenticated api i1'], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
         self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
@@ -298,7 +299,7 @@ final class EventSequenceTest extends TestCase
         $this->recordSequence();
         $this->throwOn(SignedIn::class);
 
-        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->satisfy($credential, $proof)));
+        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->satisfy($credential, $proof, self::requestClient())));
         self::assertSame(self::REPORT, $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
         self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
@@ -390,14 +391,14 @@ final class EventSequenceTest extends TestCase
             throw new \RuntimeException('listener failed');
         });
 
-        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->satisfy($credential, $proof)));
+        self::assertSame('listener failed', self::failureOf(static fn (): SignInResult => $sessions->satisfy($credential, $proof, self::requestClient())));
         self::assertSame([], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
         self::assertSame([SessionStatus::PENDING, 1], [Session::query()->sole()->getStatus(), SessionProof::query()->count()]);
 
         Event::forget('eloquent.creating: ' . SessionProof::class);
 
-        self::assertTrue($sessions->satisfy($credential, $proof)->isSignedIn());
+        self::assertTrue($sessions->satisfy($credential, $proof, self::requestClient())->isSignedIn());
         self::assertSame([...self::REPORT, ...self::BIND], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
         self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));

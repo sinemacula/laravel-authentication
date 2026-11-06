@@ -105,19 +105,28 @@ interface GuardBinding
      * Bind a session the flow moved as the request's authentication, not as a
      * sign-in (the bind events only), in the active tenant given, or, with none
      * given, the one the session records (the principal's own without a
-     * session).
+     * session). The client is the one the bind's events describe, as for
+     * `loginVerified()`; `null` for the guard's request.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?list<string>  $scopes
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return void
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function authenticateAs(Identity $identity, Principal $principal, ?Session $session = null, ?array $scopes = null, ?Tenant $tenant = null): void;
+    public function authenticateAs(
+        Identity $identity,
+        Principal $principal,
+        ?Session $session = null,
+        ?array $scopes = null,
+        ?Tenant $tenant = null,
+        ?ClientContext $client = null,
+    ): void;
 
     /**
      * Forget the bound identity, principal and session, with no event, and keep

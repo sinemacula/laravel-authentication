@@ -73,8 +73,9 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantSelection;
  * factor, then the choice, and holding no token. `pending()` reads a pending
  * session for an action, `satisfy()` hands it the proof of a further factor,
  * `choose()` makes the choice, and `discard()` ends it; each takes the pending
- * credential, which travels only in a response body. `satisfy()` and `choose()`
- * judge the client they are given, or the guard's request's.
+ * credential, which travels only in a response body
+ * (`PendingCredential::extract()` reads it from a request's). `satisfy()` and
+ * `choose()` judge the client they are given.
  *
  * Every sign-in creates a new session, which records the proof of its first
  * factor (and the provenance of a session an external provider established) in
@@ -199,7 +200,7 @@ final readonly class SessionService
         $exchange     = new RefreshTokenExchange($tokens, $context, $connections, $transactions);
 
         $this->refreshes = new SessionRefresh($context, $binding, $exchange, $this->afterCommit, $this->binds, $container, $refreshProof);
-        $this->signOuts  = new SessionSignOut($context, $binding, $this->revocations, $sessions, $refreshProof, $container);
+        $this->signOuts  = new SessionSignOut($context, $binding, $sessions, $refreshProof, $container);
 
         $this->connectionRevocations = new ConnectionRevocations($context, $binding, $sessions, $this->afterCommit, $container);
         $this->factorRevocations     = new FactorRevocations(
@@ -385,37 +386,41 @@ final readonly class SessionService
      * credential consumed), stays pending, or moves on to the choice of
      * principal. A refusal leaves the session pending and the proof unstored; a
      * credential that names no live pending session of this guard fails as
-     * `pending_invalid`. A cookie application's client that did not come from a
-     * page of its own site fails as `cross_site_request` before the pending
-     * session is read. Every refusal is reported with Laravel's `Failed` and
-     * `AuthenticationFailed`.
+     * `pending_invalid`, as does `pending_invalid` handed in. A cookie
+     * application's client that did not come from a page of its own site fails
+     * as `cross_site_request` before the pending session is read. Every refusal
+     * is reported with Laravel's `Failed` and `AuthenticationFailed`.
      *
-     * The client is the request's unless one is given: a service layer that
-     * keeps HTTP out passes the `ClientContext` its controller built, which is
-     * judged by the same-site rule (a context without its `Origin`, scheme and
-     * host or custom header fails it on a cookie application), written by the
-     * activation as the session's last use, and carried by the events that
-     * report the action (`AuthenticationFailed`, `SessionCreated` or
+     * The credential is what `PendingCredential::extract()` read from the
+     * request, once the controller answered its absence: the `Secret`, or
+     * `pending_invalid` for a field that was not a non-empty string (any other
+     * reason is a caller's error, an `InvalidArgumentException`, nothing
+     * dispatched). The client is the request's `ClientContext`, handed on as a
+     * plain value, never read from the guard's request: it is judged by the
+     * same-site rule (a context without its `Origin`, scheme and host or custom
+     * header fails it on a cookie application), written by the activation as
+     * the session's last use, and carried by the events that report the action
+     * (`Failed` aside: `AuthenticationFailed`, `SessionCreated` or
      * `SessionActivated`, `SignedIn`, a superseded session's `SessionRevoked`)
      * and the guard's bind (`PrincipalAssigned` and `SessionAuthenticated`, so
      * a last use the bind records is that client's too); the guard keeps no
      * client, so its later events describe its own request.
      *
-     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function satisfy(#[\SensitiveParameter] Secret|string $credential, ProofResult $proof, ?ClientContext $client = null): SignInResult
+    public function satisfy(#[\SensitiveParameter] FailureReason|Secret|string $credential, ProofResult $proof, ClientContext $client): SignInResult
     {
         $now       = CarbonImmutable::now()->startOfSecond();
         $transport = $this->transport();
-        $client ??= $this->context->client();
-        $recheck = $this->recheck($client, $now);
-        $outcome = SessionPreconditions::crossSite($transport, $client)
-            ?? $this->pendings->satisfy($credential, $proof, $now, $recheck);
+        $presented = SessionPreconditions::pendingCredential($credential);
+        $recheck   = $this->recheck($client, $now);
+        $outcome   = SessionPreconditions::crossSite($transport, $client)
+            ?? ($presented instanceof Refused ? $presented : $this->pendings->satisfy($presented, $proof, $now, $recheck));
 
         return $this->acted($outcome, $transport, $recheck);
     }
@@ -438,27 +443,31 @@ final readonly class SessionService
      * meet, records the principal and tenant and leaves the session waiting for
      * it; otherwise the session activates. A refusal leaves the session pending
      * for another choice; a credential that names no live pending session of
-     * this guard fails as `pending_invalid`; a cookie application's client that
-     * did not come from a page of its own site fails as `cross_site_request`
-     * before the pending session is read. The client is the request's unless
-     * one is given, as for `satisfy()`.
+     * this guard fails as `pending_invalid`, as does `pending_invalid` handed
+     * in; a cookie application's client that did not come from a page of its
+     * own site fails as `cross_site_request` before the pending session is
+     * read. The credential and the client are plain values, as for `satisfy()`.
      *
-     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Secrets\Secret|string  $credential
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?\SineMacula\Laravel\Authentication\Tenancy\TenantSelection  $tenant
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    public function choose(#[\SensitiveParameter] Secret|string $credential, Principal $principal, ?TenantSelection $tenant = null, ?ClientContext $client = null): SignInResult
-    {
+    public function choose(
+        #[\SensitiveParameter] FailureReason|Secret|string $credential,
+        Principal $principal,
+        ClientContext $client,
+        ?TenantSelection $tenant = null,
+    ): SignInResult {
         $now       = CarbonImmutable::now()->startOfSecond();
         $transport = $this->transport();
-        $client ??= $this->context->client();
-        $recheck = $this->recheck($client, $now);
-        $outcome = SessionPreconditions::crossSite($transport, $client)
-            ?? $this->pendings->choose($credential, $principal, $tenant, $now, $recheck);
+        $presented = SessionPreconditions::pendingCredential($credential);
+        $recheck   = $this->recheck($client, $now);
+        $outcome   = SessionPreconditions::crossSite($transport, $client)
+            ?? ($presented instanceof Refused ? $presented : $this->pendings->choose($presented, $principal, $tenant, $now, $recheck));
 
         return $this->acted($recheck->refusal() ?? $outcome, $transport, $recheck);
     }

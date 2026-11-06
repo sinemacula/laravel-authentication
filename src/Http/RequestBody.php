@@ -7,8 +7,10 @@ namespace SineMacula\Laravel\Authentication\Http;
 use Illuminate\Http\Request;
 
 /**
- * The body a credential is read from: a refresh token's `body_field` and the
- * pending credential's `session.pending_credential_field` alike.
+ * The body a credential is read from: a refresh token's `body_field`, the
+ * pending credential's `session.pending_credential_field`, and the input a
+ * controller hands on to a service that takes plain values, as a password
+ * reset's, alike.
  *
  * The fields are the JSON body, or the form body of a request that may have
  * one, never the query string, so a credential never travels in a URL that
@@ -16,10 +18,10 @@ use Illuminate\Http\Request;
  * it is in a form body: a `.` or a space would be filed as `_` and a bracket
  * would nest it, so a field named so would never be found.
  *
+ * @api
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
- *
- * @internal
  */
 final class RequestBody
 {
@@ -54,6 +56,8 @@ final class RequestBody
      * @return bool
      *
      * @phpstan-assert-if-true string $name
+     *
+     * @internal
      */
     public static function isFieldName(mixed $name): bool
     {

@@ -7,6 +7,7 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
@@ -21,6 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SessionActivated;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
@@ -32,6 +34,7 @@ use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -199,6 +202,7 @@ final class CookieTransportTest extends TestCase
         $session = $this->sessions(self::BROWSER)->satisfy(
             $pending->credential->reveal(),
             self::adapterProof($identity, self::BROWSER, $pending->pending->id, Purpose::SIGN_IN),
+            self::requestClient(),
         )->session;
 
         self::assertNotNull($session);
@@ -234,7 +238,7 @@ final class CookieTransportTest extends TestCase
 
         DB::beginTransaction();
 
-        $session = $sessions->satisfy($credential, $proof)->session;
+        $session = $sessions->satisfy($credential, $proof, self::requestClient())->session;
 
         self::assertNotNull($session);
         self::assertNotNull($session->tokens->refreshCookie);
@@ -245,7 +249,7 @@ final class CookieTransportTest extends TestCase
         self::assertFalse($guard->hasUser());
         self::assertSame([], app('cookie')->getQueuedCookies());
 
-        $committed = DB::transaction(static fn (): ?SignedInSession => $sessions->satisfy($credential, $proof)->session);
+        $committed = DB::transaction(static fn (): ?SignedInSession => $sessions->satisfy($credential, $proof, self::requestClient())->session);
 
         self::assertNotNull($committed);
         self::assertCookiePair(self::BROWSER, $committed->tokens, $committed->record);
@@ -273,7 +277,7 @@ final class CookieTransportTest extends TestCase
 
         self::assertNotNull($pending->credential);
 
-        $session = $this->sessions(self::MEMBERS)->choose($pending->credential->reveal(), $first)->session;
+        $session = $this->sessions(self::MEMBERS)->choose($pending->credential->reveal(), $first, self::requestClient())->session;
 
         self::assertNotNull($session);
         self::assertCookiePair(self::MEMBERS, $session->tokens, $session->record);
@@ -323,10 +327,10 @@ final class CookieTransportTest extends TestCase
             self::BROWSER => [
                 fn (): mixed => $this->sessions(self::BROWSER)->signIn('password', self::credentials()),
                 fn (): mixed => $this->sessions(self::BROWSER)->start($identity, null, 'sso'),
-                fn (): mixed => $this->sessions(self::BROWSER)->satisfy($factor->credential->reveal(), $proof),
+                fn (): mixed => $this->sessions(self::BROWSER)->satisfy($factor->credential->reveal(), $proof, self::requestClient()),
             ],
             self::MEMBERS => [
-                fn (): mixed => $this->sessions(self::MEMBERS)->choose($choice->credential->reveal(), $first),
+                fn (): mixed => $this->sessions(self::MEMBERS)->choose($choice->credential->reveal(), $first, self::requestClient()),
             ],
         ];
 
@@ -348,12 +352,12 @@ final class CookieTransportTest extends TestCase
         config()->set('auth.guards.' . self::BROWSER . '.refresh_token.cookie.path', '/auth');
         config()->set('auth.guards.' . self::MEMBERS . '.refresh_token.cookie.path', '/');
 
-        self::assertTrue($this->sessions(self::BROWSER)->satisfy($factor->credential->reveal(), $proof)->isSignedIn());
+        self::assertTrue($this->sessions(self::BROWSER)->satisfy($factor->credential->reveal(), $proof, self::requestClient())->isSignedIn());
 
         app()->instance(AdditionalFactorPolicy::class, new NeverRequireAdditionalFactor);
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        self::assertTrue($this->sessions(self::MEMBERS)->choose($choice->credential->reveal(), $first)->isSignedIn());
+        self::assertTrue($this->sessions(self::MEMBERS)->choose($choice->credential->reveal(), $first, self::requestClient())->isSignedIn());
     }
 
     /**
@@ -373,7 +377,7 @@ final class CookieTransportTest extends TestCase
 
         self::assertNotNull($first);
 
-        $refreshed = $this->fromCookie(self::BROWSER, self::cookieValue($first))->refreshFromRequest();
+        $refreshed = $this->fromCookie(self::BROWSER, self::cookieValue($first))->refresh(self::servedToken(self::BROWSER), self::requestClient());
 
         self::assertNotNull($refreshed);
         self::assertTrue($refreshed->isRefreshed());
@@ -381,7 +385,9 @@ final class CookieTransportTest extends TestCase
         self::assertNotNull($refreshed->session);
         self::assertCookiePair(self::BROWSER, $refreshed->session->tokens, $refreshed->session->record);
         self::assertNotSame(self::cookieValue($first), self::cookieValue($refreshed->session->tokens));
-        self::assertTrue($this->fromCookie(self::BROWSER, self::cookieValue($refreshed->session->tokens))->refreshFromRequest()?->isRefreshed());
+        self::assertTrue(
+            $this->fromCookie(self::BROWSER, self::cookieValue($refreshed->session->tokens))->refresh(self::servedToken(self::BROWSER), self::requestClient())?->isRefreshed(),
+        );
     }
 
     /**
@@ -406,7 +412,11 @@ final class CookieTransportTest extends TestCase
 
         self::assertNotNull($tokens);
 
-        $switched = $this->fromCookie(self::MEMBERS, self::cookieValue($tokens))->switchFromRequest(SwitchTarget::principal($second));
+        $switched = $this->fromCookie(self::MEMBERS, self::cookieValue($tokens))->switchTo(
+            self::servedToken(self::MEMBERS),
+            SwitchTarget::principal($second),
+            self::requestClient(),
+        );
 
         self::assertNotNull($switched);
         self::assertTrue($switched->isSwitched());
@@ -441,7 +451,7 @@ final class CookieTransportTest extends TestCase
 
         DB::beginTransaction();
 
-        $refreshed = $sessions->refreshFromRequest()?->session;
+        $refreshed = $sessions->refresh(self::servedToken(self::BROWSER), self::requestClient())?->session;
 
         self::assertNotNull($refreshed);
         self::assertNotNull($refreshed->tokens->refreshCookie);
@@ -455,7 +465,7 @@ final class CookieTransportTest extends TestCase
 
         $sessions  = $this->fromCookie(self::BROWSER, self::cookieValue($first));
         $guard     = app('auth')->guard(self::BROWSER);
-        $committed = DB::transaction(static fn (): ?SignedInSession => $sessions->refreshFromRequest()?->session);
+        $committed = DB::transaction(static fn (): ?SignedInSession => $sessions->refresh(self::servedToken(self::BROWSER), self::requestClient())?->session);
 
         self::assertNotNull($committed);
         self::assertCookiePair(self::BROWSER, $committed->tokens, $committed->record);
@@ -493,7 +503,7 @@ final class CookieTransportTest extends TestCase
 
         DB::beginTransaction();
 
-        $switched = $sessions->switchFromRequest(SwitchTarget::principal($second))?->session;
+        $switched = $sessions->switchTo(self::servedToken(self::MEMBERS), SwitchTarget::principal($second), self::requestClient())?->session;
 
         self::assertNotNull($switched);
         self::assertNotNull($switched->tokens->refreshCookie);
@@ -508,7 +518,9 @@ final class CookieTransportTest extends TestCase
 
         $sessions  = $this->fromCookie(self::MEMBERS, self::cookieValue($tokens));
         $guard     = app('auth')->guard(self::MEMBERS);
-        $committed = DB::transaction(static fn (): ?SignedInSession => $sessions->switchFromRequest(SwitchTarget::principal($second))?->session);
+        $committed = DB::transaction(
+            static fn (): ?SignedInSession => $sessions->switchTo(self::servedToken(self::MEMBERS), SwitchTarget::principal($second), self::requestClient())?->session,
+        );
 
         self::assertNotNull($committed);
         self::assertCookiePair(self::MEMBERS, $committed->tokens, $committed->record);
@@ -519,50 +531,53 @@ final class CookieTransportTest extends TestCase
     }
 
     /**
-     * A cookie application refuses a refresh token its own code read and handed
-     * in, to refresh, to switch or to sign out, before anything is attempted:
-     * its token is read only from its cookie, with the cookie's cross-site
-     * checks. The message points every call at the `*FromRequest()` methods,
-     * and only a refresh or sign-out at the plain forms, there being no plain
-     * switch. A body application takes one.
+     * A cookie application refuses a refresh token its own code read from a
+     * body and handed in, to refresh, to switch or to sign out, as
+     * `refresh_transport_mismatch`, reported as each action reports a refusal
+     * and touching no session: its token travels only in its cookie, with the
+     * cookie's cross-site checks. A body application takes one.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACookieApplicationRefusesATokenHandedIn(): void
+    public function testACookieApplicationRefusesATokenFromTheBody(): void
     {
         $this->seedIdentity();
 
         $token = self::cookieValue($this->sessions(self::BROWSER)->signIn('password', self::credentials())->session?->tokens);
         $other = $this->seedIdentity('grace@example.test');
 
-        $this->recordEvents([Attempting::class, AuthenticationFailed::class]);
+        $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
-        $calls = [
-            fn (): mixed => $this->sessions(self::BROWSER)->refresh($token),
-            fn (): mixed => $this->sessions(self::BROWSER)->switchTo($token, SwitchTarget::principal($other)),
-            fn (): mixed => $this->sessions(self::BROWSER)->signOutWith($token),
-        ];
+        $refreshed = $this->sessions(self::BROWSER)->refresh(PresentedRefreshToken::fromBody($token), self::sameSiteClient());
 
-        foreach ($calls as $call) {
-            try {
-                $call();
+        self::assertSame([Attempting::class, Failed::class, AuthenticationFailed::class], $this->recordedClasses());
 
-                self::fail('A cookie application took a refresh token handed in.');
-            } catch (\LogicException $exception) {
-                self::assertSame(SessionRefresh::COOKIE_ONLY, $exception->getMessage());
-                self::assertStringContainsString('refresh, switch or sign out with the *FromRequest() methods', $exception->getMessage());
-                self::assertStringContainsString('or refresh and sign out with refreshPresented() and signOutPresented()', $exception->getMessage());
-            }
+        $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class]);
+
+        $switched = $this->sessions(self::BROWSER)->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($other), self::sameSiteClient());
+
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+
+        $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class]);
+
+        $signedOut = $this->sessions(self::BROWSER)->signOutWith(PresentedRefreshToken::fromBody($token), self::sameSiteClient());
+
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+
+        foreach ([$refreshed, $switched, $signedOut] as $result) {
+            self::assertSame(FailureReason::REFRESH_TRANSPORT_MISMATCH, $result->reason);
+            self::assertSame(RefreshTokenSource::BODY, $result->source);
         }
 
-        self::assertSame([], $this->recordedClasses());
+        self::assertSame(AuthenticationFlow::SIGN_OUT, $this->recordedEvent(AuthenticationFailed::class)->flow);
+        self::assertTrue($this->fromCookie(self::BROWSER, $token)->refresh(self::servedToken(self::BROWSER), self::requestClient())?->isRefreshed());
 
         $body = $this->sessions(self::BODY)->signIn('password', self::credentials())->session?->tokens->refreshToken;
 
         self::assertNotNull($body);
-        self::assertTrue($this->sessions(self::BODY)->refresh($body->reveal())->isRefreshed());
+        self::assertTrue($this->sessions(self::BODY)->refresh(PresentedRefreshToken::fromBody($body), self::requestClient())->isRefreshed());
     }
 
     /**
@@ -588,7 +603,7 @@ final class CookieTransportTest extends TestCase
         $this->fromCookie(self::BROWSER, $first);
 
         $request   = request();
-        $refreshed = Auth::sessions(self::BROWSER)->refreshPresented($transport->extract($request), ClientContext::fromRequest($request));
+        $refreshed = Auth::sessions(self::BROWSER)->refresh($transport->extract($request), ClientContext::fromRequest($request));
 
         self::assertNotNull($refreshed);
         self::assertSame(RefreshTokenSource::COOKIE, $refreshed->source);
@@ -607,7 +622,7 @@ final class CookieTransportTest extends TestCase
             'HTTP_USER_AGENT' => self::CLIENT_AGENT,
         ]);
 
-        $refused = Auth::sessions(self::BROWSER)->refreshPresented($transport->extract($crossSite), ClientContext::fromRequest($crossSite));
+        $refused = Auth::sessions(self::BROWSER)->refresh($transport->extract($crossSite), ClientContext::fromRequest($crossSite));
 
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $refused?->reason);
         self::assertIsString($value);
@@ -615,7 +630,7 @@ final class CookieTransportTest extends TestCase
         $this->fromCookie(self::BROWSER, $value);
 
         $request = request();
-        $signOut = Auth::sessions(self::BROWSER)->signOutPresented($transport->extract($request), ClientContext::fromRequest($request));
+        $signOut = Auth::sessions(self::BROWSER)->signOutWith($transport->extract($request), ClientContext::fromRequest($request));
 
         self::assertTrue($signOut->isSignedOut());
         self::assertSame(RefreshTokenSource::COOKIE, $signOut->source);
@@ -664,7 +679,7 @@ final class CookieTransportTest extends TestCase
 
         Auth::forgetGuards();
 
-        $crossSite = Auth::sessions(self::BROWSER)->signOutFromRequest();
+        $crossSite = self::signOutServed(Auth::sessions(self::BROWSER), self::BROWSER);
 
         app()->instance('request', Request::create('/auth/logout', 'POST', server: [
             'REMOTE_ADDR'     => self::CLIENT_IP,
@@ -674,8 +689,8 @@ final class CookieTransportTest extends TestCase
 
         Auth::forgetGuards();
 
-        $fromElsewhere = Auth::sessions(self::BROWSER)->signOutFromRequest();
-        $conflict      = $this->request(self::BROWSER, ['refresh_token' => $value], [self::COOKIES[self::BROWSER][0] => $value])->signOutFromRequest();
+        $fromElsewhere = self::signOutServed(Auth::sessions(self::BROWSER), self::BROWSER);
+        $conflict      = self::signOutServed($this->request(self::BROWSER, ['refresh_token' => $value], [self::COOKIES[self::BROWSER][0] => $value]), self::BROWSER);
 
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $crossSite->reason);
         self::assertFalse($fromElsewhere->isSignedOut());
@@ -695,9 +710,9 @@ final class CookieTransportTest extends TestCase
 
         Auth::forgetGuards();
 
-        $bearer  = Auth::sessions(self::BROWSER)->signOutFromRequest();
-        $signed  = $this->fromCookie(self::BROWSER, $value)->signOutFromRequest();
-        $nothing = $this->request(self::BROWSER)->signOutFromRequest();
+        $bearer  = self::signOutServed(Auth::sessions(self::BROWSER), self::BROWSER);
+        $signed  = self::signOutServed($this->fromCookie(self::BROWSER, $value), self::BROWSER);
+        $nothing = self::signOutServed($this->request(self::BROWSER), self::BROWSER);
 
         self::assertTrue($signed->isSignedOut());
         self::assertSame(RefreshTokenSource::COOKIE, $signed->source);
@@ -744,8 +759,8 @@ final class CookieTransportTest extends TestCase
         $value    = self::cookieValue($revoked->tokens);
         $replaced = self::cookieValue($replayed->tokens);
 
-        self::assertTrue($this->fromCookie(self::BROWSER, $value)->signOutFromRequest()->isSignedOut());
-        self::assertTrue((bool) $this->fromCookie(self::BROWSER, $replaced)->refreshFromRequest()?->isRefreshed());
+        self::assertTrue(self::signOutServed($this->fromCookie(self::BROWSER, $value), self::BROWSER)->isSignedOut());
+        self::assertTrue((bool) $this->fromCookie(self::BROWSER, $replaced)->refresh(self::servedToken(self::BROWSER), self::requestClient())?->isRefreshed());
 
         $later = CarbonImmutable::now()->addMinutes(2);
 
@@ -755,9 +770,9 @@ final class CookieTransportTest extends TestCase
         JWT::$timestamp = $later->getTimestamp();
 
         $results = [
-            'session_revoked'            => $this->fromCookie(self::BROWSER, $value)->signOutFromRequest(),
-            'refresh_transport_mismatch' => $this->request(self::BROWSER, ['refresh_token' => $value])->signOutFromRequest(),
-            'rotation_reuse'             => $this->fromCookie(self::BROWSER, $replaced)->signOutFromRequest(),
+            'session_revoked'            => self::signOutServed($this->fromCookie(self::BROWSER, $value), self::BROWSER),
+            'refresh_transport_mismatch' => self::signOutServed($this->request(self::BROWSER, ['refresh_token' => $value]), self::BROWSER),
+            'rotation_reuse'             => self::signOutServed($this->fromCookie(self::BROWSER, $replaced), self::BROWSER),
         ];
 
         self::assertSame('rotation_reuse', Session::query()->whereKey($replayed->record->getKey())->value('revoked_reason'));
@@ -801,7 +816,7 @@ final class CookieTransportTest extends TestCase
 
         $guard->setSession(Session::query()->findOrFail($bound->record->getKey()));
 
-        $results = ['bound' => self::sessionsOf($guard)->signOutFromRequest()];
+        $results = ['bound' => self::signOutServed(self::sessionsOf($guard), self::BROWSER)];
         $armed   = new \ArrayObject(['armed' => true]);
         $service = $this->fromCookie(self::BROWSER, self::cookieValue($raced->tokens));
 
@@ -816,7 +831,7 @@ final class CookieTransportTest extends TestCase
             DB::table('authentication_sessions')->update(['revoked_at' => CarbonImmutable::now(), 'revoked_reason' => 'revoked']);
         });
 
-        $results['raced'] = $service->signOutFromRequest();
+        $results['raced'] = self::signOutServed($service, self::BROWSER);
 
         self::assertFalse($armed['armed']);
         self::assertSame('revoked', Session::query()->whereKey($raced->record->getKey())->value('revoked_reason'));
@@ -860,7 +875,7 @@ final class CookieTransportTest extends TestCase
         self::assertNotNull($token);
 
         $stray     = ['__Secure-my_app_refresh_token' => 'stray', '__Secure-api_refresh_token' => 'stray'];
-        $refreshed = $this->request(self::UNNAMED, ['refresh_token' => $token->reveal()], $stray)->refreshFromRequest();
+        $refreshed = $this->request(self::UNNAMED, ['refresh_token' => $token->reveal()], $stray)->refresh(self::servedToken(self::UNNAMED), self::requestClient());
 
         self::assertNotNull($refreshed);
         self::assertTrue($refreshed->isRefreshed());
@@ -870,7 +885,7 @@ final class CookieTransportTest extends TestCase
 
         self::assertNotNull($rotated);
 
-        $signedOut = $this->request(self::UNNAMED, ['refresh_token' => $rotated->reveal()], $stray)->signOutFromRequest();
+        $signedOut = self::signOutServed($this->request(self::UNNAMED, ['refresh_token' => $rotated->reveal()], $stray), self::UNNAMED);
 
         self::assertTrue($signedOut->isSignedOut());
         self::assertSame(RefreshTokenSource::BODY, $signedOut->source);
@@ -903,19 +918,25 @@ final class CookieTransportTest extends TestCase
 
         $other = (string) $body->tokens->refreshToken?->reveal();
 
-        self::assertNull($this->request(self::BROWSER, cookies: ['__Secure-api_refresh_token' => $other])->refreshFromRequest());
-        self::assertSame(FailureReason::TOKEN_INVALID, $this->fromCookie(self::BROWSER, $other)->refreshFromRequest()?->reason);
+        self::assertNull($this->request(self::BROWSER, cookies: ['__Secure-api_refresh_token' => $other])->refresh(self::servedToken(self::BROWSER), self::requestClient()));
+        self::assertSame(FailureReason::TOKEN_INVALID, $this->fromCookie(self::BROWSER, $other)->refresh(self::servedToken(self::BROWSER), self::requestClient())?->reason);
 
         $crossed = Auth::jwt(self::BROWSER)->issueRefreshToken($body->record, 'rotation-of-the-api-session', $body->principal)->reveal();
         $before  = Session::query()->whereKey($body->record->getKey())->sole()->getAttributes();
 
-        self::assertSame(FailureReason::SESSION_GUARD_MISMATCH, $this->fromCookie(self::BROWSER, $crossed)->refreshFromRequest()?->reason);
+        self::assertSame(
+            FailureReason::SESSION_GUARD_MISMATCH,
+            $this->fromCookie(self::BROWSER, $crossed)->refresh(self::servedToken(self::BROWSER), self::requestClient())?->reason,
+        );
         self::assertSame($before, Session::query()->whereKey($body->record->getKey())->sole()->getAttributes());
 
-        self::assertSame(FailureReason::REFRESH_TRANSPORT_MISMATCH, $this->request(self::BODY, cookies: ['__Secure-api_refresh_token' => $other])->refreshFromRequest()?->reason);
         self::assertSame(
             FailureReason::REFRESH_TRANSPORT_MISMATCH,
-            $this->request(self::BROWSER, ['refresh_token' => self::cookieValue($browser->tokens)])->refreshFromRequest()?->reason,
+            $this->request(self::BODY, cookies: ['__Secure-api_refresh_token' => $other])->refresh(self::servedToken(self::BODY), self::requestClient())?->reason,
+        );
+        self::assertSame(
+            FailureReason::REFRESH_TRANSPORT_MISMATCH,
+            $this->request(self::BROWSER, ['refresh_token' => self::cookieValue($browser->tokens)])->refresh(self::servedToken(self::BROWSER), self::requestClient())?->reason,
         );
     }
 

@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -122,7 +123,9 @@ final class StorageConnectionSessionsTest extends TestCase
 
         $digest = $this->records()->value('refresh_key');
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh($session->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(
+            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
         self::assertNotSame($digest, $this->records()->value('refresh_key'));
     }
 
@@ -195,7 +198,7 @@ final class StorageConnectionSessionsTest extends TestCase
         });
 
         try {
-            $this->sessions()->satisfy($result->credential->reveal(), $proof);
+            $this->sessions()->satisfy($result->credential->reveal(), $proof, self::requestClient());
 
             self::fail('Expected the proof write to fail.');
         } catch (\RuntimeException $exception) {
@@ -207,9 +210,9 @@ final class StorageConnectionSessionsTest extends TestCase
 
         SessionProof::flushEventListeners();
 
-        self::assertTrue($this->sessions()->satisfy($result->credential->reveal(), $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($result->credential->reveal(), $proof, self::requestClient())->isSignedIn());
         self::assertSame(1, $this->records()->where('status', 'active')->count());
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($result->credential->reveal(), $proof)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($result->credential->reveal(), $proof, self::requestClient())->reason);
     }
 
     /**

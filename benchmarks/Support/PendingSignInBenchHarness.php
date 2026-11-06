@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
@@ -169,7 +170,7 @@ final readonly class PendingSignInBenchHarness
             new ProofBinding($pending->identity, self::GUARD, $pending->id, Purpose::SIGN_IN),
         );
 
-        return $this->sessions()->satisfy($credential, $proof);
+        return $this->sessions()->satisfy($credential, $proof, ClientContext::fromRequest(BenchRequest::client()));
     }
 
     /**

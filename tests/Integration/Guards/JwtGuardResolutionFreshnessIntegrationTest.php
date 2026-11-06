@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -189,7 +190,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $identity->is_active = false;
         $identity->save();
 
-        self::assertNull(GuardSessions::of($this->freshGuard())->refresh($token)->session);
+        self::assertNull(GuardSessions::of($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
     }
 
     /**
@@ -214,7 +215,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $this->resolver()->setHintedPrincipal('principal-refresh', $inactivePrincipal);
 
-        self::assertNull(GuardSessions::of($this->freshGuard())->refresh($token)->session);
+        self::assertNull(GuardSessions::of($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
     }
 
     /**
@@ -236,7 +237,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $session->delete();
 
-        self::assertNull(GuardSessions::of($this->freshGuard())->refresh($token)->session);
+        self::assertNull(GuardSessions::of($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
     }
 
     /**

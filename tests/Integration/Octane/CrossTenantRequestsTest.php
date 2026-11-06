@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
@@ -484,7 +485,11 @@ final class CrossTenantRequestsTest extends TestCase
 
         Route::post('/switch', static function (): array {
             $membership = ChoosingMembership::query()->findOrFail(request()->integer('principal'));
-            $result     = Auth::sessions('admin')->switchTo(request()->string('refresh')->value(), SwitchTarget::principal($membership));
+            $result     = Auth::sessions('admin')->switchTo(
+                PresentedRefreshToken::fromBody(request()->string('refresh')->value()),
+                SwitchTarget::principal($membership),
+                self::requestClient(),
+            );
 
             return ['access' => $result->session?->tokens->accessToken->reveal()];
         });

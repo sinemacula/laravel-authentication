@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -269,7 +270,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->moveClockTo($later);
 
-        $pair = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
+        $pair = GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session?->tokens;
 
         self::assertNotNull($pair);
 
@@ -306,7 +307,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
         $this->moveClockTo($this->signedInAt->copy()->addMinute());
 
         try {
-            GuardSessions::of($this->guard())->refresh($token);
+            GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient());
             self::fail('Expected a session without a first factor to be refused a token.');
         } catch (\LogicException $exception) {
             self::assertSame('The session records no counting first factor, so no access token can say when or how it authenticated.', $exception->getMessage());
@@ -344,7 +345,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->bearer($access, '/brief')->assertOk()->assertExactJson(['session' => $session->getKey()]);
 
-        $pair = GuardSessions::of($this->guard(self::BRIEF))->refresh($refresh)->session?->tokens;
+        $pair = GuardSessions::of($this->guard(self::BRIEF))->refresh(PresentedRefreshToken::fromBody($refresh), self::requestClient())->session?->tokens;
 
         self::assertNotNull($pair);
         self::assertSame($refreshedAt->getTimestamp() + 120, $this->claims($pair->accessToken->reveal(), TokenType::ACCESS, self::BRIEF)[Claims::EXPIRES_AT->value]);
@@ -379,7 +380,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
             $this->moveClockTo($this->signedInAt->copy()->addMinutes($minutes));
 
-            $pair = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
+            $pair = GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session?->tokens;
 
             self::assertNotNull($pair);
 
@@ -390,7 +391,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->moveClockTo($nearTheEnd);
 
-        $pair = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
+        $pair = GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session?->tokens;
 
         self::assertNotNull($pair);
         self::assertSame($absolute->getTimestamp(), $this->stored($session)->getIdleExpiresAt()?->getTimestamp());
@@ -449,7 +450,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
         $before = $this->storedRow($session);
 
         if ($succeeds) {
-            self::assertNotNull(GuardSessions::of($this->guard())->refresh($token)->session);
+            self::assertNotNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
 
             return;
         }
@@ -555,7 +556,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
         self::assertNull($this->stored($session)->getRevokedAt());
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->stored($session)->getRefreshKey());
 
-        $pair = GuardSessions::of($this->guard())->refresh($token)->session?->tokens;
+        $pair = GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session?->tokens;
 
         self::assertNotNull($pair);
         self::assertSame($shortened->getTimestamp(), $this->stored($session)->getAbsoluteExpiresAt()?->getTimestamp());
@@ -696,7 +697,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        self::assertNull(GuardSessions::of($this->guard())->refresh($token)->session);
+        self::assertNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
 
         return $reasons[0] ?? null;
     }

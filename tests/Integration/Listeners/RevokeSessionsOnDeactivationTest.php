@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnDeactivation;
 use SineMacula\Laravel\Authentication\Sessions\AdmissionRecheck;
@@ -82,7 +83,10 @@ final class RevokeSessionsOnDeactivationTest extends TestCase
 
             assert($guard instanceof JwtGuard);
 
-            return ['refreshed' => Auth::sessions($guard->getName())->refresh($request->string('refresh_token')->toString())->isRefreshed()];
+            return ['refreshed' => Auth::sessions($guard->getName())->refresh(
+                PresentedRefreshToken::fromBody($request->string('refresh_token')->toString()),
+                self::requestClient(),
+            )->isRefreshed()];
         });
 
         RecheckedMember::observe(RevokeSessionsOnDeactivation::class);

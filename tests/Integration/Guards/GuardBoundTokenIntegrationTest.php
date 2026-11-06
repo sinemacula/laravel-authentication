@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -159,7 +160,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
         Event::fake([AuthenticationFailed::class]);
 
-        self::assertNull(GuardSessions::of($this->guard(self::SUPPORT_GUARD))->refresh($token)->session);
+        self::assertNull(GuardSessions::of($this->guard(self::SUPPORT_GUARD))->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
 
         Event::assertDispatched(
             AuthenticationFailed::class,
@@ -167,7 +168,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
                 && $event->reason                                                   === FailureReason::TOKEN_INVALID,
         );
 
-        self::assertNotNull(GuardSessions::of($this->guard(self::STAFF_GUARD))->refresh($token)->session);
+        self::assertNotNull(GuardSessions::of($this->guard(self::STAFF_GUARD))->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
     }
 
     /**
@@ -236,7 +237,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
         $guard = $this->guard(self::CUSTOMER_GUARD);
 
-        self::assertNotNull(GuardSessions::of($guard)->refresh($insideToken)->session);
+        self::assertNotNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($insideToken), self::requestClient($guard->getRequest()))->session);
         self::assertTrue($inside->is($guard->user()));
     }
 
@@ -283,7 +284,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     {
         Event::fake([AuthenticationFailed::class]);
 
-        self::assertNull(GuardSessions::of($this->guard($guard))->refresh($token)->session);
+        self::assertNull(GuardSessions::of($this->guard($guard))->refresh(PresentedRefreshToken::fromBody($token), self::requestClient())->session);
 
         Event::assertDispatched(
             AuthenticationFailed::class,

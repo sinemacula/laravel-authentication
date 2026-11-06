@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -182,7 +183,10 @@ final class ConcurrentSignInReplacementTest extends TestCase
             $previous = $this->signIn($identity);
 
             [$refreshed, $second] = $this->race(
-                fn (): bool => self::sessionsOf($this->freshGuard())->refresh($previous->tokens->refreshToken?->reveal())->isRefreshed(),
+                fn (): bool => self::sessionsOf($this->freshGuard())->refresh(
+                    PresentedRefreshToken::fromBody($previous->tokens->refreshToken?->reveal()),
+                    self::requestClient(),
+                )->isRefreshed(),
                 fn (): string => $this->replacing($identity, $previous),
                 $commit,
             );
@@ -223,7 +227,10 @@ final class ConcurrentSignInReplacementTest extends TestCase
 
             [$replacement, $second] = $this->race(
                 fn (): string => $this->replacing($identity, $previous),
-                fn (): ?string => self::sessionsOf($this->freshGuard())->refresh($previous->tokens->refreshToken?->reveal())->reason?->value,
+                fn (): ?string => self::sessionsOf($this->freshGuard())->refresh(
+                    PresentedRefreshToken::fromBody($previous->tokens->refreshToken?->reveal()),
+                    self::requestClient(),
+                )->reason?->value,
                 $commit,
             );
 

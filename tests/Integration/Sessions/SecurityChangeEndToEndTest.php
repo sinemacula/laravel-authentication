@@ -22,6 +22,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnDeactivation;
 use SineMacula\Laravel\Authentication\Listeners\RevokeSessionsOnPasswordChange;
@@ -75,7 +76,10 @@ final class SecurityChangeEndToEndTest extends TestCase
 
             assert($guard instanceof JwtGuard);
 
-            return ['refreshed' => self::sessionsOf($guard)->refresh($request->string('refresh_token')->toString())->isRefreshed()];
+            return ['refreshed' => self::sessionsOf($guard)->refresh(
+                PresentedRefreshToken::fromBody($request->string('refresh_token')->toString()),
+                self::requestClient(),
+            )->isRefreshed()];
         });
 
         IntegrationIdentity::observe([RevokeSessionsOnPasswordChange::class, RevokeSessionsOnDeactivation::class]);

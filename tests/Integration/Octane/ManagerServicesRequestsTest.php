@@ -353,7 +353,7 @@ final class ManagerServicesRequestsTest extends TestCase
         Route::post('/members/refresh', function (): array {
             $sessions = Auth::sessions('members');
             $this->recordInThisRequest(self::LIFECYCLE);
-            $session = $sessions->refresh(request()->string('refresh')->value())->session;
+            $session = $sessions->refresh(PresentedRefreshToken::fromBody(request()->string('refresh')->value()), self::requestClient())->session;
 
             return ['refresh' => self::refreshTokenOf($session)];
         });
@@ -362,7 +362,7 @@ final class ManagerServicesRequestsTest extends TestCase
             $sessions = Auth::sessions('members');
             $this->recordInThisRequest([PrincipalAssigned::class]);
             $presented = new PresentedRefreshToken(new Secret(request()->string('refresh')->value()), RefreshTokenSource::BODY, [RefreshTokenSource::BODY]);
-            $session   = $sessions->refreshPresented($presented, new ClientContext(request()->string('client')->value(), 'Console/1.0'))->session;
+            $session   = $sessions->refresh($presented, new ClientContext(request()->string('client')->value(), 'Console/1.0'))->session;
 
             return ['access' => $session?->tokens->accessToken->reveal()];
         });
@@ -377,7 +377,7 @@ final class ManagerServicesRequestsTest extends TestCase
             $sessions = Auth::sessions('members');
             $this->recordInThisRequest(self::LIFECYCLE);
             $target = ActivatableTenantMembership::query()->findOrFail(request()->integer('membership'));
-            $result = $sessions->switchTo(request()->string('refresh')->value(), SwitchTarget::principal($target));
+            $result = $sessions->switchTo(PresentedRefreshToken::fromBody(request()->string('refresh')->value()), SwitchTarget::principal($target), self::requestClient());
 
             return [
                 'principal' => $result->session?->principal->getPrincipalIdentifier(),

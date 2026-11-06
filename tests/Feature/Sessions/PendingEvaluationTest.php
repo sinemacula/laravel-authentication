@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -636,7 +637,7 @@ final class PendingEvaluationTest extends TestCase
             $listed   = $this->sessions(self::CHOOSERS)->principals($member);
             $found    = $this->sessions(self::CHOOSERS)->principal($member, $second->getKey());
             $refused  = $this->sessions(self::CHOOSERS)->principal($member, $third->getKey());
-            $switched = $this->sessions(self::CHOOSERS)->switchTo($token, SwitchTarget::principal($second));
+            $switched = $this->sessions(self::CHOOSERS)->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($second), self::requestClient());
             $tenants  = [self::tenantsOf($pending->principals ?? []), self::tenantsOf($listed), self::tenantsOf($found === null ? [] : [$found])];
         } finally {
             Model::preventLazyLoading(false);
@@ -650,7 +651,10 @@ final class PendingEvaluationTest extends TestCase
         Model::preventLazyLoading();
 
         try {
-            $refreshed = $this->sessions(self::CHOOSERS)->refresh($switched->session?->tokens->refreshToken?->reveal() ?? '');
+            $refreshed = $this->sessions(self::CHOOSERS)->refresh(
+                PresentedRefreshToken::fromBody($switched->session?->tokens->refreshToken?->reveal() ?? ''),
+                self::requestClient(),
+            );
         } finally {
             Model::preventLazyLoading(false);
         }

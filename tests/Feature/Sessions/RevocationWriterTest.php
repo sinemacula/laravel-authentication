@@ -406,8 +406,8 @@ final class RevocationWriterTest extends TestCase
         self::assertNull(self::revokedAt($theirs));
         self::assertSame(self::NOW, self::revokedAt($revoked));
         self::assertSame('password_changed', DB::table('authentication_sessions')->where('id', $pending)->value('revoked_reason'));
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($pendingCredential, $pendingProof)->reason);
-        self::assertTrue($this->sessions()->satisfy($theirsCredential, $theirsProof)->isSignedIn());
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($pendingCredential, $pendingProof, self::requestClient())->reason);
+        self::assertTrue($this->sessions()->satisfy($theirsCredential, $theirsProof, self::requestClient())->isSignedIn());
     }
 
     /**

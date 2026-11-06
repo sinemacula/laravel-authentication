@@ -467,7 +467,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
      */
     private static function refreshRoute(string $guard): JsonResponse
     {
-        $result = Auth::sessions($guard)->refreshFromRequest();
+        $result = Auth::sessions($guard)->refresh(self::servedToken($guard), self::requestClient());
 
         if ($result === null) {
             return new JsonResponse(['reason' => null], 400);

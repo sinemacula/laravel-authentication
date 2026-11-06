@@ -1510,7 +1510,7 @@ final class PasskeyServiceTest extends TestCase
         $duplicate  = new \ArrayObject(['insert' => true]);
 
         $registering = static function (RegisteredPasskey $passkey) use ($sessions, $credential, $proof, $duplicate): PasskeyFactorAssociation {
-            self::assertTrue($sessions->satisfy($credential, $proof)->isSignedIn());
+            self::assertTrue($sessions->satisfy($credential, $proof, self::requestClient())->isSignedIn());
 
             if ($duplicate['insert'] === true) {
                 DB::table('passkeys')->insert([
@@ -1638,7 +1638,7 @@ final class PasskeyServiceTest extends TestCase
 
         $proof = self::adapterProof($identity, 'api', $record->getKey(), Purpose::SIGN_IN);
 
-        self::assertTrue($this->sessions()->satisfy($judgement->credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($judgement->credential, $proof, self::requestClient())->isSignedIn());
         self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
     }
 
@@ -1671,7 +1671,11 @@ final class PasskeyServiceTest extends TestCase
         self::assertNotNull($pending->pending);
         self::assertNotNull($pending->credential);
 
-        $record = $this->sessions()->satisfy($pending->credential, self::adapterProof($identity, 'api', $pending->pending->id, Purpose::SIGN_IN))->session?->record;
+        $record = $this->sessions()->satisfy(
+            $pending->credential,
+            self::adapterProof($identity, 'api', $pending->pending->id, Purpose::SIGN_IN),
+            self::requestClient(),
+        )->session?->record;
 
         self::assertNotNull($record);
 
@@ -1715,7 +1719,7 @@ final class PasskeyServiceTest extends TestCase
 
         $proof = self::adapterProof($identity, 'api', $record->getKey(), Purpose::SIGN_IN);
 
-        self::assertTrue($this->sessions()->satisfy($completion->credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($completion->credential, $proof, self::requestClient())->isSignedIn());
         self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
     }
 

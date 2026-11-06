@@ -303,7 +303,7 @@ final class FactorRevocationsQueryBudgetTest extends PerformanceContractTestCase
             new ProofBinding($pending->pending->identity, 'api', $pending->pending->id, Purpose::SIGN_IN),
         );
 
-        $session = $this->sessions()->satisfy($pending->credential, $proof)->session;
+        $session = $this->sessions()->satisfy($pending->credential, $proof, self::requestClient())->session;
 
         self::assertNotNull($session);
 

@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsSession;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -171,7 +172,7 @@ final class PartiallySelectedSessionIntegrationTest extends TestCase
         $guard        = $this->guardForRequest(Request::create('/refresh', 'POST'));
 
         try {
-            GuardSessions::of($guard)->refresh($refreshToken);
+            GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient($guard->getRequest()));
 
             self::fail('The unloaded revocation column should have been reported.');
         } catch (\LogicException $exception) {

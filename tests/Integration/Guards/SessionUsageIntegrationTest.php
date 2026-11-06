@@ -195,7 +195,10 @@ final class SessionUsageIntegrationTest extends TestCase
         [$identity, $session] = $this->seedIdentityWithSession();
 
         Route::post('/refresh', function (): array {
-            $tokens = GuardSessions::of($this->guard())->refresh(request()->string('refresh_token')->toString())->session?->tokens;
+            $tokens = GuardSessions::of($this->guard())->refresh(
+                PresentedRefreshToken::fromBody(request()->string('refresh_token')->toString()),
+                self::requestClient(),
+            )->session?->tokens;
 
             return ['refreshed' => $tokens !== null];
         });
@@ -225,7 +228,7 @@ final class SessionUsageIntegrationTest extends TestCase
             $presented = new PresentedRefreshToken(new Secret(request()->string('refresh_token')->toString()), RefreshTokenSource::BODY, [RefreshTokenSource::BODY]);
             $client    = new ClientContext(request()->string('ip')->toString(), request()->string('agent')->toString());
 
-            return ['refreshed' => Auth::sessions('api')->refreshPresented($presented, $client)->isRefreshed()];
+            return ['refreshed' => Auth::sessions('api')->refresh($presented, $client)->isRefreshed()];
         });
 
         $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
@@ -301,7 +304,13 @@ final class SessionUsageIntegrationTest extends TestCase
 
         $before = array_map($this->storedUsage(...), $others);
 
-        Route::post('/refresh', fn (): array => ['refreshed' => GuardSessions::of($this->guard())->refresh(request()->string('refresh_token')->toString())->isRefreshed()]);
+        Route::post(
+            '/refresh',
+            fn (): array => ['refreshed' => GuardSessions::of($this->guard())->refresh(
+                PresentedRefreshToken::fromBody(request()->string('refresh_token')->toString()),
+                self::requestClient(),
+            )->isRefreshed()],
+        );
 
         $this->bearerRequest($identity, $session, '203.0.113.7', 'Client/1.0')->assertOk();
 
@@ -359,7 +368,7 @@ final class SessionUsageIntegrationTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $access])->getJson('/session')->assertOk()->assertJsonPath('id', $response->json('session'));
 
-        self::assertNotNull(GuardSessions::of($this->guard())->refresh($refresh)->session);
+        self::assertNotNull(GuardSessions::of($this->guard())->refresh(PresentedRefreshToken::fromBody($refresh), self::requestClient())->session);
     }
 
     /**

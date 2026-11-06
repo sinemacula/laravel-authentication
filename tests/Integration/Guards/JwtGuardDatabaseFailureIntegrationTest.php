@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use Tests\Concerns\InteractsWithProofs;
@@ -107,7 +108,7 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
         $this->expectException(QueryException::class);
         $this->expectExceptionMessage('Connection: ' . self::UNREACHABLE_CONNECTION);
 
-        GuardSessions::of($guard)->refresh($refreshToken);
+        GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient($guard->getRequest()));
     }
 
     /**

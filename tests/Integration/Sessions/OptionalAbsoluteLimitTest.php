@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -127,7 +128,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         $this->moveClocksTo($this->now->addDays(29));
 
-        $refreshed = $this->sessions(self::UNLIMITED)->refresh($session->tokens->refreshToken?->reveal())->session;
+        $refreshed = $this->sessions(self::UNLIMITED)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
         self::assertNull($this->stored($session)->getAbsoluteExpiresAt());
@@ -196,7 +197,9 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         $this->moveClocksTo($this->now->addHour());
 
-        self::assertNotNull($this->sessions(self::UNLIMITED)->refresh($unlimited->tokens->refreshToken?->reveal())->session);
+        self::assertNotNull(
+            $this->sessions(self::UNLIMITED)->refresh(PresentedRefreshToken::fromBody($unlimited->tokens->refreshToken?->reveal()), self::requestClient())->session,
+        );
         self::assertSame($deadline->getTimestamp(), $this->stored($unlimited)->getAbsoluteExpiresAt()?->getTimestamp());
         self::assertSame($deadline->getTimestamp(), $this->stored($unlimited)->getIdleExpiresAt()?->getTimestamp());
 
@@ -204,7 +207,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         Event::fake([AuthenticationFailed::class]);
 
-        self::assertNull($this->sessions(self::LIMITED)->refresh($limited->tokens->refreshToken?->reveal())->session);
+        self::assertNull($this->sessions(self::LIMITED)->refresh(PresentedRefreshToken::fromBody($limited->tokens->refreshToken?->reveal()), self::requestClient())->session);
 
         Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::SESSION_EXPIRED);
     }
@@ -263,6 +266,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
         $session = $this->sessions(self::UNLIMITED)->satisfy(
             $early->credential->reveal(),
             self::adapterProof($identity, self::UNLIMITED, $early->pending->id, Purpose::SIGN_IN),
+            self::requestClient(),
         )->session;
 
         self::assertNotNull($session);
@@ -270,7 +274,11 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         $this->moveClocksTo($deadline);
 
-        $refused = $this->sessions(self::UNLIMITED)->satisfy($late->credential->reveal(), self::adapterProof($identity, self::UNLIMITED, $late->pending->id, Purpose::SIGN_IN));
+        $refused = $this->sessions(self::UNLIMITED)->satisfy(
+            $late->credential->reveal(),
+            self::adapterProof($identity, self::UNLIMITED, $late->pending->id, Purpose::SIGN_IN),
+            self::requestClient(),
+        );
 
         self::assertTrue($refused->isFailed());
         self::assertSame(FailureReason::PENDING_INVALID, $refused->reason);

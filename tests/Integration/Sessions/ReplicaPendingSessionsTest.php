@@ -185,7 +185,11 @@ final class ReplicaPendingSessionsTest extends TestCase
         self::assertNotNull($found);
         self::assertTrue($identity->is($found->principal));
 
-        $satisfied = $this->sessions()->satisfy((string) $result->credential?->reveal(), self::adapterProof($identity, 'api', $result->pending?->id, Purpose::SIGN_IN));
+        $satisfied = $this->sessions()->satisfy(
+            (string) $result->credential?->reveal(),
+            self::adapterProof($identity, 'api', $result->pending?->id, Purpose::SIGN_IN),
+            self::requestClient(),
+        );
 
         self::assertTrue($satisfied->isSignedIn());
         self::assertSame('active', DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->value('status'));
@@ -224,7 +228,7 @@ final class ReplicaPendingSessionsTest extends TestCase
         self::assertNotNull($listed);
         self::assertCount(2, $listed->principals);
 
-        $chosen = $this->sessions(self::CHOOSERS)->choose((string) $result->credential?->reveal(), $memberships[1]);
+        $chosen = $this->sessions(self::CHOOSERS)->choose((string) $result->credential?->reveal(), $memberships[1], self::requestClient());
 
         self::assertTrue($chosen->isSignedIn());
 

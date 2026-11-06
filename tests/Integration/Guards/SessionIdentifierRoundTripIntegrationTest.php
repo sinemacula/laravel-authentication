@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsSession;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -115,7 +116,10 @@ final class SessionIdentifierRoundTripIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->seedIdentityWithSession();
 
-        $tokens = GuardSessions::of($this->guard())->refresh($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal())->session?->tokens;
+        $tokens = GuardSessions::of($this->guard())->refresh(
+            PresentedRefreshToken::fromBody($this->tokens()->issueRefreshToken($session, self::ROTATION_ID, $identity)->reveal()),
+            self::requestClient(),
+        )->session?->tokens;
 
         self::assertNotNull($tokens);
         self::assertNotSame(RefreshTokenHasher::hash(self::ROTATION_ID), RenamedKeySession::query()->whereKey($session->getKey())->firstOrFail()->getRefreshKey());

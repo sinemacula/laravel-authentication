@@ -389,7 +389,7 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
      */
     private static function refreshRoute(string $guard): JsonResponse
     {
-        $result = Auth::sessions($guard)->refreshFromRequest();
+        $result = Auth::sessions($guard)->refresh(self::servedToken($guard), self::requestClient());
 
         if ($result?->session === null) {
             return new JsonResponse(['reason' => $result?->reason?->value], 401);
@@ -480,7 +480,7 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
      */
     private static function refreshService(string $guard, FailureReason|PresentedRefreshToken|null $presented, ClientContext $client): ?RefreshResult
     {
-        return Auth::sessions($guard)->refreshPresented($presented, $client);
+        return Auth::sessions($guard)->refresh($presented, $client);
     }
 
     /**
@@ -495,7 +495,7 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
      */
     private static function signOutService(string $guard, FailureReason|PresentedRefreshToken|null $presented, ClientContext $client): SignOutResult
     {
-        return Auth::sessions($guard)->signOutPresented($presented, $client);
+        return Auth::sessions($guard)->signOutWith($presented, $client);
     }
 
     /**

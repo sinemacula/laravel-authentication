@@ -43,6 +43,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -354,8 +355,8 @@ final class PendingSessionsTest extends TestCase
         });
 
         self::assertNull($this->sessions()->pending($credential));
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, $proof)->reason);
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->choose($credential, $identity)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, $proof, self::requestClient())->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->choose($credential, $identity, self::requestClient())->reason);
         self::assertFalse($this->sessions()->discard($credential));
         self::assertSame([], $queries);
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
@@ -432,7 +433,7 @@ final class PendingSessionsTest extends TestCase
 
         DB::table('authentication_sessions')->update(['revoked_at' => null]);
 
-        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN), self::requestClient())->isSignedIn());
         self::assertNull($this->sessions()->pending($credential));
     }
 
@@ -466,7 +467,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $credential])->getJson('/me')->assertUnauthorized();
 
-        self::assertSame(FailureReason::TOKEN_INVALID, $this->sessions()->refresh($credential)->reason);
+        self::assertSame(FailureReason::TOKEN_INVALID, $this->sessions()->refresh(PresentedRefreshToken::fromBody($credential), self::requestClient())->reason);
     }
 
     /**
@@ -491,7 +492,7 @@ final class PendingSessionsTest extends TestCase
         $this->recordEvents([SessionCreated::class, SignedIn::class, Login::class]);
 
         $guard  = $this->freshGuard();
-        $result = self::sessionsOf($guard)->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN));
+        $result = self::sessionsOf($guard)->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN), self::requestClient());
 
         self::assertTrue($result->isSignedIn());
         self::assertNull($result->credential);
@@ -521,9 +522,12 @@ final class PendingSessionsTest extends TestCase
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken->reveal()])->getJson('/me')->assertOk()->assertJson(['session' => $pending->id]);
 
-        self::assertTrue($this->sessions()->refresh($session->tokens->refreshToken?->reveal())->isRefreshed());
+        self::assertTrue($this->sessions()->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
         self::assertNull($this->sessions()->pending($credential));
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->reason);
+        self::assertSame(
+            FailureReason::PENDING_INVALID,
+            $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN), self::requestClient())->reason,
+        );
     }
 
     /**
@@ -549,7 +553,7 @@ final class PendingSessionsTest extends TestCase
             $statements[] = $query->sql;
         });
 
-        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN), self::requestClient())->isSignedIn());
 
         $first = static fn (\Closure $matches): ?int => array_key_first(array_filter($statements, $matches));
         $guard = $first(static fn (string $sql): bool => str_contains($sql, 'issuance_sequence'));
@@ -570,8 +574,10 @@ final class PendingSessionsTest extends TestCase
 
         [$choice, $waiting] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
 
-        self::assertTrue($this->sessions(self::CHOOSERS)->satisfy($choice, self::adapterProof($member, self::CHOOSERS, $waiting->id, Purpose::SIGN_IN))->isPending());
-        self::assertTrue($this->sessions(self::CHOOSERS)->choose($choice, $membership)->isSignedIn());
+        self::assertTrue(
+            $this->sessions(self::CHOOSERS)->satisfy($choice, self::adapterProof($member, self::CHOOSERS, $waiting->id, Purpose::SIGN_IN), self::requestClient())->isPending(),
+        );
+        self::assertTrue($this->sessions(self::CHOOSERS)->choose($choice, $membership, self::requestClient())->isSignedIn());
         self::assertSame(1, self::issuanceGuardWrites($waiting->id));
     }
 
@@ -599,8 +605,8 @@ final class PendingSessionsTest extends TestCase
         $proof      = self::adapterProof($member, self::CHOOSERS, $signIn->pending->id, Purpose::SIGN_IN);
 
         self::assertSame($signIn->pending->id, $this->sessions(self::CHOOSERS)->pending($credential)?->id);
-        self::assertTrue($this->sessions(self::CHOOSERS)->satisfy($credential, $proof)->isPending());
-        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first)->isSignedIn());
+        self::assertTrue($this->sessions(self::CHOOSERS)->satisfy($credential, $proof, self::requestClient())->isPending());
+        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient())->isSignedIn());
         self::assertTrue($this->sessions(self::CHOOSERS)->discard($again->credential));
         self::assertNull($this->sessions(self::CHOOSERS)->pending($again->credential));
     }
@@ -623,7 +629,7 @@ final class PendingSessionsTest extends TestCase
 
         self::assertSame([PendingRequirement::MFA, PendingRequirement::PRINCIPAL], $pending->requires);
 
-        $moved = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN));
+        $moved = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN), self::requestClient());
 
         self::assertTrue($moved->isPending());
         self::assertNull($moved->credential);
@@ -634,7 +640,7 @@ final class PendingSessionsTest extends TestCase
         self::assertSame([PendingRequirement::PRINCIPAL], Session::query()->sole()->getRequires());
         self::assertNotNull($this->sessions(self::CHOOSERS)->pending($credential, PendingAction::CHOOSE_PRINCIPAL));
 
-        $chosen = $this->sessions(self::CHOOSERS)->choose($credential, $first);
+        $chosen = $this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient());
 
         self::assertTrue($chosen->isSignedIn());
         self::assertTrue($first->is($chosen->session?->principal));
@@ -667,7 +673,9 @@ final class PendingSessionsTest extends TestCase
         $before = $guard->authenticationContext();
 
         self::assertFalse($before?->mfa);
-        self::assertTrue(self::sessionsOf($guard)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN))->isPending());
+        self::assertTrue(
+            self::sessionsOf($guard)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN), self::requestClient())->isPending(),
+        );
 
         $after = $guard->authenticationContext();
 
@@ -696,10 +704,10 @@ final class PendingSessionsTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class]);
 
-        self::assertSame(FailureReason::PENDING_ACTION_NOT_ALLOWED, $this->sessions(self::CHOOSERS)->choose($both, $first)->reason);
+        self::assertSame(FailureReason::PENDING_ACTION_NOT_ALLOWED, $this->sessions(self::CHOOSERS)->choose($both, $first, self::requestClient())->reason);
         self::assertSame(
             FailureReason::PENDING_ACTION_NOT_ALLOWED,
-            $this->sessions(self::CHOOSERS)->satisfy($choice, self::adapterProof($member, self::CHOOSERS, $choosing->id, Purpose::SIGN_IN))->reason,
+            $this->sessions(self::CHOOSERS)->satisfy($choice, self::adapterProof($member, self::CHOOSERS, $choosing->id, Purpose::SIGN_IN), self::requestClient())->reason,
         );
         self::assertSame(
             [FailureReason::PENDING_ACTION_NOT_ALLOWED, FailureReason::PENDING_ACTION_NOT_ALLOWED],
@@ -734,9 +742,9 @@ final class PendingSessionsTest extends TestCase
 
         [$credential] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
 
-        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $this->sessions(self::CHOOSERS)->choose($credential, $theirs)->reason);
+        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $this->sessions(self::CHOOSERS)->choose($credential, $theirs, self::requestClient())->reason);
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
-        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first)->isSignedIn());
+        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient())->isSignedIn());
     }
 
     /**
@@ -757,8 +765,8 @@ final class PendingSessionsTest extends TestCase
 
         ActivatableTenant::query()->whereKey($first->tenant_id)->update(['is_active' => false]);
 
-        self::assertSame(FailureReason::TENANT_INACTIVE, $this->sessions(self::CHOOSERS)->choose($credential, $first)->reason);
-        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $second)->isSignedIn());
+        self::assertSame(FailureReason::TENANT_INACTIVE, $this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient())->reason);
+        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $second, self::requestClient())->isSignedIn());
     }
 
     /**
@@ -781,7 +789,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->factorRequired = true;
 
-        $waiting = $this->sessions(self::CHOOSERS)->choose($credential, $first);
+        $waiting = $this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient());
 
         self::assertTrue($waiting->isPending());
         self::assertSame([PendingRequirement::MFA], $waiting->pending?->requires);
@@ -801,7 +809,7 @@ final class PendingSessionsTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $row->principal_id);
         self::assertSame(IdentifierCoercion::stringify($first->tenant_id), $row->getTenantId());
 
-        $active = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN));
+        $active = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN), self::requestClient());
 
         self::assertTrue($active->isSignedIn());
         self::assertTrue($first->is($active->session?->principal));
@@ -827,12 +835,12 @@ final class PendingSessionsTest extends TestCase
 
         IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => false]);
 
-        self::assertSame(FailureReason::IDENTITY_INACTIVE, $this->sessions()->satisfy($credential, $proof)->reason);
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, $this->sessions()->satisfy($credential, $proof, self::requestClient())->reason);
 
         IntegrationIdentity::query()->whereKey($identity->getKey())->update(['is_active' => true]);
         config()->set('auth.guards.api.application.methods', ['sso']);
 
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($credential, $proof)->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->satisfy($credential, $proof, self::requestClient())->reason);
 
         config()->set('auth.guards.api.application.methods', ['password']);
 
@@ -844,12 +852,12 @@ final class PendingSessionsTest extends TestCase
 
         self::assertSame(
             FailureReason::TENANT_INACTIVE,
-            $this->sessions('members')->satisfy($memberCredential, self::adapterProof($member, 'members', $memberPending->id, Purpose::SIGN_IN))->reason,
+            $this->sessions('members')->satisfy($memberCredential, self::adapterProof($member, 'members', $memberPending->id, Purpose::SIGN_IN), self::requestClient())->reason,
         );
         self::assertTrue($membership->is($memberPending->principal));
         self::assertSame(2, Session::query()->where('status', 'pending')->count());
         self::assertSame(2, SessionProof::query()->count());
-        self::assertTrue($this->sessions()->satisfy($credential, $proof)->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($credential, $proof, self::requestClient())->isSignedIn());
     }
 
     /**
@@ -884,7 +892,13 @@ final class PendingSessionsTest extends TestCase
 
         $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
-        self::assertTrue($this->sessions()->satisfy($result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertTrue(
+            $this->sessions()->satisfy(
+                $result->credential->reveal(),
+                self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN),
+                self::requestClient(),
+            )->isSignedIn(),
+        );
         self::assertSame([SessionRevoked::class, SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame(RevocationReason::SUPERSEDED, $this->recordedEvent(SessionRevoked::class)->reason);
         self::assertSame('superseded', DB::table('authentication_sessions')->where('id', $first->record->getKey())->value('revoked_reason'));
@@ -955,7 +969,7 @@ final class PendingSessionsTest extends TestCase
 
         $client = self::crossSiteClient();
 
-        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first, null, $client)->isSignedIn());
+        self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first, $client)->isSignedIn());
         self::assertSame($client, $this->recordedEvent(SignedIn::class)->context->client);
         self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], self::lastUseOf($pending->id));
     }
@@ -986,7 +1000,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class, SessionRevoked::class]);
 
-        $result = $this->sessions(self::CHOOSERS)->choose($credential, $first);
+        $result = $this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient());
 
         self::assertSame(FailureReason::TENANT_INACTIVE, $result->reason);
         self::assertSame([SessionRevoked::class, Failed::class, AuthenticationFailed::class], $this->recordedClasses());
@@ -1038,7 +1052,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->recordEvents([Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class, SessionRevoked::class]);
 
-        $chosen = $this->sessions(self::CHOOSERS)->choose($result->credential->reveal(), $first);
+        $chosen = $this->sessions(self::CHOOSERS)->choose($result->credential->reveal(), $first, self::requestClient());
 
         self::assertSame(FailureReason::TENANT_INACTIVE, $chosen->reason);
         self::assertSame([SessionRevoked::class, SessionRevoked::class, Failed::class, AuthenticationFailed::class], $this->recordedClasses());
@@ -1079,8 +1093,14 @@ final class PendingSessionsTest extends TestCase
 
         self::assertNotNull($result->pending);
         self::assertNotNull($result->credential);
-        self::assertTrue($this->sessions()->refresh($first->tokens->refreshToken?->reveal())->isRefreshed());
-        self::assertTrue($this->sessions()->satisfy($result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertTrue($this->sessions()->refresh(PresentedRefreshToken::fromBody($first->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
+        self::assertTrue(
+            $this->sessions()->satisfy(
+                $result->credential->reveal(),
+                self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN),
+                self::requestClient(),
+            )->isSignedIn(),
+        );
         self::assertSame(0, DB::table('authentication_sessions')->whereNotNull('revoked_at')->count());
     }
 
@@ -1137,7 +1157,13 @@ final class PendingSessionsTest extends TestCase
 
         $asked = count($this->factorContexts);
 
-        self::assertTrue($this->sessions()->satisfy($result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertTrue(
+            $this->sessions()->satisfy(
+                $result->credential->reveal(),
+                self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN),
+                self::requestClient(),
+            )->isSignedIn(),
+        );
         self::assertCount($asked + 1, $this->factorContexts);
         self::assertSame($proven ? $first->record->getKey() : null, $this->factorContexts[$asked]->provenSession?->getSessionIdentifier());
 
@@ -1173,7 +1199,13 @@ final class PendingSessionsTest extends TestCase
 
         $before = count($this->factorContexts);
 
-        self::assertTrue(Auth::sessions('api')->satisfy($result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertTrue(
+            Auth::sessions('api')->satisfy(
+                $result->credential->reveal(),
+                self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN),
+                self::requestClient(),
+            )->isSignedIn(),
+        );
         self::assertCount($before + 1, $this->factorContexts);
 
         $asked = $this->factorContexts[$before];
@@ -1255,7 +1287,7 @@ final class PendingSessionsTest extends TestCase
         $this->recordEvents([SessionRevoked::class, SessionCreated::class, SignedIn::class]);
 
         $given  = self::crossSiteClient();
-        $chosen = $this->sessions(self::CHOOSERS)->choose($result->credential->reveal(), $first, null, $given);
+        $chosen = $this->sessions(self::CHOOSERS)->choose($result->credential->reveal(), $first, $given);
 
         $told = array_map(static fn (AdditionalFactorContext $asked): mixed => $asked->provenSession?->getSessionIdentifier(), array_slice($this->factorContexts, $before));
 
@@ -1310,7 +1342,13 @@ final class PendingSessionsTest extends TestCase
             self::assertNotNull($result->pending, 'Expected a pending session; got ' . self::describe($result));
             self::assertNotNull($result->credential);
             self::assertSame([1, 2], $hits());
-            self::assertTrue($this->sessions()->satisfy($result->credential->reveal(), self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN))->isSignedIn());
+            self::assertTrue(
+                $this->sessions()->satisfy(
+                    $result->credential->reveal(),
+                    self::adapterProof($identity, 'api', $result->pending->id, Purpose::SIGN_IN),
+                    self::requestClient(),
+                )->isSignedIn(),
+            );
             self::assertSame([0, 0], $hits());
         }
     }
@@ -1341,7 +1379,7 @@ final class PendingSessionsTest extends TestCase
 
             $this->factorRequired = true;
 
-            self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first)->isPending());
+            self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient())->isPending());
 
             $recorded = $this->sessions(self::CHOOSERS)->pending($credential, PendingAction::SEND_CODE);
 
@@ -1349,7 +1387,7 @@ final class PendingSessionsTest extends TestCase
             self::assertTrue($first->is($recorded->principal));
             self::assertSame(IdentifierCoercion::stringify($first->tenant_id), IdentifierCoercion::stringify($recorded->tenant?->getTenantIdentifier()));
 
-            $active = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN));
+            $active = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN), self::requestClient());
         } finally {
             Model::preventLazyLoading(false);
         }
@@ -1402,7 +1440,7 @@ final class PendingSessionsTest extends TestCase
         $chosen = ChoosingMembership::query()->where('identity_id', $member->getKey())->firstOrFail();
 
         self::assertNull($this->sessions(self::VERIFIED)->pending($credential));
-        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->sessions(self::VERIFIED)->choose($credential, $chosen)->reason);
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->sessions(self::VERIFIED)->choose($credential, $chosen, self::requestClient())->reason);
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
     }
 
@@ -1430,7 +1468,10 @@ final class PendingSessionsTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($pending->id), $this->recordedEvent(SessionRevoked::class)->context->sessionId);
         self::assertSame('signed_out', Session::query()->sole()->getRevokedReason());
         self::assertNull($this->sessions()->pending($credential));
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->reason);
+        self::assertSame(
+            FailureReason::PENDING_INVALID,
+            $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN), self::requestClient())->reason,
+        );
     }
 
     /**
@@ -1466,19 +1507,19 @@ final class PendingSessionsTest extends TestCase
 
         $lookUp    = self::proofReadLocks(fn (): mixed => $this->sessions()->pending($credential, null));
         $satisfied = self::proofReadLocks(function () use ($identity, $credential, $pending): void {
-            self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->isSignedIn());
+            self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN), self::requestClient())->isSignedIn());
         });
 
         $this->factorRequired = false;
 
         $chosen = self::proofReadLocks(function () use ($choosing, $first): void {
-            self::assertTrue($this->sessions(self::CHOOSERS)->choose($choosing, $first)->isSignedIn());
+            self::assertTrue($this->sessions(self::CHOOSERS)->choose($choosing, $first, self::requestClient())->isSignedIn());
         });
 
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
 
         $asked = self::proofReadLocks(function () use ($waiting, $first): void {
-            self::assertSame([PendingRequirement::MFA], $this->sessions(self::CHOOSERS)->choose($waiting, $first)->pending?->requires);
+            self::assertSame([PendingRequirement::MFA], $this->sessions(self::CHOOSERS)->choose($waiting, $first, self::requestClient())->pending?->requires);
         });
 
         self::assertSame([false, false], $lookUp);
@@ -1544,8 +1585,8 @@ final class PendingSessionsTest extends TestCase
         $pendingId  = $result->pending->id;
         $proof      = static fn (bool $admitted): ProofResult => self::adapterProof($identity, 'api', $admitted ? $pendingId : 'another', Purpose::SIGN_IN);
         $act        = $action === 'satisfy'
-            ? fn (bool $admitted): mixed => $this->sessions($guard)->satisfy($credential, $proof($admitted))
-            : fn (bool $admitted): mixed => $this->sessions($guard)->choose($credential, $admitted ? $first : new ChoosingMembership);
+            ? fn (bool $admitted): mixed => $this->sessions($guard)->satisfy($credential, $proof($admitted), self::requestClient())
+            : fn (bool $admitted): mixed => $this->sessions($guard)->choose($credential, $admitted ? $first : new ChoosingMembership, self::requestClient());
 
         self::assertSame([], self::provenReads(static fn (): mixed => $act(false), $proven));
         self::assertSame($action === 'satisfy' ? ['plain'] : [], self::provenReads(fn (): mixed => $this->sessions($guard)->pending($credential, null), $proven));
@@ -1596,8 +1637,8 @@ final class PendingSessionsTest extends TestCase
         self::assertNotContains(true, $locks->getArrayCopy());
 
         $actions = [
-            'satisfy' => fn (): mixed => $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::STEP_UP)),
-            'choose'  => fn (): mixed => $this->sessions()->choose($credential, $identity),
+            'satisfy' => fn (): mixed => $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::STEP_UP), self::requestClient()),
+            'choose'  => fn (): mixed => $this->sessions()->choose($credential, $identity, self::requestClient()),
             'discard' => fn (): mixed => $this->sessions()->discard($credential),
         ];
 
@@ -1650,7 +1691,7 @@ final class PendingSessionsTest extends TestCase
 
         self::assertSame(FailureReason::SESSION_PENDING, $this->recordedEvent(AuthenticationFailed::class)->reason);
 
-        $refused = $this->sessions()->refresh($session->tokens->refreshToken?->reveal());
+        $refused = $this->sessions()->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient());
 
         self::assertSame(FailureReason::SESSION_PENDING, $refused->reason);
         self::assertNull(DB::table('authentication_sessions')->where('id', $session->record->getKey())->value('revoked_at'));
@@ -1680,7 +1721,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->recordEvents([AuthenticationFailed::class, SessionCreated::class]);
 
-        $refused = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN));
+        $refused = $this->sessions(self::CHOOSERS)->satisfy($credential, self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN), self::requestClient());
 
         self::assertTrue($refused->isFailed());
         self::assertSame(FailureReason::TENANT_INACTIVE, $refused->reason);
@@ -1713,7 +1754,7 @@ final class PendingSessionsTest extends TestCase
 
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', connections: ['conn-a'])));
 
-        $refused = $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN));
+        $refused = $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN), self::requestClient());
 
         self::assertSame(FailureReason::SSO_REQUIRED, $refused->reason);
         self::assertSame($proofs, SessionProof::query()->count());
@@ -1772,7 +1813,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        $result = $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN));
+        $result = $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN), self::requestClient());
 
         self::assertTrue($result->isPending());
         self::assertSame($short, $result->pending?->requirement->kinds());
@@ -1783,7 +1824,9 @@ final class PendingSessionsTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        self::assertTrue($this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertTrue(
+            $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN), self::requestClient())->isSignedIn(),
+        );
     }
 
     /**
@@ -1844,7 +1887,7 @@ final class PendingSessionsTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class, SessionCreated::class, SignedIn::class]);
 
         try {
-            $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN));
+            $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN), self::requestClient());
 
             self::fail('The factor policy\'s failure was not thrown on.');
         } catch (\RuntimeException $thrown) {
@@ -1860,7 +1903,7 @@ final class PendingSessionsTest extends TestCase
         $this->factorAnswer   = null;
         $this->factorRequired = false;
 
-        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->isSignedIn());
+        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN), self::requestClient())->isSignedIn());
         self::assertSame($proofs + 1, SessionProof::query()->count());
     }
 
@@ -1892,7 +1935,7 @@ final class PendingSessionsTest extends TestCase
         DB::beginTransaction();
 
         try {
-            $this->sessions()->satisfy($credential, $proof());
+            $this->sessions()->satisfy($credential, $proof(), self::requestClient());
 
             self::fail('The deadlock was not thrown on.');
         } catch (DeadlockException $thrown) {
@@ -1909,7 +1952,7 @@ final class PendingSessionsTest extends TestCase
         $this->factorAnswer   = null;
         $this->factorRequired = false;
 
-        self::assertTrue(DB::transaction(fn (): bool => $this->sessions()->satisfy($credential, $proof())->isSignedIn()));
+        self::assertTrue(DB::transaction(fn (): bool => $this->sessions()->satisfy($credential, $proof(), self::requestClient())->isSignedIn()));
         self::assertSame($proofs + 1, SessionProof::query()->count());
     }
 
@@ -1938,7 +1981,7 @@ final class PendingSessionsTest extends TestCase
 
         DB::table('authentication_sessions')->where('id', $pending->id)->update(['client_name' => 'the caller\'s write']);
 
-        $refused = $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN));
+        $refused = $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN), self::requestClient());
 
         self::assertSame($level + 1, DB::transactionLevel());
 
@@ -1983,7 +2026,7 @@ final class PendingSessionsTest extends TestCase
         DB::table('authentication_sessions')->where('id', $pending->id)->update(['client_name' => 'the caller\'s write']);
 
         try {
-            $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN));
+            $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN), self::requestClient());
 
             self::fail('The factor policy\'s failure was not thrown on.');
         } catch (\RuntimeException $thrown) {
@@ -2055,7 +2098,7 @@ final class PendingSessionsTest extends TestCase
 
             $this->recordEvents([SignedIn::class]);
 
-            self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first)->isSignedIn());
+            self::assertTrue($this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient())->isSignedIn());
 
             $context = $this->recordedEvent(SignedIn::class)->context;
 
@@ -2127,7 +2170,9 @@ final class PendingSessionsTest extends TestCase
 
         self::assertNull($this->sessions('members')->pending($credential, PendingAction::SEND_CODE));
         self::assertNull($this->sessions('members')->pending($credential));
-        self::assertTrue($this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN))->isFailed());
+        self::assertTrue(
+            $this->sessions('members')->satisfy($credential, self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN), self::requestClient())->isFailed(),
+        );
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
     }
 
@@ -2206,8 +2251,8 @@ final class PendingSessionsTest extends TestCase
         self::assertNull($this->sessions('members')->pending($credential));
         $proof = self::adapterProof($member, 'members', $pending->id, Purpose::SIGN_IN);
 
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions('members')->satisfy($credential, $proof)->reason);
-        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions('members')->choose($credential, $membership)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions('members')->satisfy($credential, $proof, self::requestClient())->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions('members')->choose($credential, $membership, self::requestClient())->reason);
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
     }
 
@@ -2254,7 +2299,7 @@ final class PendingSessionsTest extends TestCase
 
         [$refusedCredential] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
 
-        $refused = $this->sessions(self::CHOOSERS)->choose($refusedCredential, $first, TenantSelection::of($descendant->getKey()));
+        $refused = $this->sessions(self::CHOOSERS)->choose($refusedCredential, $first, self::requestClient(), TenantSelection::of($descendant->getKey()));
 
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
         self::assertNotNull($this->sessions(self::CHOOSERS)->pending($refusedCredential, PendingAction::CHOOSE_PRINCIPAL));
@@ -2266,7 +2311,7 @@ final class PendingSessionsTest extends TestCase
 
         [$credential] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
 
-        $chosen = $this->sessions(self::CHOOSERS)->choose($credential, $first, TenantSelection::of($descendant->getKey()));
+        $chosen = $this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient(), TenantSelection::of($descendant->getKey()));
 
         self::assertTrue($chosen->isSignedIn());
         self::assertNotNull($chosen->session);
@@ -2300,8 +2345,10 @@ final class PendingSessionsTest extends TestCase
 
         $early = self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, at: $this->now->subSecond());
 
-        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions()->satisfy($credential, $early)->reason);
-        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, at: $this->now))->isSignedIn());
+        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions()->satisfy($credential, $early, self::requestClient())->reason);
+        self::assertTrue(
+            $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, at: $this->now), self::requestClient())->isSignedIn(),
+        );
     }
 
     /**
@@ -2331,11 +2378,11 @@ final class PendingSessionsTest extends TestCase
 
         $early = self::adapterProof($member, 'members', $returned->pending?->id, Purpose::SIGN_IN, at: $signedInAt->addSeconds(2));
 
-        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions('members')->satisfy((string) $returned->credential?->reveal(), $early)->reason);
+        self::assertSame(FailureReason::PROOF_INVALID, $this->sessions('members')->satisfy((string) $returned->credential?->reveal(), $early, self::requestClient())->reason);
 
         $since = self::adapterProof($member, 'members', $returned->pending?->id, Purpose::SIGN_IN, at: $this->now);
 
-        self::assertTrue($this->sessions('members')->satisfy((string) $returned->credential?->reveal(), $since)->isSignedIn());
+        self::assertTrue($this->sessions('members')->satisfy((string) $returned->credential?->reveal(), $since, self::requestClient())->isSignedIn());
     }
 
     /**
@@ -2364,6 +2411,7 @@ final class PendingSessionsTest extends TestCase
         $active   = $this->sessions('members')->satisfy(
             (string) $returned->credential?->reveal(),
             self::adapterProof($member, 'members', $returned->pending?->id, Purpose::SIGN_IN),
+            self::requestClient(),
         );
 
         self::assertTrue($active->isSignedIn());
@@ -2378,7 +2426,7 @@ final class PendingSessionsTest extends TestCase
 
         $this->clockAt($this->now->addSecond());
 
-        $refreshed = $this->sessions('members')->refresh($active->session->tokens->refreshToken?->reveal())->session;
+        $refreshed = $this->sessions('members')->refresh(PresentedRefreshToken::fromBody($active->session->tokens->refreshToken?->reveal()), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 
@@ -2479,7 +2527,7 @@ final class PendingSessionsTest extends TestCase
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v1', new Requirement(new RequirementPart))));
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        $returned = $this->sessions('members')->refresh($refreshToken);
+        $returned = $this->sessions('members')->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient());
 
         self::assertTrue($returned->isPending());
         self::assertNotNull($returned->credential);

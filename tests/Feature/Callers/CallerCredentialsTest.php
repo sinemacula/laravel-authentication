@@ -253,6 +253,48 @@ final class CallerCredentialsTest extends TestCase
     }
 
     /**
+     * A request that carries no refresh or pending credential reads no IP
+     * address: from a trusted proxy whose forwarded client addresses conflict,
+     * which a read of the address refuses, its caller is `null` and nothing is
+     * reported; the same request carrying a refused refresh credential is
+     * reported with its client, the address read.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequestWithoutACredentialReadsNoAddress(): void
+    {
+        Request::setTrustedProxies(['10.0.0.1'], Request::HEADER_FORWARDED | Request::HEADER_X_FORWARDED_FOR);
+
+        $conflicting = ['REMOTE_ADDR' => '10.0.0.1', 'HTTP_FORWARDED' => 'for=198.51.100.1', 'HTTP_X_FORWARDED_FOR' => '198.51.100.2'];
+
+        try {
+            $refresh = $this->request('POST', $conflicting);
+
+            DeclaredCredential::refresh(null)->declareOn($refresh);
+
+            self::assertNull(self::callers()->caller($refresh));
+
+            $pending = $this->request('POST', $conflicting);
+
+            DeclaredCredential::pending(PendingAction::CHOOSE_PRINCIPAL->value, null)->declareOn($pending);
+
+            self::assertNull(self::callers()->caller($pending));
+            self::assertCount(0, $this->failures);
+
+            $refused = $this->request('POST', ['REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_FOR' => '198.51.100.2'], ['refresh_token' => 'not-a-refresh-token']);
+
+            DeclaredCredential::refresh(null)->declareOn($refused);
+
+            self::assertNull(self::callers()->caller($refused));
+            self::assertSame('198.51.100.2', $this->failure(0)->context->client->ip);
+        } finally {
+            Request::setTrustedProxies([], 0);
+        }
+    }
+
+    /**
      * The pending credential's caller is the pending session it names, read
      * from the JSON body or the form body, while the session allows the action:
      * its member, no principal while the choice is outstanding, and the pending

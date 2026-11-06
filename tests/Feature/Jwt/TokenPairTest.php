@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\SessionTokens;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
@@ -136,7 +137,11 @@ final class TokenPairTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        $satisfied = $this->sessions()->satisfy($pending->credential?->reveal() ?? '', self::adapterProof($identity, 'api', $pending->pending->id, Purpose::SIGN_IN));
+        $satisfied = $this->sessions()->satisfy(
+            $pending->credential?->reveal() ?? '',
+            self::adapterProof($identity, 'api', $pending->pending->id, Purpose::SIGN_IN),
+            self::requestClient(),
+        );
 
         self::assertNotNull($satisfied->session);
 
@@ -150,7 +155,7 @@ final class TokenPairTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        $chosen = $this->sessions(self::CHOOSERS)->choose($choice->credential?->reveal() ?? '', $first);
+        $chosen = $this->sessions(self::CHOOSERS)->choose($choice->credential?->reveal() ?? '', $first, self::requestClient());
 
         self::assertNotNull($chosen->session);
 
@@ -173,7 +178,10 @@ final class TokenPairTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(2));
 
-        foreach ([$this->sessions()->refresh($token), $this->sessions()->refresh($token)] as $refreshed) {
+        $first  = $this->sessions()->refresh(PresentedRefreshToken::fromBody($token), self::requestClient());
+        $second = $this->sessions()->refresh(PresentedRefreshToken::fromBody($token), self::requestClient());
+
+        foreach ([$first, $second] as $refreshed) {
 
             self::assertTrue($refreshed->isRefreshed());
             self::assertNotNull($refreshed->session);
@@ -199,7 +207,7 @@ final class TokenPairTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(3));
 
-        $switched = $this->sessions('members')->switchTo($token, SwitchTarget::principal($second));
+        $switched = $this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($second), self::requestClient());
 
         self::assertTrue($switched->isSwitched());
         self::assertNotNull($switched->session);

@@ -411,7 +411,7 @@ final class SignInProofsTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(2));
 
-        $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->session;
+        $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN), self::requestClient())->session;
 
         self::assertNotNull($session);
         self::assertSame($deadline->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
@@ -438,7 +438,7 @@ final class SignInProofsTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(2));
 
-        $session = $this->sessions(self::CHOOSERS)->choose($credential, $membership)->session;
+        $session = $this->sessions(self::CHOOSERS)->choose($credential, $membership, self::requestClient())->session;
 
         self::assertNotNull($session);
         self::assertSame($deadline->getTimestamp(), $session->record->getAbsoluteExpiresAt()?->getTimestamp());
@@ -592,7 +592,7 @@ final class SignInProofsTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(3));
 
-        $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN))->session;
+        $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN), self::requestClient())->session;
 
         self::assertNotNull($session);
 
@@ -623,7 +623,7 @@ final class SignInProofsTest extends TestCase
         $this->clockAt($this->now->addMinute());
 
         $proof   = self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, ProofKind::RECOVERY_CODE, evaluation: new Evaluation(true, false), methods: ['otp', 'kba']);
-        $session = $this->sessions()->satisfy($credential, $proof)->session;
+        $session = $this->sessions()->satisfy($credential, $proof, self::requestClient())->session;
 
         self::assertNotNull($session);
 
@@ -669,7 +669,7 @@ final class SignInProofsTest extends TestCase
         $this->clockAt($this->now->addMinute());
 
         $proof   = self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, ProofKind::RECOVERY_CODE, evaluation: new Evaluation(true, false), methods: ['kba']);
-        $session = $this->sessions()->satisfy($credential, $proof)->session;
+        $session = $this->sessions()->satisfy($credential, $proof, self::requestClient())->session;
 
         self::assertNotNull($session);
 
@@ -716,7 +716,7 @@ final class SignInProofsTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::ENROLLMENT))->session;
+        $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::ENROLLMENT), self::requestClient())->session;
 
         self::assertNotNull($session);
 
@@ -802,14 +802,16 @@ final class SignInProofsTest extends TestCase
         self::assertIsString($application);
 
         $proof  = self::adapterProof($made, $application, $bound, $purpose, $kind, $now->addSeconds($offset), $evaluation);
-        $result = $this->sessions()->satisfy($credential, $proof);
+        $result = $this->sessions()->satisfy($credential, $proof, self::requestClient());
 
         self::assertTrue($result->isFailed());
         self::assertSame($reason, $result->reason);
         self::assertSame($reason, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
         self::assertSame(1, SessionProof::query()->count());
-        self::assertTrue($this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, at: $now))->isSignedIn());
+        self::assertTrue(
+            $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, at: $now), self::requestClient())->isSignedIn(),
+        );
     }
 
     /**
@@ -831,8 +833,16 @@ final class SignInProofsTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        self::assertTrue($this->sessions()->satisfy($earlyCredential, self::adapterProof($identity, 'api', $early->id, Purpose::SIGN_IN, at: $this->now))->isSignedIn());
-        self::assertTrue($this->sessions()->satisfy($lateCredential, self::adapterProof($identity, 'api', $late->id, Purpose::SIGN_IN, at: $this->now->addMinute()))->isSignedIn());
+        self::assertTrue(
+            $this->sessions()->satisfy($earlyCredential, self::adapterProof($identity, 'api', $early->id, Purpose::SIGN_IN, at: $this->now), self::requestClient())->isSignedIn(),
+        );
+        self::assertTrue(
+            $this->sessions()->satisfy(
+                $lateCredential,
+                self::adapterProof($identity, 'api', $late->id, Purpose::SIGN_IN, at: $this->now->addMinute()),
+                self::requestClient(),
+            )->isSignedIn(),
+        );
     }
 
     /**
@@ -858,7 +868,11 @@ final class SignInProofsTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(2));
 
-        $session = $this->sessions()->satisfy($credential, self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, at: $this->now->addMinutes(2)))->session;
+        $session = $this->sessions()->satisfy(
+            $credential,
+            self::adapterProof($identity, 'api', $pending->id, Purpose::SIGN_IN, at: $this->now->addMinutes(2)),
+            self::requestClient(),
+        )->session;
 
         self::assertNotNull($session);
 
@@ -896,7 +910,7 @@ final class SignInProofsTest extends TestCase
 
         $this->clockAt($this->now->addMinutes(2));
 
-        $session = $this->sessions(self::CHOOSERS)->choose($credential, $membership)->session;
+        $session = $this->sessions(self::CHOOSERS)->choose($credential, $membership, self::requestClient())->session;
 
         self::assertNotNull($session);
 
@@ -932,7 +946,7 @@ final class SignInProofsTest extends TestCase
 
         $this->clockAt($this->now->addMinute());
 
-        $pending = $this->sessions(self::CHOOSERS)->choose($credential, $membership)->pending;
+        $pending = $this->sessions(self::CHOOSERS)->choose($credential, $membership, self::requestClient())->pending;
 
         self::assertNotNull($pending);
         self::assertSame([PendingRequirement::MFA], $pending->requires);
@@ -941,7 +955,7 @@ final class SignInProofsTest extends TestCase
         $this->clockAt($this->now->addMinutes(2));
 
         $proof   = self::adapterProof($member, self::CHOOSERS, $pending->id, Purpose::SIGN_IN);
-        $session = $this->sessions(self::CHOOSERS)->satisfy($credential, $proof)->session;
+        $session = $this->sessions(self::CHOOSERS)->satisfy($credential, $proof, self::requestClient())->session;
 
         self::assertNotNull($session);
 
