@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
+use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -568,6 +569,33 @@ final class PasswordChangesTest extends TestCase
             $this->recordedEvent(AuthenticationFailed::class)->context->client->ip,
         ]);
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->fresh()?->password));
+    }
+
+    /**
+     * A change that goes through reports the client handed in on every event,
+     * the session it ends and the `SignedOutEverywhere` as well as
+     * `PasswordSet`, while the guard serves a request from another address.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeReportsTheClientHandedInOnEveryEvent(): void
+    {
+        self::seedPasswordIdentity();
+
+        $kept   = $this->signInWithPassword()->record;
+        $client = new ClientContext('198.51.100.9', 'Other/1.0');
+
+        $this->signInWithPassword('admin');
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
+
+        self::assertSame(1, Auth::passwords('web')->change($kept, self::PASSWORD, self::NEW_PASSWORD, $client)->revoked);
+        self::assertSame([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame([$client, $client, $client], array_map(
+            static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
+            $this->recorded,
+        ));
     }
 
     /**

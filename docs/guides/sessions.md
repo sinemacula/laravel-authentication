@@ -1080,7 +1080,7 @@ key before the check), or when the deactivation's or deletion's revocation ran w
 however long after that the change was undone: give identities and principals `ProvidesTokensValidAfter`. The cutoff
 ends a call in flight whatever moved it, so a sign-in, choice or switch under way while its identity signs out
 everywhere, changes or resets its password or removes a factor is ended too: it proved itself before that revocation.
-A revocation that keeps the call's session (`passwordChanged($user, Auth::session())`, `passwordEstablished()`,
+A revocation that keeps the call's session (`passwordChanged($user, Auth::session())`, `Auth::passwords()->establish()`,
 `credentialRemoved()` or the factor package's `factorRemoved()` given it, `signOutEverywhere(keepCurrentSession: true)`)
 saw it, so the cutoff it moves does not end it: that revocation, made in the same request or job before the check runs
 (inside your transaction, which the check waits for), is recorded with the session, and only a cutoff moved to a later

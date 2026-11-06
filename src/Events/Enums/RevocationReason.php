@@ -74,7 +74,8 @@ enum RevocationReason: string
     // that finds it must be established through a connection it was not
     case TENANT_POLICY_CHANGED = 'tenant_policy_changed';
 
-    // The identity established its first password: `passwordEstablished()`
+    // The identity established its first password: the password service's
+    // `establish()`
     case PASSWORD_ESTABLISHED = 'password_established';
 
     // The identity's further factors were reset: `factorReset()`

@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalizers;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
@@ -74,11 +75,12 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * standing.
  *
  * It runs on the guard's context: its events carry the client of the request
- * each call starts in, and go to the context's dispatcher as it is when they
- * are dispatched, a deferred report's when the revocation commits. Only the two
- * sign-out calls touch the guard's bound state, through the binding they are
- * given, so the guard's own `logout()` and the password writer use it without a
- * session service, and the session service delegates to it.
+ * each call starts in, or the client `revokeSessions()` is given (a password
+ * the password service sets), and go to the context's dispatcher as it is when
+ * they are dispatched, a deferred report's when the revocation commits. Only
+ * the two sign-out calls touch the guard's bound state, through the binding
+ * they are given, so the guard's own `logout()` and the password writer use it
+ * without a session service, and the session service delegates to it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -242,12 +244,14 @@ final readonly class SessionRevocations
      * changes; when the identity records a "tokens valid after" cutoff, move it
      * to now first. Returns how many sessions this call revoked. The
      * `$committed` callback given runs once the revocation commits, before any
-     * session it ended is reported.
+     * session it ended is reported. The reports carry the client given, or else
+     * the client of the guard's request.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
      * @param  ?\Closure(): void  $committed
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return int
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -255,9 +259,9 @@ final readonly class SessionRevocations
      * @throws \LogicException
      * @throws \Throwable
      */
-    public function revokeSessions(Identity $identity, RevocationReason $reason, ?Session $except = null, ?\Closure $committed = null): int
+    public function revokeSessions(Identity $identity, RevocationReason $reason, ?Session $except = null, ?\Closure $committed = null, ?ClientContext $client = null): int
     {
-        return $this->endSessions([$this->identityScope($identity)], $reason, $except, $committed);
+        return $this->endSessions([$this->identityScope($identity)], $reason, $except, $committed, client: $client);
     }
 
     /**
@@ -295,24 +299,6 @@ final readonly class SessionRevocations
     public function passwordChanged(Identity $identity, ?Session $except = null): int
     {
         return $this->revokeSessions($identity, RevocationReason::PASSWORD_CHANGED, $except);
-    }
-
-    /**
-     * The identity established its first password: end its sessions
-     * (`password_established`), except the given session.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
-     * @return int
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \InvalidArgumentException
-     * @throws \LogicException
-     * @throws \Throwable
-     */
-    public function passwordEstablished(Identity $identity, ?Session $except = null): int
-    {
-        return $this->revokeSessions($identity, RevocationReason::PASSWORD_ESTABLISHED, $except);
     }
 
     /**
@@ -488,7 +474,8 @@ final readonly class SessionRevocations
      * deletion of the model given as `$changed`, the scopes are ended again
      * once a transaction open on the session model's connection or on the
      * model's own has committed (see `RevocationWriter::revokeAgain()`),
-     * reporting each session that pass revokes.
+     * reporting each session that pass revokes. The reports carry the client
+     * given, or else the client of the guard's request.
      *
      * @formatter:off
      *
@@ -499,6 +486,7 @@ final readonly class SessionRevocations
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $except
      * @param  ?\Closure(): void  $committed
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Contracts\Principal|\SineMacula\Laravel\Authentication\Contracts\Tenant|null  $changed
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return int
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -508,9 +496,15 @@ final readonly class SessionRevocations
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
      * @throws \Throwable
      */
-    private function endSessions(array $scopes, RevocationReason $reason, ?Session $except, ?\Closure $committed = null, Identity|Principal|Tenant|null $changed = null): int
-    {
-        $client = $this->context->client();
+    private function endSessions(
+        array $scopes,
+        RevocationReason $reason,
+        ?Session $except,
+        ?\Closure $committed = null,
+        Identity|Principal|Tenant|null $changed = null,
+        ?ClientContext $client = null,
+    ): int {
+        $client ??= $this->context->client();
         $guard  = $this->context->name();
         $report = function (EloquentSession&Model $session, RevocationScope $scope) use ($client, $reason): void {
             $method  = $session->getSignInMethod();

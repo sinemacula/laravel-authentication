@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Models\Session as SessionModel;
@@ -299,12 +300,6 @@ final class SessionRevocationsTest extends TestCase
         yield 'password changed' => [
             static fn (SessionRevocations $revocations, Identity $identity, Session $record): int => $revocations->passwordChanged($identity, $record),
             RevocationReason::PASSWORD_CHANGED,
-            true,
-        ];
-
-        yield 'password established' => [
-            static fn (SessionRevocations $revocations, Identity $identity, Session $record): int => $revocations->passwordEstablished($identity, $record),
-            RevocationReason::PASSWORD_ESTABLISHED,
             true,
         ];
 
@@ -603,6 +598,42 @@ final class SessionRevocationsTest extends TestCase
         self::assertSame(1, $revocations->principalDeactivated($identity));
         self::assertSame('revoked', DB::table('authentication_sessions')->where('id', self::idOf($first))->value('revoked_reason'));
         self::assertSame('principal_deactivated', DB::table('authentication_sessions')->where('id', self::idOf($second))->value('revoked_reason'));
+    }
+
+    /**
+     * Revoking an identity's sessions for a client given reports it on every
+     * `SessionRevoked` and the `SignedOutEverywhere`, while the guard serves a
+     * request from another address; without one they carry the guard's
+     * request's client.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRevokingForAClientGivenReportsItOnEveryEvent(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->signIn();
+        $this->signIn();
+
+        $guard       = $this->bearing($this->signIn());
+        $revocations = SessionRevocations::forContext($guard->context(), app());
+        $client      = new ClientContext('192.0.2.44', 'Worker/1.0');
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
+
+        self::assertSame(3, $revocations->revokeSessions($identity, RevocationReason::PASSWORD_RESET, client: $client));
+        self::assertSame([SessionRevoked::class, SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class], $this->recordedClasses());
+        self::assertSame([$client, $client, $client, $client], array_map(
+            static fn (SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
+            $this->recorded,
+        ));
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
+
+        self::assertSame(0, $revocations->revokeSessions($identity, RevocationReason::REVOKED));
+        self::assertSame('198.51.100.40', $this->recordedEvent(SignedOutEverywhere::class)->context->client->ip);
     }
 
     /**

@@ -231,8 +231,9 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * The events of a password set report the client the caller names, not the
-     * request the guard is serving.
+     * Every event of a password set reports the client the caller names, not
+     * the request the guard is serving: the sessions a change or a reset ends,
+     * its `SignedOutEverywhere` and its `PasswordSet`.
      *
      * @return void
      *
@@ -241,12 +242,22 @@ final class PasswordServiceTest extends TestCase
     public function testTheClientNamedIsReported(): void
     {
         $identity = self::seedPasswordIdentity();
+        $kept     = $this->signInWithPassword('web')->record;
         $client   = new ClientContext('198.51.100.9', 'Worker/1.0');
+        $clients  = fn (): array => array_map(static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client, $this->recorded);
 
-        $this->recordEvents([PasswordSet::class]);
+        $this->signInWithPassword('admin');
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
 
-        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, client: $client)->isSet());
-        self::assertSame($client, $this->recordedEvent(PasswordSet::class)->context->client);
+        self::assertSame(1, $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, $client, $kept)->revoked);
+        self::assertSame([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame([$client, $client, $client], $clients());
+
+        $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
+
+        self::assertSame(1, $this->passwords()->set($identity, 'another new passphrase', PasswordFlow::RESET, $client)->revoked);
+        self::assertSame([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame([$client, $client, $client], $clients());
     }
 
     /**

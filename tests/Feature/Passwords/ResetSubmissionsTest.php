@@ -696,8 +696,9 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
-     * A client the caller names is the one the events report, not the request
-     * being served.
+     * A client the caller names is the one every event reports, not the request
+     * being served: a refusal's, and a reset's `PasswordSet`, the sessions it
+     * ends and its `SignedOutEverywhere`.
      *
      * @return void
      *
@@ -707,16 +708,21 @@ final class ResetSubmissionsTest extends TestCase
     {
         self::seedResettable();
 
+        $this->signInWithPassword('web', self::EMAIL);
+
         $token  = $this->requestLink();
         $client = new ClientContext('198.51.100.9', 'Kiosk/2.0');
 
-        $this->recordEvents([AuthenticationFailed::class, PasswordSet::class]);
+        $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
 
         $this->passwords()->reset(['email' => self::EMAIL, 'token' => str_repeat('a', 43), 'password' => self::NEW_PASSWORD], $client);
         $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD], $client);
 
-        self::assertSame($client, $this->recordedEvent(AuthenticationFailed::class)->context->client);
-        self::assertSame($client, $this->recordedEvent(PasswordSet::class)->context->client);
+        self::assertSame([AuthenticationFailed::class, SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
+        self::assertSame([$client, $client, $client, $client], array_map(
+            static fn (AuthenticationFailed|PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
+            $this->recorded,
+        ));
     }
 
     /**

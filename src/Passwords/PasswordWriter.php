@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -22,7 +23,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 /**
  * Writes a password the policy accepted: hashes it with Laravel's hasher, then,
  * in one transaction on the identity's connection, stores the hash and ends the
- * sessions the flow ends, and reports `PasswordSet` once that commits.
+ * sessions the flow ends, and reports `PasswordSet` once that commits. Every
+ * report, the revocations' among them, carries the client given.
  *
  * An identity already stored gets one query-builder update of its password
  * column (and `updated_at`, when the model keeps timestamps) on its own row,
@@ -111,9 +113,9 @@ final readonly class PasswordWriter
             $event = new PasswordSet(new EventContext($this->context->name(), $client, $identity, session: $except), $flow);
 
             $revoked = match ($flow) {
-                PasswordFlow::CHANGE        => $this->revocations->passwordChanged($identity, $except),
-                PasswordFlow::ESTABLISHMENT => $this->revocations->passwordEstablished($identity, $except),
-                PasswordFlow::RESET         => $this->revocations->passwordReset($identity),
+                PasswordFlow::CHANGE        => $this->revocations->revokeSessions($identity, RevocationReason::PASSWORD_CHANGED, $except, client: $client),
+                PasswordFlow::ESTABLISHMENT => $this->revocations->revokeSessions($identity, RevocationReason::PASSWORD_ESTABLISHED, $except, client: $client),
+                PasswordFlow::RESET         => $this->revocations->revokeSessions($identity, RevocationReason::PASSWORD_RESET, client: $client),
                 PasswordFlow::REGISTRATION  => 0,
             };
 

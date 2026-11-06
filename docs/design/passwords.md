@@ -119,10 +119,12 @@ only duplicate them.
      skipped when the model has none); a type the identity's verification throws a `LogicException` for has nothing to
      invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a normaliser that
      cannot be built) fails the write closed.
-   - `CHANGE`: `SessionRevocations::passwordChanged($identity, $except)`; `RESET`: `passwordReset($identity)` (every
+   - `CHANGE`: `SessionRevocations::revokeSessions($identity, PASSWORD_CHANGED, $except, client: $client)`;
+     `ESTABLISHMENT`: the same with `PASSWORD_ESTABLISHED`; `RESET`: with `PASSWORD_RESET` and no session kept (every
      guard's sessions, the identity's "tokens valid after" cutoff moved, pending sessions ended with the rest and, for a
      `HasChangeableIdentifiers` identity, its pending identifier changes deleted by key, for every type with a
      registered normaliser, their events after their commit; see the identifier changes note); `REGISTRATION`: nothing.
+     Each `SessionRevoked` and the `SignedOutEverywhere` carry the client given, as `PasswordSet` does.
    - `PasswordSet($context, $flow)` queued on the identity connection's commit; the context names the guard, the client,
      the identity and, for a change, the session kept.
 4. `PasswordResult::set($revoked)`.
