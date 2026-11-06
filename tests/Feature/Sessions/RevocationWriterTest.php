@@ -652,6 +652,57 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
+     * The second pass waits for a transaction open on the session model's
+     * connection, though none is open on the changed model's own: nothing is
+     * revoked before it commits, the session is revoked and reported once it
+     * has, and a rollback there runs nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASecondPassWaitsForTheSessionModelsConnection(): void
+    {
+        $this->seedIdentity();
+
+        $session  = $this->signIn();
+        $identity = $session->identity;
+
+        self::assertInstanceOf(Model::class, $identity);
+
+        $changed = clone $identity;
+
+        $changed->setConnection(self::ELSEWHERE);
+
+        /** @var \ArrayObject<int, mixed> $reported */
+        $reported    = new \ArrayObject;
+        $revocations = new RevocationWriter(app('db'), static fn (): mixed => app('db.transactions'));
+        $report      = static function (EloquentSession&Model $revoked) use ($reported): void {
+            $reported->append($revoked->getKey());
+        };
+        $scopes = [RevocationScope::identity($identity)];
+
+        DB::beginTransaction();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $changed, $report);
+
+        DB::rollBack();
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        DB::beginTransaction();
+
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $changed, $report);
+
+        self::assertNull(DB::table('authentication_sessions')->value('revoked_at'));
+
+        DB::commit();
+
+        self::assertSame('identity_deactivated', DB::table('authentication_sessions')->value('revoked_reason'));
+        self::assertSame([$session->record->getKey()], $reported->getArrayCopy());
+    }
+
+    /**
      * A report of the first pass that throws at the commit cannot skip the
      * second: a session written after the first pass read the scopes is still
      * ended and reported, and the report's exception is thrown.

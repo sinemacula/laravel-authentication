@@ -1963,6 +1963,55 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
+     * A sign-in whose check fails with a database error, outside a transaction,
+     * throws it from the call: the session is committed and left unrevoked, but
+     * never handed out, so nothing reports it, the guard is not bound to it,
+     * and the attempt-limit slots the sign-in took are not given back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInWhoseCheckFailsThrowsWithoutHandingTheSessionOut(): void
+    {
+        $this->seedIdentity();
+
+        $limiter = new RecordingAttemptLimiter;
+        $armed   = false;
+
+        app()->instance(AttemptLimiter::class, $limiter);
+        app()->instance(AdditionalFactorPolicy::class, new InterruptingFactorPolicy(static function () use (&$armed): bool {
+            return $armed = true;
+        }));
+
+        DB::connection()->beforeExecuting(static function (string $query) use (&$armed): void {
+            if (!$armed || !str_starts_with(strtolower($query), 'select') || !str_contains($query, 'integration_identities')) {
+                return;
+            }
+
+            $armed = false;
+
+            throw new \RuntimeException('identity unreadable');
+        });
+
+        $this->recordEvents([SessionCreated::class, SignedIn::class, SessionRevoked::class, Login::class]);
+
+        try {
+            $this->sessions()->signIn('password', self::credentials());
+
+            self::fail('Expected the check to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('identity unreadable', $exception->getMessage());
+        }
+
+        self::assertNull(Session::query()->sole()->getRawOriginal('revoked_at'));
+        self::assertSame([], $this->recordedClasses());
+        self::assertTrue(app('auth')->guard('api')->guest());
+        self::assertNotSame([], $limiter->acquired);
+        self::assertSame([], $limiter->released);
+    }
+
+    /**
      * Inside a caller's transaction a sign-in whose identity is deactivated
      * after its admission is answered with its session, which the check, at the
      * commit, then revokes and reports as revoked: nothing reports the sign-in,
