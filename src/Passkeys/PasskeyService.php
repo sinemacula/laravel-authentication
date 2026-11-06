@@ -382,6 +382,28 @@ final readonly class PasskeyService
     }
 
     /**
+     * The credential ids of the identity's passkeys for the guard's relying
+     * party, as stored (unpadded base64url), in registration order (oldest
+     * first), read from the write connection. A credential id is public
+     * WebAuthn data, which a ceremony sends the browser as an allowed
+     * credential, but that the identity holds it is not: the association stays
+     * the application's to access-control, so hand these only to the identity
+     * they belong to, or to a caller authorised for it. Reports nothing, so it
+     * takes no client.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return list<string>
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public function credentialIds(Identity $identity): array
+    {
+        return array_map(static fn (Passkey $passkey): string => $passkey->credential_id, PasskeyCredentials::of($this->relyingParty(), PasskeyOwner::of($identity)));
+    }
+
+    /**
      * Remove the identity's passkey with the id, for the guard's relying party,
      * found on the write connection. In one transaction on the passkey model's
      * connection (the storage connection; a savepoint in the caller's), the

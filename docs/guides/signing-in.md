@@ -623,13 +623,15 @@ back, the gate's work with it, and is answered `already_registered`, with no ass
 
 `Auth::passkeys('api')->passkeys($identity)` lists the identity's passkeys for the relying party, oldest first, as
 `PasskeySummary` (id, name, transports, AAGUID, backup state, created and last used), never the credential id, public
-key, user handle or count. `remove($identity, $passkeyId, $client)` removes the identity's passkey of the relying party
-and reports `PasskeyRemoved` once committed; it answers a `PasskeyRemoval` whose `isRemoved()` says whether this call
-removed it, and whose `completion` carries what the factor gate answered for the removal, if anything, uninterpreted.
-Finding, listing and removal hold to the relying party's exact id and the identity's exact type and key, and every
-ceremony's challenge to its exact ceremony, guard, relying party and owner, whatever the column's collation counts as
-equal (`alice` and `Alice` under MySQL's default `_ci` collations). Removing a passkey removes a way to sign in, but
-ends no session unless you register the optional listener:
+key, user handle or count. `Auth::passkeys('api')->credentialIds($identity)` lists the credential ids themselves, oldest
+first, for a factor ceremony's `$credentialIds`: they are public WebAuthn data, but that the identity holds them is not,
+so keep the association behind your own access control. `remove($identity, $passkeyId, $client)` removes the identity's
+passkey of the relying party and reports `PasskeyRemoved` once committed; it answers a `PasskeyRemoval` whose
+`isRemoved()` says whether this call removed it, and whose `completion` carries what the factor gate answered for the
+removal, if anything, uninterpreted. Finding, listing and removal hold to the relying party's exact id and the
+identity's exact type and key, and every ceremony's challenge to its exact ceremony, guard, relying party and owner,
+whatever the column's collation counts as equal (`alice` and `Alice` under MySQL's default `_ci` collations). Removing a
+passkey removes a way to sign in, but ends no session unless you register the optional listener:
 
 ```php
 use Illuminate\Support\Facades\Event;

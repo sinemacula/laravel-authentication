@@ -86,6 +86,7 @@ final class ReplicaPasskeysTest extends TestCase
 
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('passkeys')->count());
         self::assertCount(1, Auth::passkeys('api')->passkeys($identity));
+        self::assertCount(1, Auth::passkeys('api')->credentialIds($identity));
 
         $factor = self::factorCeremony(Auth::passkeys('api'), $identity);
 

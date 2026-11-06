@@ -716,6 +716,7 @@ final class PasskeyServiceTest extends TestCase
                 self::requestClient(),
             ),
             static fn (): mixed => Auth::passkeys('api')->passkeys($machine),
+            static fn (): mixed => Auth::passkeys('api')->credentialIds($machine),
             static fn (): mixed => Auth::passkeys('api')->remove($machine, '0192f6b2-0000-7000-8000-000000000001', self::requestClient()),
         ];
 
@@ -1150,6 +1151,48 @@ final class PasskeyServiceTest extends TestCase
         self::passkeyOfAnotherType($first->id);
 
         self::assertCount(2, Auth::passkeys('api')->passkeys($identity));
+    }
+
+    /**
+     * An identity's credential ids are its own stored ids, oldest registration
+     * first, for the guard's relying party only: none of another identity's
+     * (nor one of another type that shares its id), none of another relying
+     * party's, and an empty list for an identity with no passkey.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentitysCredentialIdsAreItsOwnInRegistrationOrder(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $none = Auth::passkeys('api')->credentialIds($identity);
+
+        self::assertSame([], $none);
+
+        $first = $this->registerPasskey($identity);
+
+        self::freezeAt($this->now->addMinute());
+
+        $second = $this->registerPasskey($identity, authenticator: new VirtualAuthenticator(self::ORIGIN));
+
+        $this->registerPasskey($this->seedIdentity('grace@example.test'), authenticator: new VirtualAuthenticator(self::ORIGIN));
+
+        config()->set('auth.guards.admin.passkeys', ['id' => 'app.example.test']);
+
+        $this->registerPasskey($identity, 'admin', new VirtualAuthenticator(self::ORIGIN));
+
+        $stored = static fn (string $id): string => Passkey::query()->findOrFail($id)->credential_id;
+        $listed = Auth::passkeys('api')->credentialIds($identity);
+
+        self::assertSame([$stored($first->id), $stored($second->id)], $listed);
+        self::assertCount(1, Auth::passkeys('admin')->credentialIds($identity));
+        self::assertSame([], Auth::passkeys('api')->credentialIds($this->seedIdentity('alan@example.test')));
+
+        self::passkeyOfAnotherType($first->id);
+
+        self::assertSame($listed, Auth::passkeys('api')->credentialIds($identity));
     }
 
     /**

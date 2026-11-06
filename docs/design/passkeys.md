@@ -107,15 +107,16 @@ package's.
   its type. A credential inserted by another while the gate ran rolls the change back and answers `already_registered`
   with no association; a passkey deleted by another answers `PasskeyRemoval::notRemoved()`, with no completion. The
   default, `Passkeys\NoPasskeyFactors`, associates nothing, completes nothing and refuses nothing.
-- Management: `passkeys($identity)` lists summaries oldest first; `remove($identity, $id, $client)` finds the identity's
-  passkey of the relying party, asks the gate, deletes it with one conditional `DELETE` and reports `PasskeyRemoved`
-  from the call that removed it, answering a `PasskeyRemoval` (`isRemoved()`, and the gate's `completion`). The optional
-  `Listeners\RevokeSessionsOnPasskeyRemoval` then ends the identity's sessions (`factor_removed`, through
-  `credentialRemoved()`). A passkey the factor package associated as a factor is removed the same way, and the factor
-  package then calls the session service's mandatory `factorRemoved()` in the same change (from its gate's
-  `removing()`), which judges the current session again without that factor; registered alongside it, the listener still
-  ends every session on any passkey's removal, so an application with a factor package registers it only if it wants
-  that.
+- Management: `passkeys($identity)` lists summaries oldest first; `credentialIds($identity)` lists the stored credential
+  ids oldest first (public WebAuthn data, whose association with the identity stays the application's to
+  access-control); `remove($identity, $id, $client)` finds the identity's passkey of the relying party, asks the gate,
+  deletes it with one conditional `DELETE` and reports `PasskeyRemoved` from the call that removed it, answering a
+  `PasskeyRemoval` (`isRemoved()`, and the gate's `completion`). The optional `Listeners\RevokeSessionsOnPasskeyRemoval`
+  then ends the identity's sessions (`factor_removed`, through `credentialRemoved()`). A passkey the factor package
+  associated as a factor is removed the same way, and the factor package then calls the session service's mandatory
+  `factorRemoved()` in the same change (from its gate's `removing()`), which judges the current session again without
+  that factor; registered alongside it, the listener still ends every session on any passkey's removal, so an
+  application with a factor package registers it only if it wants that.
 
 ## Failure / Edge Cases
 
