@@ -107,6 +107,28 @@ final readonly class PasskeyRegistration
     }
 
     /**
+     * The pending credential handed in names no live pending session of the
+     * identity on the guard, or none the challenge was bound to.
+     *
+     * @return self
+     */
+    public static function pendingInvalid(): self
+    {
+        return new self(PasskeyRegistrationStatus::PENDING_INVALID);
+    }
+
+    /**
+     * A cookie application's registration on a pending sign-in did not come
+     * from a page of its own site.
+     *
+     * @return self
+     */
+    public static function crossSiteRequest(): self
+    {
+        return new self(PasskeyRegistrationStatus::CROSS_SITE_REQUEST);
+    }
+
+    /**
      * Whether the passkey was stored.
      *
      * @return bool

@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Feature\Passkeys;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
@@ -22,6 +23,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasskeyAdded;
 use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
@@ -33,6 +35,7 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyAssertions;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
@@ -45,14 +48,17 @@ use SineMacula\Laravel\Authentication\Passkeys\RegisteredPasskey;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
+use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SessionStatus;
 use SineMacula\Laravel\Authentication\Sessions\FactorChangeResult;
 use SineMacula\Laravel\Authentication\Sessions\FactorRemoval;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Database\LockMarkingSQLiteGrammar;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Passkeys\RecordingPasskeyFactorGate;
@@ -1902,12 +1908,15 @@ final class PasskeyServiceTest extends TestCase
 
         app()->instance(PasskeyFactorGate::class, $gate);
 
-        $removal = Auth::passkeys('api')->remove($identity, $passkey->id, self::requestClient());
+        $client  = self::requestClient();
+        $removal = Auth::passkeys('api')->remove($identity, $passkey->id, $client);
 
         self::assertTrue($removal->isRemoved());
         self::assertSame($completion, $removal->completion);
         self::assertSame(0, Passkey::query()->count());
-        self::assertSame([[$identity, 'api', $passkey->id, $stored->credential_id]], array_map(static fn (array $removal): array => array_values($removal), $gate->removals));
+        $asked = array_map(static fn (array $removal): array => array_values($removal), $gate->removals);
+
+        self::assertSame([[$identity, 'api', $passkey->id, $stored->credential_id, $client]], $asked);
         self::assertSame([PasskeyRemoved::class], $this->recordedClasses());
     }
 
@@ -2222,6 +2231,458 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
+     * An ordinary registration, with no pending credential, is asked of the
+     * gate as it always was, now with the client the registration was given and
+     * no pending credential; a removal is handed its client too.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheGateIsHandedTheClientAndNoPendingCredentialOfAnOrdinaryRegistration(): void
+    {
+        $identity = $this->seedIdentity();
+        $gate     = new RecordingPasskeyFactorGate;
+        $client   = new ClientContext('198.51.100.4', 'Agent/2');
+
+        app()->instance(PasskeyFactorGate::class, $gate);
+
+        $passkeys     = Auth::passkeys('api');
+        $options      = $passkeys->registrationOptions($identity, self::USER_NAME);
+        $registration = $passkeys->register($identity, $options->challengeId, $this->authenticator()->create($options->options), $client, 'Laptop');
+
+        self::assertTrue($registration->isRegistered());
+        self::assertCount(1, $gate->registrations);
+        self::assertSame($client, $gate->registrations[0]['client']);
+        self::assertNull($gate->registrations[0]['pending']);
+        self::assertNull($gate->registrations[0]['binding']);
+
+        $remover = new ClientContext('198.51.100.3', 'Remover/1');
+
+        self::assertTrue($passkeys->remove($identity, (string) $registration->passkey?->id, $remover)->isRemoved());
+        self::assertCount(1, $gate->removals);
+        self::assertSame($remover, $gate->removals[0]['client']);
+    }
+
+    /**
+     * Rows of `[credential form, challenge bound]`: how the pending credential
+     * is handed in, and whether the challenge was asked for with the pending
+     * session's binding.
+     *
+     * @return iterable<string, array{0: string, 1: bool}>
+     */
+    public static function providePendingCredentialForms(): iterable
+    {
+        yield from [
+            'a secret, bound'     => ['secret', true],
+            'a string, bound'     => ['string', true],
+            'a secret, not bound' => ['secret', false],
+        ];
+    }
+
+    /**
+     * A pending credential that proves a live pending session of the identity
+     * (and, for a bound challenge, the one it was bound to) is handed to the
+     * gate as a `Secret` with the client and the challenge's binding, after the
+     * identity's row and the session's were read and before the passkey's row
+     * is written; the gate completes the session's factor itself, so the
+     * session activates with the registration, which dispatches `PasskeyAdded`
+     * and nothing that reports a refusal.
+     *
+     * @param  string  $form
+     * @param  bool  $bound
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('providePendingCredentialForms')]
+    public function testTheGateCompletesThePendingSessionTheCredentialProves(string $form, bool $bound): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->requireAFactor();
+
+        [$credential, $id] = $this->pendingSignIn();
+
+        $proof    = self::adapterProof($identity, 'api', $id, Purpose::ENROLLMENT);
+        $sessions = $this->sessions();
+
+        /** @var \ArrayObject<int, bool> $completed */
+        $completed = new \ArrayObject;
+
+        $gate = new RecordingPasskeyFactorGate(
+            static function (RegisteredPasskey $passkey, ?Secret $held, ClientContext $client) use ($sessions, $proof, $completed): PasskeyFactorAssociation {
+                self::assertInstanceOf(Secret::class, $held);
+
+                $completed[] = $sessions->satisfy($held, $proof, $client)->isSignedIn();
+
+                return new PasskeyFactorAssociation('factor-' . $passkey->id);
+            },
+        );
+
+        app()->instance(PasskeyFactorGate::class, $gate);
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, $bound ? $id : null);
+
+        $this->recordEvents([PasskeyAdded::class, Failed::class, AuthenticationFailed::class]);
+
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() === 'sqlite') {
+            $connection->setQueryGrammar(new LockMarkingSQLiteGrammar($connection));
+        }
+
+        $client       = self::requestClient();
+        $queries      = $this->recordQueries();
+        $registration = Auth::passkeys('api')->register($identity, $challenge, $answer, $client, 'Laptop', $form === 'secret' ? new Secret($credential) : $credential);
+
+        self::assertTrue($registration->isRegistered());
+        self::assertSame([true], $completed->getArrayCopy());
+        self::assertCount(1, $gate->registrations);
+        self::assertSame($client, $gate->registrations[0]['client']);
+        self::assertInstanceOf(Secret::class, $gate->registrations[0]['pending']);
+        self::assertSame($credential, $gate->registrations[0]['pending']->reveal());
+        self::assertSame($bound ? $id : null, $gate->registrations[0]['binding']?->sessionId);
+        self::assertSame(SessionStatus::ACTIVE, Session::query()->sole()->getStatus());
+        self::assertSame(1, Passkey::query()->count());
+        self::assertSame([PasskeyAdded::class], $this->recordedClasses());
+
+        $identityRead = self::firstQueryOn($queries->getArrayCopy(), '/integration_identities/');
+        $sessionRead  = self::firstQueryOn($queries->getArrayCopy(), '/authentication_sessions/');
+        $passkeyWrite = self::firstQueryOn($queries->getArrayCopy(), '/^insert.* into [`"]?passkeys[`"]? /i');
+
+        self::assertLessThan($sessionRead, $identityRead);
+        self::assertStringContainsString('for update', strtolower($queries[$sessionRead]));
+        self::assertLessThan($passkeyWrite, $sessionRead);
+    }
+
+    /**
+     * A gate that leaves the session pending (another factor is still owed) has
+     * the registration stored all the same: completing the session is the
+     * gate's to do, and may stop short.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGateMayLeaveThePendingSessionPending(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->requireAFactor();
+
+        [$credential, $id] = $this->pendingSignIn();
+
+        $gate = new RecordingPasskeyFactorGate;
+
+        app()->instance(PasskeyFactorGate::class, $gate);
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, $id);
+
+        $registration = Auth::passkeys('api')->register($identity, $challenge, $answer, self::requestClient(), null, new Secret($credential));
+
+        self::assertTrue($registration->isRegistered());
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+        self::assertSame(1, Passkey::query()->count());
+        self::assertInstanceOf(Secret::class, $gate->registrations[0]['pending']);
+    }
+
+    /**
+     * Rows of one name each: a pending credential that proves no live pending
+     * session of the identity on the guard, or none the challenge was bound to.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function providePendingRefusals(): iterable
+    {
+        $cases = [
+            'handed_in_reason',
+            'empty_string',
+            'malformed',
+            'unknown_session',
+            'wrong_secret',
+            'expired',
+            'revoked',
+            'active',
+            'another_identity',
+            'another_guard',
+            'another_bound_session',
+        ];
+
+        foreach ($cases as $case) {
+            yield $case => [$case];
+        }
+    }
+
+    /**
+     * Whatever the credential fails to prove (handed in as `pending_invalid`,
+     * empty, malformed, of no session, of a wrong secret, expired, revoked,
+     * already active, another identity's, another guard's, or not the session
+     * the challenge was bound to) the registration is `pending_invalid`, the
+     * same answer for each: the gate is not asked, no passkey is stored, no
+     * `PasskeyAdded` is dispatched, the challenge is used up, and the refusal
+     * is reported once, with the client and without the credential.
+     *
+     * @param  string  $case
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('providePendingRefusals')]
+    public function testACredentialThatProvesNoPendingSessionOfTheIdentityRefusesTheRegistration(string $case): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->requireAFactor();
+        config()->set('authentication.passkeys.challenge_ttl_seconds', 600);
+
+        [$credential, $bound] = $this->refusedCredential($case, $identity);
+
+        $gate = new RecordingPasskeyFactorGate;
+
+        app()->instance(PasskeyFactorGate::class, $gate);
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, $bound);
+
+        if ($case === 'expired') {
+            self::freezeAt($this->now->addMinutes(5));
+        }
+
+        $this->recordEvents([PasskeyAdded::class, Failed::class, AuthenticationFailed::class]);
+
+        $client       = self::requestClient();
+        $registration = Auth::passkeys('api')->register($identity, $challenge, $answer, $client, null, $credential);
+
+        self::assertSame(PasskeyRegistrationStatus::PENDING_INVALID, $registration->status);
+        self::assertNull($registration->passkey);
+        self::assertNull($registration->factor);
+        self::assertSame([], $gate->registrations);
+        self::assertSame(0, Passkey::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
+        self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+
+        $failure = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame(FailureReason::PENDING_INVALID, $failure->reason);
+        self::assertSame(AuthenticationFlow::SIGN_IN, $failure->flow);
+        self::assertSame('api', $failure->context->guard);
+        self::assertSame($client, $failure->context->client);
+
+        if (!is_string($credential) || strlen($credential) < 20) {
+            return;
+        }
+
+        foreach ($this->recorded as $event) {
+            self::assertStringNotContainsString($credential, print_r($event, true));
+        }
+    }
+
+    /** A reason other than `pending_invalid` handed in as the pending
+     * /**credential is a caller's error, raised before the challenge is used up or
+     * /**anything is
+     * reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAForeignFailureReasonAsThePendingCredentialIsACallersError(): void
+    {
+        $identity = $this->seedIdentity();
+        $gate     = new RecordingPasskeyFactorGate;
+
+        app()->instance(PasskeyFactorGate::class, $gate);
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, null);
+
+        $this->recordEvents([Failed::class, AuthenticationFailed::class]);
+
+        try {
+            Auth::passkeys('api')->register($identity, $challenge, $answer, self::requestClient(), null, FailureReason::INVALID_CREDENTIALS);
+
+            self::fail('Expected a foreign reason to be refused.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('invalid_credentials', $exception->getMessage());
+        }
+
+        self::assertSame([], $this->recorded);
+        self::assertSame(1, PasskeyChallenge::query()->whereNull('consumed_at')->count());
+        self::assertTrue(Auth::passkeys('api')->register($identity, $challenge, $answer, self::requestClient())->isRegistered());
+    }
+
+    /**
+     * A cookie application's registration on a pending sign-in from a client
+     * that did not come from a page of its own site is `cross_site_request`
+     * before the pending session is read (no query touches the sessions) and
+     * before the gate is asked, and is reported as such; the same client's
+     * ordinary registration, which sets no cookie, is not judged, and a client
+     * of the application's own site registers on the pending sign-in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACookieApplicationRefusesACrossSiteRegistrationOnAPendingSignIn(): void
+    {
+        config()->set('auth.guards.api.refresh_token', ['transport' => 'cookie', 'cookie' => ['path' => '/auth']]);
+
+        $identity = $this->seedIdentity();
+
+        $this->requireAFactor();
+
+        [$credential, $id] = $this->pendingSignIn();
+
+        $gate = new RecordingPasskeyFactorGate;
+
+        app()->instance(PasskeyFactorGate::class, $gate);
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, $id);
+
+        $this->recordEvents([PasskeyAdded::class, Failed::class, AuthenticationFailed::class]);
+
+        $queries = $this->recordQueries();
+        $refused = Auth::passkeys('api')->register($identity, $challenge, $answer, self::crossSiteClient(), null, new Secret($credential));
+
+        self::assertSame(PasskeyRegistrationStatus::CROSS_SITE_REQUEST, $refused->status);
+        self::assertSame([], $gate->registrations);
+        self::assertSame(0, Passkey::query()->count());
+        self::assertSame(0, PasskeyChallenge::query()->whereNull('consumed_at')->count());
+        self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame([], array_filter($queries->getArrayCopy(), static fn (string $sql): bool => preg_match('/authentication_sessions|integration_identities/', $sql) === 1));
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, null);
+
+        self::assertTrue(Auth::passkeys('api')->register($identity, $challenge, $answer, self::crossSiteClient())->isRegistered());
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, $id);
+
+        self::assertTrue(Auth::passkeys('api')->register($identity, $challenge, $answer, self::sameSiteClient(), null, $credential)->isRegistered());
+        self::assertSame(2, Passkey::query()->count());
+    }
+
+    /**
+     * A gate that completes the pending session and then throws refuses the
+     * registration: the session's activation, the proof it stored, the bind and
+     * the passkey all roll back, the exception reaches the caller, and nothing
+     * is reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGateThatThrowsAfterCompletingThePendingSessionRollsEverythingBack(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->requireAFactor();
+
+        [$credential, $id] = $this->pendingSignIn();
+
+        $proof    = self::adapterProof($identity, 'api', $id, Purpose::ENROLLMENT);
+        $sessions = $this->sessions();
+        $gate     = new RecordingPasskeyFactorGate(
+            static function (RegisteredPasskey $passkey, ?Secret $held, ClientContext $client) use ($sessions, $proof): never {
+                self::assertNotNull($held);
+                self::assertTrue($sessions->satisfy($held, $proof, $client)->isSignedIn());
+
+                throw new \DomainException('The factor is required.');
+            },
+        );
+
+        app()->instance(PasskeyFactorGate::class, $gate);
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, $id);
+
+        $proofs = SessionProof::query()->count();
+
+        $this->recordEvents([PasskeyAdded::class, Login::class]);
+
+        try {
+            Auth::passkeys('api')->register($identity, $challenge, $answer, self::requestClient(), null, new Secret($credential));
+
+            self::fail('Expected the gate\'s exception to reach the caller.');
+        } catch (\DomainException $exception) {
+            self::assertSame('The factor is required.', $exception->getMessage());
+        }
+
+        self::assertSame(SessionStatus::PENDING, Session::query()->sole()->getStatus());
+        self::assertSame($proofs, SessionProof::query()->count());
+        self::assertSame(0, Passkey::query()->count());
+        self::assertFalse(Auth::guard('api')->hasUser());
+        self::assertSame([], $this->recorded);
+    }
+
+    /**
+     * A pending credential handed in as a string leaves no trace of itself in
+     * the trace of an exception thrown while it is held (here a misconfigured
+     * transport), even where arguments are kept in traces.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingCredentialHandedInAsAStringLeavesNoTraceOfItself(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, null);
+
+        config()->set('auth.guards.api.refresh_token', ['transport' => 'carrier-pigeon']);
+
+        $credential = 'trace-session-key.trace-secret-value';
+        $ignored    = ini_set('zend.exception_ignore_args', '0');
+        $trace      = null;
+
+        try {
+            Auth::passkeys('api')->register($identity, $challenge, $answer, self::requestClient(), null, $credential);
+        } catch (\InvalidArgumentException $exception) {
+            $trace = $exception->getTrace();
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $ignored);
+        }
+
+        self::assertIsArray($trace);
+
+        $strings = array_filter(array_merge(...array_map(static fn (array $frame): array => $frame['args'] ?? [], $trace)), is_string(...));
+
+        self::assertSame([], array_filter($strings, static fn (string $argument): bool => str_contains($argument, 'trace-secret-value')));
+    }
+
+    /**
+     * A registration on a pending sign-in locks the identity's row inside the
+     * storage connection's transaction, so an identity on another connection is
+     * refused before the challenge is used up or anything is read; an ordinary
+     * registration is not judged.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingRegistrationOfAnIdentityOnAnotherConnectionIsRefused(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$challenge, $answer] = $this->bootstrapCeremony($identity, null);
+
+        config()->set('authentication.storage.connection', 'elsewhere');
+
+        try {
+            Auth::passkeys('api')->register($identity, $challenge, $answer, self::requestClient(), null, 'key.secret');
+
+            self::fail('Expected the identity\'s connection to be refused.');
+        } catch (\LogicException $exception) {
+            self::assertStringStartsWith('A passkey registration on a pending sign-in spends its proof with its change to the identity', $exception->getMessage());
+            self::assertStringContainsString('the package\'s tables on [elsewhere]', $exception->getMessage());
+        } finally {
+            config()->set('authentication.storage.connection', null);
+        }
+
+        self::assertSame(1, PasskeyChallenge::query()->whereNull('consumed_at')->count());
+        self::assertTrue(Auth::passkeys('api')->register($identity, $challenge, $answer, self::requestClient())->isRegistered());
+    }
+
+    /**
      * Configure the guards and their relying party.
      *
      * @param  mixed  $app
@@ -2240,6 +2701,153 @@ final class PasskeyServiceTest extends TestCase
 
         self::configureSessionGuards($config);
         self::configurePasskeys($config);
+    }
+
+    /**
+     * Ask a further factor of every sign-in, so a password sign-in is pending.
+     *
+     * @return void
+     */
+    private function requireAFactor(): void
+    {
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+    }
+
+    /**
+     * Sign the identity in with its password on the guard, which leaves the
+     * session pending, and answer its pending credential and its key.
+     *
+     * @param  string  $guard
+     * @param  string  $email
+     * @return array{0: string, 1: string}
+     */
+    private function pendingSignIn(string $guard = 'api', string $email = 'ada@example.test'): array
+    {
+        $pending = $this->sessions($guard)->signIn('password', self::credentials($email), self::requestContext());
+
+        $key = IdentifierCoercion::stringify($pending->pending?->id);
+
+        self::assertNotNull($pending->credential);
+        self::assertNotNull($key);
+
+        return [$pending->credential->reveal(), $key];
+    }
+
+    /**
+     * Ask for the options of a registration for the identity, bound to the
+     * pending session if one is named, and answer the challenge's id with the
+     * authenticator's answer to it.
+     *
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  ?string  $sessionId
+     * @return array{0: string, 1: array<array-key, mixed>}
+     *
+     * @throws \Throwable
+     */
+    private function bootstrapCeremony(IntegrationIdentity $identity, ?string $sessionId): array
+    {
+        $binding = $sessionId === null ? null : new ProofBinding($identity, 'api', $sessionId, Purpose::ENROLLMENT);
+        $options = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME, null, $binding);
+
+        return [$options->challengeId, $this->authenticator()->create($options->options)];
+    }
+
+    /**
+     * The pending credential to hand in for the case, and the pending session
+     * the challenge is to be bound to (none when the case names the identity or
+     * the guard alone).
+     *
+     * @param  string  $case
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @return array{0: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|string, 1: ?string}
+     *
+     * @throws \Throwable
+     */
+    private function refusedCredential(string $case, IntegrationIdentity $identity): array
+    {
+        if ($case === 'another_identity') {
+            $this->seedIdentity('grace@example.test');
+
+            return [$this->pendingSignIn('api', 'grace@example.test')[0], null];
+        }
+
+        if ($case === 'another_guard') {
+            return [$this->pendingSignIn('admin')[0], null];
+        }
+
+        [$credential, $id] = $this->pendingSignIn();
+
+        if ($case === 'revoked') {
+            self::assertTrue($this->sessions()->discard($credential, self::requestClient()));
+        }
+
+        if ($case === 'active') {
+            $proof = self::adapterProof($identity, 'api', $id, Purpose::ENROLLMENT);
+
+            self::assertTrue($this->sessions()->satisfy($credential, $proof, self::requestClient())->isSignedIn());
+        }
+
+        $other = $case === 'another_bound_session' ? $this->pendingSignIn()[0] : $credential;
+
+        return [self::brokenCredential($case, $other), $id];
+    }
+
+    /**
+     * The credential as the case hands it in: a pending credential made
+     * malformed, unknown or wrong in its secret, or as it is.
+     *
+     * @param  string  $case
+     * @param  string  $credential
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|string
+     */
+    private static function brokenCredential(string $case, string $credential): FailureReason|string
+    {
+        [$key, $secret] = explode('.', $credential, 2);
+
+        return match ($case) {
+            'handed_in_reason' => FailureReason::PENDING_INVALID,
+            'empty_string'     => '',
+            'malformed'        => 'no-dot-in-this-credential',
+            'unknown_session'  => 'missing-session.' . $secret,
+            'wrong_secret'     => $key . '.' . strrev($secret),
+            default            => $credential,
+        };
+    }
+
+    /**
+     * Record the SQL of every query from now on.
+     *
+     * @return \ArrayObject<int, string>
+     */
+    private function recordQueries(): \ArrayObject
+    {
+        /** @var \ArrayObject<int, string> $queries */
+        $queries = new \ArrayObject;
+
+        DB::listen(static function (QueryExecuted $query) use ($queries): void {
+            $queries[] = $query->sql;
+        });
+
+        return $queries;
+    }
+
+    /**
+     * The position of the first query that matches the pattern.
+     *
+     * @param  array<int, string>  $queries
+     * @param  string  $pattern
+     * @return int
+     */
+    private static function firstQueryOn(array $queries, string $pattern): int
+    {
+        foreach ($queries as $position => $sql) {
+            if (preg_match($pattern, $sql) === 1) {
+                return $position;
+            }
+        }
+
+        self::fail("Expected a query matching {$pattern}.");
     }
 
     /**

@@ -528,7 +528,9 @@ carries no personal data and does not depend on `app.key`. `register()` answers 
 (malformed, unknown, or not a registration challenge of this guard for the identity), `challenge_expired` (the
 identity's own, unanswered in its lifetime), `challenge_used` (a response was submitted to it before, whether or not it
 registered a passkey), `response_invalid` (malformed, or it does not verify: origin, relying party, user presence and
-verification, challenge, algorithm, attestation statement) or `already_registered`, with no passkey. The name is stored
+verification, challenge, algorithm, attestation statement) or `already_registered`, with no passkey (and, given a
+pending credential, `pending_invalid` or `cross_site_request`, see [Registering on a pending
+sign-in](#registering-on-a-pending-sign-in)). The name is stored
 cleaned and cut to 255 characters. Under `attestation: none` a browser may still pass an authenticator's own statement
 through, so the formats the WebAuthn library checks on its own (`none`, `packed`, `fido-u2f`, `android-key`, `tpm`,
 `apple`) are accepted for their internal consistency, but no certificate chain or metadata is evaluated and every
@@ -625,7 +627,9 @@ factor package's completion of the registration in `completion`, opaque to this 
 a factor and leaves the session it was registered from short of one, the factor package judges that session again
 (`factorChanged()`) and hands back the judgement, with the pending credential for the client
 (`$registration->factor->completion`). A credential registered by another while the gate runs rolls the whole change
-back, the gate's work with it, and is answered `already_registered`, with no association.
+back, the gate's work with it, and is answered `already_registered`, with no association. The gate is handed the
+registration's (or the removal's) `ClientContext` as a plain value, so a `satisfy()` or `factorRemoved()` it makes
+judges, reports and records that client.
 
 `Auth::passkeys('api')->passkeys($identity)` lists the identity's passkeys for the relying party, oldest first, as
 `PasskeySummary` (id, name, transports, AAGUID, backup state, created and last used), never the credential id, public
@@ -655,6 +659,41 @@ first), and the factor package then calls `Auth::sessions()->factorRemoved()` fr
 (with any pending credential for the client) as the `PasskeyRemoval`'s `completion` (see [Sign-in
 factors](sessions.md#sign-in-factors)); register the listener alongside it only if every passkey removal should end
 every session. See `docs/design/passkeys.md`.
+
+### Registering on a pending sign-in
+
+A passkey that is to become the factor a pending sign-in is waiting for (a bootstrap enrolment) is registered on that
+sign-in with its pending credential. Ask for the options with a binding for the pending session, then hand the
+credential `PendingCredential::extract()` read from the request to `register()`:
+
+```php
+$binding = new ProofBinding($identity, 'api', $pending->id, Purpose::ENROLLMENT);
+$options = Auth::passkeys('api')->registrationOptions($identity, $userName, binding: $binding);
+
+// Later, when the browser answers:
+$registration = Auth::passkeys('api')->register(
+    $identity,
+    $challenge,
+    $credential,
+    ClientContext::fromRequest($request),
+    pending: PendingCredential::extract($request),
+);
+```
+
+Before the gate is asked, in the registration's transaction, the package proves that the credential names a live
+pending session of this identity on this guard and, because the challenge was bound, that it is the session the options
+were asked for; the identity's row and then the session's row are locked until the transaction ends. Anything else
+(the credential missing from the field, unknown, malformed, expired, revoked, already active, another identity's,
+another guard's, or another pending session of this identity) is `pending_invalid`, the same answer whichever it was,
+with the gate not asked, no passkey stored and no `PasskeyAdded`. A cookie application's client from outside its own
+site is `cross_site_request` before anything is read. Each is reported once, with `Failed` and `AuthenticationFailed`
+(the sign-in flow), carrying the client and never the credential. The challenge is used up either way, so a client that
+is refused asks for fresh options.
+
+The gate gets the credential as a `Secret` and the client, and completes the pending session's factor itself by calling
+`satisfy()` with them and the proof of the registration. `satisfy()` answers a refusal rather than throwing, and the
+session may stay pending when another factor is still outstanding: a gate that requires the session to be completed
+must check the result and throw, which rolls the whole registration back.
 
 ## Writing a sign-in method
 

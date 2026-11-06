@@ -10,6 +10,8 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Passkey;
@@ -17,9 +19,14 @@ use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationStatus;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyAssertions;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyCredentials;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
+use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
+use SineMacula\Laravel\Authentication\Proofs\ProofBinding;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Passkeys\VirtualAuthenticator;
+use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -35,6 +42,10 @@ use Tests\TestCase;
  *   however far its own count went.
  * - Two registrations of one credential: only the first to commit stores it;
  *   the other is refused as already registered.
+ * - A registration on a pending sign-in racing the pending session's
+ *   discarding: the registration waits on the session's row lock, finds the
+ *   session revoked once the discarding commits, and is refused as
+ *   `pending_invalid`, storing nothing.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -47,6 +58,7 @@ use Tests\TestCase;
 #[CoversClass(PasskeyChallenges::class)]
 #[CoversClass(PasskeyCredentials::class)]
 #[CoversClass(PasskeyAssertions::class)]
+#[CoversClass(PasskeyService::class)]
 final class ConcurrentPasskeyTest extends TestCase
 {
     use InteractsWithPasskeys, InteractsWithSessions;
@@ -262,6 +274,45 @@ final class ConcurrentPasskeyTest extends TestCase
         self::assertSame(PasskeyRegistrationStatus::ALREADY_REGISTERED->value, $second['outcome']);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertSame([(string) $identity->id], Passkey::query()->pluck('authenticatable_id')->all());
+    }
+
+    /**
+     * A registration on a pending sign-in waits on the pending session's row
+     * while another call discards the session; once that commits, it finds the
+     * session revoked and is refused as `pending_invalid`, storing no passkey.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARegistrationWaitingOnTheDiscardingOfItsPendingSessionIsRefused(): void
+    {
+        $identity = $this->seedIdentity();
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $pending = $this->sessions()->signIn('password', self::credentials(), self::requestContext());
+
+        self::assertNotNull($pending->pending);
+        self::assertNotNull($pending->credential);
+
+        $credential = $pending->credential;
+        $options    = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME, null, new ProofBinding($identity, 'api', $pending->pending->id, Purpose::ENROLLMENT));
+        $answer     = $this->authenticator()->create($options->options);
+
+        [$first, $second] = $this->race(
+            static fn (): string => Auth::sessions('api')->discard($credential, self::requestClient()) ? 'discarded' : 'kept',
+            static fn (): string => Auth::passkeys('api')
+                ->register(IntegrationIdentity::query()->findOrFail($identity->id), $options->challengeId, $answer, self::requestClient(), null, $credential)
+                ->status->value,
+            commitFirst: true,
+        );
+
+        self::assertSame('discarded', $first);
+        self::assertSame(PasskeyRegistrationStatus::PENDING_INVALID->value, $second['outcome']);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertSame(0, Passkey::query()->count());
     }
 
     /**

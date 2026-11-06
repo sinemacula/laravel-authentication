@@ -56,6 +56,8 @@ final class PasskeyRegistrationTest extends TestCase
             PasskeyRegistrationStatus::CHALLENGE_USED->value     => PasskeyRegistration::challengeUsed(),
             PasskeyRegistrationStatus::RESPONSE_INVALID->value   => PasskeyRegistration::responseInvalid(),
             PasskeyRegistrationStatus::ALREADY_REGISTERED->value => PasskeyRegistration::alreadyRegistered(),
+            PasskeyRegistrationStatus::PENDING_INVALID->value    => PasskeyRegistration::pendingInvalid(),
+            PasskeyRegistrationStatus::CROSS_SITE_REQUEST->value => PasskeyRegistration::crossSiteRequest(),
         ];
 
         foreach ($refusals as $status => $registration) {

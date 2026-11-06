@@ -31,7 +31,7 @@ final class EnumsTest extends TestCase
     {
         self::assertSame(['register', 'sign_in', 'factor'], array_column(ChallengePurpose::cases(), 'value'));
         self::assertSame(
-            ['registered', 'challenge_invalid', 'challenge_expired', 'challenge_used', 'response_invalid', 'already_registered'],
+            ['registered', 'challenge_invalid', 'challenge_expired', 'challenge_used', 'response_invalid', 'already_registered', 'pending_invalid', 'cross_site_request'],
             array_column(PasskeyRegistrationStatus::cases(), 'value'),
         );
     }
