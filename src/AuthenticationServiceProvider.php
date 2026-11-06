@@ -53,6 +53,7 @@ use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\TenantResolver;
+use SineMacula\Laravel\Authentication\Database\RequiredWork;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\SessionAuthenticated;
 use SineMacula\Laravel\Authentication\External\InsufficientEvidence;
@@ -144,6 +145,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->singletonIf(SignInMethodManager::class);
         $this->app->scopedIf(Rehashing::class);
         $this->app->scopedIf(KeptSessions::class);
+        $this->app->scopedIf(RequiredWork::class);
         $this->app->singletonIf(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
         $this->app->singletonIf(PasskeyFactorGate::class, NoPasskeyFactors::class);
         $this->app->singletonIf(TenantAuthenticationPolicy::class, RequireNothingOfTenants::class);

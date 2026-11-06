@@ -651,6 +651,58 @@ final class RevocationWriterTest extends TestCase
     }
 
     /**
+     * A report of the first pass that throws at the commit cannot skip the
+     * second: a session written after the first pass read the scopes is still
+     * ended and reported, and the report's exception is thrown.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFirstPassReportThatThrowsCannotSkipTheSecondPass(): void
+    {
+        $this->seedIdentity();
+
+        $first    = $this->signIn();
+        $identity = $first->identity;
+
+        /** @var \ArrayObject<int, mixed> $reported */
+        $reported    = new \ArrayObject;
+        $revocations = new RevocationWriter(app('db'), static fn (): mixed => app('db.transactions'));
+        $scopes      = [RevocationScope::identity($identity)];
+
+        DB::beginTransaction();
+
+        $revocations->revokeScopes(
+            $scopes,
+            RevocationReason::IDENTITY_DEACTIVATED,
+            null,
+            CarbonImmutable::now(),
+            static function (): void {
+                throw new \RuntimeException('first pass');
+            },
+            static function (): void {},
+        );
+        $revocations->revokeAgain($scopes, RevocationReason::IDENTITY_DEACTIVATED, $identity, static function (EloquentSession&Model $revoked) use ($reported): void {
+            $reported->append($revoked->getKey());
+        });
+
+        $racing = $this->signIn();
+
+        try {
+            DB::commit();
+
+            self::fail('Expected the report to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('first pass', $exception->getMessage());
+        }
+
+        self::assertSame('identity_deactivated', DB::table('authentication_sessions')->where('id', self::idOf($first))->value('revoked_reason'));
+        self::assertSame('identity_deactivated', DB::table('authentication_sessions')->where('id', self::idOf($racing))->value('revoked_reason'));
+        self::assertSame([$racing->record->getKey()], $reported->getArrayCopy());
+    }
+
+    /**
      * The second pass deletes the pending identifier changes its identity
      * scopes name once more, as the first did, so a change requested between
      * the two passes, from a session the first pass could not see, is dropped

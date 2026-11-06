@@ -72,15 +72,17 @@ use SineMacula\Laravel\Authentication\Support\PrincipalReference;
  * check passed, after it, in order, and never once it failed; those scheduled
  * through `afterCheck()` (a revocation the call made of another session) run
  * after it in the same order whatever it found, so a listener that throws on
- * one cannot keep the check from running. A check that failed before the call
- * answered makes the call answer the refusal instead (`refusal()`), and a new
- * session the call never handed out is revoked without a `SessionRevoked`; one
- * that failed after (the call ran inside a caller's transaction, so the check
- * waited for its commit), or a session that existed before the call (a
- * choice's, a switch's), is reported as revoked, and a guard bound to it
- * forgets it; the refusal a choice or a switch answers names that session. A
- * call that wrote nothing to check (`satisfy()`, a switch that changed neither
- * principal nor tenant) schedules its reports as `AfterCommit` would.
+ * one cannot keep the check from running; nor can one that throws on a report
+ * of another call committed with it, since the check is required work
+ * (`AfterCommit`). A check that failed before the call answered makes the call
+ * answer the refusal instead (`refusal()`), and a new session the call never
+ * handed out is revoked without a `SessionRevoked`; one that failed after (the
+ * call ran inside a caller's transaction, so the check waited for its commit),
+ * or a session that existed before the call (a choice's, a switch's), is
+ * reported as revoked, and a guard bound to it forgets it; the refusal a choice
+ * or a switch answers names that session. A call that wrote nothing to check
+ * (`satisfy()`, a switch that changed neither principal nor tenant) schedules
+ * its reports as `AfterCommit` would.
  *
  * One instance is one call: it holds the client the call is for and the second
  * it began, taken before anything was verified.
@@ -294,7 +296,7 @@ final class AdmissionRecheck
 
         $subjects = array_values(array_filter([$identity, $principal, $tenant], static fn (?object $subject): bool => $subject instanceof Model));
 
-        $this->afterCommit->run($session, fn () => $this->afterCommit->runOnceEnded($subjects, fn () => $this->settle($session, $identity, $principal, $tenant)));
+        $this->afterCommit->runAcross([$session], fn () => $this->afterCommit->runOnceEnded($subjects, fn () => $this->settle($session, $identity, $principal, $tenant)));
     }
 
     /**

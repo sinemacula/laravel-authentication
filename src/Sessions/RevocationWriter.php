@@ -177,7 +177,8 @@ final readonly class RevocationWriter
      * the first pass (from a session it could not see) is dropped with that
      * session. With no transaction open on either connection, the first pass
      * already read past every commit and nothing is done; a rollback runs
-     * nothing.
+     * nothing. The pass is required work (`AfterCommit::runAcross()`), so a
+     * listener that throws on a report of the first pass cannot skip it.
      *
      * @formatter:off
      *

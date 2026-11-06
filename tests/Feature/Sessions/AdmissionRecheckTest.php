@@ -1053,6 +1053,50 @@ final class AdmissionRecheckTest extends TestCase
     }
 
     /**
+     * A report of one call that throws at the commit cannot keep the check of
+     * another call committed with it from running: the check still ends its
+     * session, reports the revocation, and the report's exception is thrown.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReportOfAnotherCallThatThrowsCannotSkipTheCheck(): void
+    {
+        [$member, $membership, $tenant] = $this->seedRechecked();
+
+        $session = $this->signIn();
+
+        $this->recordEvents([SessionRevoked::class]);
+
+        DB::beginTransaction();
+
+        $throwing = $this->recheck();
+
+        $throwing->signIn($session->record, $member, null, null);
+        $throwing->then($session->record, static function (): void {
+            throw new \RuntimeException('listener');
+        });
+
+        $checked = $this->recheck();
+
+        $checked->choice($session->record, new Admitted($member, $membership, $tenant));
+
+        RecheckedMembership::query()->whereKey($membership->getKey())->update(['is_active' => false]);
+
+        try {
+            DB::commit();
+
+            self::fail('Expected the report to throw.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('listener', $exception->getMessage());
+        }
+
+        self::assertSame(RevocationReason::PRINCIPAL_DEACTIVATED->value, self::revokedReasonOf($session));
+        self::assertSame([SessionRevoked::class], $this->recordedClasses());
+    }
+
+    /**
      * Register the guards.
      *
      * @param  mixed  $app

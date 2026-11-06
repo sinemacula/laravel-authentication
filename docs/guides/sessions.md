@@ -1102,6 +1102,10 @@ The check and the second pass run after durable commits. Outside your transactio
 thrown from the call with the session (or the change) committed, and the call is not answered with the session: call
 the revocation again to end it. Inside your transaction the exception reaches the code that commits (or rolls back, for
 a transaction on another connection than the session's), as the observers' do. Nothing is retried by the package.
+Laravel stops running a commit's callbacks at the first that throws, so a listener that throws on an event the package
+reports at your commit (a first pass's `SessionRevoked`, another call's `SessionCreated`) would skip what follows it:
+the package runs every check and second pass due at that commit before the exception leaves it, and the exception is
+still thrown. A callback of your own (`DB::afterCommit()`) that throws stops them as it stops any callback after it.
 
 ### Sign-in factors
 
