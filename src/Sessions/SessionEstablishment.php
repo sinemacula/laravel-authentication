@@ -59,9 +59,8 @@ use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
  * it returns, so a bind listener that throws cannot withhold a report. It runs
  * on the guard's context: its events carry the client of the sign-in they
  * report, and go to the context's dispatcher as it is when they are dispatched.
- * What reports the session waits, beyond its commit, for the call's check of
- * the session's identity, principal and tenant (`AdmissionRecheck`), and never
- * runs when the check ends the session.
+ * Its reports of the session wait, beyond the commit, for the call's check
+ * (`AdmissionRecheck`), and never run when the check ends the session.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

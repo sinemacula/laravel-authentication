@@ -555,8 +555,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
 
     /**
      * Bind as a sign-in, in the tenant the session records (or the principal's
-     * own without a session), with the sign-in method the session records, the
-     * bind events describing the client given (the request's without one).
+     * own without a session), with the sign-in method the session records.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -578,7 +577,7 @@ abstract class AbstractGuard implements ContextualGuard, GuardBinding, HasGuardC
      * credential the request presented authenticated, its identifier, the
      * scopes it grants and its kind: clear prior state and settle the request,
      * dispatch `Login` when it is a sign-in, then bind the triple and dispatch
-     * its events, which describe the client given (the request's without one).
+     * its events.
      *
      * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
      *

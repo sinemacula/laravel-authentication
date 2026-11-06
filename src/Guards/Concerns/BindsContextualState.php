@@ -450,8 +450,6 @@ trait BindsContextualState
      * identity is not limited (`null`) and a non-human one is limited to none
      * (`[]`). The tenant is bound as the active tenant; one a trusted bind
      * cannot load is carried as none in the events, and thrown by `tenant()`.
-     * The package's events describe the client given, or the request's without
-     * one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
