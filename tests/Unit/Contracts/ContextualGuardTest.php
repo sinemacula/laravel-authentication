@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
  * Reflection-based structural tests for the ContextualGuard contract.
@@ -163,7 +164,7 @@ final class ContextualGuardTest extends TestCase
         $login = new \ReflectionMethod(ContextualGuard::class, 'login');
 
         self::assertTrue($login->isPublic(), 'login() must be public.');
-        self::assertCount(3, $login->getParameters(), 'login() must accept three parameters.');
+        self::assertCount(4, $login->getParameters(), 'login() must accept four parameters.');
 
         $loginParameters = $login->getParameters();
 
@@ -186,6 +187,14 @@ final class ContextualGuardTest extends TestCase
         self::assertSame(Session::class, $loginSessionType->getName());
         self::assertTrue($loginParameters[2]->isDefaultValueAvailable());
         self::assertNull($loginParameters[2]->getDefaultValue());
+
+        self::assertSame('client', $loginParameters[3]->getName());
+        $loginClientType = $loginParameters[3]->getType();
+        self::assertInstanceOf(\ReflectionNamedType::class, $loginClientType);
+        self::assertTrue($loginClientType->allowsNull());
+        self::assertSame(ClientContext::class, $loginClientType->getName());
+        self::assertTrue($loginParameters[3]->isDefaultValueAvailable());
+        self::assertNull($loginParameters[3]->getDefaultValue());
 
         $loginReturn = $login->getReturnType();
         self::assertInstanceOf(\ReflectionNamedType::class, $loginReturn);
