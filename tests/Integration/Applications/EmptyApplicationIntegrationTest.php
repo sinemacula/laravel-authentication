@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\TestCase;
 
 /**
@@ -119,7 +120,7 @@ final class EmptyApplicationIntegrationTest extends TestCase
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->signIn('password', self::credentials(), self::requestContext())->reason);
         self::assertSame(0, $queries);
-        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start($identity, null, 'password', self::requestContext())->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start(UndescribedFirstFactor::of($identity), null, 'password', self::requestContext())->reason);
         self::assertSame(0, DB::table('rate_limits')->count());
         self::assertSame(0, Session::query()->count());
     }

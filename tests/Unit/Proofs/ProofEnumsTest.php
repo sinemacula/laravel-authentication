@@ -65,7 +65,7 @@ final class ProofEnumsTest extends TestCase
     {
         self::assertSame(['sign_in', 'reauthenticate', 'step_up', 'enrollment'], array_map(static fn (Purpose $purpose): string => $purpose->value, Purpose::cases()));
         self::assertSame(
-            ['password', 'sms', 'email', 'authenticator_app', 'passkey', 'external_provider', 'unknown'],
+            ['password', 'sms', 'email', 'authenticator_app', 'passkey', 'external_provider', 'recovery', 'unknown'],
             array_map(static fn (ChannelKind $kind): string => $kind->value, ChannelKind::cases()),
         );
         self::assertSame(['hardware', 'software'], array_map(static fn (KeyProtection $protection): string => $protection->value, KeyProtection::cases()));

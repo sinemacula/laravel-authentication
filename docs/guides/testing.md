@@ -66,7 +66,8 @@ Acting on a session binds the guard to it and proves nothing about it. An access
 and `amr` derived from the proofs the session records, so a session the test made itself, with no first-factor proof,
 cannot be refreshed, switched, stepped up or reauthenticated (issuing for it throws a `LogicException`), and holds no
 proof a freshness check finds. A test that needs tokens or freshness for a session starts it through the session
-service (`Auth::sessions()->signIn()` or `start()`), which records the first factor as a real sign-in does. On a cookie
+service (`Auth::sessions()->signIn()` or `start()` with a `FirstFactor`), which records the first factor as a real
+sign-in does. On a cookie
 application those calls are held to the [same-site check](refreshing.md#refresh-token-cookie), so a test's request,
 which carries no `Origin`, is refused as `cross_site_request`: pass a `SignInContext` whose client carries the facts
 (`new SignInContext(new ClientContext(null, null, 'http://localhost', 'http://localhost', ['X-Requested-With']))`, fixed

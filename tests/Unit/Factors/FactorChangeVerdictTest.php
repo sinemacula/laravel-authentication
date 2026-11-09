@@ -9,7 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\FactorChangeVerdict;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
  * Unit tests for the factor-change gate's answer.
@@ -30,7 +30,7 @@ final class FactorChangeVerdictTest extends TestCase
      */
     public function testAnAllowedChangeCarriesItsProofAndDeadline(): void
     {
-        $proof = SignInProof::unattested('password', CarbonImmutable::now())->recorded();
+        $proof = UndescribedSignInProof::of('password', CarbonImmutable::now())->recorded();
         $until = CarbonImmutable::parse('2026-04-06 12:15:00');
 
         $verdict = FactorChangeVerdict::allowed($proof, $until);

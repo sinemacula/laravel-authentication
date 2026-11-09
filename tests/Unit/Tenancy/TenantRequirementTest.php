@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\PlainTenantFixture;
@@ -148,7 +149,7 @@ final class TenantRequirementTest extends TestCase
     public function testASignInsEvidenceIsWhatItProved(): void
     {
         $now      = CarbonImmutable::parse('2026-04-06 12:00:00');
-        $password = SignInProof::unattested('password', $now);
+        $password = UndescribedSignInProof::of('password', $now);
         $evidence = SessionEvidence::of($password);
 
         self::assertSame($password->id, $evidence->firstFactor->id);

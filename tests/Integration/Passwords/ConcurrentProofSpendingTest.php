@@ -44,6 +44,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\DefinesPasswordChangeRoute;
 use Tests\Concerns\InteractsWithIsolationLevels;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
@@ -993,7 +994,7 @@ final class ConcurrentProofSpendingTest extends TestCase
      */
     private static function startedSession(ChangeableIdentity $identity): Session
     {
-        $record = Auth::sessions('web')->start($identity, null, 'password', self::requestContext())->session?->record;
+        $record = Auth::sessions('web')->start(UndescribedFirstFactor::of($identity), null, 'password', self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 

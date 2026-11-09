@@ -29,7 +29,6 @@ use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
@@ -38,6 +37,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Context\ScriptedContributor;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
@@ -311,7 +311,7 @@ final class ContributionSubjectTest extends TestCase
         self::assertNotNull($reused);
 
         ProofWriter::clear($reused);
-        ProofWriter::record($reused, 'api', SignInProof::unattested('passkey', $this->now)->firstFactor());
+        ProofWriter::record($reused, 'api', UndescribedSignInProof::of('passkey', $this->now)->firstFactor());
 
         self::assertSame([[], null, 2], $answers(self::subject($identity, $record)));
         self::assertSame('passkey', self::subject($identity, $reused)->firstFactor()?->method);

@@ -10,7 +10,6 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementEvaluation;
@@ -19,6 +18,7 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -156,7 +156,7 @@ final class RequirementJudgeTest extends TestCase
         };
 
         $now      = CarbonImmutable::now();
-        $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
+        $evidence = SessionEvidence::of(UndescribedSignInProof::of('password', $now));
 
         return RequirementJudge::isMet('members', $identity, null, null, $now, new ProofSource($evidence), new Requirement(new RequirementPart));
     }

@@ -24,6 +24,10 @@ session holds; the token's claims and every freshness answer are worked out from
   any other a model that reissues keys puts under its key, of the same owner and in the same second included, which
   neither the key, the owner nor the whole-second start can. A row that records none is never the session a caller
   holds.
+- The `recovery` channel (the application's own account recovery) is a first factor only: `start()` records it, and
+  `ProofAcceptance` refuses it as `proof_invalid` on any further factor, so a `step_up` or a `satisfy()` over it records
+  nothing and adds no `mfa`. Recovery arrives only through `start()`; the external reauthentication has its own entry
+  point and the `external_provider` channel.
 - Every session the package writes records a counting first factor in the transaction that writes the session; an
   external provider's session also records its provenance, once. Proofs and provenance carry unchanged from a pending
   sign-in to its session and across every refresh and switch; a sign-in that replaces a session starts a
@@ -183,8 +187,9 @@ session holds; the token's claims and every freshness answer are worked out from
 ## Success Path
 
 1. A sign-in records the first factor its method returned (`FirstFactor`), `signInExternally()` records the external
-   provider's with its provenance (and its evidence, once accepted), and `start()` an unattested one; a completion
-   records the further factor it was given.
+   provider's with its provenance (and its evidence, once accepted), and `start()` the `FirstFactor` the application
+   described (the `unknown` channel when it described nothing, the `recovery` channel for its own account recovery: a
+   first factor, never multifactor); a completion records the further factor it was given.
 2. Every access token issued for the session (`signIn()`, a refresh, a switch, a step-up, a reauthentication) asks
    `Proofs\AuthenticationClaims::forSession()` for its `auth_time` and `amr`.
 3. A further-factor adapter verifies a factor on a signed-in session and hands its `ProofResult` to `stepUp()`: the

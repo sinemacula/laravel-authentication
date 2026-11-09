@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
  * Unit tests for the evidence a sign-in carries before its session is written:
@@ -37,7 +38,7 @@ final class SessionEvidenceTest extends TestCase
     public function testASignInsEvidenceIsItsFirstFactorAlone(): void
     {
         $at    = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
-        $proof = SignInProof::unattested('password', $at);
+        $proof = UndescribedSignInProof::of('password', $at);
 
         $evidence = SessionEvidence::of($proof);
 
@@ -81,6 +82,6 @@ final class SessionEvidenceTest extends TestCase
 
         self::assertSame($accepted, $evidence->externalEvidence);
         self::assertSame($accepted, $evidence->firstFactor->evidence);
-        self::assertNull(SessionEvidence::of(SignInProof::unattested('password', $now))->externalEvidence);
+        self::assertNull(SessionEvidence::of(UndescribedSignInProof::of('password', $now))->externalEvidence);
     }
 }

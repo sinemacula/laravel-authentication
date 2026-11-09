@@ -122,6 +122,7 @@ trait InteractsWithProofs
      * @param  ?\Carbon\CarbonInterface  $at
      * @param  \SineMacula\Laravel\Authentication\Proofs\Evaluation  $evaluation
      * @param  list<string>  $methods
+     * @param  \SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind  $channel
      * @return \SineMacula\Laravel\Authentication\Proofs\ProofResult
      */
     protected static function adapterProof(
@@ -133,11 +134,12 @@ trait InteractsWithProofs
         ?CarbonInterface $at = null,
         Evaluation $evaluation = new Evaluation(true, true),
         array $methods = ['otp'],
+        ChannelKind $channel = ChannelKind::AUTHENTICATOR_APP,
     ): ProofResult {
         return new ProofResult(
             $kind,
             'totp',
-            new Channel(ChannelKind::AUTHENTICATOR_APP),
+            new Channel($channel),
             'factor-1',
             new ObservedProperties,
             $evaluation,

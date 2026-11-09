@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 
@@ -209,7 +210,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         request()->headers->set('Origin', 'https://evil.example.test');
         request()->headers->remove('X-Requested-With');
 
-        $result = $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->start($identity, null, 'sso', self::requestContext()));
+        $result = $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext()));
 
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, $result->reason);
     }
@@ -342,7 +343,9 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $identity = $this->seedIdentity();
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(5, 2, static fn (): SignInResult => $sessions->start($identity, null, 'sso', self::requestContext()))->isSignedIn());
+        $factor = UndescribedFirstFactor::of($identity);
+
+        self::assertTrue($this->assertQueryBudget(5, 2, static fn (): SignInResult => $sessions->start($factor, null, 'sso', self::requestContext()))->isSignedIn());
     }
 
     /**

@@ -9,11 +9,11 @@ use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
@@ -39,7 +39,7 @@ final class RequirementSubjectTest extends TestCase
     public function testTheQueryIsTheReadersAnswer(): void
     {
         $now   = CarbonImmutable::parse('2026-04-06 12:00:00');
-        $first = SignInProof::unattested('password', $now)->recorded();
+        $first = UndescribedSignInProof::of('password', $now)->recorded();
         $asked = [];
 
         $reader = static function (?CarbonImmutable $since, ?array $kinds, int $limit) use (&$asked, $first): array {
@@ -72,7 +72,7 @@ final class RequirementSubjectTest extends TestCase
     public function testAMutableTimeReachesTheReaderAsAnImmutableCopy(): void
     {
         $now   = CarbonImmutable::parse('2026-04-06 12:00:00');
-        $first = SignInProof::unattested('password', $now)->recorded();
+        $first = UndescribedSignInProof::of('password', $now)->recorded();
         $given = Carbon::parse('2026-04-06 07:59:30.250000', 'America/New_York');
         $asked = [];
 
@@ -100,7 +100,7 @@ final class RequirementSubjectTest extends TestCase
     public function testALimitOutsideItsRangeIsRefused(): void
     {
         $now     = CarbonImmutable::parse('2026-04-06 12:00:00');
-        $subject = new RequirementSubject(new PlainIdentityFixture(7), 'api', null, SignInProof::unattested('password', $now)->recorded(), $now, static function (): array {
+        $subject = new RequirementSubject(new PlainIdentityFixture(7), 'api', null, UndescribedSignInProof::of('password', $now)->recorded(), $now, static function (): array {
             self::fail('The reader must not be called.');
         });
 
@@ -124,7 +124,7 @@ final class RequirementSubjectTest extends TestCase
     public function testTheDefaultCheckMeetsNothing(): void
     {
         $now     = CarbonImmutable::parse('2026-04-06 12:00:00');
-        $subject = new RequirementSubject(new PlainIdentityFixture(7), 'api', null, SignInProof::unattested('password', $now)->recorded(), $now, static fn (): array => []);
+        $subject = new RequirementSubject(new PlainIdentityFixture(7), 'api', null, UndescribedSignInProof::of('password', $now)->recorded(), $now, static fn (): array => []);
 
         $evaluation = (new MeetNoRequirement)->evaluate($subject, new Requirement(new RequirementPart, new RequirementPart));
 

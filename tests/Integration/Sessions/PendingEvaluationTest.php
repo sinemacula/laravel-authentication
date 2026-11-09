@@ -13,11 +13,11 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -162,7 +162,7 @@ final class PendingEvaluationTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $first = SignInProof::unattested('password', CarbonImmutable::now())->recorded();
+        $first = UndescribedSignInProof::of('password', CarbonImmutable::now())->recorded();
 
         return (new PendingEvaluation($guard->context(), app()))->factorRequirement($identity, $first, new ClientContext(null, null), null, null, null);
     }

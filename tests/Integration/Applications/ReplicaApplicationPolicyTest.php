@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use Tests\Concerns\InteractsWithApplicationGrants;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Fixtures\Sessions\GrantedApplicationAccess;
 use Tests\Fixtures\Sessions\GrantedApplicationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -151,11 +152,11 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $identity = $this->seedIdentity();
         $grant    = $this->grant($identity);
 
-        self::assertTrue($this->sessions()->start($identity, null, 'sso', self::requestContext())->isSignedIn());
+        self::assertTrue($this->sessions()->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext())->isSignedIn());
 
         $this->withdrawOnThePrimary(GrantedApplicationAccess::GRANTS, $grant);
 
-        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->start($identity, null, 'sso', self::requestContext())->reason);
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions()->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext())->reason);
     }
 
     /**

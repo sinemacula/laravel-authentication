@@ -18,7 +18,6 @@ use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -26,6 +25,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\MarksSharedLocks;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainSessionFixture;
@@ -280,7 +280,7 @@ final class ActiveSessionProofsTest extends TestCase
         self::assertNotNull($reused);
 
         ProofWriter::clear($reused);
-        ProofWriter::record($reused, 'api', SignInProof::unattested('passkey', $this->now->addMinutes(2))->firstFactor());
+        ProofWriter::record($reused, 'api', UndescribedSignInProof::of('passkey', $this->now->addMinutes(2))->firstFactor());
 
         $proofs = ActiveSessionProofs::query('api', $key, null, null, 50);
 

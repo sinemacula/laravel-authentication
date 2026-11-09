@@ -39,6 +39,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\TestCase;
@@ -213,7 +214,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         $now      = CarbonImmutable::now();
         $external = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a'), $now));
-        $password = SessionEvidence::of(SignInProof::unattested('password', $now));
+        $password = SessionEvidence::of(UndescribedSignInProof::of('password', $now));
 
         DB::enableQueryLog();
 
@@ -238,7 +239,7 @@ final class TenantPolicyCheckTest extends TestCase
         $now      = CarbonImmutable::now();
         $answered = new TenantRequirement('v3', connections: ['conn-a']);
         $external = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a'), $now));
-        $password = SessionEvidence::of(SignInProof::unattested('password', $now));
+        $password = SessionEvidence::of(UndescribedSignInProof::of('password', $now));
 
         $this->policy->requirement = new TenantRequirement(connections: ['conn-b']);
 
@@ -366,7 +367,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         self::assertTrue(TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now)->isMet());
 
-        $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
+        $evidence = SessionEvidence::of(UndescribedSignInProof::of('password', $now));
 
         $judged = TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now, new ProofSource($evidence));
 
