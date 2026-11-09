@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Sessions\PendingState;
 use SineMacula\Laravel\Authentication\Sessions\RevocationSettings;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 /**
  * `authentication:check`: resolves every setting of each `jwt` and `api_key`
@@ -647,7 +648,8 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * The messages of the findings of the severity, each prefixed with its
-     * guard when it names one.
+     * guard when it names one, and escaped so that markup in a check's text is
+     * printed as it is and never read as a style tag.
      *
      * @param  list<\SineMacula\Laravel\Authentication\Console\ConfigurationFinding>  $findings
      * @param  \SineMacula\Laravel\Authentication\Console\Enums\FindingSeverity  $severity
@@ -663,7 +665,7 @@ final class CheckConfigurationCommand extends Command
                 continue;
             }
 
-            $reported[] = $finding->guard === null ? $finding->message : "[{$finding->guard}] {$finding->message}";
+            $reported[] = OutputFormatter::escape($finding->guard === null ? $finding->message : "[{$finding->guard}] {$finding->message}");
         }
 
         return $reported;

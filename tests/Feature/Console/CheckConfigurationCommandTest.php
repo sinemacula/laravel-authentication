@@ -1301,6 +1301,30 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
+     * Markup in a warning, an error and a guard name is printed as text: it is
+     * never read as a style tag, so it neither aborts the command nor changes
+     * the exit code.
+     *
+     * @return void
+     */
+    public function testMarkupInAFindingIsPrintedLiterally(): void
+    {
+        $this->register('warns', new FixedConfigurationCheck([ConfigurationFinding::warning('Invalid <fg=not-a-color>setting</>', '<info>odd</info>')]));
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(0, $code);
+        self::assertContains('[<info>odd</info>] Invalid <fg=not-a-color>setting</>', $output);
+
+        $this->register('fails', new FixedConfigurationCheck([ConfigurationFinding::error('Wrong <error>setting</error> \\')]));
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        self::assertContains('Wrong <error>setting</error> \\', $output);
+    }
+
+    /**
      * Register the package with a valid configuration: two `jwt` guards, a
      * session guard, and a database connection that cannot be opened.
      *
