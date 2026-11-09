@@ -20,6 +20,9 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\Enums\Transport;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -134,6 +137,52 @@ final class SessionPreconditionsTest extends TestCase
         $this->expectExceptionMessage('[external_provider] is not a sign-in method: only a result an external provider verified signs a session in under it.');
 
         SessionPreconditions::assertSessionMethod('external_provider');
+    }
+
+    /**
+     * Rows of `[first factor]`: what only the external sign-in records.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Proofs\FirstFactor}>
+     */
+    public static function provideExternalProviderFactors(): iterable
+    {
+        $identity = \Mockery::mock(Identity::class);
+
+        yield 'the external provider channel' => [new FirstFactor($identity, new Channel(ChannelKind::EXTERNAL_PROVIDER, 'connection-7'))];
+        yield 'the external provider amr value' => [new FirstFactor($identity, new Channel(ChannelKind::UNKNOWN), methods: ['pwd', FirstFactor::EXTERNAL_PROVIDER_METHOD])];
+    }
+
+    /**
+     * A first factor an application describes may not pass for an external
+     * identity provider's: neither its channel nor its private `amr` value.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Proofs\FirstFactor  $factor
+     * @return void
+     */
+    #[DataProvider('provideExternalProviderFactors')]
+    public function testAnApplicationFactorMayNotPassForAnExternalProvidersOne(FirstFactor $factor): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(SessionPreconditions::EXTERNAL_FACTOR_MESSAGE);
+
+        SessionPreconditions::assertApplicationFactor($factor);
+    }
+
+    /**
+     * Every other channel, the application's own recovery included, and any
+     * other `amr` value pass.
+     *
+     * @return void
+     */
+    public function testAnyOtherFactorIsAnApplicationFactor(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+
+        foreach (array_filter(ChannelKind::cases(), static fn (ChannelKind $kind): bool => $kind !== ChannelKind::EXTERNAL_PROVIDER) as $kind) {
+            SessionPreconditions::assertApplicationFactor(new FirstFactor($identity, new Channel($kind), methods: ['pwd', 'otp']));
+        }
+
+        $this->addToAssertionCount(1);
     }
 
     /**

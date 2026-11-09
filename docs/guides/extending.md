@@ -629,12 +629,15 @@ seam has a default that works alone.
   keeps about a session survives a sign-in: every sign-in starts a new session with a new id and its own proofs, and the
   session the client proved (`AdditionalFactorContext::$provenSession`) is revoked with its proofs left on it when the
   new one first activates.
-- Step a signed-in session up with a factor the factor package has just verified:
-  `Auth::sessions()->stepUp($proof, $client)`, with the `ProofResult` bound to the session's key for `step_up` and the
-  `ClientContext` of the request it serves. The session keeps its refresh token and deadlines,
-  and every access token issued for it from then on carries the factor in `auth_time` and `amr`; the session then
-  proves an identifier change, or any operation whose freshness takes a further factor (see [Stepping
-  up](sessions.md#stepping-up)). A factor verified outside a session proves nothing on its own.
+- Step a signed-in session up with a factor the factor package has just verified: `Auth::sessions()->stepUp($proof,
+  $client)`, with the `ProofResult` bound to the session's key for `step_up` and the `ClientContext` of the request it
+  serves. The session keeps its refresh token and deadlines, and every access token issued for it from then on carries
+  the factor in `auth_time` and `amr`; the session then proves an identifier change, or any operation whose freshness
+  takes a further factor (see [Stepping up](sessions.md#stepping-up)). A factor verified outside a session proves
+  nothing on its own. A session the application started itself with `start()` records the channel its `FirstFactor`
+  described (`password`, `recovery` for its own account recovery, or `unknown`), which the factor package can weigh when
+  it judges a further factor's independence; a channel never implies multifactor authentication, and `recovery` is a
+  first factor, not an accepted further one.
 - Before a sensitive operation of its own that the gate does not cover, the factor package asks
   `FreshnessPolicy::freshProof($session, 'mfa.some_operation')`, under a namespaced operation name of its own that the
   application configures under `freshness`, and passes a `FreshnessRequirement` of its own for a floor the

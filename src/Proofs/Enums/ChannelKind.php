@@ -6,8 +6,8 @@ namespace SineMacula\Laravel\Authentication\Proofs\Enums;
 
 /**
  * The kind of channel a proof was made over: a password, a code sent by text
- * message or email, an authenticator app, a passkey, an external provider, or
- * one the method did not name.
+ * message or email, an authenticator app, a passkey, an external provider, the
+ * application's own account recovery, or one the method did not name.
  *
  * The values are the further-factor package's own.
  *
@@ -35,6 +35,9 @@ enum ChannelKind: string
 
     // A result an external identity provider verified
     case EXTERNAL_PROVIDER = 'external_provider';
+
+    // The application's own account recovery: a first factor only
+    case RECOVERY = 'recovery';
 
     // A channel the method did not name
     case UNKNOWN = 'unknown';

@@ -42,6 +42,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\External\MethodTrustingEvidencePolicy;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\TestCase;
 
@@ -168,8 +169,8 @@ final class RequirementJudgeTest extends TestCase
 
         $session  = $this->signedIn();
         $now      = CarbonImmutable::now();
-        $given    = SignInProof::unattested('sso', $now)->recorded();
-        $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
+        $given    = UndescribedSignInProof::of('sso', $now)->recorded();
+        $evidence = SessionEvidence::of(UndescribedSignInProof::of('password', $now));
 
         RequirementJudge::isMet('members', $member, $session, $given, $now, new ProofSource, new Requirement(new RequirementPart));
         RequirementJudge::isMet('members', $member, null, $given, $now, new ProofSource($evidence), new Requirement(new RequirementPart));
@@ -193,8 +194,8 @@ final class RequirementJudgeTest extends TestCase
 
         $session  = $this->signedIn();
         $now      = CarbonImmutable::now();
-        $given    = SignInProof::unattested('sso', $now)->recorded();
-        $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
+        $given    = UndescribedSignInProof::of('sso', $now)->recorded();
+        $evidence = SessionEvidence::of(UndescribedSignInProof::of('password', $now));
 
         /** @var \ArrayObject<int, string> $statements */
         $statements = new \ArrayObject;
@@ -230,7 +231,7 @@ final class RequirementJudgeTest extends TestCase
         [$member] = $this->seedMember();
 
         $now      = CarbonImmutable::now()->startOfSecond()->addMilliseconds(500);
-        $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
+        $evidence = SessionEvidence::of(UndescribedSignInProof::of('password', $now));
 
         DB::enableQueryLog();
 
@@ -246,8 +247,8 @@ final class RequirementJudgeTest extends TestCase
         self::assertSame([], $subject->proofs($now->addSecond()));
         self::assertSame([], $subject->proofs(null, [ProofKind::ADDITIONAL_FACTOR]));
 
-        $first  = SignInProof::unattested('password', $now)->recorded();
-        $newest = SignInProof::unattested('password', $now)->recorded();
+        $first  = UndescribedSignInProof::of('password', $now)->recorded();
+        $newest = UndescribedSignInProof::of('password', $now)->recorded();
 
         RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource(new SessionEvidence($first, [$newest, $first], null)), new Requirement(new RequirementPart));
 
@@ -270,8 +271,8 @@ final class RequirementJudgeTest extends TestCase
 
         $session  = $this->signedIn();
         $at       = CarbonImmutable::now()->startOfSecond()->addMinute();
-        $earlier  = SignInProof::unattested('password', $at->subSecond())->recorded();
-        $later    = SignInProof::unattested('password', $at)->recorded();
+        $earlier  = UndescribedSignInProof::of('password', $at->subSecond())->recorded();
+        $later    = UndescribedSignInProof::of('password', $at)->recorded();
         $evidence = new ProofSource(new SessionEvidence($earlier, [$later, $earlier], null));
 
         self::recordProof($session, ProofKind::RECOVERY_CODE, $at->subSecond(), [], new Evaluation(true, false));
@@ -313,7 +314,7 @@ final class RequirementJudgeTest extends TestCase
 
         self::recordProof($session, ProofKind::ADDITIONAL_FACTOR, $now, ['otp'], new Evaluation(true, true));
 
-        $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
+        $evidence = SessionEvidence::of(UndescribedSignInProof::of('password', $now));
 
         self::assertTrue(RequirementJudge::isMet('members', $member, $session, null, $now, new ProofSource, new Requirement(new RequirementPart)));
         self::assertFalse(RequirementJudge::isMet('members', $member, $session, null, $now, new ProofSource($evidence), new Requirement(new RequirementPart)));
@@ -335,7 +336,7 @@ final class RequirementJudgeTest extends TestCase
         [$member] = $this->seedMember();
 
         $now      = CarbonImmutable::now()->startOfSecond();
-        $first    = SignInProof::unattested('password', $now)->recorded();
+        $first    = UndescribedSignInProof::of('password', $now)->recorded();
         $policy   = $this->trustEvidenceFor([RequirementKind::ADDITIONAL_VERIFICATION]);
         $accepted = new ExternalEvidence(['hwk'], null, $now);
         $external = SignInProof::external('sso', new Provenance('conn-a', evidence: $accepted), $now, new Evaluation(true, true))->recorded();
@@ -469,7 +470,7 @@ final class RequirementJudgeTest extends TestCase
         $requirement = new Requirement(new RequirementPart);
 
         $unaccepted = SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-a'), $now));
-        $password   = SessionEvidence::of(SignInProof::unattested('password', $now));
+        $password   = SessionEvidence::of(UndescribedSignInProof::of('password', $now));
 
         self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource($unaccepted), $requirement));
         self::assertFalse(RequirementJudge::isMet('members', $member, null, null, $now, new ProofSource($password), $requirement));
@@ -574,7 +575,7 @@ final class RequirementJudgeTest extends TestCase
 
         self::assertSame(array_fill(0, 4, self::takesSharedLocks()), $judge($session, new ProofSource(current: true)));
         self::assertSame(array_fill(0, 4, false), $judge($session, new ProofSource));
-        self::assertSame([], $judge($session, new ProofSource(SessionEvidence::of(SignInProof::unattested('password', $now)), true)));
+        self::assertSame([], $judge($session, new ProofSource(SessionEvidence::of(UndescribedSignInProof::of('password', $now)), true)));
 
         $current = new ProofSource(current: true);
 

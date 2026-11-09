@@ -80,9 +80,12 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   cuts it short only for an admitted attempt and gives its slots back before the bind; `signIn()` cuts it short for an
   admitted identity, rehashes after it, continues to an active or a pending session, and gives its slots back after the
   bind of an active one.
-- `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
-  then runs the method check, the identity's admission with no identifier type, and the same order from the principals
-  on.
+- `start()` takes the `FirstFactor` the application verified itself: its identity is the one signed in, reloaded
+  through the guard's provider and required to come back as the same class and key (`identity_unknown`), and its
+  channel, observations and `amr` values are recorded as the first proof. A factor over the `external_provider` channel
+  or carrying the private external-provider `amr` value is an `InvalidArgumentException`
+  (`SessionPreconditions::assertApplicationFactor()`), so only `signInExternally()` records one. Then it runs the
+  method check, the identity's admission with no identifier type, and the same order from the principals on.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
   context, never both. A machine credential kind (`SignInMethodManager::CREDENTIAL_METHODS`) as the method is an
   `InvalidArgumentException` before anything else: a session recorded under `client_credentials` would pass for a
@@ -105,12 +108,13 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   first proofs: the method, the `FirstFactor` a sign-in method returned (its channel, observations and `amr` values,
   `mfa` refused) timed when it returned, or for `signInExternally()` the provider's (the connection, the private
   `urn:sinemacula:amr:external_provider` value, the provider's time, never after now) with the `Provenance` (the link's
-  id included), or for `start()` an unattested one (unknown channel, no value, now). A pending session records it as its
-  first proof when it is written, so the session records the time the credentials were verified. A `satisfy()`'s
-  `ProofResult` is accepted only as `Proofs\ProofAcceptance::forPendingSession()` decides (an `additional_factor` or
-  `recovery_code`, for `sign_in`, or `enrollment` for an `additional_factor`, accepted, timed between when the session
-  began waiting and now: `proof_invalid`; bound to the pending session's identity, guard and id:
-  `proof_binding_mismatch`); a refusal stores nothing and leaves the session pending.
+  id included), or for `start()` the `FirstFactor` the application described (an `unknown` channel and no value when it
+  described nothing), timed now by the server. A pending session records it as its first proof when it is written, so
+  the session records the time the credentials were verified. A `satisfy()`'s `ProofResult` is accepted only as
+  `Proofs\ProofAcceptance::forPendingSession()` decides (an `additional_factor` or `recovery_code`, for `sign_in`, or
+  `enrollment` for an `additional_factor`, accepted, timed between when the session began waiting and now:
+  `proof_invalid`; bound to the pending session's identity, guard and id: `proof_binding_mismatch`); a refusal stores
+  nothing and leaves the session pending.
 - A refresh token proves a session only when it is the session's current rotation id, validly signed for the guard
   (`parseRefreshProof()`: every `parse()` check except expiry), and the session, read from the writer, is owned by the
   identity, records this guard and the same principal, and is not revoked. Anything else is no proof: a new session,

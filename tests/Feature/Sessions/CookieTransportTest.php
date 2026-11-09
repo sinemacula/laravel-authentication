@@ -51,6 +51,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -171,7 +172,7 @@ final class CookieTransportTest extends TestCase
      */
     public function testAStartedSessionHandsBackTheCookie(): void
     {
-        $session = $this->sessions(self::BROWSER)->start($this->seedIdentity(), null, 'sso', self::requestContext())->session;
+        $session = $this->sessions(self::BROWSER)->start(UndescribedFirstFactor::of($this->seedIdentity()), null, 'sso', self::requestContext())->session;
 
         self::assertNotNull($session);
         self::assertCookiePair(self::BROWSER, $session->tokens, $session->record);
@@ -326,7 +327,7 @@ final class CookieTransportTest extends TestCase
         $calls = [
             self::BROWSER => [
                 fn (): mixed => $this->sessions(self::BROWSER)->signIn('password', self::credentials(), self::requestContext()),
-                fn (): mixed => $this->sessions(self::BROWSER)->start($identity, null, 'sso', self::requestContext()),
+                fn (): mixed => $this->sessions(self::BROWSER)->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext()),
                 fn (): mixed => $this->sessions(self::BROWSER)->satisfy($factor->credential->reveal(), $proof, self::requestClient()),
             ],
             self::MEMBERS => [

@@ -172,16 +172,38 @@ identity-level factor policy, the selected principal's active tenant, and that t
 `password`), a method that refuses with any reason but `invalid_credentials`, a misconfigured model and database errors
 still throw. A sign-in whose session starts active gives its attempt slots back.
 
-`start($identity, $principal, $method, $context)` begins a session for an identity something else verified. The identity
-is reloaded through the guard's provider (`identity_unknown` when that does not return the very same identity), the
-method must be allowed, and the sign-in then follows the same order, so a sign-in from outside cannot skip a required
-factor or the choice of principal. No attempt limit or timebox applies. The principal is given as the argument or on the
-context, not both. The session's first proof names no channel and no `amr` value, timed now. The method may be neither a
-machine credential kind (`api_key`, `client_credentials`) nor `external_provider`: each throws an
-`InvalidArgumentException`. On a cookie application, `start()` fails as `cross_site_request`, before the identity is
-reloaded, unless the request comes from a page of the application's own site, so a verification that arrives as a
-cross-site callback (a magic link, an identity provider's redirect) lands on a page of the application's site that
-posts to the route calling `start()` (see [Refresh token cookie](refreshing.md#refresh-token-cookie)).
+`start($factor, $principal, $method, $context)` begins a session for an identity the application verified itself. The
+`FirstFactor` describes how: its identity is the one signed in, and its channel, observed properties and `amr` values
+are recorded as the session's first proof, timed now. A factor package judges a later step-up against that proof, so say
+what you checked:
+
+```php
+use SineMacula\Laravel\Authentication\Proofs\Channel;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
+
+// The application checked a password itself.
+$result = Auth::sessions('api')->start(new FirstFactor($identity, new Channel(ChannelKind::PASSWORD), methods: ['pwd']), null, 'password', $context);
+
+// The application's own account recovery: a first factor, never multifactor.
+$result = Auth::sessions('api')->start(new FirstFactor($identity, new Channel(ChannelKind::RECOVERY)), null, 'recovery', $context);
+
+// Nothing to say about how the identity was verified.
+$result = Auth::sessions('api')->start(new FirstFactor($identity, new Channel(ChannelKind::UNKNOWN)), null, 'trusted', $context);
+```
+
+A channel helps a further-factor package judge whether a later factor is independent; it never implies multifactor
+authentication, and a `recovery` first factor is not a further factor. The factor's `amr` values are never `mfa`, and a
+factor over the `external_provider` channel, or with that provider's `amr` value, throws an `InvalidArgumentException`:
+only `signInExternally()` records one. The identity is reloaded through the guard's provider (`identity_unknown` when
+that does not return the very same identity), the method must be allowed, and the sign-in then follows the same order,
+so a sign-in from outside cannot skip a required factor or the choice of principal. No attempt limit or timebox applies.
+The principal is given as the argument or on the context, not both. The method may be neither a machine credential kind
+(`api_key`, `client_credentials`) nor `external_provider`: each throws an `InvalidArgumentException`. On a cookie
+application, `start()` fails as `cross_site_request`, before the identity is reloaded, unless the request comes from a
+page of the application's own site, so a verification that arrives as a cross-site callback (a magic link, an identity
+provider's redirect) lands on a page of the application's site that posts to the route calling `start()` (see [Refresh
+token cookie](refreshing.md#refresh-token-cookie)).
 
 Every sign-in starts a new session that records the identity, the principal, the guard, the method, the client's name
 and platform (from the context, cleaned as the user agent is), the client's IP address and user agent at creation and as
@@ -305,7 +327,7 @@ provider reports (`SessionNotOnOrAfter`, say), on the context's `notAfter` (cut 
 ```php
 $context = SignInContext::fromRequest($request)->withNotAfter($sessionEndsAt);
 
-$result = Auth::sessions('api')->start($identity, null, 'trusted', $context);
+$result = Auth::sessions('api')->start(new FirstFactor($identity, new Channel(ChannelKind::UNKNOWN)), null, 'trusted', $context);
 ```
 
 The session's absolute deadline is then the earlier of the deadline and the application's absolute limit, or the

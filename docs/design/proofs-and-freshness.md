@@ -183,8 +183,9 @@ session holds; the token's claims and every freshness answer are worked out from
 ## Success Path
 
 1. A sign-in records the first factor its method returned (`FirstFactor`), `signInExternally()` records the external
-   provider's with its provenance (and its evidence, once accepted), and `start()` an unattested one; a completion
-   records the further factor it was given.
+   provider's with its provenance (and its evidence, once accepted), and `start()` the `FirstFactor` the application
+   described (the `unknown` channel when it described nothing, the `recovery` channel for its own account recovery: a
+   first factor, never multifactor); a completion records the further factor it was given.
 2. Every access token issued for the session (`signIn()`, a refresh, a switch, a step-up, a reauthentication) asks
    `Proofs\AuthenticationClaims::forSession()` for its `auth_time` and `amr`.
 3. A further-factor adapter verifies a factor on a signed-in session and hands its `ProofResult` to `stepUp()`: the

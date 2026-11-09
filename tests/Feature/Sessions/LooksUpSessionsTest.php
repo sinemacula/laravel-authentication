@@ -27,7 +27,6 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\LooksUpSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -39,6 +38,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
@@ -372,7 +372,7 @@ final class LooksUpSessionsTest extends TestCase
         self::assertNotNull($reused);
 
         ProofWriter::clear($reused);
-        ProofWriter::record($reused, 'api', SignInProof::unattested('passkey', CarbonImmutable::now())->firstFactor());
+        ProofWriter::record($reused, 'api', UndescribedSignInProof::of('passkey', CarbonImmutable::now())->firstFactor());
 
         $queries = 0;
 

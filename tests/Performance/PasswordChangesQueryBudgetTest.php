@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Passwords\PasswordChanges;
 use SineMacula\Laravel\Authentication\Passwords\PasswordResult;
 use Tests\Concerns\InteractsWithPasswords;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 
 /**
  * Query-budget contracts for changing and establishing a password from a
@@ -109,9 +110,9 @@ final class PasswordChangesQueryBudgetTest extends PerformanceContractTestCase
     public function testAnEstablishmentHasAFixedBudget(): void
     {
         $identity = self::seedPasswordIdentity(attributes: ['password' => null]);
-        $kept     = $this->sessions('web')->start($identity, null, 'password', self::requestContext())->session?->record;
+        $kept     = $this->sessions('web')->start(UndescribedFirstFactor::of($identity), null, 'password', self::requestContext())->session?->record;
 
-        $this->sessions('admin')->start($identity, null, 'password', self::requestContext());
+        $this->sessions('admin')->start(UndescribedFirstFactor::of($identity), null, 'password', self::requestContext());
 
         self::assertNotNull($kept);
 

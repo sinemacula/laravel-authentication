@@ -42,6 +42,7 @@ use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Concerns\InteractsWithSessionRecords;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\PretendsStorageEngines;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Integration\Fixtures\EncryptedDescriptionSession;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
@@ -126,7 +127,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $origin,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
         $record = Session::query()->whereKey($session->record->getKey())->firstOrFail();
         $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken?->reveal(), TokenType::REFRESH);
@@ -169,10 +170,10 @@ final class SessionWriterTest extends TestCase
             $updates[] = $query->sql;
         });
 
-        $proof   = SignInProof::unattested('password', $this->now);
+        $proof   = UndescribedSignInProof::of('password', $this->now);
         $session = $this->writer()->create($this->admitted($identity), 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client, $proof);
 
-        $waiting   = SignInProof::unattested('password', $this->now);
+        $waiting   = UndescribedSignInProof::of('password', $this->now);
         [$pending] = $this->writer()->createPending(self::draft($identity, $waiting), $this->context(), $this->lifetimes(), $this->now, 300);
 
         self::assertSame([], $updates);
@@ -200,7 +201,7 @@ final class SessionWriterTest extends TestCase
         $identity = $this->seedIdentity();
 
         $statements = self::statementsOn($driver, function () use ($identity): void {
-            $proof = SignInProof::unattested('password', $this->now);
+            $proof = UndescribedSignInProof::of('password', $this->now);
 
             try {
                 $this->writer()->create($this->admitted($identity), 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client, $proof);
@@ -229,7 +230,7 @@ final class SessionWriterTest extends TestCase
     public function testASessionRecordsTheTenantPolicyVersionAndItsFirstFactorsId(): void
     {
         $identity = $this->seedIdentity();
-        $proof    = SignInProof::unattested('password', $this->now);
+        $proof    = UndescribedSignInProof::of('password', $this->now);
         $session  = $this->writer()->underTenantPolicy('v4')->create(
             $this->admitted($identity),
             'email',
@@ -246,7 +247,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $this->context()->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
 
         self::assertSame('v4', Session::query()->whereKey($session->record->getKey())->firstOrFail()->getTenantPolicyVersion());
@@ -268,8 +269,8 @@ final class SessionWriterTest extends TestCase
         $identity = $this->seedIdentity();
         $origin   = new ClientContext('198.51.100.4', 'Origin/2.0');
         $admitted = new Admitted($identity, $identity, new PlainTenantFixture(7));
-        $first    = SignInProof::unattested('password', $this->now);
-        $second   = SignInProof::unattested('password', $this->now);
+        $first    = UndescribedSignInProof::of('password', $this->now);
+        $second   = UndescribedSignInProof::of('password', $this->now);
         $tenanted = $this->writer()->create($admitted, 'email', $this->context(), $this->lifetimes(), $this->now, $origin, $first);
         $bare     = $this->writer()->create($this->admitted($identity), 'email', $this->context(), $this->lifetimes(), $this->now, $origin, $second);
         $tokens   = Auth::manager()->jwt('api');
@@ -301,7 +302,7 @@ final class SessionWriterTest extends TestCase
                 $this->lifetimes(),
                 $this->now,
                 $this->context()->client,
-                SignInProof::unattested('password', $this->now),
+                UndescribedSignInProof::of('password', $this->now),
             );
             self::fail('Expected an identity that is not a model to be refused.');
         } catch (\LogicException $exception) {
@@ -333,7 +334,7 @@ final class SessionWriterTest extends TestCase
                 $this->lifetimes(),
                 $this->now,
                 $this->context()->client,
-                SignInProof::unattested('password', $this->now),
+                UndescribedSignInProof::of('password', $this->now),
             );
             self::fail('Expected a cancelled session to be refused.');
         } catch (\LogicException $exception) {
@@ -366,7 +367,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $context->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
         $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
         $later  = $this->now->addHour();
@@ -379,7 +380,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $later,
             $origin,
-            SignInProof::unattested('sso', $later),
+            UndescribedSignInProof::of('sso', $later),
         );
 
         self::assertNotNull($session);
@@ -479,7 +480,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $context->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
         $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
 
@@ -491,7 +492,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $context->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
 
         self::assertNotNull($session);
@@ -520,7 +521,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $this->context()->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
         $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
 
@@ -536,7 +537,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $context->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
 
         self::assertNotNull($session);
@@ -569,7 +570,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $context->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
         $proven = EncryptedDescriptionSession::query()->whereKey($first->record->getKey())->firstOrFail();
 
@@ -582,7 +583,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $context->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
 
         self::assertNotNull($session);
@@ -613,7 +614,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $context->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
         $proven = Session::query()
             ->whereKey($first->record->getKey())
@@ -630,7 +631,7 @@ final class SessionWriterTest extends TestCase
                 $this->lifetimes(),
                 $this->now,
                 $context->client,
-                SignInProof::unattested('password', $this->now),
+                UndescribedSignInProof::of('password', $this->now),
             );
         } finally {
             Model::preventAccessingMissingAttributes(false);
@@ -684,7 +685,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $this->context()->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
         $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
 
@@ -701,7 +702,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now->addHour(),
             $this->context()->client,
-            SignInProof::unattested('sso', $this->now->addHour()),
+            UndescribedSignInProof::of('sso', $this->now->addHour()),
         ));
         self::assertSame($before, (array) Session::query()->whereKey($proven->getKey())->toBase()->first());
         self::assertSame(1, Session::query()->count());
@@ -730,7 +731,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $this->context()->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
         $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
         $before = (array) Session::query()->whereKey($proven->getKey())->toBase()->first();
@@ -738,7 +739,7 @@ final class SessionWriterTest extends TestCase
         try {
             $unwritable = (new Admitted($identity, new IntegrationIdentity, null))->on($proven);
 
-            $this->writer()->replace($unwritable, null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client, SignInProof::unattested('sso', $this->now));
+            $this->writer()->replace($unwritable, null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client, UndescribedSignInProof::of('sso', $this->now));
             self::fail('Expected issuing the pair to fail.');
         } catch (\InvalidArgumentException) {
             self::assertSame($before, (array) Session::query()->whereKey($proven->getKey())->toBase()->first());
@@ -764,7 +765,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $this->context()->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
         $proven = Session::query()->whereKey($first->record->getKey())->firstOrFail();
         $before = (array) Session::query()->whereKey($proven->getKey())->toBase()->first();
@@ -779,7 +780,7 @@ final class SessionWriterTest extends TestCase
                 $this->lifetimes(),
                 $this->now->addHour(),
                 $this->context()->client,
-                SignInProof::unattested('sso', $this->now->addHour()),
+                UndescribedSignInProof::of('sso', $this->now->addHour()),
             );
             self::fail('Expected a cancelled replacement to be refused.');
         } catch (\LogicException $exception) {
@@ -809,7 +810,9 @@ final class SessionWriterTest extends TestCase
             try {
                 $admitted = new Admitted($identity, $identity, null, $record);
 
-                $this->writer()->replace($admitted, null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client, SignInProof::unattested('sso', $this->now));
+                $proof = UndescribedSignInProof::of('sso', $this->now);
+
+                $this->writer()->replace($admitted, null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client, $proof);
                 self::fail('Expected a sign-in on no Eloquent session to be refused.');
             } catch (\LogicException $exception) {
                 self::assertSame('The session service can only replace an Eloquent session the client proved it holds.', $exception->getMessage());
@@ -858,8 +861,8 @@ final class SessionWriterTest extends TestCase
         $identity  = $this->seedIdentity();
         $lifetimes = new TokenLifetimes(5, 60, $absolute, 30);
         $context   = $this->context()->withNotAfter($deadlineIn === null ? null : $this->now->addSeconds($deadlineIn));
-        $proof     = SignInProof::unattested('password', $this->now);
-        $again     = SignInProof::unattested('password', $this->now);
+        $proof     = UndescribedSignInProof::of('password', $this->now);
+        $again     = UndescribedSignInProof::of('password', $this->now);
         $first     = $this->writer()->create($this->admitted($identity), 'email', $context, $lifetimes, $this->now, $context->client, $proof);
         $proven    = Session::query()->whereKey($first->record->getKey())->firstOrFail();
         $second    = $this->writer()->replace($this->admitted($identity)->on($proven), 'email', $context, $lifetimes, $this->now, $context->client, $again);
@@ -888,8 +891,8 @@ final class SessionWriterTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $context  = $this->context();
-        $proof    = SignInProof::unattested('password', $this->now);
-        $again    = SignInProof::unattested('password', $this->now);
+        $proof    = UndescribedSignInProof::of('password', $this->now);
+        $again    = UndescribedSignInProof::of('password', $this->now);
         $first    = $this->writer()->create($this->admitted($identity), 'email', $context, $this->lifetimes(), $this->now, $context->client, $proof);
         $proven   = Session::query()->whereKey($first->record->getKey())->firstOrFail();
         $second   = $this->writer()->replace($this->admitted($identity)->on($proven), 'email', $context, $this->lifetimes(), $this->now, $context->client, $again);
@@ -940,7 +943,7 @@ final class SessionWriterTest extends TestCase
         DB::table('authentication_provenance')->insert(['session_id' => $key->toString(), 'connection_id' => 'connection-7']);
 
         $context = $this->context();
-        $proof   = SignInProof::unattested('password', $this->now);
+        $proof   = UndescribedSignInProof::of('password', $this->now);
 
         Str::createUuidsUsingSequence([$key, $key]);
 
@@ -971,7 +974,7 @@ final class SessionWriterTest extends TestCase
         $context  = $this->context()->withNotAfter($this->now);
 
         try {
-            $proof = SignInProof::unattested('password', $this->now);
+            $proof = UndescribedSignInProof::of('password', $this->now);
 
             $this->writer()->create($this->admitted($identity), 'email', $context, $this->lifetimes(), $this->now, $context->client, $proof);
 
@@ -1006,12 +1009,12 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $this->context()->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
         $windows = [['ip' => 'window'], ['identifier' => 'window']];
 
         [$record, $credential] = $this->writer()->createPending(
-            new PendingSessionDraft($identity, $identity, null, [PendingRequirement::MFA], 'email', SignInProof::unattested('password', $this->now), $proven->record, $windows),
+            new PendingSessionDraft($identity, $identity, null, [PendingRequirement::MFA], 'email', UndescribedSignInProof::of('password', $this->now), $proven->record, $windows),
             $this->context('Laptop', 'macOS'),
             $this->lifetimes(),
             $this->now,
@@ -1061,7 +1064,7 @@ final class SessionWriterTest extends TestCase
         $context   = $this->context();
         $lifetimes = $this->lifetimes();
         $external  = fn (): SignInProof => SignInProof::external('external_provider', new Provenance('connection-7', linkId: 'link-1'), $this->now);
-        $first     = $this->writer()->create($admitted, null, $context, $lifetimes, $this->now, $context->client, SignInProof::unattested('password', $this->now));
+        $first     = $this->writer()->create($admitted, null, $context, $lifetimes, $this->now, $context->client, UndescribedSignInProof::of('password', $this->now));
         $proven    = Session::query()->whereKey($first->record->getKey())->firstOrFail();
 
         /** @var \ArrayObject<int, string> $writes */
@@ -1115,7 +1118,7 @@ final class SessionWriterTest extends TestCase
         $identity = $this->seedIdentity();
 
         [$record] = $this->writer()->createPending(
-            new PendingSessionDraft($identity, null, null, [PendingRequirement::PRINCIPAL], null, SignInProof::unattested('sso', $this->now), null, null),
+            new PendingSessionDraft($identity, null, null, [PendingRequirement::PRINCIPAL], null, UndescribedSignInProof::of('sso', $this->now), null, null),
             $this->context()->withNotAfter($this->now->addMinute()),
             $this->lifetimes(),
             $this->now,
@@ -1149,7 +1152,7 @@ final class SessionWriterTest extends TestCase
 
         try {
             $this->writer()->createPending(
-                new PendingSessionDraft($identity, $identity, null, [PendingRequirement::MFA], 'email', SignInProof::unattested('password', $this->now), null, null),
+                new PendingSessionDraft($identity, $identity, null, [PendingRequirement::MFA], 'email', UndescribedSignInProof::of('password', $this->now), null, null),
                 $context,
                 $this->lifetimes(),
                 $this->now,
@@ -1182,7 +1185,7 @@ final class SessionWriterTest extends TestCase
             $this->lifetimes(),
             $this->now,
             $this->context()->client,
-            SignInProof::unattested('password', $this->now),
+            UndescribedSignInProof::of('password', $this->now),
         );
         $row = Session::query()->whereKey($session->record->getKey())->firstOrFail();
 
@@ -1216,7 +1219,7 @@ final class SessionWriterTest extends TestCase
                 $this->lifetimes(),
                 $this->now,
                 $this->context()->client,
-                SignInProof::unattested('password', $this->now),
+                UndescribedSignInProof::of('password', $this->now),
             );
 
             self::assertInstanceOf(StubSession::class, $session->record);

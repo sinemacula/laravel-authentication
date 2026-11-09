@@ -18,7 +18,6 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\HoldsARotatedSession;
@@ -26,6 +25,7 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
  * Unit tests for how a refresh ends.
@@ -155,6 +155,6 @@ final class RefreshResultTest extends TestCase
      */
     private static function firstFactor(): RecordedProof
     {
-        return SignInProof::unattested('password', CarbonImmutable::now())->recorded();
+        return UndescribedSignInProof::of('password', CarbonImmutable::now())->recorded();
     }
 }

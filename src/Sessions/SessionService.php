@@ -290,22 +290,22 @@ final readonly class SessionService
     }
 
     /**
-     * Start a session for an identity verified outside the guard, through the
-     * named method.
+     * Start a session for the identity the application verified itself, from
+     * the first factor it describes, through the named method.
      *
      * A cookie application's request must come from a page of its own site, as
      * `signIn()`'s must (`cross_site_request`, before the identity is
      * reloaded): an application whose own verification arrives as a cross-site
      * callback lands it on a page of its own site that calls this from there,
-     * or signs in with `signInExternally()`, which is exempt. The identity is
-     * reloaded through the guard's identity provider from the write connection
-     * and must come back as the same class and key (`identity_unknown`), so the
-     * provider's scopes apply. Then the application policy must allow the
-     * method, and the sign-in follows the order `signIn()` does from the
-     * identity on (with no identifier type, so the verified-identifier
-     * requirement does not apply), so a sign-in from outside cannot skip a
-     * required factor or the choice of principal. No attempt limit or timebox
-     * applies: nothing is guessed here.
+     * or signs in with `signInExternally()`, which is exempt. The first
+     * factor's identity is the one signed in: it is reloaded through the
+     * guard's identity provider from the write connection and must come back as
+     * the same class and key (`identity_unknown`), so the provider's scopes
+     * apply. Then the application policy must allow the method, and the sign-in
+     * follows the order `signIn()` does from the identity on (with no
+     * identifier type, so the verified-identifier requirement does not apply),
+     * so a sign-in from outside cannot skip a required factor or the choice of
+     * principal. No attempt limit or timebox applies: nothing is guessed here.
      *
      * The principal to act as is given here or on the context, not both. The
      * method may not be a machine credential kind (`api_key`,
@@ -316,10 +316,16 @@ final readonly class SessionService
      * starts only through `signInExternally()`, from the result the link
      * contract maps to its identity, so it always records its provenance.
      *
-     * The session's first proof names no channel and no `amr` value, timed now:
-     * nothing describes how the identity was verified.
+     * The first factor is recorded as the session's first proof, with its
+     * channel, observed properties and `amr` values, timed now by the server: a
+     * channel describes how the identity was verified (an application that
+     * checked a password itself says `password`, one that did not say so passes
+     * an `unknown` channel) and never implies multifactor authentication. Its
+     * `amr` values never name `mfa` (`FirstFactor` refuses it). A factor over
+     * the `external_provider` channel, or with that provider's `amr` value, is
+     * refused: only `signInExternally()` records one.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Proofs\FirstFactor  $factor
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $method
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
@@ -328,17 +334,18 @@ final readonly class SessionService
      * @throws \InvalidArgumentException
      * @throws \Throwable
      */
-    public function start(Identity $identity, ?Principal $principal, string $method, SignInContext $context): SignInResult
+    public function start(FirstFactor $factor, ?Principal $principal, string $method, SignInContext $context): SignInResult
     {
         SessionPreconditions::assertSessionMethod($method);
+        SessionPreconditions::assertApplicationFactor($factor);
 
         $began     = CarbonImmutable::now()->startOfSecond();
         $transport = $this->transport();
         $pinned    = SessionPreconditions::pinnedPrincipal($principal, $context);
-        $proof     = SignInProof::unattested($method, CarbonImmutable::now());
+        $proof     = SignInProof::verified($method, $factor, CarbonImmutable::now());
         $recheck   = $this->recheck($context->client, $began);
 
-        $outcome = SessionPreconditions::crossSite($transport, $context->client) ?? $this->startFor($identity, $pinned, $method, $context, $proof, $recheck);
+        $outcome = SessionPreconditions::crossSite($transport, $context->client) ?? $this->startFor($factor->identity, $pinned, $method, $context, $proof, $recheck);
         $outcome = $recheck->refusal()                                           ?? $outcome;
 
         return $outcome instanceof Refused ? $this->fail($outcome, $method, $context, null, []) : $this->bound($outcome, $transport, $recheck);

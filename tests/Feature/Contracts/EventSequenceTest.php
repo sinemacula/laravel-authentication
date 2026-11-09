@@ -51,6 +51,7 @@ use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasswords;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\RecordsEventSequences;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -573,7 +574,7 @@ final class EventSequenceTest extends TestCase
         $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
-        $result = $sessions->start($identity, null, 'sso', self::requestContext());
+        $result = $sessions->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext());
 
         self::assertTrue($result->isSignedIn());
         self::assertSame([
