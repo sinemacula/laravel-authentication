@@ -23,7 +23,9 @@ uses for the caller's own instance, are the application's: the package binds no 
   on the request's attributes under that key, so asking again reads the credential once, a guard changed later in the
   request is read afresh, and nothing outlives the request (no static state; Octane-safe).
   - access: the guard must be a package `ContextualGuard` (else `LogicException`); its identity, principal, active
-    tenant and session (none for an access-only token or an API key). The guard reports its own failures.
+    tenant and session (none for an access-only token or an API key). The guard reports its own failures. Its
+    `scopes` are the guard's `scopes()`: an API key's granted list, or a client-credentials token's validated list
+    (`[]` for none), and `null` for a human's access token, which no credential limits.
   - refresh: the guard's transport's `extract()` and, once it answered something, the request's `ClientContext`,
     handed to `SessionService::refreshCredential()`, which judges the token on that client (cookie or body),
     proves and admits the token as a refresh would, without rotating it (`refresh-token-transport.md`), and judges the
@@ -34,6 +36,7 @@ uses for the caller's own instance, are the application's: the package binds no 
   - pending: the `session.pending_credential_field` body field (JSON or form body, never the query string or a header),
     named by `pending()`, and the session must allow the declared action now (the first outstanding requirement's
     actions).
+  - A refresh or pending caller's `scopes` are `null`: it is not a general access caller, and scopes do not apply to it.
   - A refresh or pending credential the request carries and that is refused is reported once, by `AuthenticationFailed`
     (flow `refresh` with the refresh's reason; flow `sign_in` with `pending_invalid` or `pending_action_not_allowed`),
     never the credential. A request that carries none is not reported.

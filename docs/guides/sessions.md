@@ -1472,6 +1472,12 @@ session a pending credential names; or `null` when the request carries no such c
 access-only token or an API key holds no session, and a pending session that waits for the choice acts as no principal
 yet.
 
+Its `scopes` (`?list<string>`) are the scopes the access credential grants: an API key's granted list, or a
+client-credentials access token's validated list, `[]` when it grants none. They are `null` for a human's access token,
+with or without a session, because no credential limits it, and for a pending or refresh caller, which is not a general
+access caller and for which scopes do not apply. `null` and `[]` differ: `[]` is a credential granting nothing. The
+scopes are a ceiling to intersect with your own authorisation, never a grant.
+
 A route authenticates with the access credential of its guard (the one `auth:<guard>` makes the default) unless it
 declares another. `authentication.refresh[:<guard>]` declares the refresh credential: the one the guard's refresh token
 transport extracts, judged on the request's client (see [Refreshing](refreshing.md)), proven and admitted as a refresh
