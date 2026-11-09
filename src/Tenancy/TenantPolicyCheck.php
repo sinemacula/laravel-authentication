@@ -28,13 +28,16 @@ use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
  * met, and its verdict then names that requirement; otherwise it meets the
  * policy. The evidence is the sign-in's own, in memory, or the session's
  * provenance and proofs, read on the write connection only when the answer
- * needs them, so the default policy costs no query. With neither a session nor
- * evidence, no connection and no further factor is met. A destination of no
- * tenant has no policy: it is met, with no version, and nothing is asked. A
- * judgement made while the transaction holds the session's row locked reads
- * current (`ProofSource::$current`), and its provenance and proofs are then
- * read as committed (`SessionProofs`), whatever snapshot the transaction took
- * first.
+ * needs them, so the default policy costs no query. The connection the policy
+ * is told (`TenantPolicyContext::connectionId()`) is found on the first ask, by
+ * the policy or the judgement, and shared by both; it is expired when the check
+ * ends, so a context a policy keeps cannot read it later. With neither a
+ * session nor evidence, no connection and no further factor is met. A
+ * destination of no tenant has no policy: it is met, with no version, and
+ * nothing is asked. A judgement made while the transaction holds the session's
+ * row locked reads current (`ProofSource::$current`), and its provenance and
+ * proofs are then read as committed (`SessionProofs`), whatever snapshot the
+ * transaction took first.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -78,28 +81,56 @@ final class TenantPolicyCheck
             return new TenantPolicyVerdict(TenantPolicyStanding::MET, null);
         }
 
-        return self::judge(self::requirementFor($guard, $identity, $principal, $tenant, $session), $tenant, $guard, $identity, $session, $now, $source);
+        $context = self::contextFor($guard, $identity, $principal, $tenant, $session, $source);
+
+        try {
+            return self::judge(self::requirementFor($context), $context, $now, $source);
+        } finally {
+            $context->expire();
+        }
     }
 
     /**
-     * What the tenant's policy requires of the session, asked inside
-     * `WriteConnection::during()` for the tenant.
+     * What the policy is asked about: the application, the identity, the
+     * principal, the tenant and the session, with the connection the session
+     * was established through found when first asked and shared by the policy
+     * and the judgement: the sign-in's own, in memory, before its session is
+     * written, otherwise the one the session's provenance records, read current
+     * when the source asks.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
+     * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext
+     */
+    public static function contextFor(string $guard, Identity $identity, Principal $principal, Tenant $tenant, ?Session $session, ProofSource $source): TenantPolicyContext
+    {
+        $connectionId = static fn (): ?string => match (true) {
+            $source->evidence !== null => $source->evidence->connectionId,
+            $session === null          => null,
+            default                    => SessionProofs::connectionId($session, $source->current),
+        };
+
+        return new TenantPolicyContext($guard, $identity, $principal, $tenant, $session, $connectionId);
+    }
+
+    /**
+     * What the tenant's policy requires of the session, asked inside
+     * `WriteConnection::during()` for the tenant.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext  $context
      * @return \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public static function requirementFor(string $guard, Identity $identity, Principal $principal, Tenant $tenant, ?Session $session): TenantRequirement
+    public static function requirementFor(TenantPolicyContext $context): TenantRequirement
     {
-        $policy  = Container::getInstance()->make(TenantAuthenticationPolicy::class);
-        $context = new TenantPolicyContext($guard, $identity, $principal, $tenant, $session);
+        $policy = Container::getInstance()->make(TenantAuthenticationPolicy::class);
 
-        return WriteConnection::during($tenant, static fn (): TenantRequirement => $policy->requirementFor($context));
+        return WriteConnection::during($context->tenant, static fn (): TenantRequirement => $policy->requirementFor($context));
     }
 
     /**
@@ -107,13 +138,11 @@ final class TenantPolicyCheck
      * answer. A verdict on a further factor carries the first factor it was
      * judged on, so a caller that goes on to judge the session again reads it
      * no more. Read current only for a session whose row this transaction holds
-     * locked.
+     * locked. The connection judged is the context's, read once with the
+     * policy's.
      *
      * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
-     * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext  $context
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
      * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict
@@ -121,46 +150,17 @@ final class TenantPolicyCheck
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    public static function judge(
-        TenantRequirement $requirement,
-        Tenant $tenant,
-        string $guard,
-        Identity $identity,
-        ?Session $session,
-        CarbonImmutable $now,
-        ProofSource $source,
-    ): TenantPolicyVerdict {
-        if (!self::meetsConnections($requirement, $session, $source)) {
+    public static function judge(TenantRequirement $requirement, TenantPolicyContext $context, CarbonImmutable $now, ProofSource $source): TenantPolicyVerdict
+    {
+        if ($requirement->connections !== null && !$requirement->admitsConnection($context->connectionId())) {
             return new TenantPolicyVerdict(TenantPolicyStanding::SSO_REQUIRED, $requirement->version);
         }
 
-        $firstFactor = $requirement->factor->isEmpty() ? null : RequirementJudge::firstFactor($session, null, $source);
+        $firstFactor = $requirement->factor->isEmpty() ? null : RequirementJudge::firstFactor($context->session, null, $source);
+        $factor      = new TenantFactor($context->tenant, $requirement->factor);
 
-        return RequirementJudge::isMet($guard, $identity, $session, $firstFactor, $now, $source, new TenantFactor($tenant, $requirement->factor))
+        return RequirementJudge::isMet($context->application, $context->identity, $context->session, $firstFactor, $now, $source, $factor)
             ? new TenantPolicyVerdict(TenantPolicyStanding::MET, $requirement->version, firstFactor: $firstFactor)
             : new TenantPolicyVerdict(TenantPolicyStanding::FACTOR_REQUIRED, $requirement->version, $requirement->factor, $firstFactor);
-    }
-
-    /**
-     * Whether the session was established through a connection the answer
-     * names, when it names any: the sign-in's own, or the one the session's
-     * provenance records, read current when asked.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
-     * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
-     * @return bool
-     */
-    private static function meetsConnections(TenantRequirement $requirement, ?Session $session, ProofSource $source): bool
-    {
-        if ($requirement->connections === null) {
-            return true;
-        }
-
-        if ($source->evidence !== null) {
-            return $requirement->admitsConnection($source->evidence->connectionId);
-        }
-
-        return $requirement->admitsConnection($session === null ? null : SessionProofs::connectionId($session, $source->current));
     }
 }

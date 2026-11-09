@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
@@ -24,7 +25,9 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\TenantPolicyChanges;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
+use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
@@ -48,7 +51,7 @@ use Tests\TestCase;
 #[CoversClass(SessionService::class)]
 final class TenantPolicyChangesTest extends TestCase
 {
-    use InteractsWithSessions, MarksSharedLocks;
+    use InteractsWithExternalSignIns, InteractsWithSessions, MarksSharedLocks;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -200,6 +203,109 @@ final class TenantPolicyChangesTest extends TestCase
         self::assertCount($asked + 1, $this->policy->asked);
         self::assertNull($this->rowOf($session->record->getKey())->getTenantPolicyVersion());
         self::assertNull($this->rowOf($session->record->getKey())->getRevokedAt());
+    }
+
+    /**
+     * A re-judgement asks the policy about each session with the connection it
+     * was established through, read current under the lock when asked: a
+     * provider's session names its connection, a pending one its own, and a
+     * session no provider established none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEachSessionIsJudgedWithTheConnectionItWasEstablishedThrough(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $password = $this->signedIn()->record->getKey();
+        $external = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a'), self::asPrincipal($membership))->session?->record->getKey();
+
+        $factors = \Mockery::mock(AdditionalFactorPolicy::class);
+
+        $factors->shouldReceive('requirementFor')->andReturn(new Requirement(new RequirementPart));
+        app()->instance(AdditionalFactorPolicy::class, $factors);
+
+        $pending = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-b', 'link-2'), self::asPrincipal($membership))->pending?->id;
+
+        self::assertNotNull($external);
+        self::assertNotNull($pending);
+
+        $asked = [];
+
+        $this->policy->answer = static function (TenantPolicyContext $context) use (&$asked): TenantRequirement {
+            $asked[IdentifierCoercion::stringify($context->session?->getSessionIdentifier()) ?? ''] = $context->connectionId();
+
+            return new TenantRequirement('v2');
+        };
+
+        $this->sessions('members')->tenantPolicyChanged($tenant);
+
+        self::assertEqualsCanonicalizing(
+            [IdentifierCoercion::stringify($password) => null, IdentifierCoercion::stringify($external) => 'conn-a', IdentifierCoercion::stringify($pending) => 'conn-b'],
+            $asked,
+        );
+    }
+
+    /**
+     * A session already recorded at the version the policy answers is not
+     * judged again, though the answer would revoke it; one recorded at another
+     * version, or at none, is judged and revoked.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionRecordedAtTheVersionAnsweredIsNotJudgedAgain(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $recorded = $this->signedIn()->record->getKey();
+        $other    = $this->signedIn()->record->getKey();
+        $none     = $this->signedIn()->record->getKey();
+
+        Session::query()->whereKey($recorded)->update(['tenant_policy_version' => 'v1']);
+        Session::query()->whereKey($other)->update(['tenant_policy_version' => 'v0']);
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+        self::assertSame(2, $this->sessions('members')->tenantPolicyChanged($tenant));
+        self::assertNull($this->rowOf($recorded)->getRevokedAt());
+        self::assertNotNull($this->rowOf($other)->getRevokedAt());
+        self::assertNotNull($this->rowOf($none)->getRevokedAt());
+    }
+
+    /**
+     * A policy that keeps the context it is asked about cannot read the
+     * session's connection after the re-judgement: it is expired, so a key
+     * another session has since taken is never read through it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAKeptContextCannotReadTheConnectionAfterTheReJudgement(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $this->signedIn();
+
+        $kept = [];
+
+        $this->policy->answer = static function (TenantPolicyContext $context) use (&$kept): TenantRequirement {
+            $kept[] = $context;
+
+            return new TenantRequirement('v2');
+        };
+
+        $this->sessions('members')->tenantPolicyChanged($tenant);
+
+        self::assertCount(1, $kept);
+
+        $this->expectException(\LogicException::class);
+
+        $kept[0]->connectionId();
     }
 
     /**

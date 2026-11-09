@@ -236,13 +236,19 @@ final readonly class TenantPolicyChanges
 
         [$identity, $principal] = $actors;
 
-        $guard       = (string) $session->getGuard();
-        $recorded    = $session->getTenantPolicyVersion();
-        $requirement = TenantPolicyCheck::requirementFor($guard, $identity, $principal, $tenant, $session);
+        $recorded = $session->getTenantPolicyVersion();
+        $source   = new ProofSource(current: true);
+        $context  = TenantPolicyCheck::contextFor((string) $session->getGuard(), $identity, $principal, $tenant, $session, $source);
 
-        return $recorded !== null && $recorded === $requirement->version
-            ? null
-            : TenantPolicyCheck::judge($requirement, $tenant, $guard, $identity, $session, $now, new ProofSource(current: true));
+        try {
+            $requirement = TenantPolicyCheck::requirementFor($context);
+
+            return $recorded !== null && $recorded === $requirement->version
+                ? null
+                : TenantPolicyCheck::judge($requirement, $context, $now, $source);
+        } finally {
+            $context->expire();
+        }
     }
 
     /**
