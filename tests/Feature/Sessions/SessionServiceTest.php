@@ -54,6 +54,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -1147,6 +1148,30 @@ final class SessionServiceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
 
         new FirstFactor($this->seedIdentity(), new Channel(ChannelKind::PASSWORD), methods: ['pwd', 'mfa']);
+    }
+
+    /**
+     * A further factor over the recovery channel does not satisfy a pending
+     * session: it is refused as `proof_invalid`, nothing is recorded, and the
+     * session still waits.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSatisfyRefusesAFurtherFactorOverTheRecoveryChannel(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $proof] = $this->pendingWithProof($identity);
+
+        $recovery = self::adapterProof($identity, 'api', $proof->binding->sessionId, Purpose::SIGN_IN, channel: ChannelKind::RECOVERY);
+        $result   = $this->sessions()->satisfy($credential, $recovery, self::requestClient());
+
+        self::assertSame(FailureReason::PROOF_INVALID, $result->reason);
+        self::assertSame(0, SessionProof::query()->where('kind', 'additional_factor')->count());
+        self::assertNotNull($this->sessions()->pending($credential));
+        self::assertSame(0, Session::query()->where('status', 'active')->count());
     }
 
     /**

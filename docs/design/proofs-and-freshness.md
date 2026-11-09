@@ -24,6 +24,10 @@ session holds; the token's claims and every freshness answer are worked out from
   any other a model that reissues keys puts under its key, of the same owner and in the same second included, which
   neither the key, the owner nor the whole-second start can. A row that records none is never the session a caller
   holds.
+- The `recovery` channel (the application's own account recovery) is a first factor only: `start()` records it, and
+  `ProofAcceptance` refuses it as `proof_invalid` on any further factor, so a `step_up` or a `satisfy()` over it records
+  nothing and adds no `mfa`. Recovery arrives only through `start()`; the external reauthentication has its own entry
+  point and the `external_provider` channel.
 - Every session the package writes records a counting first factor in the transaction that writes the session; an
   external provider's session also records its provenance, once. Proofs and provenance carry unchanged from a pending
   sign-in to its session and across every refresh and switch; a sign-in that replaces a session starts a

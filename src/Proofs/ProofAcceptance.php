@@ -8,6 +8,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
@@ -21,14 +22,17 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * `external_reauthentication` or a first-factor kind is refused: an external
  * reauthentication is recorded only through the package's own entry point, and
  * counts for MFA only through the acceptance of its evidence by the evidence
- * contract, `External\EvidenceAcceptance`), made for the operation's purpose
- * (`sign_in` for a pending session, or `enrollment` for the further factor that
- * confirms a factor enrolled while it waits; `step_up` for a step-up), accepted
- * by its adapter, and made no later than now and no earlier than what it adds
- * to (the time the pending session began waiting, or the session's start):
- * anything else is `proof_invalid`. Its binding must then name the session's
- * owner, the application and the session's key exactly: anything else is
- * `proof_binding_mismatch`.
+ * contract, `External\EvidenceAcceptance`), over any channel but `recovery`
+ * (the application's own account recovery is a first factor that only
+ * `SessionService::start()` records, never a further factor, so it can neither
+ * add `mfa` nor satisfy a requirement that takes one), made for the operation's
+ * purpose (`sign_in` for a pending session, or `enrollment` for the further
+ * factor that confirms a factor enrolled while it waits; `step_up` for a
+ * step-up), accepted by its adapter, and made no later than now and no earlier
+ * than what it adds to (the time the pending session began waiting, or the
+ * session's start): anything else is `proof_invalid`. Its binding must then
+ * name the session's owner, the application and the session's key exactly:
+ * anything else is `proof_binding_mismatch`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -101,9 +105,9 @@ final class ProofAcceptance
     }
 
     /**
-     * `proof_invalid` for a proof of a kind the operations do not take, of
-     * another purpose, not accepted by its adapter, or made after now or before
-     * what it adds to; `null` otherwise.
+     * `proof_invalid` for a proof of a kind the operations do not take, over
+     * the `recovery` channel, of another purpose, not accepted by its adapter,
+     * or made after now or before what it adds to; `null` otherwise.
      *
      * @param  \SineMacula\Laravel\Authentication\Proofs\ProofResult  $proof
      * @param  \SineMacula\Laravel\Authentication\Proofs\Enums\Purpose  $purpose
@@ -115,8 +119,9 @@ final class ProofAcceptance
     {
         $at = $proof->authenticatedAt->getTimestamp();
 
-        $taken  = $proof->kind->isAdditional() && $proof->binding->purpose === $purpose && $proof->evaluation->accepted;
-        $timely = $at <= $now->getTimestamp()  && $at >= $since->getTimestamp();
+        $further = $proof->kind->isAdditional() && $proof->channel->kind !== ChannelKind::RECOVERY;
+        $taken   = $further                     && $proof->binding->purpose === $purpose && $proof->evaluation->accepted;
+        $timely  = $at <= $now->getTimestamp()  && $at >= $since->getTimestamp();
 
         return $taken && $timely ? null : FailureReason::PROOF_INVALID;
     }
