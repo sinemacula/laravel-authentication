@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
@@ -393,6 +394,7 @@ final class SessionStepUpTest extends TestCase
             'a sign-in purpose'               => [['purpose' => Purpose::SIGN_IN], $invalid],
             'a reauthentication purpose'      => [['purpose' => Purpose::REAUTHENTICATE], $invalid],
             'an evaluation not accepted'      => [['evaluation' => new Evaluation(false, true)], $invalid],
+            'the recovery channel'            => [['channel' => ChannelKind::RECOVERY], $invalid],
             'a time after now'                => [['offset' => 1], $invalid],
             'a time before the sign-in'       => [['offset' => -61], $invalid],
             'another identity'                => [['identity' => 'other'], $binding],
@@ -424,20 +426,23 @@ final class SessionStepUpTest extends TestCase
         $purpose    = $changes['purpose']    ?? Purpose::STEP_UP;
         $evaluation = $changes['evaluation'] ?? new Evaluation(true, true);
         $offset     = $changes['offset']     ?? 0;
+        $channel    = $changes['channel']    ?? ChannelKind::AUTHENTICATOR_APP;
         $identity   = ($changes['identity'] ?? 'same') === 'other' ? $this->seedIdentity('grace@example.test') : $signedIn->identity;
 
         self::assertInstanceOf(ProofKind::class, $kind);
         self::assertInstanceOf(Purpose::class, $purpose);
         self::assertInstanceOf(Evaluation::class, $evaluation);
         self::assertIsInt($offset);
+        self::assertInstanceOf(ChannelKind::class, $channel);
 
         $application = $changes['application'] ?? 'api';
 
         self::assertIsString($application);
 
-        $proof = self::adapterProof($identity, $application, $signedIn->record->getKey(), $purpose, $kind, $now->addSeconds($offset), $evaluation);
+        $proof = self::adapterProof($identity, $application, $signedIn->record->getKey(), $purpose, $kind, $now->addSeconds($offset), $evaluation, channel: $channel);
 
         $this->assertRefused($this->sessions()->stepUp($proof, self::requestClient()), $reason);
+        self::assertSame(0, SessionProof::query()->where('kind', 'additional_factor')->count());
     }
 
     /**

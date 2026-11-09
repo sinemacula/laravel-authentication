@@ -35,6 +35,7 @@ use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Freshness\ScriptedFreshness;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\Integration\Fixtures\PasswordMachine;
 use Tests\TestCase;
@@ -819,7 +820,7 @@ final class PasswordChangesTest extends TestCase
      */
     private function started(PasswordIdentity $identity, string $guard = 'web'): Session
     {
-        $record = $this->sessions($guard)->start($identity, null, 'password', self::requestContext())->session?->record;
+        $record = $this->sessions($guard)->start(UndescribedFirstFactor::of($identity), null, 'password', self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 

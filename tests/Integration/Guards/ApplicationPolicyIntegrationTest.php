@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Sessions\SwitchTarget;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\Concerns\InteractsWithTypedPrincipals;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Fixtures\Sessions\GuardSessions;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
@@ -216,7 +217,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
         $second = TypedMembership::query()->create(['identity_id' => $first->identity_id, 'tenant_id' => null, 'type' => 'service']);
 
         $sessions = Auth::sessions(self::GUARD);
-        $signedIn = $sessions->start($first->getIdentity(), $first, 'password', self::requestContext())->session;
+        $signedIn = $sessions->start(UndescribedFirstFactor::of($first->getIdentity()), $first, 'password', self::requestContext())->session;
 
         self::assertNotNull($signedIn);
 

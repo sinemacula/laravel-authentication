@@ -50,6 +50,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
@@ -201,7 +202,7 @@ final class SignInProofsTest extends TestCase
     public function testStartRecordsAnUnattestedFirstFactor(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->sessions()->start($identity, null, 'sso', self::requestContext())->session;
+        $session  = $this->sessions()->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext())->session;
 
         self::assertNotNull($session);
 

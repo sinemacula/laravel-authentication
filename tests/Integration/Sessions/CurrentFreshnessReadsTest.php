@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\InteractsWithIsolationLevels;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
@@ -428,7 +429,7 @@ final class CurrentFreshnessReadsTest extends TestCase
      */
     private static function started(ChangeableIdentity $identity): Session
     {
-        $record = Auth::sessions('web')->start($identity, null, 'password', self::requestContext())->session?->record;
+        $record = Auth::sessions('web')->start(UndescribedFirstFactor::of($identity), null, 'password', self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 

@@ -7,9 +7,9 @@ namespace Tests\Unit\Requirements;
 use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\ProofSource;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
  * Unit tests for where a requirement judgement reads the authentication it
@@ -43,7 +43,7 @@ final class ProofSourceTest extends TestCase
      */
     public function testItKeepsTheEvidenceAndTheReadAsGiven(): void
     {
-        $evidence = SessionEvidence::of(SignInProof::unattested('password', CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0)));
+        $evidence = SessionEvidence::of(UndescribedSignInProof::of('password', CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0)));
 
         self::assertSame($evidence, (new ProofSource($evidence))->evidence);
         self::assertTrue((new ProofSource(current: true))->current);

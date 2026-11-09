@@ -51,7 +51,6 @@ use SineMacula\Laravel\Authentication\Proofs\ProofResult;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\MeetNoRequirement;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
@@ -83,6 +82,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Factors\AlwaysRequireAdditionalFactor;
 use Tests\Fixtures\Freshness\DecoratingFreshness;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -1298,7 +1298,7 @@ final class CurrentProofReadsTest extends TestCase
             self::assertNotNull($row);
 
             ProofWriter::clear($row);
-            ProofWriter::record($row, 'members', SignInProof::unattested('password', CarbonImmutable::now())->firstFactor());
+            ProofWriter::record($row, 'members', UndescribedSignInProof::of('password', CarbonImmutable::now())->firstFactor());
         });
     }
 

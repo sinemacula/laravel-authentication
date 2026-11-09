@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithExternalSignIns;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -177,7 +178,7 @@ final class ByteDistinctBindingTest extends TestCase
     public function testBindingsOf255FourByteCharactersAreKeptWhole(): void
     {
         $alias  = str_repeat("\u{1D4AF}", 255);
-        $record = $this->sessions()->start($this->seedIdentity(), null, 'sso', self::requestContext())->session?->record;
+        $record = $this->sessions()->start(UndescribedFirstFactor::of($this->seedIdentity()), null, 'sso', self::requestContext())->session?->record;
 
         self::assertInstanceOf(Session::class, $record);
 

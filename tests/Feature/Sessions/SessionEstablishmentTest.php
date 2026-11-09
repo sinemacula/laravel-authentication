@@ -33,7 +33,6 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Enums\RequirementKind;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
@@ -54,6 +53,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Factors\FirstFactorMeetsRequirements;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Fixtures\Sessions\InterruptingFactorPolicy;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -141,7 +141,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ));
 
@@ -190,7 +190,7 @@ final class SessionEstablishmentTest extends TestCase
         $establishing = $this->establishment($this->freshGuard());
         $recheck      = $this->recheck();
 
-        $proof = SignInProof::unattested('password', CarbonImmutable::now());
+        $proof = UndescribedSignInProof::of('password', CarbonImmutable::now());
 
         self::assertSame(!$pending, self::outcome($establishing->proceed($identity, self::selected($identity), 'email', $this->context(), $proof, $recheck))->isSignedIn());
         self::assertSame([], $this->recordedClasses());
@@ -216,7 +216,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             null,
             $this->context(),
-            SignInProof::unattested('sso', CarbonImmutable::now()),
+            UndescribedSignInProof::of('sso', CarbonImmutable::now()),
             $this->recheck(),
         ))->session;
 
@@ -234,7 +234,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context($first->tokens->refreshToken?->reveal()),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $recheck,
         ))->session;
 
@@ -268,7 +268,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ))->isSignedIn());
         self::assertSame([], $this->recordedClasses());
@@ -301,7 +301,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             null,
             $this->context(),
-            SignInProof::unattested('sso', CarbonImmutable::now()),
+            UndescribedSignInProof::of('sso', CarbonImmutable::now()),
             $this->recheck(),
         ))->session;
 
@@ -316,7 +316,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context($first->tokens->refreshToken?->reveal()),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ))->session;
 
@@ -363,7 +363,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ))->session;
 
@@ -378,7 +378,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context($first->tokens->refreshToken?->reveal()),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ))->isSignedIn());
 
@@ -407,7 +407,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ))->session;
 
@@ -425,7 +425,7 @@ final class SessionEstablishmentTest extends TestCase
                 self::selected($identity),
                 'email',
                 $this->context($first->tokens->refreshToken?->reveal()),
-                SignInProof::unattested('password', CarbonImmutable::now()),
+                UndescribedSignInProof::of('password', CarbonImmutable::now()),
                 $this->recheck(),
             ));
             self::fail('Expected the cancelled replacement to be refused.');
@@ -458,7 +458,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ))->session;
 
@@ -509,7 +509,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context($first->tokens->refreshToken?->reveal()),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ))->session;
 
@@ -538,7 +538,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ))->session;
 
@@ -556,7 +556,7 @@ final class SessionEstablishmentTest extends TestCase
                 self::selected($identity),
                 'email',
                 $this->context($first->tokens->refreshToken?->reveal()),
-                SignInProof::unattested('password', CarbonImmutable::now()),
+                UndescribedSignInProof::of('password', CarbonImmutable::now()),
                 $this->recheck(),
             ));
             self::fail('Expected the revocation listener to throw.');
@@ -589,7 +589,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ))->session;
 
@@ -608,7 +608,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context($first->tokens->refreshToken?->reveal()),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ))->session;
 
@@ -652,7 +652,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
             self::WINDOWS,
         ));
@@ -699,7 +699,7 @@ final class SessionEstablishmentTest extends TestCase
             [null, [$identity, $other]],
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ));
 
@@ -730,7 +730,7 @@ final class SessionEstablishmentTest extends TestCase
             [null, [$identity, $other]],
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ));
 
@@ -801,7 +801,7 @@ final class SessionEstablishmentTest extends TestCase
 
             CarbonImmutable::setTestNow($deadline);
 
-            $proof   = SignInProof::unattested('password', CarbonImmutable::now());
+            $proof   = UndescribedSignInProof::of('password', CarbonImmutable::now());
             $refused = $this->establishment($guard)->proceed($identity, $selection, 'email', $this->context(notAfter: $deadline), $proof, $this->recheck());
 
             self::assertInstanceOf(Refused::class, $refused);
@@ -832,7 +832,7 @@ final class SessionEstablishmentTest extends TestCase
 
         $policy       = $this->bindTenantPolicy(new TenantRequirement('v1'));
         $establishing = $this->establishment($this->freshGuard('members'));
-        $proof        = SignInProof::unattested('password', CarbonImmutable::now());
+        $proof        = UndescribedSignInProof::of('password', CarbonImmutable::now());
         $first        = self::outcome($establishing->proceed($member, [$membership, []], 'email', $this->context(), $proof, $this->recheck()))->session;
 
         self::assertNotNull($first);
@@ -877,7 +877,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context(notAfter: $deadline),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ))->session?->record;
 
@@ -908,7 +908,7 @@ final class SessionEstablishmentTest extends TestCase
             [$membership, []],
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         );
 
@@ -945,7 +945,7 @@ final class SessionEstablishmentTest extends TestCase
             [$membership, []],
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ));
 
@@ -981,7 +981,7 @@ final class SessionEstablishmentTest extends TestCase
             [$membership, []],
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ));
 
@@ -1012,7 +1012,7 @@ final class SessionEstablishmentTest extends TestCase
             self::selected($identity),
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ));
 
@@ -1041,7 +1041,7 @@ final class SessionEstablishmentTest extends TestCase
             [$membership, []],
             'email',
             $this->context(),
-            SignInProof::unattested('password', CarbonImmutable::now()),
+            UndescribedSignInProof::of('password', CarbonImmutable::now()),
             $this->recheck(),
         ));
 

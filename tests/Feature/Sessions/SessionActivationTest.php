@@ -49,6 +49,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -530,7 +531,7 @@ final class SessionActivationTest extends TestCase
     {
         $this->factorRequired = true;
 
-        $result = $this->sessions(self::GUARD)->start($member, $membership, 'sso', self::requestContext());
+        $result = $this->sessions(self::GUARD)->start(UndescribedFirstFactor::of($member), $membership, 'sso', self::requestContext());
 
         self::assertTrue($result->isPending());
 

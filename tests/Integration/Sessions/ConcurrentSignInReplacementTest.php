@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -407,7 +408,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
      */
     private function signIn(IntegrationIdentity $identity): SignedInSession
     {
-        $session = $this->sessions()->start($identity, null, 'sso', self::requestContext())->session;
+        $session = $this->sessions()->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext())->session;
 
         self::assertNotNull($session);
 
@@ -431,7 +432,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
     private function replacing(IntegrationIdentity $identity, SignedInSession $previous): string
     {
         $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $previous->tokens->refreshToken?->reveal());
-        $session = $this->sessions()->start($identity, null, 'sso', $context)->session;
+        $session = $this->sessions()->start(UndescribedFirstFactor::of($identity), null, 'sso', $context)->session;
 
         self::assertNotNull($session);
 

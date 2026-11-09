@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
  * Unit tests for the context an additional-factor policy decides on.
@@ -39,7 +39,7 @@ final class AdditionalFactorContextTest extends TestCase
         $identity = \Mockery::mock(Identity::class);
         $session  = \Mockery::mock(Session::class);
         $client   = new ClientContext('203.0.113.7', 'agent');
-        $first    = SignInProof::unattested('sso', CarbonImmutable::now())->recorded();
+        $first    = UndescribedSignInProof::of('sso', CarbonImmutable::now())->recorded();
 
         $context = new AdditionalFactorContext('api', $identity, $first, $client, 'Work laptop', 'macOS', $session);
 

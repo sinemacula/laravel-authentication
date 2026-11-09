@@ -11,7 +11,6 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
@@ -19,6 +18,7 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\FactorChangeStatus;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\FactorChangeResult;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
  * Unit tests for what judging the current session again after a change of the
@@ -94,7 +94,7 @@ final class FactorChangeResultTest extends TestCase
             CarbonImmutable::parse('2026-04-06 12:05:00'),
             \Mockery::mock(Session::class),
             new Requirement(new RequirementPart),
-            SignInProof::unattested('password', CarbonImmutable::parse('2026-04-06 12:00:00'))->recorded(),
+            UndescribedSignInProof::of('password', CarbonImmutable::parse('2026-04-06 12:00:00'))->recorded(),
         );
 
         $credential = new Secret('session-1.secret');

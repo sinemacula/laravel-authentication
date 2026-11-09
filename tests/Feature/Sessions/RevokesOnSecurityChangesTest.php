@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\CutoffIdentity;
@@ -584,7 +585,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
      */
     private function signIn(CutoffIdentity $identity): SignedInSession
     {
-        $session = $this->sessions()->start($identity, null, 'sso', self::requestContext())->session;
+        $session = $this->sessions()->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext())->session;
 
         self::assertNotNull($session);
 

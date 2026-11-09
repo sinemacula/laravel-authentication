@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
@@ -166,6 +167,22 @@ final class PlainValueActionsTest extends TestCase
         $method = new \ReflectionMethod(SessionService::class, $action);
 
         self::assertSame($parameters, array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $method->getParameters()));
+    }
+
+    /**
+     * `start()` is one method: the first factor the application verified, the
+     * principal, the method name and the sign-in context that carries the
+     * client, with no variant taking an evaluation, provenance or time.
+     *
+     * @return void
+     */
+    public function testStartTakesTheFirstFactorThePrincipalTheMethodAndTheContext(): void
+    {
+        $parameters = (new \ReflectionMethod(SessionService::class, 'start'))->getParameters();
+
+        self::assertSame(['factor', 'principal', 'method', 'context'], array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), $parameters));
+        self::assertSame([FirstFactor::class], self::typeNames($parameters[0]));
+        self::assertSame([], array_filter(get_class_methods(SessionService::class), static fn (string $name): bool => str_starts_with($name, 'start') && $name !== 'start'));
     }
 
     /**

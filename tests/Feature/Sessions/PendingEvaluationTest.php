@@ -62,6 +62,8 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\MarksSharedLocks;
 use Tests\Fixtures\External\ScriptedEvidencePolicy;
 use Tests\Fixtures\Factors\FirstFactorMeetsRequirements;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
@@ -626,7 +628,7 @@ final class PendingEvaluationTest extends TestCase
 
         $third    = $this->seedMembership($member, false);
         $sessions = $this->sessions(self::CHOOSERS);
-        $token    = $sessions->start($member, $first, 'password', self::requestContext())->session?->tokens->refreshToken?->reveal();
+        $token    = $sessions->start(UndescribedFirstFactor::of($member), $first, 'password', self::requestContext())->session?->tokens->refreshToken?->reveal();
 
         self::assertIsString($token);
 
@@ -784,7 +786,7 @@ final class PendingEvaluationTest extends TestCase
         $this->factorRequired = true;
 
         $now      = CarbonImmutable::now();
-        $evidence = SessionEvidence::of(SignInProof::unattested('password', $now));
+        $evidence = SessionEvidence::of(UndescribedSignInProof::of('password', $now));
         $judging  = new ProofJudgingRequirementCheck;
 
         app()->instance(RequirementCheck::class, $judging);
@@ -965,7 +967,7 @@ final class PendingEvaluationTest extends TestCase
         self::assertNull($none->version);
         self::assertCount(0, $policy->asked);
 
-        $judged = $this->evaluation('members')->tenantPolicy($member, $membership, $tenant, null, $now, SessionEvidence::of(SignInProof::unattested('password', $now)));
+        $judged = $this->evaluation('members')->tenantPolicy($member, $membership, $tenant, null, $now, SessionEvidence::of(UndescribedSignInProof::of('password', $now)));
 
         self::assertSame(TenantPolicyStanding::SSO_REQUIRED, $judged->standing);
         self::assertSame('v1', $judged->version);
