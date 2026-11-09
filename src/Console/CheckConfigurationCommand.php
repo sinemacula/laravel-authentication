@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeKeys;
 use SineMacula\Laravel\Authentication\Codes\CodeSettings;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Config\JwtGuards;
+use SineMacula\Laravel\Authentication\Console\Enums\FindingSeverity;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
@@ -75,6 +76,11 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * checks open no database connection, though a policy of the application's own
  * may open one when asked, and it prints no secret.
  *
+ * Checks other packages registered with `ConfigurationChecks` run after the
+ * command's own, for the same guards: an error finding is a problem and fails
+ * the command, a warning is shown with the built-in warnings, each as
+ * `[<guard>] <message>`, or the message alone when it names no guard.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
@@ -119,9 +125,12 @@ final class CheckConfigurationCommand extends Command
 
         $this->warnAboutSynchronousDelivery($config);
 
+        $registered = $this->laravel->make(ConfigurationChecks::class)->findings($this->laravel, $guards);
+
         $warnings = [
             ...(new ApplicationChecks($this->laravel, $config))->warnings($guards),
             ...(new PasswordChecks($this->laravel, $config))->warnings($guards),
+            ...self::reported($registered, FindingSeverity::WARNING),
         ];
 
         foreach ($warnings as $warning) {
@@ -131,6 +140,8 @@ final class CheckConfigurationCommand extends Command
         foreach ($guards as $guard) {
             $problems = [...$problems, ...self::prefixed($guard, $this->guardProblems($guard, $config))];
         }
+
+        $problems = [...$problems, ...self::reported($registered, FindingSeverity::ERROR)];
 
         foreach ($problems as $problem) {
             $this->error($problem);
@@ -632,5 +643,29 @@ final class CheckConfigurationCommand extends Command
         }
 
         return $prefixed;
+    }
+
+    /**
+     * The messages of the findings of the severity, each prefixed with its
+     * guard when it names one.
+     *
+     * @param  list<\SineMacula\Laravel\Authentication\Console\ConfigurationFinding>  $findings
+     * @param  \SineMacula\Laravel\Authentication\Console\Enums\FindingSeverity  $severity
+     * @return list<string>
+     */
+    private static function reported(array $findings, FindingSeverity $severity): array
+    {
+        $reported = [];
+
+        foreach ($findings as $finding) {
+
+            if ($finding->severity !== $severity) {
+                continue;
+            }
+
+            $reported[] = $finding->guard === null ? $finding->message : "[{$finding->guard}] {$finding->message}";
+        }
+
+        return $reported;
     }
 }
