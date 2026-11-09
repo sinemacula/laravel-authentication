@@ -158,6 +158,38 @@ Tokens signed under `default` keep verifying while it stays in the map. Remove i
 has expired: a refresh token never outlives its session, so at most the absolute session lifetime after the switch.
 Removing a kid immediately rejects every token signed under it, which is also how to revoke a compromised key.
 
+## Rotating the application key
+
+The application key (`APP_KEY`) is not the JWT signing key, but a few things the package keeps are derived from it. The
+signing keys in `jwt.keys` are configured on their own (see [Key Rotation](#key-rotation)): rotating `APP_KEY` does not
+sign, verify or invalidate any token, and rotating a signing key does not touch what follows.
+
+- **Attempt counters.** The keys the attempt limiter stores its counters under are HMAC digests keyed from the
+  application key. A new `APP_KEY` digests every identifier, IP address and account to a new key, so every counter
+  starts afresh: the limits reset in effect, and the old counters sit unused until their windows end and they are
+  pruned. The limiter looks nothing up under a previous key.
+- **One-time codes.** The hash of a code, the digest that binds it to its identifier and the digest of the transaction
+  it belongs to are each keyed from `authentication.codes.key` when you set it (at least 32 bytes), and from the
+  application key when you do not. With no explicit key, a new `APP_KEY` makes every outstanding code fail, a code
+  already sent included, and the one-live-code binding and the windows kept under the old digests are no longer found,
+  so a user asks for a new code. There is no previous-key support. Set `authentication.codes.key`
+  (`AUTHENTICATION_CODES_KEY`) to isolate codes from `APP_KEY`: they then survive its rotation, and are rotated, with
+  the same effect, only by changing that key.
+- **Signed links.** Laravel validates a signed link against the current application key and the keys listed in
+  `app.previous_keys`, and so does the package (`Http\SignedLink`), so a link signed before a rotation stays valid until
+  it expires if the old key is listed.
+- **Queued delivery.** The jobs that deliver a code, a password reset or an identifier-change notice are encrypted on
+  the queue with the application key, and Laravel decrypts them with the current key and `app.previous_keys` alike.
+  Removing an old key from `app.previous_keys` while such jobs are still waiting (or being retried) strands their
+  payloads: they fail to decrypt and cannot be delivered.
+
+To rotate, set the new key in `APP_KEY` and the old one in `APP_PREVIOUS_KEYS` (comma-separated), so that
+signed links and queued payloads keep working. Rebuild the configuration cache (`php artisan config:cache`) if you use
+one, and restart the workers (`php artisan octane:reload`, `php artisan queue:restart`), as for any configuration
+change (see [Configuration lifetimes](#configuration-lifetimes)). Expect the counters to reset, and the outstanding
+codes to fail unless `authentication.codes.key` is set, from the moment the new key is live. Remove the old key from
+`APP_PREVIOUS_KEYS` only once every signed link signed with it has expired and the queue holds no job pushed under it.
+
 ## Pruning
 
 Rows whose use has ended stay in their tables until Laravel's `model:prune` deletes them, in chunks: a session model in
