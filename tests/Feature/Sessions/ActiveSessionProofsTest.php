@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
+use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
@@ -351,6 +352,133 @@ final class ActiveSessionProofsTest extends TestCase
 
         self::assertSame([[true, false]], self::locksOf(static fn (): mixed => DB::transaction(static fn (): array => ActiveSessionProofs::query('api', $key, null, null, 50))));
         self::assertSame([[true, false]], self::locksOf(static fn (): mixed => DB::transaction(static fn (): ?RecordedProof => ActiveSessionProofs::firstFactor('api', $key))));
+    }
+
+    /**
+     * An active session a provider established answers the provenance it
+     * records, by its key and by its instance alike, with one read of the
+     * session and one of its provenance; a session no provider established
+     * answers nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnActiveSessionsProvenanceIsRead(): void
+    {
+        $record = $this->signedIn()->record;
+        $plain  = $this->signedIn()->record;
+        $key    = $record->getKey();
+
+        ProofWriter::provenance($record, new Provenance('conn-a', 'tenant-1', policyVersion: 'v1', linkId: 'link-a'));
+
+        foreach ([$key, $record] as $session) {
+            $provenance = null;
+
+            $statements = self::statementsDuring(static function () use ($session, &$provenance): void {
+                $provenance = ActiveSessionProofs::provenance('api', $session);
+            });
+
+            self::assertInstanceOf(Provenance::class, $provenance);
+            self::assertSame(['conn-a', 'tenant-1', 'v1', 'link-a'], [$provenance->connectionId, $provenance->tenantId, $provenance->policyVersion, $provenance->linkId]);
+            self::assertCount(2, $statements);
+        }
+
+        self::assertNull(ActiveSessionProofs::provenance('api', $plain->getKey()));
+        self::assertNull(ActiveSessionProofs::provenance('api', $plain));
+    }
+
+    /**
+     * A session it may not answer for answers no provenance, with no read of
+     * it: an identifier that cannot be a key, an unknown key, a session of
+     * another guard, a revoked, pending, idle or absolutely ended one, a
+     * machine's, one given as an instance whose key another owner now holds,
+     * and one that is not an Eloquent session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASessionItMayNotAnswerForHasNoProvenance(): void
+    {
+        $record = $this->signedIn()->record;
+        $admin  = $this->signedIn('admin')->record;
+        $key    = $record->getKey();
+
+        ProofWriter::provenance($record, new Provenance('conn-a'));
+        ProofWriter::provenance($admin, new Provenance('conn-b'));
+
+        $provenanceReads = static function (mixed $session): array {
+            $found = null;
+
+            $statements = self::statementsDuring(static function () use ($session, &$found): void {
+                $found = ActiveSessionProofs::provenance('api', $session);
+            });
+
+            return [$found, count(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'authentication_provenance')))];
+        };
+
+        self::assertSame([null, 0], $provenanceReads('not-a-key'));
+        self::assertSame([null, 0], $provenanceReads((string) Str::uuid7()));
+        self::assertSame([null, 0], $provenanceReads($admin->getKey()));
+        self::assertSame([null, 0], $provenanceReads($admin));
+        self::assertSame([null, 0], $provenanceReads(new PlainSessionFixture((string) IdentifierCoercion::stringify($key), $this->now->addHour())));
+        self::assertSame([null, 0], $provenanceReads(self::nonModelSession((string) IdentifierCoercion::stringify($key))));
+
+        $states = [
+            ['revoked_at' => $this->now, 'revoked_reason' => 'revoked'],
+            ['revoked_at' => null, 'revoked_reason' => null, 'status' => 'pending'],
+            ['status' => 'active', 'idle_expires_at' => $this->now],
+            ['idle_expires_at' => $this->now->addSecond(), 'absolute_expires_at' => $this->now],
+            ['absolute_expires_at' => null, 'authenticatable_type' => MachineClient::class],
+        ];
+
+        foreach ($states as $state) {
+            DB::table('authentication_sessions')->where('id', $key)->update($state);
+
+            $stored = SessionLookup::find($key);
+
+            self::assertNotNull($stored);
+            self::assertSame([null, 0], $provenanceReads($key));
+            self::assertSame([null, 0], $provenanceReads($stored));
+        }
+
+        DB::table('authentication_sessions')->where('id', $key)->update(['authenticatable_type' => $record->getAttribute('authenticatable_type')]);
+
+        self::assertSame('conn-a', ActiveSessionProofs::provenance('api', $key)?->connectionId);
+
+        DB::table('authentication_sessions')->where('id', $key)->update(['authenticatable_id' => '999999']);
+
+        self::assertSame([null, 0], $provenanceReads($record));
+    }
+
+    /**
+     * Inside a transaction on the session model's connection the session's row
+     * is locked for update before its provenance, which is read current (a
+     * shared lock where the engine takes one); outside one, both are read
+     * plainly; and a session it may not answer for sends no read of its
+     * provenance.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheProvenanceIsReadLockedOnlyInsideATransaction(): void
+    {
+        $record = $this->signedIn()->record;
+        $key    = $record->getKey();
+
+        ProofWriter::provenance($record, new Provenance('conn-a'));
+        self::markSharedLocks();
+
+        $read = static fn (): ?Provenance => ActiveSessionProofs::provenance('api', $key);
+
+        self::assertSame([[true, false], [false, self::takesSharedLocks()]], self::locksOf(static fn (): mixed => DB::transaction($read)));
+        self::assertSame([[false, false], [false, false]], self::locksOf($read));
+
+        DB::table('authentication_sessions')->where('id', $key)->update(['revoked_at' => $this->now, 'revoked_reason' => 'revoked']);
+
+        self::assertSame([[true, false]], self::locksOf(static fn (): mixed => DB::transaction($read)));
     }
 
     /**

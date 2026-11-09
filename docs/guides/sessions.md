@@ -206,6 +206,13 @@ yours to decide, so never pass a client-supplied id without checking it is the c
 (`Auth::caller()?->owns($session)`, or `session($identity, $id)` first). The answers hold personal and provider data (a
 code's destination, an external provider's accepted evidence): do not return them to a client as they are.
 
+`provenance($session)` reads, in the same way and under the same rules, how an external identity provider established an
+active session: the `Proofs\Provenance` it records (connection, tenant, link, accepted evidence and provider context),
+or `null` when no provider established it or the session is not one this guard may answer for, again without saying
+why. A pending session's provenance stays on its `PendingSession`. It is a server-side read: the application decides
+which sessions a caller may ask about, and the value holds provider ids and accepted evidence, so it is not response
+JSON as it is.
+
 Asked outside a transaction on the session model's connection, the session and then its proofs are read on the write
 connection, two queries for the shipped model (a session model that eager-loads relations adds its own), and nothing is
 locked; between the two a key can pass to another session only if the session's row is deleted (the package deletes a
