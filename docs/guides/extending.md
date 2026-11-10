@@ -40,6 +40,7 @@ inheritance:
 | Freshness of sensitive operations | Configure `freshness` per operation and guard, or implement `FreshnessPolicy` and bind it in the container                                               |
 | Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                                                                  |
 | Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                                                                   |
+| Configuration checks              | Implement `ConfigurationCheck` and register it with `ConfigurationChecks::register()`; `authentication:check` runs it                                    |
 | Authentication context keys       | Implement `AuthenticationContextContributor` and register it with `ContextContributors::register()`                                                      |
 | Authentication context source     | Type-hint `AuthenticationContexts` (rebind it in a test), or call `Auth::context()`                                                                      |
 
@@ -406,6 +407,70 @@ Auth::extend('header_key', function ($app, string $name, array $config): HeaderK
 Without them the guard keeps the dispatcher and resolver it was built with for its life. A queued job's reset,
 `AuthManager::forgetGuardState()`, gives every resolved guard built on `AbstractGuard` the current request, however its
 driver was registered.
+
+### Adding checks to `authentication:check`
+
+A package that adds settings of its own can have `php artisan authentication:check` check them with the package's
+(see [Checking the configuration](operations.md#checking-the-configuration)). Implement
+`Contracts\ConfigurationCheck`, which answers `Console\ConfigurationFinding`s for the guards being checked, and register
+it in a service provider's `boot()`:
+
+```php
+use Illuminate\Contracts\Config\Repository;
+use SineMacula\Laravel\Authentication\Console\ConfigurationChecks;
+use SineMacula\Laravel\Authentication\Console\ConfigurationFinding;
+use SineMacula\Laravel\Authentication\Contracts\ConfigurationCheck;
+
+final class FactorConfigurationCheck implements ConfigurationCheck
+{
+    public function __construct(private readonly Repository $config) {}
+
+    public function findings(array $guards): array
+    {
+        $findings = [];
+
+        if (!is_int($this->config->get('factors.code_ttl_seconds'))) {
+            $findings[] = ConfigurationFinding::error('`factors.code_ttl_seconds` must be an integer.');
+        }
+
+        foreach ($guards as $guard) {
+            if ($this->config->get("auth.guards.{$guard}.factors") === null) {
+                $findings[] = ConfigurationFinding::warning('It sets no `factors` block, so it asks for no further factor.', $guard);
+            }
+        }
+
+        return $findings;
+    }
+}
+
+$this->app->make(ConfigurationChecks::class)->register(FactorConfigurationCheck::class);
+```
+
+The registration is a container abstract, resolved each time the command runs, so a check may take configuration and
+bindings in its constructor; registering the same abstract twice registers it once. A finding is an error
+(`ConfigurationFinding::error()`), which fails the command exactly as a built-in problem does, or a warning
+(`ConfigurationFinding::warning()`), which is shown and leaves the exit code alone. It names a guard, or none for a
+package-wide setting, and is printed as `[<guard>] <message>`, or as the message alone without a guard:
+
+```text
+[storage] OK
+...
+[api] OK
+[api] It sets no `factors` block, so it asks for no further factor.
+`factors.code_ttl_seconds` must be an integer.
+```
+
+(the warning is shown with the other warnings, and the error after the guards' own problems). The registered checks run
+after the package's own, for the same guards: with `--guard`, a check is given only the guards named. The findings are
+shown in the order the checks were registered, then package-wide findings first and the guards in the order they are
+checked, then in the order the check gave them.
+
+A check reads configuration and bindings only: it opens no database connection and makes no network call, and anything
+else with a side effect, as the command runs in deploy pipelines and readiness probes. A finding's message names the
+settings at fault and never their values, since the output reaches deploy logs; control characters are removed from
+every message and guard name, and a message is cut to a thousand characters. A check that cannot be resolved, that
+throws, or that answers anything but findings does not stop the command: it is reported as an error naming the check and
+the exception's class (never the exception's message, which may carry a value), and the checks after it still run.
 
 ### Binding order
 

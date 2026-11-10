@@ -305,5 +305,7 @@ problem. The `[codes]` sender check still asks every `jwt` guard's application w
 and an exception the policy throws for a guard left out of the run, whether the package's over settings it cannot read
 or one of your own, is a `[codes]` problem naming that guard. The package's checks read configuration only: they open no
 database connection and never print a key, though a policy of your own that reads the database when asked whether it
-allows a method opens a connection. The package does not run these checks at boot; a misconfiguration otherwise surfaces
-when a guard first uses the setting.
+allows a method opens a connection. Checks other packages registered with `ConfigurationChecks` run after these, for the
+same guards: an error they report fails the command and a warning is shown with the other warnings (see
+[Adding checks to `authentication:check`](extending.md#adding-checks-to-authenticationcheck)). The package does not run
+these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.

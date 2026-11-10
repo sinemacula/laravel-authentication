@@ -16,6 +16,8 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Console\ApplicationChecks;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
+use SineMacula\Laravel\Authentication\Console\ConfigurationChecks;
+use SineMacula\Laravel\Authentication\Console\ConfigurationFinding;
 use SineMacula\Laravel\Authentication\Console\PasswordChecks;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationPolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
@@ -26,6 +28,7 @@ use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
+use Tests\Fixtures\Console\FixedConfigurationCheck;
 use Tests\Fixtures\Sessions\DelegatingApplicationPolicy;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
@@ -47,6 +50,7 @@ use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
 #[CoversClass(CheckConfigurationCommand::class)]
 #[CoversClass(PasswordChecks::class)]
 #[CoversClass(ApplicationChecks::class)]
+#[CoversClass(ConfigurationChecks::class)]
 final class CheckConfigurationCommandTest extends TestCase
 {
     /** @var string A signing secret long enough for HS256. */
@@ -1196,6 +1200,131 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
+     * A registered check's warning is shown and leaves the exit code alone,
+     * after the command's own output.
+     *
+     * @return void
+     */
+    public function testARegisteredChecksWarningIsShown(): void
+    {
+        $this->register('warns', new FixedConfigurationCheck([ConfigurationFinding::warning('Mind the setting.', 'api'), ConfigurationFinding::warning('Package-wide.')]));
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(0, $code);
+        self::assertSame([...self::PACKAGE_OK, 'Package-wide.', '[api] Mind the setting.', '[api] OK', '[admin] OK', '[machine] OK'], $output);
+    }
+
+    /**
+     * A registered check's error fails the command, listed with the problems.
+     *
+     * @return void
+     */
+    public function testARegisteredChecksErrorFailsTheCommand(): void
+    {
+        $this->register('fails', new FixedConfigurationCheck([ConfigurationFinding::error('Wrong setting.', 'admin'), ConfigurationFinding::error('Package-wide.')]));
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        self::assertSame([...self::EVERY_SUBJECT_OK, 'Package-wide.', '[admin] Wrong setting.'], $output);
+    }
+
+    /**
+     * A check is asked the guards the command checks: `--guard` narrows them.
+     *
+     * @return void
+     */
+    public function testARegisteredCheckIsAskedTheGuardsChecked(): void
+    {
+        $check = new FixedConfigurationCheck;
+
+        $this->register('asked', $check);
+        $this->check();
+
+        self::assertSame(['api', 'admin', 'machine'], $check->asked);
+
+        $this->check(['--guard' => ['admin', 'api', 'admin']]);
+
+        self::assertSame(['admin', 'api'], $check->asked);
+    }
+
+    /**
+     * Several checks run in the order registered, the package-wide findings
+     * before a guard's, the guards in the order checked.
+     *
+     * @return void
+     */
+    public function testSeveralChecksRunInAStableOrder(): void
+    {
+        $this->register('first', new FixedConfigurationCheck([ConfigurationFinding::error('F admin', 'admin'), ConfigurationFinding::error('F api', 'api')]));
+        $this->register('second', new FixedConfigurationCheck([ConfigurationFinding::error('S none')]));
+
+        [, $output] = $this->check();
+
+        self::assertSame([...self::EVERY_SUBJECT_OK, '[api] F api', '[admin] F admin', 'S none'], $output);
+    }
+
+    /**
+     * A check that throws is an error naming its class, and the checks after it
+     * still run.
+     *
+     * @return void
+     */
+    public function testAThrowingCheckIsAnErrorAndTheRestRun(): void
+    {
+        $this->register(FixedConfigurationCheck::class, new FixedConfigurationCheck([], new \RuntimeException(self::SECRET)));
+        $this->register('after', new FixedConfigurationCheck([ConfigurationFinding::warning('Still ran.')]));
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        self::assertContains(sprintf('The configuration check [%s] failed: RuntimeException.', FixedConfigurationCheck::class), $output);
+        self::assertContains('Still ran.', $output);
+        self::assertStringNotContainsString(self::SECRET, implode("\n", $output));
+    }
+
+    /**
+     * Control characters in a registered check's message never reach the
+     * output.
+     *
+     * @return void
+     */
+    public function testControlCharactersInAFindingAreStripped(): void
+    {
+        $this->register('dirty', new FixedConfigurationCheck([ConfigurationFinding::error("Wrong\x1b[2J setting\x07.", 'api')]));
+
+        [, $output] = $this->check();
+
+        self::assertContains('[api] Wrong[2J setting.', $output);
+        self::assertStringNotContainsString("\x1b", implode("\n", $output));
+    }
+
+    /**
+     * Markup in a warning, an error and a guard name is printed as text: it is
+     * never read as a style tag, so it neither aborts the command nor changes
+     * the exit code.
+     *
+     * @return void
+     */
+    public function testMarkupInAFindingIsPrintedLiterally(): void
+    {
+        $this->register('warns', new FixedConfigurationCheck([ConfigurationFinding::warning('Invalid <fg=not-a-color>setting</>', '<info>odd</info>')]));
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(0, $code);
+        self::assertContains('[<info>odd</info>] Invalid <fg=not-a-color>setting</>', $output);
+
+        $this->register('fails', new FixedConfigurationCheck([ConfigurationFinding::error('Wrong <error>setting</error> \\')]));
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        self::assertContains('Wrong <error>setting</error> \\', $output);
+    }
+
+    /**
      * Register the package with a valid configuration: two `jwt` guards, a
      * session guard, and a database connection that cannot be opened.
      *
@@ -1253,6 +1382,19 @@ final class CheckConfigurationCommandTest extends TestCase
         return "[{$guard}] Allows no sign-in method or machine credential: every sign-in, refresh, code and password reset request is refused as "
             . '`method_not_allowed` and every client credentials exchange as `unauthorized_client`. List the methods the application uses in '
             . 'the guard\'s `application.methods` (or `authentication.application.methods`).';
+    }
+
+    /**
+     * Register a check under the abstract, in the container and the registry.
+     *
+     * @param  string  $abstract
+     * @param  \Tests\Fixtures\Console\FixedConfigurationCheck  $check
+     * @return void
+     */
+    private function register(string $abstract, FixedConfigurationCheck $check): void
+    {
+        $this->app?->instance($abstract, $check);
+        $this->app?->make(ConfigurationChecks::class)->register($abstract);
     }
 
     /**
