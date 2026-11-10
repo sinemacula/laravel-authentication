@@ -457,7 +457,7 @@ final readonly class PendingEvaluation
      *
      * @param  \SineMacula\Laravel\Authentication\Requirements\Requirement  $outstanding
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>
+     * @return ($principal is null ? non-empty-array : array)&list<\SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement>
      */
     public static function requirements(Requirement $outstanding, ?Principal $principal): array
     {
