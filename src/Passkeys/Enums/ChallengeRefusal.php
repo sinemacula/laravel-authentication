@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Passkeys\Enums;
 
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration;
 
 /**
  * Why a passkey challenge could not be consumed.
@@ -43,6 +44,20 @@ enum ChallengeRefusal
             self::NOT_FOUND => FailureReason::PASSKEY_CHALLENGE_INVALID,
             self::EXPIRED   => FailureReason::PASSKEY_CHALLENGE_EXPIRED,
             self::USED      => FailureReason::PASSKEY_CHALLENGE_USED,
+        };
+    }
+
+    /**
+     * The registration a registration ceremony answers for the refusal.
+     *
+     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration
+     */
+    public function registration(): PasskeyRegistration
+    {
+        return match ($this) {
+            self::NOT_FOUND => PasskeyRegistration::challengeInvalid(),
+            self::EXPIRED   => PasskeyRegistration::challengeExpired(),
+            self::USED      => PasskeyRegistration::challengeUsed(),
         };
     }
 }
