@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
+use SineMacula\Laravel\Authentication\Contracts\Session as SessionContract;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
@@ -472,7 +473,7 @@ final class TenantPolicyCheckTest extends TestCase
 
         $now      = CarbonImmutable::now();
         $evidence = new ProofSource(SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-c'), $now)));
-        $asked    = function (?Session $session, ProofSource $source = new ProofSource) use ($member, $membership, $tenant, $now): ?string {
+        $asked    = function (?SessionContract $session, ProofSource $source = new ProofSource) use ($member, $membership, $tenant, $now): ?string {
             $told = [];
 
             $this->policy->answer = static function (TenantPolicyContext $context) use (&$told): TenantRequirement {
@@ -650,7 +651,7 @@ final class TenantPolicyCheckTest extends TestCase
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Models\Session  $session
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
      * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict
@@ -662,7 +663,7 @@ final class TenantPolicyCheckTest extends TestCase
         Tenant $tenant,
         Identity $identity,
         Principal $principal,
-        ?Session $session,
+        ?SessionContract $session,
         CarbonImmutable $now,
         ProofSource $source,
     ): TenantPolicyVerdict {
