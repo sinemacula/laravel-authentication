@@ -130,20 +130,6 @@ final readonly class SignInProof
     }
 
     /**
-     * The proof of a sign-in something outside the guard verified under the
-     * named method and did not describe: an unknown channel, no `amr` values,
-     * verified now.
-     *
-     * @param  string  $method
-     * @param  \Carbon\CarbonImmutable  $now
-     * @return self
-     */
-    public static function unattested(string $method, CarbonImmutable $now): self
-    {
-        return new self(self::newId(), $method, new Channel(ChannelKind::UNKNOWN), new ObservedProperties, [], $now->startOfSecond());
-    }
-
-    /**
      * The first factor as the session records it.
      *
      * @return \SineMacula\Laravel\Authentication\Proofs\NewProof

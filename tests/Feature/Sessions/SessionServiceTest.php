@@ -49,14 +49,18 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Channel;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
+use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -69,6 +73,7 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSessions;
 use SineMacula\Laravel\Authentication\Sessions\SessionActivation;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
+use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -80,6 +85,7 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRecheckedMembers;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Fixtures\Sessions\InterruptingFactorPolicy;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
@@ -939,7 +945,7 @@ final class SessionServiceTest extends TestCase
 
         $this->recordEvents([Attempting::class, Validated::class, SessionCreated::class, SignedIn::class]);
 
-        $result = $this->sessions()->start($stale, null, 'sso', self::requestContext());
+        $result = $this->sessions()->start(UndescribedFirstFactor::of($stale), null, 'sso', self::requestContext());
 
         self::assertTrue($result->isSignedIn());
         $session = self::sessionOf($result);
@@ -968,24 +974,203 @@ final class SessionServiceTest extends TestCase
 
         $this->recordEvents([Failed::class, AuthenticationFailed::class]);
 
-        $this->assertSignInFails(FailureReason::IDENTITY_UNKNOWN, $this->sessions()->start($unsaved, null, 'sso', self::requestContext()));
+        $this->assertSignInFails(FailureReason::IDENTITY_UNKNOWN, $this->sessions()->start(UndescribedFirstFactor::of($unsaved), null, 'sso', self::requestContext()));
         self::assertSame($unsaved, $this->recordedEvent(Failed::class)->user);
         self::assertSame([], $this->recordedEvent(Failed::class)->credentials);
 
         $policy = $this->policy();
         $policy->shouldReceive('allowsMethod')->with('api', 'sso')->andReturnFalse();
 
-        $this->assertSignInFails(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start($identity, null, 'sso', self::requestContext()));
+        $this->assertSignInFails(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext()));
 
         $policy->shouldReceive('allowsMethod')->with('api', 'otp')->andReturnTrue();
 
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requirementFor')->once()->andReturn(new Requirement(new RequirementPart));
 
-        $pending = $this->sessions()->start($identity, null, 'otp', self::requestContext());
+        $pending = $this->sessions()->start(UndescribedFirstFactor::of($identity), null, 'otp', self::requestContext());
 
         self::assertTrue($pending->isPending());
         self::assertSame('otp', $pending->pending?->method);
+        self::assertSame(0, Session::query()->where('status', 'active')->count());
+    }
+
+    /**
+     * `start()` records the first factor it is given as the session's first
+     * proof: its channel and reference, observed properties and `amr` values,
+     * timed by the server and never multifactor, and the access token says so.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testStartRecordsTheFirstFactorItWasGiven(): void
+    {
+        $identity = $this->seedIdentity();
+        $factor   = new FirstFactor($identity, new Channel(ChannelKind::PASSWORD), new ObservedProperties(userVerification: true), ['pwd']);
+        $result   = $this->sessions()->start($factor, null, 'sso', self::requestContext());
+        $session  = $result->session;
+
+        self::assertNotNull($session);
+
+        $proofs = self::proofsOf($session->record);
+
+        self::assertCount(1, $proofs);
+        self::assertSame(
+            [ProofKind::FIRST_FACTOR->value, 'sso', ChannelKind::PASSWORD->value, ['pwd'], true],
+            [$proofs[0]->kind, $proofs[0]->method, $proofs[0]->channel_kind, $proofs[0]->methods, $proofs[0]->user_verification],
+        );
+        self::assertSame($this->now->getTimestamp(), $proofs[0]->authenticated_at->getTimestamp());
+
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->accessToken->reveal(), TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+        self::assertSame(['pwd'], $claims['amr']);
+        self::assertSame($this->now->getTimestamp(), $claims['auth_time']);
+    }
+
+    /**
+     * The application's own recovery is recorded as the first factor over the
+     * recovery channel: still a first factor, and never multifactor.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testStartRecordsTheApplicationsOwnRecoveryAsAFirstFactor(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->sessions()->start(new FirstFactor($identity, new Channel(ChannelKind::RECOVERY)), null, 'sso', self::requestContext())->session;
+
+        self::assertNotNull($session);
+
+        $proofs = self::proofsOf($session->record);
+
+        self::assertCount(1, $proofs);
+        self::assertSame([ProofKind::FIRST_FACTOR->value, ChannelKind::RECOVERY->value, []], [$proofs[0]->kind, $proofs[0]->channel_kind, $proofs[0]->methods]);
+
+        $claims = Auth::manager()->jwt('api')->parse($session->tokens->accessToken->reveal(), TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+        self::assertNotContains('mfa', $claims['amr'] ?? []);
+    }
+
+    /**
+     * A session `start()` began after a password the application checked itself
+     * is judged as a password sign-in is: the further-factor policy is asked
+     * about the password channel and its `amr`, and a further factor it waits
+     * on is then accepted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAStartedPasswordSessionIsJudgedAsAPasswordSignInIsAndTakesAFurtherFactor(): void
+    {
+        $identity = $this->seedIdentity();
+        $asked    = null;
+
+        $factors = $this->bindMock(AdditionalFactorPolicy::class);
+        $factors->shouldReceive('requirementFor')->atLeast()->once()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): Requirement {
+            $asked = $context;
+
+            return new Requirement(new RequirementPart);
+        });
+        app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
+
+        $pending = $this->sessions()->start(new FirstFactor($identity, new Channel(ChannelKind::PASSWORD), methods: ['pwd']), null, 'password', self::requestContext());
+
+        self::assertTrue($pending->isPending());
+        self::assertInstanceOf(AdditionalFactorContext::class, $asked);
+        self::assertSame([ChannelKind::PASSWORD, ['pwd']], [$asked->firstFactor->channel->kind, $asked->firstFactor->methods]);
+        self::assertNotNull($pending->pending);
+        self::assertNotNull($pending->credential);
+
+        $result = $this->sessions()->satisfy($pending->credential->reveal(), self::adapterProof($identity, 'api', $pending->pending->id, Purpose::SIGN_IN), self::requestClient());
+
+        self::assertTrue($result->isSignedIn());
+
+        $claims = Auth::manager()->jwt('api')->parse((string) $result->session?->tokens->accessToken->reveal(), TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+        self::assertContains('pwd', $claims['amr']);
+        self::assertContains('otp', $claims['amr']);
+    }
+
+    /**
+     * Rows of `[channel kind, amr values]`: what only an external provider's
+     * result makes.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind, 1: list<string>}>
+     */
+    public static function provideExternalProviderFirstFactors(): iterable
+    {
+        yield 'its channel' => [ChannelKind::EXTERNAL_PROVIDER, []];
+        yield 'its amr value' => [ChannelKind::UNKNOWN, [FirstFactor::EXTERNAL_PROVIDER_METHOD]];
+    }
+
+    /**
+     * `start()` refuses a first factor that stands for an external provider's,
+     * and records nothing.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind  $kind
+     * @param  list<string>  $methods
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideExternalProviderFirstFactors')]
+    public function testStartRefusesAFirstFactorStandingForAnExternalProvider(ChannelKind $kind, array $methods): void
+    {
+        $factor = new FirstFactor($this->seedIdentity(), new Channel($kind), methods: $methods);
+
+        try {
+            $this->sessions()->start($factor, null, 'sso', self::requestContext());
+
+            self::fail('A session was started from an external provider\'s first factor.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame(SessionPreconditions::EXTERNAL_FACTOR_MESSAGE, $exception->getMessage());
+        }
+
+        self::assertSame(0, Session::query()->count());
+    }
+
+    /**
+     * A first factor whose `amr` names `mfa` cannot be made, so `start()` is
+     * never handed one: a channel never implies multifactor authentication.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFirstFactorNamingMultifactorCannotBeMade(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new FirstFactor($this->seedIdentity(), new Channel(ChannelKind::PASSWORD), methods: ['pwd', 'mfa']);
+    }
+
+    /**
+     * A further factor over the recovery channel does not satisfy a pending
+     * session: it is refused as `proof_invalid`, nothing is recorded, and the
+     * session still waits.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSatisfyRefusesAFurtherFactorOverTheRecoveryChannel(): void
+    {
+        $identity = $this->seedIdentity();
+
+        [$credential, $proof] = $this->pendingWithProof($identity);
+
+        $recovery = self::adapterProof($identity, 'api', $proof->binding->sessionId, Purpose::SIGN_IN, channel: ChannelKind::RECOVERY);
+        $result   = $this->sessions()->satisfy($credential, $recovery, self::requestClient());
+
+        self::assertSame(FailureReason::PROOF_INVALID, $result->reason);
+        self::assertSame(0, SessionProof::query()->where('kind', 'additional_factor')->count());
+        self::assertNotNull($this->sessions()->pending($credential));
         self::assertSame(0, Session::query()->where('status', 'active')->count());
     }
 
@@ -1021,7 +1206,7 @@ final class SessionServiceTest extends TestCase
         config()->set('auth.guards.api.application', ['methods' => ['password', $kind]]);
 
         try {
-            $this->sessions()->start($identity, null, $kind, self::requestContext());
+            $this->sessions()->start(UndescribedFirstFactor::of($identity), null, $kind, self::requestContext());
 
             self::fail('A session was started under a machine credential kind.');
         } catch (\InvalidArgumentException $exception) {
@@ -1045,7 +1230,7 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentity();
 
         try {
-            $this->sessions()->start($identity, null, 'external_provider', self::requestContext());
+            $this->sessions()->start(UndescribedFirstFactor::of($identity), null, 'external_provider', self::requestContext());
 
             self::fail('A session was started under external_provider.');
         } catch (\InvalidArgumentException $exception) {
@@ -1069,7 +1254,7 @@ final class SessionServiceTest extends TestCase
 
         $this->seedIdentity();
 
-        self::assertSame(FailureReason::IDENTITY_UNKNOWN, $this->sessions()->start($member, null, 'sso', self::requestContext())->reason);
+        self::assertSame(FailureReason::IDENTITY_UNKNOWN, $this->sessions()->start(UndescribedFirstFactor::of($member), null, 'sso', self::requestContext())->reason);
     }
 
     /**
@@ -1087,14 +1272,18 @@ final class SessionServiceTest extends TestCase
 
         $context = new SignInContext(new ClientContext(null, null), principal: $membership);
 
-        self::assertSameModel($membership, self::sessionOf($this->sessions('members')->start($member, $membership, 'sso', self::requestContext()))->principal);
-        self::assertSameModel($membership, self::sessionOf($this->sessions('members')->start($member, null, 'sso', $context))->principal);
-        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $this->sessions('members')->start($member, $foreign, 'sso', self::requestContext())->reason);
+        $started = $this->sessions('members')->start(UndescribedFirstFactor::of($member), $membership, 'sso', self::requestContext());
+
+        self::assertSameModel($membership, self::sessionOf($started)->principal);
+        self::assertSameModel($membership, self::sessionOf($this->sessions('members')->start(UndescribedFirstFactor::of($member), null, 'sso', $context))->principal);
+        $mismatch = $this->sessions('members')->start(UndescribedFirstFactor::of($member), $foreign, 'sso', self::requestContext());
+
+        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $mismatch->reason);
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Name the principal to start a session as either as the argument or on the context, not both.');
 
-        $this->sessions('members')->start($member, $membership, 'sso', $context);
+        $this->sessions('members')->start(UndescribedFirstFactor::of($member), $membership, 'sso', $context);
     }
 
     /**
@@ -1132,7 +1321,7 @@ final class SessionServiceTest extends TestCase
 
         $this->expectRefusalOfIdentitiesWithoutSessions();
 
-        $this->sessions('plain')->start($identity, null, 'password', self::requestContext());
+        $this->sessions('plain')->start(UndescribedFirstFactor::of($identity), null, 'password', self::requestContext());
     }
 
     /**
@@ -1225,7 +1414,9 @@ final class SessionServiceTest extends TestCase
             throw new \RuntimeException('listener failed');
         });
 
-        self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->start($identity, null, 'sso', self::requestContext())));
+        $factor = UndescribedFirstFactor::of($identity);
+
+        self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->start($factor, null, 'sso', self::requestContext())));
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame('sso', $this->recordedEvent(SignedIn::class)->context->method);
     }
@@ -1518,7 +1709,7 @@ final class SessionServiceTest extends TestCase
         Auth::forgetGuards();
 
         $signedIn = $this->sessions('choosers')->signIn('password', self::credentials('chooser@example.test'), self::requestContext());
-        $started  = $this->sessions('choosers')->start($member, null, 'sso', self::requestContext());
+        $started  = $this->sessions('choosers')->start(UndescribedFirstFactor::of($member), null, 'sso', self::requestContext());
 
         foreach ([$signedIn, $started] as $result) {
             self::assertTrue($result->isPending());
@@ -1722,7 +1913,9 @@ final class SessionServiceTest extends TestCase
 
         $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class, SessionCreated::class, SignedIn::class]);
 
-        $this->assertSignInFails(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER, $headers)->start($identity, null, 'sso', self::requestContext()));
+        $factor = UndescribedFirstFactor::of($identity);
+
+        $this->assertSignInFails(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER, $headers)->start($factor, null, 'sso', self::requestContext()));
 
         self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
         $failed = $this->recordedEvent(AuthenticationFailed::class);
@@ -1731,9 +1924,13 @@ final class SessionServiceTest extends TestCase
 
         $plain = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT));
 
-        $this->assertSignInFails(FailureReason::CROSS_SITE_REQUEST, $this->sessionsOn(self::BROWSER, self::SAME_SITE)->start($identity, null, 'sso', $plain));
+        $sameSite = $this->sessionsOn(self::BROWSER, self::SAME_SITE);
 
-        self::assertNotNull(self::sessionOf($this->sessionsOn(self::BROWSER, self::SAME_SITE)->start($identity, null, 'sso', self::requestContext()))->tokens->refreshCookie);
+        $this->assertSignInFails(FailureReason::CROSS_SITE_REQUEST, $sameSite->start(UndescribedFirstFactor::of($identity), null, 'sso', $plain));
+
+        $started = $sameSite->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext());
+
+        self::assertNotNull(self::sessionOf($started)->tokens->refreshCookie);
     }
 
     /**
@@ -1906,7 +2103,14 @@ final class SessionServiceTest extends TestCase
     public static function provideSignIns(): iterable
     {
         yield 'signIn()' => [static fn (SessionService $sessions): SignInResult => $sessions->signIn('password', self::credentials(), self::requestContext())];
-        yield 'start()' => [static fn (SessionService $sessions, IntegrationIdentity $identity): SignInResult => $sessions->start($identity, null, 'sso', self::requestContext())];
+        yield 'start()' => [
+            static fn (SessionService $sessions, IntegrationIdentity $identity): SignInResult => $sessions->start(
+                UndescribedFirstFactor::of($identity),
+                null,
+                'sso',
+                self::requestContext(),
+            ),
+        ];
     }
 
     /**
@@ -2158,7 +2362,7 @@ final class SessionServiceTest extends TestCase
 
         $this->recordEvents([PrincipalAssigned::class, SessionAuthenticated::class]);
 
-        $started = self::sessionOf($this->sessions()->start($identity, null, 'password', $context));
+        $started = self::sessionOf($this->sessions()->start(UndescribedFirstFactor::of($identity), null, 'password', $context));
 
         self::assertSame($context->client, $this->recordedEvent(SessionAuthenticated::class)->context->client);
         self::assertSame([self::PLAIN_IP, self::PLAIN_AGENT], self::lastUseOf($started));
@@ -2360,7 +2564,7 @@ final class SessionServiceTest extends TestCase
         $identity  = $this->seedIdentity();
 
         self::assertNotNull(self::sessionOf($this->sessionsOn('api', $crossSite)->signIn('password', self::credentials(), self::requestContext()))->tokens->refreshToken);
-        self::assertTrue($this->sessionsOn('api', $crossSite)->start($identity, null, 'sso', self::requestContext())->isSignedIn());
+        self::assertTrue($this->sessionsOn('api', $crossSite)->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext())->isSignedIn());
 
         [$credential, $chosen] = $this->pendingChoice('choosers');
 

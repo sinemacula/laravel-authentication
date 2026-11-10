@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
  * Unit tests for the default additional-factor policy.
@@ -36,7 +36,7 @@ final class NeverRequireAdditionalFactorTest extends TestCase
      */
     public function testRequiresNothingBeyondTheFirstFactor(): void
     {
-        $first   = SignInProof::unattested('password', CarbonImmutable::now())->recorded();
+        $first   = UndescribedSignInProof::of('password', CarbonImmutable::now())->recorded();
         $context = new AdditionalFactorContext('api', \Mockery::mock(Identity::class), $first, new ClientContext(null, null), null, null, null);
 
         $requirement = (new NeverRequireAdditionalFactor)->requirementFor($context);

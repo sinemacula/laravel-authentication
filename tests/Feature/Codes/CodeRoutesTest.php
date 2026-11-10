@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Concerns\InteractsWithCodeIdentities;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
 
@@ -214,7 +215,7 @@ final class CodeRoutesTest extends TestCase
     {
         $identity = self::seedCodeIdentity(email: null, verified: false);
 
-        $access = Auth::sessions('mobile')->start($identity, null, 'phone_code', self::requestContext())->session?->tokens->accessToken->reveal();
+        $access = Auth::sessions('mobile')->start(UndescribedFirstFactor::of($identity), null, 'phone_code', self::requestContext())->session?->tokens->accessToken->reveal();
 
         self::assertIsString($access);
 

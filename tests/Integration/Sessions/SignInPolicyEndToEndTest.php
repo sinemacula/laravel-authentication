@@ -50,6 +50,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
 use Tests\Fixtures\Events\EventContextAssertions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
@@ -696,7 +697,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         self::assertSame(array_fill(0, 3, FailureReason::IDENTIFIER_UNVERIFIED), $reasons);
         self::assertSame(0, Session::query()->count());
 
-        $this->signedIn($this->sessions('verified')->start($identity, null, 'sso', self::requestContext()));
+        $this->signedIn($this->sessions('verified')->start(UndescribedFirstFactor::of($identity), null, 'sso', self::requestContext()));
 
         $link = app(VerificationLinks::class)->create('verified', $identity, 'email', 'verify')->reveal();
 

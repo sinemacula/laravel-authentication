@@ -13,18 +13,19 @@ Every session records the proofs it was established and kept with, each a timest
 | `recovery_code`                 | a recovery code an adapter accepted in place of a further factor                                                                                                                           |
 | `external_reauthentication`     | a reauthentication at the external provider the session began with, through the link that established it (`reauthenticateExternally()`)                                                    |
 
-Each holds its method, its channel (`password`, `sms`, `email`, `authenticator_app`, `passkey`, `external_provider` or
-`unknown`, with the destination or credential reference: a code's address or number in its normal form, a passkey's own
-row id, a provider's connection id), the factor an adapter used, what was observed about the authenticator (user
-presence and verification, backup eligibility and state, phishing resistance, key protection: each `null` when it was
-not observed, which never counts as true), the adapter's evaluation (accepted, multifactor, and whether it is an
-additional verification, as a further factor always is and an external provider's evidence is only when accepted for one
-or for multifactor authentication; none for a proof the package verified itself, except an external one whose evidence
-was accepted), the external provider's evidence once accepted, its `amr` values, its time and its binding (the identity,
-the application, the session and the purpose: `sign_in`, `reauthenticate` or `step_up`). A proof is never changed once
-recorded, except to be marked void, after which it never counts: when the factor package removes a factor,
-`factorRemoved()` voids the proofs the current session made with it, and the identity's other sessions end (see [Sign-in
-factors](#sign-in-factors)). A removed first-factor credential (`credentialRemoved()`) voids nothing.
+Each holds its method, its channel (`password`, `sms`, `email`, `authenticator_app`, `passkey`, `external_provider`,
+`recovery` (the application's own account recovery) or `unknown`, with the destination or credential reference: a code's
+address or number in its normal form, a passkey's own row id, a provider's connection id), the factor an adapter used,
+what was observed about the authenticator (user presence and verification, backup eligibility and state, phishing
+resistance, key protection: each `null` when it was not observed, which never counts as true), the adapter's evaluation
+(accepted, multifactor, and whether it is an additional verification, as a further factor always is and an external
+provider's evidence is only when accepted for one or for multifactor authentication; none for a proof the package
+verified itself, except an external one whose evidence was accepted), the external provider's evidence once accepted,
+its `amr` values, its time and its binding (the identity, the application, the session and the purpose: `sign_in`,
+`reauthenticate` or `step_up`). A proof is never changed once recorded, except to be marked void, after which it never
+counts: when the factor package removes a factor, `factorRemoved()` voids the proofs the current session made with it,
+and the identity's other sessions end (see [Sign-in factors](#sign-in-factors)). A removed first-factor credential
+(`credentialRemoved()`) voids nothing.
 
 A session an external provider established (`signInExternally()`, see [External
 sign-in](signing-in.md#external-sign-in)) also records its provenance, once, in `proofs.provenance_table`: the

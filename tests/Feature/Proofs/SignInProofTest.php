@@ -17,11 +17,12 @@ use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Proofs\ObservedProperties;
 use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\SignInProof;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 use Tests\TestCase;
 
 /**
  * Tests of what a sign-in carries to its session's first proofs: the first
- * factor a method verified, an external provider's, and an unattested one.
+ * factor a method verified, an external provider's, and an undescribed one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -130,14 +131,14 @@ final class SignInProofTest extends TestCase
     }
 
     /**
-     * A sign-in the caller verified and did not describe names no channel and
-     * no value, and is timed now.
+     * A first factor the caller did not describe names no channel and no value,
+     * and is timed to the whole second it was given.
      *
      * @return void
      */
-    public function testAnUnattestedFirstFactorNamesNothing(): void
+    public function testAnUndescribedFirstFactorNamesNothing(): void
     {
-        $proof = SignInProof::unattested('sso', CarbonImmutable::parse('2026-04-06 12:00:00.9'));
+        $proof = UndescribedSignInProof::of('sso', CarbonImmutable::parse('2026-04-06 12:00:00.9'));
 
         self::assertSame(['sso', ChannelKind::UNKNOWN, null, []], [$proof->method, $proof->channel->kind, $proof->channel->reference, $proof->methods]);
         self::assertSame('2026-04-06 12:00:00.000000', $proof->authenticatedAt->format('Y-m-d H:i:s.u'));
@@ -152,10 +153,10 @@ final class SignInProofTest extends TestCase
     public function testTheFirstFactorReadsBackUnderItsOwnId(): void
     {
         $now      = CarbonImmutable::parse('2026-04-06 12:00:00');
-        $proof    = SignInProof::unattested('sso', $now);
+        $proof    = UndescribedSignInProof::of('sso', $now);
         $recorded = $proof->recorded();
 
-        self::assertNotSame($proof->id, SignInProof::unattested('sso', $now)->id);
+        self::assertNotSame($proof->id, UndescribedSignInProof::of('sso', $now)->id);
         self::assertSame($proof->id, $recorded->id);
         self::assertSame(
             [ProofKind::FIRST_FACTOR, Purpose::SIGN_IN, 'sso', null, null, [], $proof->authenticatedAt],

@@ -51,6 +51,7 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
@@ -876,7 +877,7 @@ final class SessionServiceTest extends TestCase
 
         $result = $method === 'password'
             ? $sessions->signIn('password', self::credentials($email), $context)
-            : $sessions->start($this->identity($guard, $email), null, $method, $context);
+            : $sessions->start(UndescribedFirstFactor::of($this->identity($guard, $email)), null, $method, $context);
 
         self::assertNotNull($result->session, 'Expected the sign-in to start a session; it failed with ' . $result->reason?->value);
 

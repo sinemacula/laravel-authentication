@@ -13,6 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
+use SineMacula\Laravel\Authentication\Proofs\FirstFactor;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
@@ -34,6 +36,9 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  */
 final class SessionPreconditions
 {
+    /** @var string Why a first factor an application describes may not stand for an external provider's. */
+    public const string EXTERNAL_FACTOR_MESSAGE = 'A first factor over the external provider channel, or with its `amr` value, is made only by the external sign-in.';
+
     /**
      * Disallow instantiation; utility container only.
      */
@@ -115,6 +120,25 @@ final class SessionPreconditions
 
         if ($method === SignInMethodManager::EXTERNAL_METHOD) {
             throw new \InvalidArgumentException(sprintf('[%s] is not a sign-in method: only a result an external provider verified signs a session in under it.', $method));
+        }
+    }
+
+    /**
+     * Refuse a first factor an external identity provider's result would make:
+     * the `external_provider` channel or its private `amr` value. Only the
+     * external sign-in records one, from the provider's result and its
+     * provenance, so a factor an application describes itself may not pass for
+     * one.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Proofs\FirstFactor  $factor
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function assertApplicationFactor(FirstFactor $factor): void
+    {
+        if ($factor->channel->kind === ChannelKind::EXTERNAL_PROVIDER || in_array(FirstFactor::EXTERNAL_PROVIDER_METHOD, $factor->methods, true)) {
+            throw new \InvalidArgumentException(self::EXTERNAL_FACTOR_MESSAGE);
         }
     }
 

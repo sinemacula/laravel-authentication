@@ -10,6 +10,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Models\Session;
+use SineMacula\Laravel\Authentication\Proofs\Enums\ChannelKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\Enums\Purpose;
 use SineMacula\Laravel\Authentication\Proofs\Evaluation;
@@ -93,6 +94,7 @@ final class ProofAcceptanceTest extends TestCase
         yield 'a reauthentication' => [['purpose' => Purpose::REAUTHENTICATE], $invalid];
         yield 'a recovery code for an enrolment' => [['kind' => ProofKind::RECOVERY_CODE, 'purpose' => Purpose::ENROLLMENT], $invalid];
         yield 'not accepted' => [['evaluation' => new Evaluation(false, true)], $invalid];
+        yield 'the recovery channel' => [['channel' => ChannelKind::RECOVERY], $invalid];
         yield 'made before the session waited' => [['at' => '2026-04-06 11:59:59'], $invalid];
         yield 'made after now' => [['at' => '2026-04-06 12:01:01'], $invalid];
         yield 'another identity' => [['identity' => 'other'], $binding];
@@ -123,14 +125,16 @@ final class ProofAcceptanceTest extends TestCase
         $application = $changes['application'] ?? 'api';
         $session     = $changes['session']     ?? self::SESSION;
         $at          = $changes['at']          ?? '2026-04-06 12:00:30';
+        $channel     = $changes['channel']     ?? ChannelKind::AUTHENTICATOR_APP;
 
         self::assertInstanceOf(ProofKind::class, $kind);
         self::assertInstanceOf(Purpose::class, $purpose);
         self::assertInstanceOf(Evaluation::class, $evaluation);
         self::assertIsString($application);
         self::assertIsString($at);
+        self::assertInstanceOf(ChannelKind::class, $channel);
 
-        $proof = self::adapterProof($made, $application, $session, $purpose, $kind, CarbonImmutable::parse($at), $evaluation);
+        $proof = self::adapterProof($made, $application, $session, $purpose, $kind, CarbonImmutable::parse($at), $evaluation, channel: $channel);
 
         self::assertSame($reason, ProofAcceptance::forPendingSession(
             $proof,
@@ -139,6 +143,28 @@ final class ProofAcceptanceTest extends TestCase
             CarbonImmutable::parse('2026-04-06 12:00:00'),
             CarbonImmutable::parse('2026-04-06 12:01:00'),
         ));
+    }
+
+    /**
+     * A step-up refuses a further factor over the recovery channel as invalid,
+     * as a pending session does: recovery is a first factor only.
+     *
+     * @return void
+     */
+    public function testAStepUpRefusesTheRecoveryChannel(): void
+    {
+        $identity = self::identity();
+        $since    = CarbonImmutable::parse('2026-04-06 12:00:00');
+
+        $app      = self::adapterProof($identity, 'api', self::SESSION, Purpose::STEP_UP, at: $since->addSeconds(30));
+        $recovery = self::adapterProof($identity, 'api', self::SESSION, Purpose::STEP_UP, at: $since->addSeconds(30), channel: ChannelKind::RECOVERY);
+
+        self::assertNull(ProofAcceptance::forSession($app, self::pendingSession($identity), 'api', $since, $since->addMinute()));
+        self::assertSame(FailureReason::PROOF_INVALID, ProofAcceptance::forSession($recovery, self::pendingSession($identity), 'api', $since, $since->addMinute()));
+
+        $elsewhere = self::adapterProof($identity, 'admin', self::SESSION, Purpose::STEP_UP, at: $since->addSeconds(30), channel: ChannelKind::RECOVERY);
+
+        self::assertSame(FailureReason::PROOF_INVALID, ProofAcceptance::forSession($elsewhere, self::pendingSession($identity), 'api', $since, $since->addMinute()));
     }
 
     /**

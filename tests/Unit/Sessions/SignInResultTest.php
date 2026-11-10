@@ -16,7 +16,6 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
@@ -24,6 +23,7 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
  * Unit tests for how a sign-in through the session service ends.
@@ -229,6 +229,6 @@ final class SignInResultTest extends TestCase
      */
     private static function firstFactor(): RecordedProof
     {
-        return SignInProof::unattested('password', CarbonImmutable::now())->recorded();
+        return UndescribedSignInProof::of('password', CarbonImmutable::now())->recorded();
     }
 }

@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -163,7 +164,7 @@ final class SignInEventSerializationTest extends TestCase
 
         $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken?->reveal());
 
-        self::assertTrue($this->sessions('members')->start($this->member, $this->membership, 'sso', $context)->isSignedIn());
+        self::assertTrue($this->sessions('members')->start(UndescribedFirstFactor::of($this->member), $this->membership, 'sso', $context)->isSignedIn());
 
         $event = self::roundTrip($this->recordedEvent(SessionRevoked::class));
 

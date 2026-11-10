@@ -34,6 +34,7 @@ use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Events\EventContextAssertions;
+use Tests\Fixtures\Proofs\UndescribedFirstFactor;
 use Tests\Fixtures\Sessions\ProvenIdentitySignIn;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
@@ -242,7 +243,7 @@ final class MachineIdentitySignInTest extends TestCase
     {
         $machine = $this->seedMachineWithPassword();
 
-        $result = $this->sessions('machines')->start($machine, null, 'proven', self::requestContext());
+        $result = $this->sessions('machines')->start(UndescribedFirstFactor::of($machine), null, 'proven', self::requestContext());
 
         self::assertSame(FailureReason::MACHINE_IDENTITY, $result->reason);
         self::assertSame(0, DB::table('authentication_sessions')->count());

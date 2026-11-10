@@ -14,13 +14,13 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Session;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
-use SineMacula\Laravel\Authentication\Proofs\SignInProof;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingAction;
 use SineMacula\Laravel\Authentication\Sessions\Enums\PendingRequirement;
 use SineMacula\Laravel\Authentication\Sessions\PendingSession;
+use Tests\Fixtures\Proofs\UndescribedSignInProof;
 
 /**
  * Unit tests for a pending session as the session service hands it out.
@@ -170,6 +170,6 @@ final class PendingSessionTest extends TestCase
      */
     private static function firstFactor(): RecordedProof
     {
-        return SignInProof::unattested('password', CarbonImmutable::now())->recorded();
+        return UndescribedSignInProof::of('password', CarbonImmutable::now())->recorded();
     }
 }
