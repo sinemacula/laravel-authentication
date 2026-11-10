@@ -127,8 +127,8 @@ final class CodeServiceTest extends TestCase
         $request = $this->codeService()->send('phone_code', ['phone' => ' ' . self::PHONE], self::requestClient());
 
         self::assertSame([CodeRequestStatus::SENT, null], [$request->status, $request->retryAfter]);
-        self::assertTrue($this->now->addSeconds(600)->equalTo($request->expiresAt));
-        self::assertTrue($this->now->addSeconds(60)->equalTo($request->resendAvailableAt));
+        self::assertEquals($this->now->addSeconds(600), $request->expiresAt);
+        self::assertEquals($this->now->addSeconds(60), $request->resendAvailableAt);
 
         Queue::assertPushedOn('codes', SendOneTimeCode::class, static fn (SendOneTimeCode $job): bool => $job->connection === 'deliveries'
                 && $job->identity                                                                                         === null
