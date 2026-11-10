@@ -182,7 +182,9 @@ final readonly class IdentifierVerifier
      */
     private function dispatchAfterCommit(Identity $identity, IdentifierVerified $event): void
     {
-        $dispatch = fn (): mixed => $this->container->make(Dispatcher::class)->dispatch($event);
+        $dispatch = function () use ($event): void {
+            $this->container->make(Dispatcher::class)->dispatch($event);
+        };
 
         if (!$identity instanceof Model) {
 

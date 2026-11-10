@@ -39,7 +39,7 @@ final readonly class Reauthentication
     /**
      * Constructor.
      *
-     * @param  \SensitiveParameterValue|\SineMacula\Laravel\Authentication\Contracts\Session  $proof
+     * @param  \SensitiveParameterValue<string>|\SineMacula\Laravel\Authentication\Contracts\Session  $proof
      */
     private function __construct(
 

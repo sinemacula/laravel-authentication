@@ -379,6 +379,6 @@ final class IntegerKeyConnectionRevocationsTest extends TestCase
      */
     private static function unrevoked(): array
     {
-        return array_values(array_map(intval(...), DB::table(self::TABLE)->whereNull('revoked_at')->orderBy('id')->pluck('id')->all()));
+        return array_values(array_map(self::storedInt(...), DB::table(self::TABLE)->whereNull('revoked_at')->orderBy('id')->pluck('id')->all()));
     }
 }

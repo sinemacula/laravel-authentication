@@ -354,7 +354,7 @@ final class RecordSessionUsageTest extends TestCase
 
         $session->forceFill([...self::liveSession(), ...$owner, 'last_used_at' => $this->now->format(self::DATETIME_FORMAT)])->save();
 
-        $session = UncastSession::query()->findOrFail($session->getKey());
+        $session = UncastSession::query()->findOrFail(self::modelKey($session));
 
         $this->bindGuardTo($session);
 

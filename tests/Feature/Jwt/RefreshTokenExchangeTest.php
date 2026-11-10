@@ -60,6 +60,7 @@ use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
 use Tests\Concerns\InspectsIssuanceGuards;
 use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessionRecords;
+use Tests\Concerns\ReadsBodyRefreshTokens;
 use Tests\Fixtures\Events\EventContextAssertions;
 use Tests\Fixtures\Sessions\FirstFactorRecorder;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
@@ -90,7 +91,7 @@ use Tests\Unit\Stubs\StubSession;
 #[CoversClass(IdentifierCoercion::class)]
 final class RefreshTokenExchangeTest extends TestCase
 {
-    use InspectsIssuanceGuards, InteractsWithProofs, InteractsWithSessionRecords, MockeryPHPUnitIntegration;
+    use InspectsIssuanceGuards, InteractsWithProofs, InteractsWithSessionRecords, MockeryPHPUnitIntegration, ReadsBodyRefreshTokens;
 
     /** @var string Shared JWT secret for the test fixtures. */
     private const string SECRET = 'test-secret-key-with-at-least-32-bytes!';
@@ -664,7 +665,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
-        self::assertSame($later->getTimestamp(), $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::ISSUED_AT->value]);
+        self::assertSame($later->getTimestamp(), $this->refreshClaims(self::bodyRefreshToken($result->tokens))[Claims::ISSUED_AT->value]);
         $rotatedAt = DB::table('stub_sessions')->where('id', $session->id)->value('refresh_rotated_at');
 
         self::assertIsString($rotatedAt);
@@ -693,7 +694,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::JWT_ID->value]);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims(self::bodyRefreshToken($result->tokens))[Claims::JWT_ID->value]);
         self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->storedDigest($session->id));
         self::assertSame([], $this->dispatched);
     }
@@ -890,7 +891,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($identity, $result->identity);
         self::assertSame($principal, $result->principal);
 
-        $claims = $this->tokens->parse($result->tokens->refreshToken?->reveal(), TokenType::REFRESH);
+        $claims = $this->tokens->parse(self::bodyRefreshToken($result->tokens), TokenType::REFRESH);
 
         self::assertIsArray($claims);
         self::assertSame('p-12', $claims[Claims::PRINCIPAL->value]);
@@ -1157,8 +1158,8 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($this->now->getTimestamp(), $stored->refresh_rotated_at?->getTimestamp());
         self::assertSame($expectedIdle, $stored->idle_expires_at?->getTimestamp());
         self::assertSame($absolute->getTimestamp(), $stored->absolute_expires_at?->getTimestamp());
-        self::assertSame($successor, $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::JWT_ID->value]);
-        self::assertSame($expectedIdle, $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::EXPIRES_AT->value]);
+        self::assertSame($successor, $this->refreshClaims(self::bodyRefreshToken($result->tokens))[Claims::JWT_ID->value]);
+        self::assertSame($expectedIdle, $this->refreshClaims(self::bodyRefreshToken($result->tokens))[Claims::EXPIRES_AT->value]);
         self::assertSame($stored->refresh_key, $result->record->getRefreshKey());
         self::assertSame($stored->previous_refresh_key, $result->record->getPreviousRefreshKey());
         self::assertSame($expectedIdle, $result->record->getIdleExpiresAt()?->getTimestamp());
@@ -1301,7 +1302,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($expectedIdle, $stored->idle_expires_at?->getTimestamp());
         self::assertNull($stored->absolute_expires_at);
         self::assertNull($result->record->getAbsoluteExpiresAt());
-        self::assertSame($expectedIdle, $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::EXPIRES_AT->value]);
+        self::assertSame($expectedIdle, $this->refreshClaims(self::bodyRefreshToken($result->tokens))[Claims::EXPIRES_AT->value]);
     }
 
     /**
@@ -1329,8 +1330,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
-        self::assertSame($current, $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::JWT_ID->value]);
-        self::assertSame($idle->getTimestamp(), $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::EXPIRES_AT->value]);
+        self::assertSame($current, $this->refreshClaims(self::bodyRefreshToken($result->tokens))[Claims::JWT_ID->value]);
+        self::assertSame($idle->getTimestamp(), $this->refreshClaims(self::bodyRefreshToken($result->tokens))[Claims::EXPIRES_AT->value]);
         self::assertSame(self::guarded($before), $this->row($session));
         self::assertSame([], $this->dispatched);
     }
@@ -1350,21 +1351,18 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testTheGraceWindowIsTheTokenServicesWhateverLifetimesThePolicyReturns(): void
     {
-        $policyGrace = new \ArrayObject(['seconds' => 0]);
-        $retried     = $this->seedRotatedSession(35, rotatedSecondsAgo: self::GRACE - 1);
+        $retried = $this->seedRotatedSession(35, rotatedSecondsAgo: self::GRACE - 1);
 
-        $this->policy->shouldReceive('lifetimes')->andReturnUsing(
-            static fn (): TokenLifetimes => new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, $policyGrace['seconds']),
-        );
+        $this->policy->shouldReceive('lifetimes')->andReturn(new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, 0))->byDefault();
 
         $this->expectRefreshContext(35);
 
         $result = $this->makeExchange()->exchange($this->tokenFor($retried, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::JWT_ID->value]);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims(self::bodyRefreshToken($result->tokens))[Claims::JWT_ID->value]);
 
-        $policyGrace['seconds'] = TokenLifetimes::MAX_GRACE_SECONDS;
+        $this->policy->shouldReceive('lifetimes')->andReturn(new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, TokenLifetimes::MAX_GRACE_SECONDS));
 
         $replayed = $this->seedRotatedSession(36, rotatedSecondsAgo: self::GRACE);
 
@@ -1462,7 +1460,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertInstanceOf(ExchangedRefresh::class, $second);
 
-        $third = $this->makeExchange()->exchange($second->tokens->refreshToken?->reveal(), self::client());
+        $third = $this->makeExchange()->exchange(self::bodyRefreshToken($second->tokens), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $third);
         $this->refused($this->makeExchange()->exchange($this->tokenFor($session, $first), self::client()));
@@ -1627,7 +1625,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $result = $this->makeExchange()->exchange($this->tokenFor($session, self::ROTATION_ID), self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::JWT_ID->value]);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims(self::bodyRefreshToken($result->tokens))[Claims::JWT_ID->value]);
         self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $this->storedDigest($session->id));
         self::assertSame($result->record->getRefreshKey(), $this->storedDigest($session->id));
         self::assertSame([], $this->dispatched);
@@ -2060,7 +2058,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertInstanceOf(ExchangedRefresh::class, $result);
         self::assertSame($this->now->getTimestamp() + (45 * 60), StubSession::query()->findOrFail($session->id)->idle_expires_at?->getTimestamp());
-        self::assertSame($this->now->getTimestamp() + (45 * 60), $this->refreshClaims($result->tokens->refreshToken?->reveal())[Claims::EXPIRES_AT->value]);
+        self::assertSame($this->now->getTimestamp() + (45 * 60), $this->refreshClaims(self::bodyRefreshToken($result->tokens))[Claims::EXPIRES_AT->value]);
     }
 
     /**
@@ -2395,10 +2393,10 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * Assert an exchange failed, remember its failure, and return it.
      *
-     * @param  \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh  $result
+     * @param  object  $result
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      */
-    private function refused(AuthenticationFailed|ExchangedRefresh $result): AuthenticationFailed
+    private function refused(object $result): AuthenticationFailed
     {
         self::assertInstanceOf(AuthenticationFailed::class, $result);
 

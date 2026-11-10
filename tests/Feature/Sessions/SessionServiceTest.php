@@ -205,7 +205,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame('password', $session->method);
 
         $record = Session::query()->whereKey($session->record->getKey())->firstOrFail();
-        $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken?->reveal());
+        $claims = Auth::manager()->jwt('api')->parse(self::bodyRefreshToken($session->tokens));
 
         self::assertNotNull($claims);
         self::assertSame($record->getKey(), $claims['sid']);
@@ -938,7 +938,7 @@ final class SessionServiceTest extends TestCase
     public function testStartBeginsASessionForAnExternallyVerifiedIdentity(): void
     {
         $identity = $this->seedIdentity();
-        $stale    = IntegrationIdentity::query()->findOrFail($identity->getKey());
+        $stale    = IntegrationIdentity::query()->findOrFail(self::modelKey($identity));
 
         $limiter = $this->bindMock(AttemptLimiter::class);
         $limiter->shouldNotReceive('acquire');
@@ -1052,7 +1052,11 @@ final class SessionServiceTest extends TestCase
         $claims = Auth::manager()->jwt('api')->parse($session->tokens->accessToken->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertNotContains('mfa', $claims['amr'] ?? []);
+
+        $amr = $claims['amr'] ?? [];
+
+        self::assertIsArray($amr);
+        self::assertNotContains('mfa', $amr);
     }
 
     /**
@@ -1093,6 +1097,7 @@ final class SessionServiceTest extends TestCase
         $claims = Auth::manager()->jwt('api')->parse((string) $result->session?->tokens->accessToken->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
+        self::assertIsArray($claims['amr']);
         self::assertContains('pwd', $claims['amr']);
         self::assertContains('otp', $claims['amr']);
     }
@@ -2685,7 +2690,11 @@ final class SessionServiceTest extends TestCase
 
         Auth::forgetGuards();
 
-        return self::sessionsOf(app('auth')->guard($guard));
+        $served = app('auth')->guard($guard);
+
+        self::assertInstanceOf(JwtGuard::class, $served);
+
+        return self::sessionsOf($served);
     }
 
     /**

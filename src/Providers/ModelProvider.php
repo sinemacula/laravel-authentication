@@ -294,7 +294,7 @@ class ModelProvider implements IdentityProvider
      * clause. Returns `false` if any value is unsupported; the caller should
      * treat `false` as "refuse to authenticate".
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>  $query
      * @param  array<string, mixed>  $credentials
      * @return bool
      */
@@ -313,7 +313,7 @@ class ModelProvider implements IdentityProvider
      * Apply a single credential clause to the query. Returns `false` if the
      * value is not a supported type.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>  $query
      * @param  string  $key
      * @param  mixed  $value
      * @return bool
@@ -334,7 +334,7 @@ class ModelProvider implements IdentityProvider
     /**
      * Apply an `IN` clause built from an array of credential values.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>  $query
      * @param  string  $key
      * @param  array<array-key, mixed>  $values
      * @return bool
@@ -351,8 +351,8 @@ class ModelProvider implements IdentityProvider
      * Hand the supplied query to a credential closure for additional `where`
      * composition.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
-     * @param  \Closure(\Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>): mixed  $callback
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>  $query
+     * @param  \Closure(\Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>): mixed  $callback
      * @return bool
      */
     private function applyClosureClause(Builder $query, \Closure $callback): bool
@@ -366,7 +366,7 @@ class ModelProvider implements IdentityProvider
      * Apply a scalar `=` clause for a string/int/bool/Stringable credential
      * value.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>  $query
      * @param  string  $key
      * @param  bool|int|string|\Stringable  $value
      * @return bool

@@ -839,7 +839,7 @@ final class SessionEstablishmentTest extends TestCase
 
         $elsewhere = ActivatableTenant::query()->create(['name' => 'Elsewhere', 'is_active' => true]);
         $asked     = count($policy->asked);
-        $context   = SignInContext::fromRequest(app('request'), refreshToken: $first->tokens->refreshToken?->reveal(), tenant: TenantSelection::of($elsewhere->getKey()));
+        $context   = SignInContext::fromRequest(app('request'), refreshToken: $first->tokens->refreshToken?->reveal(), tenant: TenantSelection::of(self::modelKey($elsewhere)));
 
         $this->recordEvents([SessionRevoked::class, SessionPending::class, SessionCreated::class, SignedIn::class]);
 
@@ -848,7 +848,7 @@ final class SessionEstablishmentTest extends TestCase
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
         self::assertSame($member, $refused->identity);
-        self::assertTrue($membership->is($refused->principal));
+        self::assertIsModel($membership, $refused->principal);
         self::assertNull($refused->tenant);
         self::assertInstanceOf(Session::class, $refused->session);
         self::assertSame($first->record->getKey(), $refused->session->getKey());
@@ -914,8 +914,8 @@ final class SessionEstablishmentTest extends TestCase
 
         self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::SSO_REQUIRED, $refused->reason);
-        self::assertTrue($membership->is($refused->principal));
-        self::assertTrue($tenant->is($refused->tenant));
+        self::assertIsModel($membership, $refused->principal);
+        self::assertIsModel($tenant, $refused->tenant);
         self::assertSame(0, DB::table('authentication_sessions')->count());
         self::assertSame([], $this->recordedClasses());
         self::assertCount(1, $policy->asked);

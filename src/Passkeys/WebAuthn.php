@@ -128,7 +128,7 @@ final readonly class WebAuthn
      * @param  string  $userName
      * @param  string  $displayName
      * @param  list<array{0: string, 1: list<string>}>  $exclude
-     * @param  int  $timeout
+     * @param  positive-int  $timeout
      * @return array<string, mixed>
      *
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
@@ -161,7 +161,7 @@ final readonly class WebAuthn
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  string  $challenge
      * @param  list<array{0: string, 1: list<string>}>  $allow
-     * @param  int  $timeout
+     * @param  positive-int  $timeout
      * @param  bool  $requireUserVerification
      * @return array<string, mixed>
      *

@@ -188,6 +188,7 @@ final class ConcurrentIssuanceTest extends TestCase
 
         self::assertIsArray($claims);
         self::assertSame($this->steppedUpAt->getTimestamp(), $claims['auth_time']);
+        self::assertIsArray($claims['amr']);
         self::assertContains('hwk', $claims['amr']);
         self::assertContains('mfa', $claims['amr']);
     }

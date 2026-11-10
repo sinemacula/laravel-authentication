@@ -524,7 +524,7 @@ final class BearerFormsTest extends TestCase
      * `typ`, an expiry an hour past, or the wrong `iss` or `aud`.
      *
      * @param  string  $variant
-     * @return array{0: array<string, mixed>, 1: array<string, mixed>}
+     * @return array{0: array<string, string>, 1: array<string, mixed>}
      */
     private static function resigning(string $variant): array
     {
@@ -544,7 +544,7 @@ final class BearerFormsTest extends TestCase
      * changed as given.
      *
      * @param  string  $token
-     * @param  array<string, mixed>  $header
+     * @param  array<string, string>  $header
      * @param  array<string, mixed>  $claims
      * @return string
      */
@@ -552,13 +552,22 @@ final class BearerFormsTest extends TestCase
     {
         [$encodedHeader, $encodedPayload] = explode('.', $token);
 
-        /** @var array<string, mixed> $head */
-        $head = json_decode(JWT::urlsafeB64Decode($encodedHeader), true, flags: JSON_THROW_ON_ERROR);
+        $decoded = json_decode(JWT::urlsafeB64Decode($encodedHeader), true, flags: JSON_THROW_ON_ERROR);
+        $head    = [];
+
+        self::assertIsArray($decoded);
+
+        foreach ($decoded as $name => $value) {
+            self::assertIsString($name);
+            self::assertIsString($value);
+
+            $head[$name] = $value;
+        }
 
         /** @var array<string, mixed> $payload */
         $payload = json_decode(JWT::urlsafeB64Decode($encodedPayload), true, flags: JSON_THROW_ON_ERROR);
 
-        $kid = is_string($head['kid'] ?? null) ? $head['kid'] : 'test-kid';
+        $kid = $head['kid'] ?? 'test-kid';
 
         return JWT::encode([...$payload, ...$claims], config()->string('authentication.jwt.keys.' . $kid), 'HS256', $kid, [...$head, ...$header]);
     }

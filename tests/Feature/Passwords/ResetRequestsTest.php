@@ -189,8 +189,10 @@ final class ResetRequestsTest extends TestCase
 
         self::assertSame(CodeRequestStatus::RATE_LIMITED, $limited->status);
         self::assertSame(1800, $limited->retryAfter);
-        self::assertSame(['rate_limited', 'rate_limited'], array_map(static fn (AuthenticationFailed $event): string => $event->reason->value, $this->recorded));
-        self::assertSame([60, 1800], array_map(static fn (AuthenticationFailed $event): ?int => $event->retryAfter, $this->recorded));
+        $failures = $this->recordedAs(AuthenticationFailed::class);
+
+        self::assertSame(['rate_limited', 'rate_limited'], array_map(static fn (AuthenticationFailed $event): string => $event->reason->value, $failures));
+        self::assertSame([60, 1800], array_map(static fn (AuthenticationFailed $event): ?int => $event->retryAfter, $failures));
     }
 
     /**
@@ -241,7 +243,7 @@ final class ResetRequestsTest extends TestCase
         self::assertSame([CodeRequestStatus::DELIVERIES_EXHAUSTED, 1740], [$request->status, $request->retryAfter]);
         self::assertSame(
             [[AuthenticationFlow::PASSWORD_RESET, 'deliveries_exhausted', 1740]],
-            array_map(static fn (AuthenticationFailed $event): array => [$event->flow, $event->reason->value, $event->retryAfter], $this->recorded),
+            array_map(static fn (AuthenticationFailed $event): array => [$event->flow, $event->reason->value, $event->retryAfter], $this->recordedAs(AuthenticationFailed::class)),
         );
     }
 
@@ -277,7 +279,7 @@ final class ResetRequestsTest extends TestCase
      * Each misconfiguration throws before anything is counted.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Passwords\PasswordService): mixed  $call
-     * @param  string  $message
+     * @param  non-empty-string  $message
      * @return void
      */
     #[DataProvider('provideMisconfiguredResets')]
@@ -359,7 +361,7 @@ final class ResetRequestsTest extends TestCase
      * counted.
      *
      * @param  array<string, mixed>  $settings
-     * @param  string  $message
+     * @param  non-empty-string  $message
      * @return void
      *
      * @throws \Throwable

@@ -62,7 +62,7 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
 
             return $bcrypt->make($value);
         });
-        $hasher->shouldReceive('check')->andReturnUsing(static fn (string $value, mixed $hash): bool => $bcrypt->check($value, $hash));
+        $hasher->shouldReceive('check')->andReturnUsing(static fn (string $value, ?string $hash): bool => $bcrypt->check($value, $hash));
         $hasher->shouldReceive('needsRehash')->andReturn(false);
 
         app()->instance(Hasher::class, $hasher);

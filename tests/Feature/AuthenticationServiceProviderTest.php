@@ -297,6 +297,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         $listeners = Event::getRawListeners()[SessionAuthenticated::class] ?? [];
 
+        self::assertIsArray($listeners);
         self::assertContains(
             RecordSessionUsage::class,
             $listeners,
@@ -312,7 +313,10 @@ final class AuthenticationServiceProviderTest extends TestCase
      */
     public function testTheGuardsAreResetBeforeEachQueuedJob(): void
     {
-        self::assertContains(ForgetGuardStateBeforeJob::class, Event::getRawListeners()[JobProcessing::class] ?? []);
+        $listeners = Event::getRawListeners()[JobProcessing::class] ?? [];
+
+        self::assertIsArray($listeners);
+        self::assertContains(ForgetGuardStateBeforeJob::class, $listeners);
     }
 
     /**
@@ -327,7 +331,10 @@ final class AuthenticationServiceProviderTest extends TestCase
         $listeners = Event::getRawListeners();
 
         foreach ([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class, OtherDeviceLogout::class] as $event) {
-            self::assertContains(TrackCredentialAttempts::class, $listeners[$event] ?? [], $event);
+            $registered = $listeners[$event] ?? [];
+
+            self::assertIsArray($registered, $event);
+            self::assertContains(TrackCredentialAttempts::class, $registered, $event);
         }
     }
 
@@ -869,10 +876,12 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $exchange     = $this->exchangeOf($guard);
-        $transactions = $this->readObjectProperty($this->readObjectProperty($exchange, 'afterCommit'), 'transactions');
+        $exchange = $this->exchangeOf($guard);
 
         self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
+
+        $transactions = $this->readObjectProperty($this->readObjectPropertyObject($exchange, 'afterCommit'), 'transactions');
+
         self::assertInstanceOf(\Closure::class, $transactions);
         self::assertSame(app('db.transactions'), $transactions());
 
@@ -1283,7 +1292,7 @@ final class AuthenticationServiceProviderTest extends TestCase
      */
     private function exchangeOf(JwtGuard $guard): mixed
     {
-        return $this->readObjectProperty($this->readObjectProperty(Auth::sessions($guard->getName()), 'refreshes'), 'exchange');
+        return $this->readObjectProperty($this->readObjectPropertyObject(Auth::sessions($guard->getName()), 'refreshes'), 'exchange');
     }
 
     /**
@@ -1321,5 +1330,23 @@ final class AuthenticationServiceProviderTest extends TestCase
         $reflectionProperty = (new \ReflectionClass($target))->getProperty($property);
 
         return $reflectionProperty->getValue($target);
+    }
+
+    /**
+     * Read a property holding an object, failing the test when it holds none.
+     *
+     * @param  object  $target
+     * @param  string  $property
+     * @return object
+     *
+     * @throws \ReflectionException
+     */
+    private function readObjectPropertyObject(object $target, string $property): object
+    {
+        $value = $this->readObjectProperty($target, $property);
+
+        self::assertIsObject($value, "The {$property} property holds no object.");
+
+        return $value;
     }
 }

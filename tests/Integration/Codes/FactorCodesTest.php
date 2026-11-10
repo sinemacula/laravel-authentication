@@ -145,8 +145,8 @@ final class FactorCodesTest extends TestCase
 
         self::assertSame(CodeRequestStatus::SENT, $request->status);
         self::assertSame($row['challenge_id'], $request->challengeId);
-        self::assertTrue($this->now->addSeconds(600)->equalTo($request->expiresAt));
-        self::assertTrue($this->now->addSeconds(60)->equalTo($request->resendAvailableAt));
+        self::assertEquals($this->now->addSeconds(600), $request->expiresAt);
+        self::assertEquals($this->now->addSeconds(60), $request->resendAvailableAt);
         self::assertSame(
             [self::bindingDigest(CodeBinding::factor('mobile', $binding)), 'mfa', 'mobile', 1],
             [$row['id'], $row['purpose'], $row['guard'], (int) $row['deliveries']],
@@ -316,7 +316,7 @@ final class FactorCodesTest extends TestCase
 
         self::assertSame([FactorCodeOutcome::VERIFIED, $challenge, null, null], [$check->outcome, $check->challengeId, $check->lockedUntil, $check->refusal]);
         self::assertTrue($check->isVerified());
-        self::assertTrue($this->now->equalTo($check->verifiedAt));
+        self::assertEquals($this->now, $check->verifiedAt);
         self::assertCount(1, $this->counters->reports);
         self::assertSame([$binding, $challenge, true], array_slice($this->counters->reports[0], 0, 3));
         self::assertGreaterThan(0, $this->counters->reports[0][3]);
@@ -422,8 +422,8 @@ final class FactorCodesTest extends TestCase
     /**
      * Rows of `[the binding checked, the challenge id named]`: a code checked
      * against another session, another factor, another proof purpose, the other
-     * kind of challenge, another identity, or naming another challenge, is
-     * not found and counts and reports nothing.
+     * kind of challenge, another identity, or naming another challenge, is not
+     * found and counts and reports nothing.
      *
      * @return iterable<string, array{0: \Closure(self): \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding, 1: ?string}>
      */

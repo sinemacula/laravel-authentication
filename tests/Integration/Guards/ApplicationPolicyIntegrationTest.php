@@ -223,14 +223,14 @@ final class ApplicationPolicyIntegrationTest extends TestCase
 
         Auth::forgetGuards();
 
-        $refreshed = Auth::sessions(self::GUARD)->refresh(PresentedRefreshToken::fromBody($signedIn->tokens->refreshToken?->reveal()), self::requestClient())->session;
+        $refreshed = Auth::sessions(self::GUARD)->refresh(self::bodyToken($signedIn->tokens), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 
         Auth::forgetGuards();
 
         $switched = Auth::sessions(self::GUARD)->switchTo(
-            PresentedRefreshToken::fromBody($refreshed->tokens->refreshToken?->reveal()),
+            self::bodyToken($refreshed->tokens),
             SwitchTarget::principal($second),
             self::requestClient(),
         )->session;
@@ -240,7 +240,7 @@ final class ApplicationPolicyIntegrationTest extends TestCase
 
         foreach ([$signedIn, $refreshed, $switched] as $session) {
             self::assertArrayNotHasKey('pty', $this->claims($session->tokens->accessToken->reveal()));
-            self::assertArrayNotHasKey('pty', $this->claims($session->tokens->refreshToken?->reveal(), TokenType::REFRESH));
+            self::assertArrayNotHasKey('pty', $this->claims(self::bodyRefreshToken($session->tokens), TokenType::REFRESH));
         }
     }
 

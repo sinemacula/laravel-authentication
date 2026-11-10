@@ -106,9 +106,12 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
 
         $require = $composerJson['require'] ?? [];
 
+        self::assertIsArray($require);
+
         $iamSiblings = array_filter(
             array_keys($require),
-            static fn (string $name): bool => str_starts_with($name, 'sinemacula/laravel-')
+            static fn (int|string $name): bool => is_string($name)
+                && str_starts_with($name, 'sinemacula/laravel-')
                 && $name !== 'sinemacula/laravel-authentication',
         );
 

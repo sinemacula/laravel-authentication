@@ -106,11 +106,11 @@ final readonly class ExternalEvidence
      */
     public static function fromStored(mixed $value): ?self
     {
-        $methods = is_array($value) ? $value['methods']          ?? null : null;
+        $methods = self::storedMethods(is_array($value) ? $value['methods'] ?? null : null);
         $context = is_array($value) ? $value['context']          ?? null : null;
         $time    = is_array($value) ? $value['authenticated_at'] ?? null : null;
 
-        if (!is_array($methods) || !is_string($time) || ($context !== null && !is_string($context))) {
+        if ($methods === null || !is_string($time) || ($context !== null && !is_string($context))) {
             return null;
         }
 
@@ -119,6 +119,32 @@ final readonly class ExternalEvidence
         } catch (\InvalidArgumentException) {
             return null;
         }
+    }
+
+    /**
+     * The method references a stored value holds, or `null` unless they are a
+     * list of strings.
+     *
+     * @param  mixed  $methods
+     * @return list<string>|null
+     */
+    private static function storedMethods(mixed $methods): ?array
+    {
+        if (!is_array($methods) || !array_is_list($methods)) {
+            return null;
+        }
+
+        $strings = [];
+
+        foreach ($methods as $method) {
+            if (!is_string($method)) {
+                return null;
+            }
+
+            $strings[] = $method;
+        }
+
+        return $strings;
     }
 
     /**

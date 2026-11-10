@@ -334,7 +334,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
         $session = $this->signedInSession('members', 'member@example.test');
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage(sprintf('Session [%s] belongs to guard [members], not [api].', $session->getKey()));
+        $this->expectExceptionMessage(sprintf('Session [%s] belongs to guard [members], not [api].', self::modelKey($session)));
 
         $this->actingOnSession($session, 'api');
     }
@@ -593,10 +593,10 @@ final class InteractsWithAuthenticationContextTest extends TestCase
         ];
 
         $found = [
-            'identity'  => sprintf('%s [%s]', ActivatableTenantMember::class, $member->getKey()),
-            'principal' => sprintf('%s [%s]', $membership::class, $membership->getKey()),
-            'tenant'    => sprintf('%s [%s]', $tenant::class, $tenant->getKey()),
-            'session'   => sprintf('%s [%s]', $session::class, $session->getKey()),
+            'identity'  => sprintf('%s [%s]', ActivatableTenantMember::class, self::modelKey($member)),
+            'principal' => sprintf('%s [%s]', $membership::class, self::modelKey($membership)),
+            'tenant'    => sprintf('%s [%s]', $tenant::class, self::modelKey($tenant)),
+            'session'   => sprintf('%s [%s]', $session::class, self::modelKey($session)),
         ];
 
         foreach ($failures as $kind => $assertion) {

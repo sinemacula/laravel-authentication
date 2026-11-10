@@ -461,8 +461,8 @@ final class ProofQueryBudgetTest extends PerformanceContractTestCase
             null,
             null,
         );
-        $subject = new ContributionSubject($context, $identity, $identity, null, $signedIn->record);
-        $none    = new ContributionSubject($context, $identity, $identity, null, null);
+        $subject = new ContributionSubject($context, $identity, $signedIn->principal, null, $signedIn->record);
+        $none    = new ContributionSubject($context, $identity, $signedIn->principal, null, null);
 
         for ($call = 1; $call <= 2; $call++) {
             self::assertCount(1, $this->assertQueryBudget(2, 0, static fn (): array => $subject->proofs()));

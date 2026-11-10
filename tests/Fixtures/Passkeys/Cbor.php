@@ -83,10 +83,48 @@ final class Cbor
         $encoded = self::head(5, count($pairs));
 
         foreach ($pairs as [$key, $item]) {
-            $encoded .= self::encode($key) . self::encode($item);
+            $encoded .= self::encode($key) . self::encodeItem($item);
         }
 
         return $encoded;
+    }
+
+    /**
+     * Encode a map's value, refusing one CBOR is not written with here.
+     *
+     * @param  mixed  $item
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function encodeItem(mixed $item): string
+    {
+        if (is_int($item) || is_string($item) || $item instanceof \Stringable) {
+            return self::encode($item);
+        }
+
+        if (!is_array($item) || !array_is_list($item)) {
+            throw new \InvalidArgumentException('A map value is an integer, a string or a list of pairs.');
+        }
+
+        return self::map(array_map(self::pair(...), $item));
+    }
+
+    /**
+     * The `[key, value]` pair of a nested map, refusing anything else.
+     *
+     * @param  mixed  $pair
+     * @return array{0: int|string|\Stringable, 1: mixed}
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function pair(mixed $pair): array
+    {
+        if (!is_array($pair) || !array_is_list($pair) || count($pair) !== 2 || !(is_int($pair[0]) || is_string($pair[0]) || $pair[0] instanceof \Stringable)) {
+            throw new \InvalidArgumentException('A map is a list of [key, value] pairs.');
+        }
+
+        return [$pair[0], $pair[1]];
     }
 
     /**

@@ -116,7 +116,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         $row     = (array) DB::table('identifier_changes')->first();
 
         self::assertSame([IdentifierChangeRequestStatus::SENT, null, null], [$request->status, $request->retryAfter, $request->link()]);
-        self::assertTrue($this->now->addSeconds(600)->equalTo($request->expiresAt));
+        self::assertEquals($this->now->addSeconds(600), $request->expiresAt);
         self::assertSame(PendingChanges::key($identity, 'email'), $row['id']);
         self::assertSame(['web', 'email', self::EMAIL, self::NEW_EMAIL], [$row['guard'], $row['type'], $row['previous'], $row['identifier']]);
         self::assertSame(['2026-04-06 12:00:00', '2026-04-06 12:10:00'], [$row['requested_at'], $row['expires_at']]);
@@ -147,7 +147,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         self::assertSame(['web', CodePurpose::CHANGE_IDENTIFIER, 'email'], [$message->guard, $message->purpose, $message->type]);
         self::assertSame([self::NEW_EMAIL, self::CODE], [$message->identifier, $message->code->reveal()]);
-        self::assertTrue($identity->is($message->identity));
+        self::assertIsModel($identity, $message->identity);
     }
 
     /**
@@ -165,7 +165,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         $identity = self::seedChangeable();
         $request  = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), self::requestClient());
 
-        self::assertTrue($this->now->addSeconds(300)->equalTo($request->expiresAt));
+        self::assertEquals($this->now->addSeconds(300), $request->expiresAt);
         self::assertSame('2026-04-06 12:05:00', DB::table('identifier_changes')->value('expires_at'));
     }
 
@@ -196,7 +196,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         parse_str((string) parse_url($link, PHP_URL_QUERY), $query);
 
         self::assertSame(IdentifierChangeRequestStatus::SENT, $request->status);
-        self::assertTrue($this->now->addSeconds(3600)->equalTo($request->expiresAt));
+        self::assertEquals($this->now->addSeconds(3600), $request->expiresAt);
         self::assertStringStartsWith('http://localhost/acme/email/confirm?', $link);
         self::assertSame([
             'en',

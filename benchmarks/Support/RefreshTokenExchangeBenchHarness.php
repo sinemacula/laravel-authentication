@@ -12,6 +12,7 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Events\Dispatcher as DispatcherContract;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Events\Dispatcher;
+use Illuminate\Foundation\Application;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Facade;
@@ -140,7 +141,7 @@ final class RefreshTokenExchangeBenchHarness
 
         $config = self::config();
 
-        $container = new Container;
+        $container = new Application;
         $container->instance('config', $config);
         $container->instance(Repository::class, $config);
         $container->instance(ConfigRepository::class, $config);

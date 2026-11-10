@@ -16,7 +16,6 @@ use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -124,11 +123,11 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         self::assertNull($this->stored($session)->getAbsoluteExpiresAt());
         self::assertSame($idle->getTimestamp(), $this->stored($session)->getIdleExpiresAt()?->getTimestamp());
-        self::assertSame($idle->getTimestamp(), $this->expiryOf($session->tokens->refreshToken?->reveal()));
+        self::assertSame($idle->getTimestamp(), $this->expiryOf(self::bodyRefreshToken($session->tokens)));
 
         $this->moveClocksTo($this->now->addDays(29));
 
-        $refreshed = $this->sessions(self::UNLIMITED)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session;
+        $refreshed = $this->sessions(self::UNLIMITED)->refresh(self::bodyToken($session->tokens), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
         self::assertNull($this->stored($session)->getAbsoluteExpiresAt());
@@ -198,7 +197,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
         $this->moveClocksTo($this->now->addHour());
 
         self::assertNotNull(
-            $this->sessions(self::UNLIMITED)->refresh(PresentedRefreshToken::fromBody($unlimited->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            $this->sessions(self::UNLIMITED)->refresh(self::bodyToken($unlimited->tokens), self::requestClient())->session,
         );
         self::assertSame($deadline->getTimestamp(), $this->stored($unlimited)->getAbsoluteExpiresAt()?->getTimestamp());
         self::assertSame($deadline->getTimestamp(), $this->stored($unlimited)->getIdleExpiresAt()?->getTimestamp());
@@ -207,7 +206,7 @@ final class OptionalAbsoluteLimitTest extends TestCase
 
         Event::fake([AuthenticationFailed::class]);
 
-        self::assertNull($this->sessions(self::LIMITED)->refresh(PresentedRefreshToken::fromBody($limited->tokens->refreshToken?->reveal()), self::requestClient())->session);
+        self::assertNull($this->sessions(self::LIMITED)->refresh(self::bodyToken($limited->tokens), self::requestClient())->session);
 
         Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::SESSION_EXPIRED);
     }

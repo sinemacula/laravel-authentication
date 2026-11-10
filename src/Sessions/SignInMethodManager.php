@@ -184,6 +184,10 @@ final class SignInMethodManager extends Manager
     #[\Override]
     public function driver(mixed $driver = null): mixed
     {
+        if ($driver !== null && !is_string($driver) && !$driver instanceof \UnitEnum) {
+            throw new \InvalidArgumentException(sprintf('A sign-in method is named by a string or an enum case, not %s.', get_debug_type($driver)));
+        }
+
         $current = Container::getInstance();
 
         if ($this->followsApplication && $current !== $this->container) {

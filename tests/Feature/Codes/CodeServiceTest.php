@@ -6,6 +6,7 @@ namespace Tests\Feature\Codes;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -127,8 +128,8 @@ final class CodeServiceTest extends TestCase
         $request = $this->codeService()->send('phone_code', ['phone' => ' ' . self::PHONE], self::requestClient());
 
         self::assertSame([CodeRequestStatus::SENT, null], [$request->status, $request->retryAfter]);
-        self::assertTrue($this->now->addSeconds(600)->equalTo($request->expiresAt));
-        self::assertTrue($this->now->addSeconds(60)->equalTo($request->resendAvailableAt));
+        self::assertEquals($this->now->addSeconds(600), $request->expiresAt);
+        self::assertEquals($this->now->addSeconds(60), $request->resendAvailableAt);
 
         Queue::assertPushedOn('codes', SendOneTimeCode::class, static fn (SendOneTimeCode $job): bool => $job->connection === 'deliveries'
                 && $job->identity                                                                                         === null
@@ -387,7 +388,8 @@ final class CodeServiceTest extends TestCase
 
         self::assertTrue($request->isSent());
 
-        Queue::assertPushed(SendOneTimeCode::class, static fn (SendOneTimeCode $job): bool => $identity->is($job->identity)
+        Queue::assertPushed(SendOneTimeCode::class, static fn (SendOneTimeCode $job): bool => $job->identity instanceof Model
+                && $identity->is($job->identity)
                 && $job->binding->purpose             === CodePurpose::VERIFICATION
                 && self::bindingDigest($job->binding) === self::bindingDigest(CodeBinding::verification('mobile', 'phone', self::PHONE, $identity)));
     }
@@ -505,7 +507,11 @@ final class CodeServiceTest extends TestCase
 
         self::assertSame(0, self::storedAttempts());
         self::assertSame(1, self::counterHits('identifier_verification', 'per_account', AccountAttempts::account($identity)));
-        self::assertSame(1, self::counterHits('mobile', 'identifier_verification', 'per_ip', self::requestClient()->ip));
+
+        $ip = self::requestClient()->ip;
+
+        self::assertNotNull($ip);
+        self::assertSame(1, self::counterHits('mobile', 'identifier_verification', 'per_ip', $ip));
     }
 
     /**
@@ -708,7 +714,7 @@ final class CodeServiceTest extends TestCase
      *
      * @param  \Closure(): \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  class-string<\Throwable>  $exception
-     * @param  string  $message
+     * @param  non-empty-string  $message
      * @return void
      *
      * @throws \Throwable
@@ -795,7 +801,7 @@ final class CodeServiceTest extends TestCase
      * before any code request is counted or any code issued.
      *
      * @param  array<string, mixed>  $settings
-     * @param  string  $message
+     * @param  non-empty-string  $message
      * @return void
      *
      * @throws \Throwable
@@ -855,7 +861,7 @@ final class CodeServiceTest extends TestCase
      * issued, with the factor package's counters ready to admit it.
      *
      * @param  array<string, mixed>  $settings
-     * @param  string  $message
+     * @param  non-empty-string  $message
      * @param  \Closure(\SineMacula\Laravel\Authentication\Codes\CodeService, \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding): mixed  $call
      * @return void
      *

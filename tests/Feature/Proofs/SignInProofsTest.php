@@ -954,7 +954,7 @@ final class SignInProofsTest extends TestCase
 
         self::assertNotNull($pending);
         self::assertSame([PendingRequirement::MFA], $pending->requires);
-        self::assertTrue($membership->is($pending->principal));
+        self::assertIsModel($membership, $pending->principal);
 
         $this->clockAt($this->now->addMinutes(2));
 

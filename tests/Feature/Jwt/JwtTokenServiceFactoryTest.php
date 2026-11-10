@@ -1344,10 +1344,11 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
     /**
      * Build a standalone verifier for the named guard over the supplied key
-     * map, using its first kid as the active kid.
+     * map, using its first kid as the active kid: a numeric kid is an integer
+     * key.
      *
      * @param  string  $guard
-     * @param  array<string, string>  $keys
+     * @param  array<array-key, string>  $keys
      * @param  string  $audience
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
      */

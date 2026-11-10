@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Guards;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Container\Container;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyAuthentication;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
@@ -121,21 +122,22 @@ final class ApiKeyGuard extends AbstractGuard
         $now       = CarbonImmutable::now()->startOfSecond();
         $outcome   = $this->authenticate($presented, $now);
         $admission = $outcome->admission;
+        $key       = $outcome->key;
 
-        if ($admission instanceof Refused || $outcome->key === null) {
+        if ($admission instanceof Admitted && $key !== null) {
 
-            $this->context->dispatch($outcome->failure($admission, $this->context->name(), AuthenticationFlow::API_KEY, self::METHOD, $this->context->client()));
+            $this->bindVerifiedContext($admission->identity, $admission->principal, null, $admission->tenant, self::METHOD, false, $key->id, $key->scopes, CredentialKind::API_KEY);
 
-            return null;
+            ApiKeyLookup::recordUse($key, $now);
+
+            return $admission->identity;
         }
 
-        $key = $outcome->key;
+        if ($admission instanceof Refused) {
+            $this->context->dispatch($outcome->failure($admission, $this->context->name(), AuthenticationFlow::API_KEY, self::METHOD, $this->context->client()));
+        }
 
-        $this->bindVerifiedContext($admission->identity, $admission->principal, null, $admission->tenant, self::METHOD, false, $key->id, $key->scopes, CredentialKind::API_KEY);
-
-        ApiKeyLookup::recordUse($key, $now);
-
-        return $admission->identity;
+        return null;
     }
 
     /**

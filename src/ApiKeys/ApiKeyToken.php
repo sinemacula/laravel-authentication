@@ -131,8 +131,8 @@ final class ApiKeyToken
     /**
      * A string of the length drawn uniformly from the alphabet.
      *
-     * @param  string  $alphabet
-     * @param  int  $length
+     * @param  non-empty-string  $alphabet
+     * @param  positive-int  $length
      * @return string
      */
     private static function random(string $alphabet, int $length): string

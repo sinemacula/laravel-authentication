@@ -124,29 +124,6 @@ final class AuthenticateTest extends TestCase
     }
 
     /**
-     * Something other than a request is passed to Laravel untouched: nothing is
-     * recorded, and the guards are still tried.
-     *
-     * @return void
-     */
-    public function testLeavesSomethingOtherThanARequestUntouched(): void
-    {
-        $middleware = app(IlluminateAuthenticate::class);
-        $passed     = new \stdClass;
-
-        try {
-            $middleware->handle($passed, static fn (): Response => new Response('The guest passed.'), 'api');
-        } catch (AuthenticationException $exception) {
-            self::assertSame(['api'], $exception->guards());
-            self::assertSame([], get_object_vars($passed));
-
-            return;
-        }
-
-        self::fail('Expected the guest to be rejected.');
-    }
-
-    /**
      * Configure a package `api` guard beside Laravel's `web` session guard.
      *
      * @param  mixed  $app

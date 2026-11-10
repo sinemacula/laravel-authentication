@@ -132,7 +132,7 @@ final class SendOneTimeCodeTest extends TestCase
         self::assertSame(['mobile', CodePurpose::SIGN_IN, 'phone'], [$message->guard, $message->purpose, $message->type]);
         self::assertSame([self::PHONE, self::CODE], [$message->identifier, $message->code->reveal()]);
         self::assertTrue($this->now->addSeconds(600)->equalTo($message->expiresAt));
-        self::assertTrue($identity->is($message->identity));
+        self::assertIsModel($identity, $message->identity);
     }
 
     /**
@@ -268,7 +268,7 @@ final class SendOneTimeCodeTest extends TestCase
         $message = $this->sender->sent()[0] ?? null;
 
         self::assertSame('ada@example.test', $message?->identifier);
-        self::assertTrue($holder->is($message->identity));
+        self::assertIsModel($holder, $message->identity);
     }
 
     /**
@@ -329,7 +329,7 @@ final class SendOneTimeCodeTest extends TestCase
         $job->handle(app());
 
         self::assertSame(self::CODE, $this->sender->lastCodeFor(self::PHONE, CodePurpose::VERIFICATION));
-        self::assertTrue($identity->is($this->sender->sent()[0]->identity));
+        self::assertIsModel($identity, $this->sender->sent()[0]->identity);
     }
 
     /**
@@ -529,7 +529,7 @@ final class SendOneTimeCodeTest extends TestCase
 
         self::assertInstanceOf(OneTimeCodeMessage::class, $message);
         self::assertSame(['mobile', self::CODE], [$message->guard, $message->code->reveal()]);
-        self::assertTrue($identity->is($message->identity));
+        self::assertIsModel($identity, $message->identity);
     }
 
     /**
@@ -587,7 +587,7 @@ final class SendOneTimeCodeTest extends TestCase
 
         self::assertInstanceOf(OneTimeCodeMessage::class, $message);
         self::assertSame(1, $this->sender->count());
-        self::assertTrue($identity->is($message->identity));
+        self::assertIsModel($identity, $message->identity);
     }
 
     /**

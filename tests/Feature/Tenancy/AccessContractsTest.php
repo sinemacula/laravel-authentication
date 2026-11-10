@@ -17,7 +17,6 @@ use SineMacula\Laravel\Authentication\Contracts\TenantAccess;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RefusingApplicationAccess;
@@ -82,7 +81,7 @@ final class AccessContractsTest extends TestCase
         $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
-        self::assertTrue($membership->is($session->principal)); // @phpstan-ignore method.notFound
+        self::assertIsModel($membership, $session->principal);
         $listed = $this->sessions('members')->principals($member);
 
         self::assertSame([$membership->getKey()], array_map(static fn (Principal $principal): mixed => $principal->getPrincipalIdentifier(), $listed));
@@ -139,7 +138,7 @@ final class AccessContractsTest extends TestCase
 
         app()->instance(ApplicationAccess::class, new RefusingApplicationAccess(static fn (): bool => true));
 
-        $refused = self::sessionsOf($this->freshGuard('members'))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient());
+        $refused = self::sessionsOf($this->freshGuard('members'))->refresh(self::bodyToken($session->tokens), self::requestClient());
 
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $refused->reason);
         self::assertNull(Session::query()->sole()->getRevokedAt());
@@ -148,7 +147,7 @@ final class AccessContractsTest extends TestCase
 
         self::assertTrue(
             self::sessionsOf($this->freshGuard('members'))->refresh(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 self::requestClient(),
             )->isRefreshed(),
         );

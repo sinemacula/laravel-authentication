@@ -375,6 +375,34 @@ trait InteractsWithSessions
     }
 
     /**
+     * The recorded events, in order, failing the test when one is of none of
+     * the classes.
+     *
+     * @template TEvent of object
+     *
+     * @param  class-string<TEvent>  ...$classes
+     * @return list<TEvent>
+     */
+    protected function recordedAs(string ...$classes): array
+    {
+        $events = [];
+
+        foreach ($this->recorded as $event) {
+
+            foreach ($classes as $class) {
+                if ($event instanceof $class) {
+                    $events[] = $event;
+                    continue 2;
+                }
+            }
+
+            self::fail(sprintf('Recorded an unexpected %s.', $event::class));
+        }
+
+        return $events;
+    }
+
+    /**
      * The one recorded event of the class.
      *
      * @template TEvent of object

@@ -183,7 +183,7 @@ final class ReplicaPendingSessionsTest extends TestCase
         $found = $this->sessions()->pending((string) $result->credential?->reveal(), PendingAction::VERIFY);
 
         self::assertNotNull($found);
-        self::assertTrue($identity->is($found->principal));
+        self::assertIsModel($identity, $found->principal);
 
         $satisfied = $this->sessions()->satisfy(
             (string) $result->credential?->reveal(),

@@ -181,6 +181,8 @@ final class CodeRoutesTest extends TestCase
         self::assertIsArray($unknown);
         self::assertSame(array_keys($known), array_keys($unknown));
         self::assertSame($known['expires_at'], $unknown['expires_at']);
+        self::assertIsString($known['challenge']);
+        self::assertIsString($unknown['challenge']);
         self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, $known['challenge']);
         self::assertMatchesRegularExpression(self::CHALLENGE_PATTERN, $unknown['challenge']);
         self::assertNull($this->sender->lastCodeFor(self::UNKNOWN_PHONE));

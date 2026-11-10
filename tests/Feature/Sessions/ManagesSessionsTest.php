@@ -21,7 +21,6 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
@@ -143,7 +142,7 @@ final class ManagesSessionsTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertNull(
-            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
         self::assertSame(FailureReason::SESSION_REVOKED, $this->recordedEvent(AuthenticationFailed::class)->reason);
     }

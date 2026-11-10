@@ -424,7 +424,9 @@ final class StorageConnectionProofSpendingTest extends TestCase
      */
     private function hasPassword(string $password): bool
     {
-        return app(Hasher::class)->check($password, $this->stored()->value('password'));
+        $hash = $this->stored()->value('password');
+
+        return is_string($hash) && app(Hasher::class)->check($password, $hash);
     }
 
     /**

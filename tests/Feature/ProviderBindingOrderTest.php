@@ -6,8 +6,7 @@ namespace Tests\Feature;
 
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Container\Container;
-use Illuminate\Contracts\Container\Container as ContainerContract;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -36,7 +35,7 @@ use Tests\Fixtures\Sessions\ProvenIdentitySignIn;
  * Feature tests for the order the package's service provider and another
  * package's provider register in: every binding the package makes is a default,
  * kept out of the way of one made before it and replaced by one made after, on
- * a container that holds only the two providers' bindings.
+ * an application that holds only its base bindings and the two providers'.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -250,15 +249,14 @@ final class ProviderBindingOrderTest extends TestCase
     }
 
     /**
-     * A container holding nothing but itself and a configuration repository,
-     * which the package's provider merges its configuration into.
+     * An application holding nothing but its base bindings and a configuration
+     * repository, which the package's provider merges its configuration into.
      *
-     * @return \Illuminate\Container\Container
+     * @return \Illuminate\Foundation\Application
      */
-    private static function container(): Container
+    private static function container(): Application
     {
-        $container = new Container;
-        $container->instance(ContainerContract::class, $container);
+        $container = new Application;
         $container->instance('config', new ConfigRepository);
 
         return $container;
@@ -267,25 +265,25 @@ final class ProviderBindingOrderTest extends TestCase
     /**
      * Another package's provider, binding the abstract to the object.
      *
-     * @param  \Illuminate\Container\Container  $container
+     * @param  \Illuminate\Foundation\Application  $container
      * @param  string  $abstract
      * @param  object  $object
      * @return \Illuminate\Support\ServiceProvider
      */
-    private static function siblingBinding(Container $container, string $abstract, object $object): ServiceProvider
+    private static function siblingBinding(Application $container, string $abstract, object $object): ServiceProvider
     {
         return new class ($container, $abstract, $object) extends ServiceProvider {
             /**
              * Constructor.
              *
-             * @param  \Illuminate\Container\Container  $app
+             * @param  \Illuminate\Foundation\Application  $app
              * @param  string  $abstract
              * @param  object  $object
              */
             public function __construct(
 
-                // Container the provider binds into.
-                Container $app,
+                // Application the provider binds into.
+                Application $app,
 
                 /** Abstract the provider binds. */
                 private readonly string $abstract,

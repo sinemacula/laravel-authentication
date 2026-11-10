@@ -127,7 +127,7 @@ final class AuthManagerTest extends TestCase
         /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
         $manager      = app('auth');
         $sessions     = $manager->sessions('test_jwt');
-        $transactions = self::readProperty(self::readProperty($sessions, 'afterCommit'), 'transactions');
+        $transactions = self::readProperty(self::readObjectProperty($sessions, 'afterCommit'), 'transactions');
 
         self::assertSame(app(), self::readProperty($sessions, 'container'));
         self::assertInstanceOf(\Closure::class, $transactions);
@@ -722,5 +722,23 @@ final class AuthManagerTest extends TestCase
     private static function readProperty(object $target, string $property): mixed
     {
         return (new \ReflectionProperty($target, $property))->getValue($target);
+    }
+
+    /**
+     * Read a property holding an object, failing the test when it holds none.
+     *
+     * @param  object  $target
+     * @param  string  $property
+     * @return object
+     *
+     * @throws \ReflectionException
+     */
+    private static function readObjectProperty(object $target, string $property): object
+    {
+        $value = self::readProperty($target, $property);
+
+        self::assertIsObject($value, "The {$property} property holds no object.");
+
+        return $value;
     }
 }

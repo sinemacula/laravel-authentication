@@ -22,7 +22,6 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SteppedUp;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Freshness\FreshnessRequirement;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -159,7 +158,7 @@ final class SessionStepUpTest extends TestCase
         $this->bearer($answer['access_token'])->assertOk()->assertExactJson(['session' => $key]);
         $this->bearer($signedIn->tokens->accessToken->reveal())->assertOk()->assertExactJson(['session' => $key]);
 
-        self::assertTrue($this->sessions()->refresh(PresentedRefreshToken::fromBody($signedIn->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
+        self::assertTrue($this->sessions()->refresh(self::bodyToken($signedIn->tokens), self::requestClient())->isRefreshed());
     }
 
     /**
@@ -311,12 +310,12 @@ final class SessionStepUpTest extends TestCase
 
         $this->clockAt($issuedAt);
 
-        $refreshed = $this->sessions('members')->refresh(PresentedRefreshToken::fromBody($signedIn->tokens->refreshToken?->reveal()), self::requestClient())->session;
+        $refreshed = $this->sessions('members')->refresh(self::bodyToken($signedIn->tokens), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 
         $switched = $this->sessions('members')->switchTo(
-            PresentedRefreshToken::fromBody($refreshed->tokens->refreshToken?->reveal()),
+            self::bodyToken($refreshed->tokens),
             SwitchTarget::principal($second),
             self::requestClient(),
         )->session;

@@ -249,7 +249,10 @@ final class PasswordChangesTest extends TestCase
     {
         $identity = self::seedPasswordIdentity();
         $session  = $this->signInWithPassword()->record;
-        $guard    = $spoil($session) ?? 'web';
+
+        self::assertInstanceOf(Session::class, $session);
+
+        $guard = $spoil($session) ?? 'web';
 
         DB::table('rate_limits')->delete();
 
@@ -595,7 +598,7 @@ final class PasswordChangesTest extends TestCase
         self::assertSame([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
         self::assertSame([$client, $client, $client], array_map(
             static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
-            $this->recorded,
+            $this->recordedAs(PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class),
         ));
     }
 
@@ -622,7 +625,7 @@ final class PasswordChangesTest extends TestCase
         self::assertSame([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
         self::assertSame([$client, $client, $client], array_map(
             static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
-            $this->recorded,
+            $this->recordedAs(PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class),
         ));
     }
 

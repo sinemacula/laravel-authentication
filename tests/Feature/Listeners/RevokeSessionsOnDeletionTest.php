@@ -141,7 +141,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
         self::assertNull(DB::table('authentication_sessions')->where('id', $kept)->value('revoked_at'));
         self::assertSame([SessionRevoked::class, SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class], $this->recordedClasses());
 
-        $revoked = array_slice($this->recorded, 0, 3);
+        $revoked = array_values(array_filter($this->recorded, static fn (object $event): bool => $event instanceof SessionRevoked));
 
         self::assertSame(array_fill(0, 3, RevocationReason::IDENTITY_DELETED), array_map(static fn (SessionRevoked $event): RevocationReason => $event->reason, $revoked));
         self::assertEqualsCanonicalizing($ended, array_map(static fn (SessionRevoked $event): ?string => $event->context->sessionId, $revoked));
@@ -350,7 +350,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
         self::assertSame(RevocationReason::IDENTITY_DELETED, $scope->reason);
         self::assertSame(0, $scope->revoked);
         self::assertNull($scope->tokensValidAfter);
-        self::assertSame(self::NOW, CarbonImmutable::parse(DB::table('authentication_sessions')->where('id', $session)->value('revoked_at'))->format('Y-m-d H:i:s'));
+        self::assertSame(self::NOW, self::storedInstant(DB::table('authentication_sessions')->where('id', $session)->value('revoked_at'))->format('Y-m-d H:i:s'));
         self::assertSame(0, DB::table('soft_deleting_members')->count());
     }
 
@@ -384,7 +384,7 @@ final class RevokeSessionsOnDeletionTest extends TestCase
 
         self::assertSame($later, $this->recordedEvent(SessionRevoked::class)->context->sessionId);
         self::assertSame(1, $this->recordedEvent(SignedOutEverywhere::class)->revoked);
-        self::assertSame(self::NOW, CarbonImmutable::parse(DB::table('authentication_sessions')->where('id', $earlier)->value('revoked_at'))->format('Y-m-d H:i:s'));
+        self::assertSame(self::NOW, self::storedInstant(DB::table('authentication_sessions')->where('id', $earlier)->value('revoked_at'))->format('Y-m-d H:i:s'));
         self::assertSame('identity_deleted', DB::table('authentication_sessions')->where('id', $later)->value('revoked_reason'));
     }
 

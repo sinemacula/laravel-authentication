@@ -131,7 +131,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
             10,
             2,
             static fn (): SwitchResult => $sessions->switchTo(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 SwitchTarget::principal($second),
                 self::requestClient(),
             ),
@@ -159,7 +159,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         [, $first, $tenant] = $this->seedMember();
 
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
-        $tree       = (new DescendantTenants)->place($descendant->getKey(), $tenant->getKey());
+        $tree       = (new DescendantTenants)->place(self::modelKey($descendant), self::modelKey($tenant));
 
         app()->instance(TenantAccess::class, $tree);
         app()->instance(TenantResolver::class, $tree);
@@ -169,11 +169,11 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($session);
 
         $sessions = $this->sessions('members');
-        $target   = SwitchTarget::tenant(TenantSelection::of($descendant->getKey()));
+        $target   = SwitchTarget::tenant(TenantSelection::of(self::modelKey($descendant)));
         $result   = $this->assertQueryBudget(
             12,
             2,
-            static fn (): SwitchResult => $sessions->switchTo(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), $target, self::requestClient()),
+            static fn (): SwitchResult => $sessions->switchTo(self::bodyToken($session->tokens), $target, self::requestClient()),
         );
 
         self::assertTrue($result->isSwitched());
@@ -203,7 +203,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
             10,
             2,
             static fn (): SwitchResult => $sessions->switchTo(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 SwitchTarget::principal($second),
                 self::requestClient(),
             ),
@@ -256,7 +256,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart))));
 
         $sessions = $this->sessions('members');
-        $token    = $session->tokens->refreshToken?->reveal();
+        $token    = self::bodyRefreshToken($session->tokens);
         $result   = $this->assertQueryBudget(
             $reads,
             2,
@@ -469,7 +469,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
     {
         [$session, $second] = $this->signInWithASecondMembership();
 
-        $sessions = self::sessionsOf($this->guardForRequest(['refresh_token' => $session->tokens->refreshToken?->reveal()]));
+        $sessions = self::sessionsOf($this->guardForRequest(['refresh_token' => self::bodyRefreshToken($session->tokens)]));
         $result   = $this->assertQueryBudget(
             10,
             2,
@@ -495,7 +495,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
 
         self::assertTrue(
             $this->sessions('members')->switchTo(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 SwitchTarget::principal($second),
                 self::requestClient(),
             )->isSwitched(),
@@ -506,7 +506,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
             8,
             1,
             static fn (): SwitchResult => $sessions->switchTo(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 SwitchTarget::principal($second),
                 self::requestClient(),
             ),
@@ -535,7 +535,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
             6,
             5,
             static fn (): SwitchResult => $sessions->switchTo(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 SwitchTarget::principal($foreign),
                 self::requestClient(),
             ),
@@ -568,7 +568,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
             1,
             0,
             static fn (): SwitchResult => $sessions->switchTo(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 SwitchTarget::principal($second),
                 self::requestClient(),
             ),
@@ -595,7 +595,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         [$session, $second, $first] = $this->signInWithASecondMembership();
         [, $foreign]                = $this->seedMember('other@example.test');
 
-        $token   = $session->tokens->refreshToken?->reveal();
+        $token   = self::bodyRefreshToken($session->tokens);
         $targets = [$second, $first];
 
         self::assertNotNull($this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($foreign), self::requestClient())->reason);

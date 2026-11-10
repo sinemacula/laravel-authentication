@@ -33,7 +33,7 @@ final class ClientContextTest extends TestCase
     protected function tearDown(): void
     {
         Request::setTrustedHosts([]);
-        Request::setTrustedProxies([], -1);
+        Request::setTrustedProxies([], 0);
 
         parent::tearDown();
     }

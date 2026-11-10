@@ -304,7 +304,7 @@ final class RequestSequenceTest extends TestCase
 
         $guard = $this->apiGuard();
 
-        self::assertNotNull(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session);
+        self::assertNotNull(self::sessionsOf($guard)->refresh(self::bodyToken($session->tokens), self::requestClient())->session);
 
         Event::fake([AuthenticationFailed::class, SessionRevoked::class, SignedIn::class]);
 
@@ -315,7 +315,7 @@ final class RequestSequenceTest extends TestCase
 
         JWT::$timestamp = $later->getTimestamp();
 
-        self::assertNull(self::sessionsOf($guard)->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session);
+        self::assertNull(self::sessionsOf($guard)->refresh(self::bodyToken($session->tokens), self::requestClient())->session);
 
         self::sessionsOf($guard)->signIn('password', self::credentials('ada@example.test'), self::requestContext());
 
@@ -373,7 +373,7 @@ final class RequestSequenceTest extends TestCase
 
         self::assertTrue(
             self::sessionsOf($guard)->switchTo(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 SwitchTarget::principal($second),
                 self::requestClient(),
             )->isSwitched(),
@@ -408,7 +408,7 @@ final class RequestSequenceTest extends TestCase
         $this->app?->instance(PrincipalResolver::class, $resolver);
 
         $result = self::sessionsOf($guard)->switchTo(
-            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            self::bodyToken($session->tokens),
             SwitchTarget::principal($second),
             self::requestClient(),
         );

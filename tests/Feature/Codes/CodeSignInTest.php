@@ -124,7 +124,7 @@ final class CodeSignInTest extends TestCase
         $result = $this->signIn(self::CODE);
 
         self::assertTrue($result->isSignedIn());
-        self::assertTrue($identity->is($result->session?->identity));
+        self::assertIsModel($identity, $result->session?->identity);
         self::assertSame(['phone_code', 'phone'], [$result->session?->method, Session::query()->sole()->sign_in_identifier_type]);
         self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
 

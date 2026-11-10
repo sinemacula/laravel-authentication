@@ -11,6 +11,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithSessions;
@@ -101,7 +102,11 @@ final class AuthScopesIntegrationTest extends TestCase
 
         Auth::forgetGuards();
         Auth::shouldUse('api');
-        Auth::guard('api')->login($machine, $machine);
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $guard->login($machine, $machine);
 
         self::assertSame([], Auth::scopes());
         self::assertSame([], $this->recordedEvent(PrincipalAssigned::class)->context()->scopes);

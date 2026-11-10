@@ -214,7 +214,7 @@ final class ReplicaApiKeysTest extends TestCase
 
         DB::connection(self::PRIMARY_CONNECTION)->table('machine_memberships')->update(['tenant_id' => $moved->getKey()]);
 
-        $current = MachineMembership::query()->useWritePdo()->findOrFail($membership->getKey());
+        $current = MachineMembership::query()->useWritePdo()->findOrFail(self::modelKey($membership));
         $issued  = $this->apiKeys('accounts')->issue($account, $current);
 
         $recorded = DB::connection(self::PRIMARY_CONNECTION)->table('api_keys')->where('id', $issued->id)->value('tenant_id');

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversNothing;
+use Tests\Concerns\RunsMigrationSteps;
 use Tests\TestCase;
 
 /**
@@ -31,6 +32,8 @@ use Tests\TestCase;
 #[CoversNothing]
 final class SessionsTableSchemaTest extends TestCase
 {
+    use RunsMigrationSteps;
+
     /** @var string Absolute path to the shipped sessions migration file. */
     private const string MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000000_create_authentication_sessions_table.php';
 
@@ -110,7 +113,7 @@ final class SessionsTableSchemaTest extends TestCase
         Builder::defaultTimePrecision(6);
 
         try {
-            \call_user_func([$this->loadMigration(), 'up']);
+            self::runMigrationStep($this->loadMigration());
         } finally {
             Builder::defaultTimePrecision($precision);
         }
@@ -267,7 +270,7 @@ final class SessionsTableSchemaTest extends TestCase
         config()->set('authentication.session.table', $table);
 
         try {
-            \call_user_func([$this->loadMigration(), 'up']);
+            self::runMigrationStep($this->loadMigration());
 
             self::assertSame(self::indexNames($table), self::secondaryIndexNames($table));
         } finally {

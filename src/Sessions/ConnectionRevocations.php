@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\GuardBinding;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Database\GrammarExpression;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
@@ -244,13 +245,12 @@ final readonly class ConnectionRevocations
      */
     private static function established(string $connectionId, ?string $after, bool $numeric): array
     {
-        $query  = WriteConnection::query(SessionProvenance::query());
-        $length = 'length(' . $query->getQuery()->getGrammar()->wrap('session_id') . ')';
+        $query = WriteConnection::query(SessionProvenance::query());
 
         $query->where('connection_id', $connectionId)
-            ->when($after !== null && $numeric, static fn (Builder $query): Builder => self::numericallyAfter($query, $length, (string) $after))
+            ->when($after !== null && $numeric, static fn (Builder $query): Builder => self::numericallyAfter($query, (string) $after))
             ->when($after !== null && !$numeric, static fn (Builder $query): Builder => $query->where('session_id', '>', $after))
-            ->when($numeric, static fn (Builder $query): Builder => $query->orderByRaw($length))
+            ->when($numeric, static fn (Builder $query): Builder => $query->orderBy(new GrammarExpression('length(%s)', ['session_id'])))
             ->orderBy('session_id')
             ->limit(self::CHUNK)
             ->sharedLock();
@@ -263,16 +263,15 @@ final readonly class ConnectionRevocations
      * their numeric order: longer ones, or ones as long that sort after it.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\SessionProvenance>  $query
-     * @param  string  $length
      * @param  string  $after
      * @return \Illuminate\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\SessionProvenance>
      */
-    private static function numericallyAfter(Builder $query, string $length, string $after): Builder
+    private static function numericallyAfter(Builder $query, string $after): Builder
     {
-        return $query->where(static function (Builder $query) use ($length, $after): void {
-            $query->whereRaw($length . ' > ?', [strlen($after)])
-                ->orWhere(static function (Builder $query) use ($length, $after): void {
-                    $query->whereRaw($length . ' = ?', [strlen($after)])->where('session_id', '>', $after);
+        return $query->where(static function (Builder $query) use ($after): void {
+            $query->whereRaw(new GrammarExpression('length(%s) > ?', ['session_id']), [strlen($after)])
+                ->orWhere(static function (Builder $query) use ($after): void {
+                    $query->whereRaw(new GrammarExpression('length(%s) = ?', ['session_id']), [strlen($after)])->where('session_id', '>', $after);
                 });
         });
     }

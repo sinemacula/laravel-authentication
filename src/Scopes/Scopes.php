@@ -45,11 +45,13 @@ final class Scopes
      */
     public static function normalize(array $scopes): array
     {
+        $tokens    = [];
         $malformed = [];
 
         foreach ($scopes as $scope) {
 
-            if (self::isToken($scope)) {
+            if (is_string($scope) && self::isToken($scope)) {
+                $tokens[] = $scope;
                 continue;
             }
 
@@ -63,10 +65,7 @@ final class Scopes
             throw new InvalidScopeException($message, $malformed);
         }
 
-        /** @var list<string> $unique */
-        $unique = array_values(array_unique($scopes));
-
-        return self::withinListLength($unique);
+        return self::withinListLength(array_values(array_unique($tokens)));
     }
 
     /**
@@ -163,11 +162,11 @@ final class Scopes
     /**
      * Whether the value is a well-formed scope token.
      *
-     * @param  mixed  $scope
+     * @param  string  $scope
      * @return bool
      */
-    private static function isToken(mixed $scope): bool
+    private static function isToken(string $scope): bool
     {
-        return is_string($scope) && strlen($scope) <= self::MAX_LENGTH && preg_match(self::TOKEN_PATTERN, $scope) === 1;
+        return strlen($scope) <= self::MAX_LENGTH && preg_match(self::TOKEN_PATTERN, $scope) === 1;
     }
 }

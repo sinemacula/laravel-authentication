@@ -307,11 +307,7 @@ final readonly class RefreshTokenExchange
 
         $session = $this->hydrateRefreshContext($record, $principalHint, $client);
 
-        if ($session instanceof AuthenticationFailed) {
-            return $session;
-        }
-
-        return $this->underTenantPolicy($record, $session, $verdict, $rotationId, $now, $client);
+        return $session instanceof AuthenticationFailed ? $session : $this->underTenantPolicy($record, $session, $verdict, $rotationId, $now, $client);
     }
 
     /**

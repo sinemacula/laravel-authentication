@@ -204,6 +204,8 @@ final class WriteConnectionTest extends TestCase
         $connection = $this->splitConnection();
         $resolver   = Model::getConnectionResolver();
 
+        self::assertNotNull($resolver);
+
         $subject = \Mockery::mock(Session::class)->makePartial();
         $subject->shouldReceive('getConnection')->andReturn($connection);
 

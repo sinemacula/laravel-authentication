@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\HasSessions;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Database\GrammarExpression;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\SessionRecords\IdentitySessions;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionKeyShape;
@@ -105,7 +106,7 @@ final class ActiveSessions
             $lastUsed = $session->qualifyColumn($session->getLastUsedAtName());
 
             return $query
-                ->orderByRaw(sprintf('case when %s is null then 1 else 0 end', $session->getConnection()->getQueryGrammar()->wrap($lastUsed)))
+                ->orderBy(new GrammarExpression('case when %s is null then 1 else 0 end', [$lastUsed]))
                 ->orderByDesc($lastUsed)
                 ->orderByDesc($session->getQualifiedKeyName())
                 ->paginate($perPage, ['*'], 'page', $page);

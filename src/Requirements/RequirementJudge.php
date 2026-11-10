@@ -208,6 +208,12 @@ final class RequirementJudge
 
         $current = $source->current;
 
-        return static fn (?CarbonImmutable $since, ?array $kinds, int $limit): array => SessionProofs::query($session, $since, $kinds, $limit, $current);
+        return static fn (?CarbonImmutable $since, ?array $kinds, int $limit): array => SessionProofs::query(
+            $session,
+            $since,
+            $kinds === null ? null : array_values($kinds),
+            $limit,
+            $current,
+        );
     }
 }

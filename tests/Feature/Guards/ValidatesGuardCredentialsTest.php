@@ -59,10 +59,10 @@ final class ValidatesGuardCredentialsTest extends AbstractGuardTestCase
             'password'      => 'secret',
             'client_SECRET' => 'secret',
             'otp_code'      => '123456',
-            '42'            => 'kept',
+            'pin_42'        => 'kept',
         ]);
 
-        self::assertSame(['email' => 'user@example.test', '42' => 'kept'], $redacted);
+        self::assertSame(['email' => 'user@example.test', 'pin_42' => 'kept'], $redacted);
     }
 
     /**

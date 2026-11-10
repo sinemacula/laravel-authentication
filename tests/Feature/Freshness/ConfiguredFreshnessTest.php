@@ -394,7 +394,7 @@ final class ConfiguredFreshnessTest extends TestCase
 
         DB::table('authentication_sessions')->where('id', $record->getKey())->update($owner);
 
-        $replacement = Session::query()->findOrFail($record->getKey());
+        $replacement = Session::query()->findOrFail(self::modelKey($record));
 
         self::recordProof($replacement, ProofKind::FIRST_FACTOR, $this->now);
 
@@ -462,6 +462,9 @@ final class ConfiguredFreshnessTest extends TestCase
 
         foreach ([Contract::class, EloquentSession::class] as $contract) {
             $session = \Mockery::mock($contract);
+
+            self::assertInstanceOf(Contract::class, $session);
+
             $session->shouldReceive('getGuard')->andReturn('api');
             $session->shouldReceive('getSessionIdentifier')->andReturn($record->getKey());
 
@@ -581,6 +584,9 @@ final class ConfiguredFreshnessTest extends TestCase
 
         foreach ([Contract::class, EloquentSession::class, Model::class . ', ' . Contract::class] as $contract) {
             $session = \Mockery::mock($contract);
+
+            self::assertInstanceOf(Contract::class, $session);
+
             $session->shouldReceive('getGuard')->andReturn('api');
             $session->shouldReceive('getSessionIdentifier')->andReturn($record->getKey());
             $session->shouldReceive('getConnection')->andReturn(DB::connection());

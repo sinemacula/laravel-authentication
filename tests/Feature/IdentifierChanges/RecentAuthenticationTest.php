@@ -20,7 +20,6 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRequestStatus;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
@@ -328,6 +327,9 @@ final class RecentAuthenticationTest extends TestCase
 
         foreach ([Contract::class, EloquentSession::class] as $contract) {
             $session = \Mockery::mock($contract);
+
+            self::assertInstanceOf(Contract::class, $session);
+
             $session->shouldReceive('getSessionIdentifier')->andReturn($replacement->getKey());
 
             self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($session), null), $contract);
@@ -354,11 +356,11 @@ final class RecentAuthenticationTest extends TestCase
         $this->moveTo($this->now->addSeconds(1000));
 
         self::assertNotNull(
-            self::sessionsOf($this->freshGuard('web'))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard('web'))->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
 
-        $refreshed = Session::query()->findOrFail($session->record->getKey());
-        $check     = new RecentAuthentication($this->guardContext(), $this->app);
+        $refreshed = Session::query()->findOrFail(self::modelKey($session->record));
+        $check     = $this->check();
 
         self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($refreshed), null));
 
@@ -608,6 +610,8 @@ final class RecentAuthenticationTest extends TestCase
      */
     private function check(): RecentAuthentication
     {
+        self::assertNotNull($this->app);
+
         return new RecentAuthentication($this->guardContext(), $this->app);
     }
 

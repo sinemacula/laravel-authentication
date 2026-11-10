@@ -211,7 +211,7 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
         self::assertFalse($guard->attempt($this->credentials($member), $otherMembership));
         self::assertFalse($guard->hasUser());
         self::assertCount(1, $failed);
-        self::assertTrue($member->is($failed[0]));
+        self::assertIsModel($member, $failed[0]);
     }
 
     /**

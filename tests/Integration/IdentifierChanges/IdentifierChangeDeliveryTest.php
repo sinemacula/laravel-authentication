@@ -148,7 +148,7 @@ final class IdentifierChangeDeliveryTest extends TestCase
         $job->handle(app());
 
         self::assertSame(1, $this->sender->count());
-        self::assertTrue($identity->is($this->sender->sent()[0]->identity));
+        self::assertIsModel($identity, $this->sender->sent()[0]->identity);
     }
 
     /**

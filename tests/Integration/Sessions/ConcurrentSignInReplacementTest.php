@@ -19,7 +19,6 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Sessions\SessionEstablishment;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -160,6 +159,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
                 self::assertSame(2, DB::table('authentication_sessions')->count());
             }
 
+            self::assertIsString($second['result']);
             self::assertNull($this->reasonOf($second['result']));
 
             $this->reset();
@@ -185,7 +185,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
 
             [$refreshed, $second] = $this->race(
                 fn (): bool => self::sessionsOf($this->freshGuard())->refresh(
-                    PresentedRefreshToken::fromBody($previous->tokens->refreshToken?->reveal()),
+                    self::bodyToken($previous->tokens),
                     self::requestClient(),
                 )->isRefreshed(),
                 fn (): string => $this->replacing($identity, $previous),
@@ -229,7 +229,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
             [$replacement, $second] = $this->race(
                 fn (): string => $this->replacing($identity, $previous),
                 fn (): ?string => self::sessionsOf($this->freshGuard())->refresh(
-                    PresentedRefreshToken::fromBody($previous->tokens->refreshToken?->reveal()),
+                    self::bodyToken($previous->tokens),
                     self::requestClient(),
                 )->reason?->value,
                 $commit,
@@ -275,6 +275,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
         self::assertSame('revoked', $this->reasonOf($previous));
         self::assertSame([SessionRevoked::class], $this->recordedClasses());
         self::assertSame([SessionCreated::class, SignedIn::class], $second['events']);
+        self::assertIsString($second['result']);
         self::assertNull($this->revokedAtOf($second['result']));
 
         $this->reset();
@@ -321,6 +322,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
             );
 
             self::assertSame(1, $count);
+            self::assertIsString($second['result']);
             self::assertNull($this->revokedAtOf($second['result']));
 
             if ($commit) {

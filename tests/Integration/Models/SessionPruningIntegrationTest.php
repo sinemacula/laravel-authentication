@@ -281,10 +281,13 @@ final class SessionPruningIntegrationTest extends TestCase
         Artisan::call('model:prune', ['--model' => [Session::class], '--chunk' => 2]);
 
         self::assertSame([$live], DB::table('authentication_sessions')->pluck('id')->all());
-        self::assertSame([$live], array_values(array_unique(DB::table('authentication_proofs')->pluck('session_id')->all())));
+        self::assertSame([$live], array_values(array_unique(array_map(self::storedString(...), DB::table('authentication_proofs')->pluck('session_id')->all()))));
         self::assertSame([$live], DB::table('authentication_provenance')->pluck('session_id')->all());
 
-        $totals = array_map(static fn (array $dispatched): mixed => $dispatched[0]->count ?? null, Event::dispatched(ModelsPruned::class)->all());
+        $totals = array_map(
+            static fn (mixed $dispatched): ?int => is_array($dispatched) && ($dispatched[0] ?? null) instanceof ModelsPruned ? $dispatched[0]->count : null,
+            Event::dispatched(ModelsPruned::class)->all(),
+        );
 
         self::assertSame([2, 4, 5], $totals);
     }

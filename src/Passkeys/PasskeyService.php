@@ -5,28 +5,20 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Passkeys;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Auth\Events\Failed;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Translation\Translator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
-use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\PasskeyFactorGate;
-use SineMacula\Laravel\Authentication\Database\IdentityLock;
-use SineMacula\Laravel\Authentication\Database\SharedConnection;
-use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
-use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PasskeyAdded;
 use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\ClientText;
 use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
-use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengeRefusal;
@@ -36,9 +28,6 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
 use SineMacula\Laravel\Authentication\Secrets\Secret;
-use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
-use SineMacula\Laravel\Authentication\Sessions\PendingLookup;
-use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
@@ -71,9 +60,6 @@ final readonly class PasskeyService
 
     /** @var int Longest name a passkey is stored with, in characters. */
     private const int NAME_MAX_LENGTH = 255;
-
-    /** @var string What a registration on a pending sign-in is called in the shared-connection refusal. */
-    private const string PENDING_FLOW = 'A passkey registration on a pending sign-in';
 
     /** @var int Longest session key a ceremony's binding may name, in characters. */
     private const int SESSION_MAX_LENGTH = 255;
@@ -231,26 +217,18 @@ final readonly class PasskeyService
         ?string $name = null,
         #[\SensitiveParameter] FailureReason|Secret|string|null $pending = null,
     ): PasskeyRegistration {
-        $presented = $pending === null ? null : SessionPreconditions::pendingCredential($pending);
         $owner     = PasskeyOwner::of($identity);
+        $onPending = new PendingRegistration($this->context, $this->container);
+        $presented = $onPending->credential($pending, $owner);
         $rp        = $this->relyingParty();
         $now       = CarbonImmutable::now()->startOfSecond();
-
-        if ($presented !== null) {
-            SharedConnection::assert($owner, self::PENDING_FLOW, $this->container->make(Repository::class));
-        }
-
-        $consumed = $this->assertions()->challenges()->consume($challenge, ChallengePurpose::REGISTER, $rp, $owner, $now);
+        $consumed  = $this->assertions()->challenges()->consume($challenge, ChallengePurpose::REGISTER, $rp, $owner, $now);
 
         if ($consumed instanceof ChallengeRefusal) {
-            return match ($consumed) {
-                ChallengeRefusal::NOT_FOUND => PasskeyRegistration::challengeInvalid(),
-                ChallengeRefusal::EXPIRED   => PasskeyRegistration::challengeExpired(),
-                ChallengeRefusal::USED      => PasskeyRegistration::challengeUsed(),
-            };
+            return $consumed->registration();
         }
 
-        $held = $presented === null ? null : $this->presented($presented, $owner, $rp, $client);
+        $held = $presented === null ? null : $onPending->presented($presented, $owner, $rp, $client);
 
         if ($held instanceof PasskeyRegistration) {
             return $held;
@@ -277,11 +255,11 @@ final readonly class PasskeyService
 
         try {
             $stored      = [$seen, $binding, $cleaned, $client, $held];
-            $association = $passkey->getConnection()->transaction(fn (): ?PasskeyFactorAssociation => $this->store($owner, $rp, $passkey, $stored));
+            $association = $passkey->getConnection()->transaction(fn (): ?PasskeyFactorAssociation => $this->store($owner, $rp, $passkey, $stored, $onPending));
         } catch (ConcurrentPasskeyChange) {
             return PasskeyRegistration::alreadyRegistered();
         } catch (UnheldPendingSession) {
-            return $this->refusedPending($owner, $rp, $client, FailureReason::PENDING_INVALID);
+            return $onPending->refused($owner, $rp, $client, FailureReason::PENDING_INVALID);
         }
 
         $this->dispatchOnceCommitted($passkey, new PasskeyAdded(PasskeyAssertions::context($rp, $client, $owner, $passkey->id)));
@@ -572,6 +550,7 @@ final readonly class PasskeyService
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @param  array{0: \SineMacula\Laravel\Authentication\Passkeys\RegisteredPasskey, 1: ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding, 2: ?string, 3: \SineMacula\Laravel\Authentication\Http\ClientContext, 4: ?\SineMacula\Laravel\Authentication\Secrets\Secret}  $registration
+     * @param  \SineMacula\Laravel\Authentication\Passkeys\PendingRegistration  $onPending
      * @return ?\SineMacula\Laravel\Authentication\Passkeys\PasskeyFactorAssociation
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
@@ -581,12 +560,12 @@ final readonly class PasskeyService
      * @throws \SineMacula\Laravel\Authentication\Passkeys\ConcurrentPasskeyChange
      * @throws \SineMacula\Laravel\Authentication\Passkeys\UnheldPendingSession
      */
-    private function store(Identity&Model $owner, RelyingParty $rp, Passkey $passkey, array $registration): ?PasskeyFactorAssociation
+    private function store(Identity&Model $owner, RelyingParty $rp, Passkey $passkey, array $registration, PendingRegistration $onPending): ?PasskeyFactorAssociation
     {
         [$seen, $binding, $name, $client, $pending] = $registration;
 
         if ($pending !== null) {
-            $this->holdPending($owner, $binding, $pending);
+            $onPending->hold($owner, $binding, $pending);
         }
 
         $association = $this->gate()->registering($owner, $rp->guard, $seen, $binding, $name, $client, $pending);
@@ -594,89 +573,6 @@ final readonly class PasskeyService
         PasskeyCredentials::insert($passkey) || throw new ConcurrentPasskeyChange;
 
         return $association;
-    }
-
-    /**
-     * The pending credential handed in as the secret the gate is given, or the
-     * registration's refusal: `cross_site_request` for a cookie application's
-     * client that did not come from a page of its own site, `pending_invalid`
-     * for `pending_invalid` handed in or a credential that is empty. Read
-     * before the pending session, and so before any query.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Secrets\Secret|string  $presented
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
-     * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
-     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration|\SineMacula\Laravel\Authentication\Secrets\Secret
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \InvalidArgumentException
-     */
-    private function presented(#[\SensitiveParameter] Refused|Secret|string $presented, Identity&Model $owner, RelyingParty $rp, ClientContext $client): PasskeyRegistration|Secret
-    {
-        $transport = RefreshTokenTransport::forGuard($rp->guard, $this->container->make(Repository::class));
-
-        if (SessionPreconditions::crossSite($transport, $client) !== null) {
-            return $this->refusedPending($owner, $rp, $client, FailureReason::CROSS_SITE_REQUEST);
-        }
-
-        if ($presented instanceof Refused || $presented === '') {
-            return $this->refusedPending($owner, $rp, $client, FailureReason::PENDING_INVALID);
-        }
-
-        return $presented instanceof Secret ? $presented : new Secret($presented);
-    }
-
-    /**
-     * Prove, under the locks held until the transaction ends, that the pending
-     * credential names a live pending session of this guard whose owner is the
-     * identity and, when the challenge was bound, the session it names. The
-     * identity's row is locked first, then the session's, before the gate's own
-     * locks and the passkey's row, as the package's lock order puts them. The
-     * session is found as the pending-session actions find it
-     * (`PendingLookup`), so a credential that names none of the guard's live
-     * pending sessions fails here exactly as it does there.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
-     * @param  ?\SineMacula\Laravel\Authentication\Proofs\ProofBinding  $binding
-     * @param  \SineMacula\Laravel\Authentication\Secrets\Secret  $pending
-     * @return void
-     *
-     * @throws \SineMacula\Laravel\Authentication\Passkeys\UnheldPendingSession
-     */
-    private function holdPending(Identity&Model $owner, ?ProofBinding $binding, #[\SensitiveParameter] Secret $pending): void
-    {
-        $found = IdentityLock::acquire($owner) === null ? null : (new PendingLookup($this->context))->find($pending, CarbonImmutable::now()->startOfSecond(), true);
-
-        $session = $found[0] ?? null;
-        $named   = $binding === null ? null : IdentifierCoercion::stringify($binding->sessionId);
-        $held    = $session !== null
-            && SessionOwnership::isOwner($session, $owner)
-            && ($binding === null || IdentifierCoercion::stringify($session->getSessionIdentifier()) === $named);
-
-        if (!$held) {
-            throw new UnheldPendingSession;
-        }
-    }
-
-    /**
-     * Report a registration on a pending sign-in refused, as a pending action
-     * refused is reported (Laravel's `Failed` and `AuthenticationFailed` for
-     * the sign-in flow, carrying the client and the identity and never the
-     * credential), and answer it.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
-     * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
-     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
-     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration
-     */
-    private function refusedPending(Identity&Model $owner, RelyingParty $rp, ClientContext $client, FailureReason $reason): PasskeyRegistration
-    {
-        $this->context->dispatch(new Failed($rp->guard, $owner, []));
-        $this->context->dispatch(new AuthenticationFailed(new EventContext($rp->guard, $client, $owner), AuthenticationFlow::SIGN_IN, $reason));
-
-        return $reason === FailureReason::CROSS_SITE_REQUEST ? PasskeyRegistration::crossSiteRequest() : PasskeyRegistration::pendingInvalid();
     }
 
     /**

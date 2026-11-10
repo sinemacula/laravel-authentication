@@ -10,6 +10,7 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher as DispatcherContract;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Events\Dispatcher;
+use Illuminate\Foundation\Application;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Facade;
@@ -139,7 +140,7 @@ final class JwtGuardBenchHarness
 
         $config = JwtBenchSetup::config();
 
-        $container = new Container;
+        $container = new Application;
         $container->instance('config', $config);
         Facade::setFacadeApplication($container);
         JwtBenchSetup::bindPackageDefaults($container);

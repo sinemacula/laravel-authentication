@@ -124,7 +124,7 @@ final class ContextKeysTest extends TestCase
      * first, naming the namespace and the key.
      *
      * @param  mixed  $keys
-     * @param  string  $problem
+     * @param  non-empty-string  $problem
      * @return void
      */
     #[DataProvider('provideRefusedKeys')]
@@ -144,6 +144,8 @@ final class ContextKeysTest extends TestCase
     public function testAResourceIsNoPlainValue(): void
     {
         $resource = fopen('php://memory', 'rb');
+
+        self::assertIsResource($resource);
 
         try {
             self::assertSame('The value of [sso.stream] ' . self::VALUE_RULE, ContextKeys::checked('sso', ['stream' => $resource]));

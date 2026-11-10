@@ -193,12 +193,12 @@ final class BearerAuthenticationTest extends TestCase
         $tree       = new DescendantTenants;
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
 
-        $tree->place($descendant->getKey(), $own->getKey());
+        $tree->place(self::modelKey($descendant), self::modelKey($own));
 
         app()->instance(TenantAccess::class, $tree);
         app()->instance(TenantResolver::class, $tree);
 
-        $context = new SignInContext(ClientContext::fromRequest(Request::create('/')), tenant: TenantSelection::of($descendant->getKey()));
+        $context = new SignInContext(ClientContext::fromRequest(Request::create('/')), tenant: TenantSelection::of(self::modelKey($descendant)));
         $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), $context)->session;
 
         self::assertNotNull($session);
@@ -229,12 +229,12 @@ final class BearerAuthenticationTest extends TestCase
         $tree       = new DescendantTenants;
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
 
-        $tree->place($descendant->getKey(), $own->getKey());
+        $tree->place(self::modelKey($descendant), self::modelKey($own));
 
         app()->instance(TenantAccess::class, $tree);
         app()->instance(TenantResolver::class, $tree);
 
-        $context = new SignInContext(ClientContext::fromRequest(Request::create('/')), tenant: TenantSelection::of($descendant->getKey()));
+        $context = new SignInContext(ClientContext::fromRequest(Request::create('/')), tenant: TenantSelection::of(self::modelKey($descendant)));
         $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), $context)->session;
 
         self::assertNotNull($session);
@@ -449,7 +449,7 @@ final class BearerAuthenticationTest extends TestCase
     {
         $identity  = $this->seedIdentity();
         $session   = $this->signedIn();
-        $sessionId = $session->record->getKey();
+        $sessionId = self::modelKey($session->record);
         $recorded  = Session::query()->findOrFail($sessionId)->only(['principal_type', 'principal_id']);
         $earlier   = $session->tokens->accessToken->reveal();
 

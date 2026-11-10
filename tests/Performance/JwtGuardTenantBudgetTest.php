@@ -145,7 +145,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
         [$member, $membership, $own] = $this->seedMembership('members');
 
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
-        $tree       = (new DescendantTenants)->place($descendant->getKey(), $own->getKey());
+        $tree       = (new DescendantTenants)->place(self::modelKey($descendant), self::modelKey($own));
 
         app()->instance(TenantAccess::class, $tree);
         app()->instance(TenantResolver::class, $tree);
@@ -186,7 +186,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
         [$member, $membership, $own] = $this->seedMembership('members');
 
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
-        $tree       = (new DescendantTenants)->place($descendant->getKey(), $own->getKey());
+        $tree       = (new DescendantTenants)->place(self::modelKey($descendant), self::modelKey($own));
 
         app()->instance(TenantAccess::class, $tree);
         app()->instance(TenantResolver::class, $tree);

@@ -297,7 +297,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
     {
         [, $membership, $tenant] = $this->seedMember();
 
-        $eager = EagerTenantMembership::query()->findOrFail($membership->getKey());
+        $eager = EagerTenantMembership::query()->findOrFail(self::modelKey($membership));
 
         $this->recordEvents([SignedOutEverywhere::class]);
 
@@ -468,13 +468,13 @@ final class RevokesOnSecurityChangesTest extends TestCase
         $elsewhere->forceDelete();
 
         try {
-            $this->sessions('members')->tenantDeactivated($tenant, [$other->fresh()]);
+            $this->sessions('members')->tenantDeactivated($tenant, [self::fresh($other)]);
             self::fail('A principal of another deleted tenant was accepted.');
         } catch (\InvalidArgumentException $exception) {
             self::assertStringContainsString('does not act within tenant', $exception->getMessage());
         }
 
-        self::assertSame(1, $this->sessions('members')->tenantDeactivated($tenant, [$member->fresh()]));
+        self::assertSame(1, $this->sessions('members')->tenantDeactivated($tenant, [self::fresh($member)]));
         self::assertSame('tenant_deactivated', DB::table('authentication_sessions')->value('revoked_reason'));
 
         [, $last, $gone] = $this->seedMember('last@example.test');
@@ -483,7 +483,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
 
         $gone->forceDelete();
 
-        self::assertSame(1, $this->sessions('members')->tenantDeactivated($gone, [$last->fresh()]));
+        self::assertSame(1, $this->sessions('members')->tenantDeactivated($gone, [self::fresh($last)]));
     }
 
     /**
@@ -603,5 +603,22 @@ final class RevokesOnSecurityChangesTest extends TestCase
     private function memberSignIn(string $email): void
     {
         self::assertTrue($this->sessions('members')->signIn('password', self::credentials($email), self::requestContext())->isSignedIn());
+    }
+
+    /**
+     * The model as it is stored now, read afresh.
+     *
+     * @template TModel of \Illuminate\Database\Eloquent\Model
+     *
+     * @param  TModel  $model
+     * @return TModel
+     */
+    private static function fresh(Model $model): Model
+    {
+        $fresh = $model->fresh();
+
+        self::assertNotNull($fresh, sprintf('The %s is no longer stored.', $model::class));
+
+        return $fresh;
     }
 }

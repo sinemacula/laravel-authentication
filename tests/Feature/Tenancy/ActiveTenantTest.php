@@ -23,7 +23,6 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -144,13 +143,13 @@ final class ActiveTenantTest extends TestCase
 
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
 
-        self::assertSame(FailureReason::TENANT_INELIGIBLE, $this->signInTo(TenantSelection::of($descendant->getKey()))->reason);
+        self::assertSame(FailureReason::TENANT_INELIGIBLE, $this->signInTo(TenantSelection::of(self::modelKey($descendant)))->reason);
 
-        $this->tree->place($descendant->getKey(), $own->getKey());
+        $this->tree->place(self::modelKey($descendant), self::modelKey($own));
 
         app()->instance(TenantResolver::class, new ResolveNoTenant);
 
-        self::assertSame(FailureReason::TENANT_INELIGIBLE, $this->signInTo(TenantSelection::of($descendant->getKey()))->reason);
+        self::assertSame(FailureReason::TENANT_INELIGIBLE, $this->signInTo(TenantSelection::of(self::modelKey($descendant)))->reason);
         self::assertSame(0, Session::query()->count());
     }
 
@@ -239,7 +238,7 @@ final class ActiveTenantTest extends TestCase
         [$descendant, $session] = $this->signedInBelow();
 
         $refreshed = self::sessionsOf($this->freshGuard('members'))->refresh(
-            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            self::bodyToken($session->tokens),
             self::requestClient(),
         )->session;
 
@@ -248,7 +247,7 @@ final class ActiveTenantTest extends TestCase
 
         app()->instance(TenantAccess::class, new DescendantTenants);
 
-        $refused = self::sessionsOf($this->freshGuard('members'))->refresh(PresentedRefreshToken::fromBody($refreshed->tokens->refreshToken?->reveal()), self::requestClient());
+        $refused = self::sessionsOf($this->freshGuard('members'))->refresh(self::bodyToken($refreshed->tokens), self::requestClient());
 
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
         self::assertNull(Session::query()->sole()->getRevokedAt());
@@ -322,9 +321,9 @@ final class ActiveTenantTest extends TestCase
 
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
 
-        $this->tree->place($descendant->getKey(), $own->getKey());
+        $this->tree->place(self::modelKey($descendant), self::modelKey($own));
 
-        $session = $this->signInTo(TenantSelection::of($descendant->getKey()))->session;
+        $session = $this->signInTo(TenantSelection::of(self::modelKey($descendant)))->session;
 
         self::assertNotNull($session);
         self::assertInstanceOf(ActivatableTenantMembership::class, $membership);

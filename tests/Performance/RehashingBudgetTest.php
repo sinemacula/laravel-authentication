@@ -51,7 +51,7 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
         $hasher = \Mockery::mock(Hasher::class);
 
         $hasher->shouldReceive('make')->andReturnUsing(static fn (string $value): string => $bcrypt->make($value));
-        $hasher->shouldReceive('check')->andReturnUsing(function (string $value, mixed $hash) use ($bcrypt): bool {
+        $hasher->shouldReceive('check')->andReturnUsing(function (string $value, ?string $hash) use ($bcrypt): bool {
             $this->checks++;
 
             return $bcrypt->check($value, $hash);

@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Support\MorphClass;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
+use Tests\Unit\Stubs\StubModel;
 
 /**
  * Unit tests for the type an identity, principal or tenant is reported by: an
@@ -61,7 +62,7 @@ final class MorphClassTest extends TestCase
      */
     public function testAModelAnEnforcedMorphMapLeavesOutIsNamedByItsClass(): void
     {
-        Relation::enforceMorphMap(['other' => \stdClass::class]);
+        Relation::enforceMorphMap(['other' => StubModel::class]);
 
         self::assertSame(StubAuthenticatableModel::class, MorphClass::of(new StubAuthenticatableModel));
     }

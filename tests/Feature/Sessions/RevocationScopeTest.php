@@ -142,7 +142,7 @@ final class RevocationScopeTest extends TestCase
 
         $this->recordEvents([SignedOutEverywhere::class]);
 
-        $stored = ActivatableTenantMembership::query()->findOrFail($membership->getKey());
+        $stored = ActivatableTenantMembership::query()->findOrFail(self::modelKey($membership));
 
         self::assertSame(1, $this->sessions('members')->revokePrincipalSessions($stored, RevocationReason::REVOKED));
         self::assertSame(0, DB::table('authentication_sessions')->whereNull('revoked_at')->count());
