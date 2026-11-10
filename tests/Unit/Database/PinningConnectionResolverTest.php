@@ -11,6 +11,8 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Database\PinningConnectionResolver;
+use Tests\Unit\Stubs\StubConnectionName;
+use Tests\Unit\Stubs\StubPureConnectionName;
 
 /**
  * Unit tests for the connection resolver `WriteConnection::during()` installs:
@@ -90,5 +92,23 @@ final class PinningConnectionResolverTest extends TestCase
         self::assertSame('split', $resolver->getDefaultConnection());
 
         $resolver->setDefaultConnection('landlord');
+    }
+
+    /**
+     * An enum case names the wrapped resolver's default connection by its
+     * value, or by its name when it has none.
+     *
+     * @return void
+     */
+    public function testAnEnumCaseNamesTheDefaultConnection(): void
+    {
+        $inner = \Mockery::mock(ConnectionResolverInterface::class);
+        $inner->shouldReceive('setDefaultConnection')->once()->with('landlord');
+        $inner->shouldReceive('setDefaultConnection')->once()->with('TENANT');
+
+        $resolver = new PinningConnectionResolver($inner, static function (): void {});
+
+        $resolver->setDefaultConnection(StubConnectionName::LANDLORD);
+        $resolver->setDefaultConnection(StubPureConnectionName::TENANT);
     }
 }

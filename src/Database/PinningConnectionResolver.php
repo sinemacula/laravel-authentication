@@ -69,7 +69,8 @@ final readonly class PinningConnectionResolver implements ConnectionResolverInte
     }
 
     /**
-     * Set the wrapped resolver's default connection name.
+     * Set the wrapped resolver's default connection name: an enum case names
+     * the connection by its value, or by its name when it has none.
      *
      * @param  string|\UnitEnum  $name
      * @return void
@@ -77,6 +78,10 @@ final readonly class PinningConnectionResolver implements ConnectionResolverInte
     #[\Override]
     public function setDefaultConnection($name): void
     {
-        $this->resolver->setDefaultConnection($name);
+        $this->resolver->setDefaultConnection(match (true) {
+            $name instanceof \BackedEnum => (string) $name->value,
+            $name instanceof \UnitEnum   => $name->name,
+            default                      => $name,
+        });
     }
 }

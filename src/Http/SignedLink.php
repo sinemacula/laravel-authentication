@@ -90,13 +90,13 @@ final readonly class SignedLink
      */
     public function toRequest(): Request
     {
-        $request = Request::create($this->url);
-        $query   = $this->query();
+        $query = $this->query();
 
         parse_str($query, $fields);
 
+        $request = Request::create($this->url, parameters: $fields);
+
         $request->server->set('QUERY_STRING', $query);
-        $request->query->replace($fields);
 
         return $request;
     }

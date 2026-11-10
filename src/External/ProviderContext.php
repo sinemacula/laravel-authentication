@@ -95,8 +95,9 @@ final readonly class ProviderContext
     {
         try {
             $values = is_string($value) ? json_decode($value, true, flags: JSON_THROW_ON_ERROR) : null;
+            $map    = is_array($values) ? array_filter($values, is_string(...), ARRAY_FILTER_USE_KEY) : null;
 
-            return is_array($values) ? new self($values) : null;
+            return $map !== null && $map === $values ? new self($map) : null;
         } catch (\InvalidArgumentException|\JsonException) {
             return null;
         }

@@ -371,7 +371,7 @@ final class Rehashing
      */
     private static function verifies(#[\SensitiveParameter] mixed $password, mixed $hash): bool
     {
-        if (!is_string($password)) {
+        if (!is_string($password) || !is_string($hash)) {
             return false;
         }
 

@@ -433,6 +433,20 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
+     * A method named by neither a string nor an enum case fails as a
+     * misconfiguration.
+     *
+     * @return void
+     */
+    public function testRejectsAMethodNamedByAnythingElse(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('A sign-in method is named by a string or an enum case, not int.');
+
+        $this->manager()->driver(42);
+    }
+
+    /**
      * Rows of `[name]`: spellings of the registered `password` and `sso`
      * methods that differ in case, punctuation or spacing, which Laravel's
      * manager would otherwise resolve through the case-insensitive creator

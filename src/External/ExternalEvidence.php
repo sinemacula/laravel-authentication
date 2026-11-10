@@ -109,13 +109,14 @@ final readonly class ExternalEvidence
         $methods = is_array($value) ? $value['methods']          ?? null : null;
         $context = is_array($value) ? $value['context']          ?? null : null;
         $time    = is_array($value) ? $value['authenticated_at'] ?? null : null;
+        $strings = is_array($methods) ? array_filter($methods, is_string(...)) : null;
 
-        if (!is_array($methods) || !is_string($time) || ($context !== null && !is_string($context))) {
+        if ($strings === null || $strings !== $methods || !array_is_list($strings) || !is_string($time) || ($context !== null && !is_string($context))) {
             return null;
         }
 
         try {
-            return new self($methods, $context, CarbonImmutable::parse($time));
+            return new self($strings, $context, CarbonImmutable::parse($time));
         } catch (\InvalidArgumentException) {
             return null;
         }
