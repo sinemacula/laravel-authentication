@@ -10,7 +10,6 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Http\BearerForms;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use Tests\TestCase;
@@ -122,47 +121,6 @@ final class AuthenticateTest extends TestCase
 
         self::assertSame(['api', 'web'], $listed->attributes->get(BearerForms::ROUTE_GUARDS));
         self::assertSame([null], $none->attributes->get(BearerForms::ROUTE_GUARDS));
-    }
-
-    /**
-     * Data provider of a guard a route lists: a package guard and Laravel's
-     * session guard.
-     *
-     * @return iterable<string, array{0: string}>
-     */
-    public static function provideRouteGuards(): iterable
-    {
-        yield from [
-            'package guard' => ['api'],
-            'session guard' => ['web'],
-        ];
-    }
-
-    /**
-     * Something other than a request is passed to Laravel untouched: nothing is
-     * recorded, the guards are still tried, and the guest is refused without
-     * the guest redirect, which only a request can be given.
-     *
-     * @param  string  $guard
-     * @return void
-     */
-    #[DataProvider('provideRouteGuards')]
-    public function testLeavesSomethingOtherThanARequestUntouched(string $guard): void
-    {
-        $middleware = app(IlluminateAuthenticate::class);
-        $passed     = new \stdClass;
-
-        try {
-            $middleware->handle($passed, static fn (): Response => new Response('The guest passed.'), $guard);
-        } catch (AuthenticationException $exception) {
-            self::assertSame([$guard], $exception->guards());
-            self::assertSame([], get_object_vars($passed));
-            self::assertSame(0, $this->redirects);
-
-            return;
-        }
-
-        self::fail('Expected the guest to be rejected.');
     }
 
     /**

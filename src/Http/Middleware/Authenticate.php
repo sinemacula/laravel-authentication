@@ -7,7 +7,6 @@ namespace SineMacula\Laravel\Authentication\Http\Middleware;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
-use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Http\BearerForms;
 use SineMacula\Laravel\Authentication\Http\ConsumerMessages;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
@@ -61,7 +60,7 @@ class Authenticate extends IlluminateAuthenticate
      * A package guard reads the record to leave a bearer credential of the
      * other guard kind's form to the guard it belongs to (see `BearerForms`).
      *
-     * @param  mixed  $request
+     * @param  \Illuminate\Http\Request  $request
      * @param  array<array-key, mixed>  $guards
      * @return void
      *
@@ -70,20 +69,16 @@ class Authenticate extends IlluminateAuthenticate
     #[\Override]
     protected function authenticate(mixed $request, array $guards): void
     {
-        if ($request instanceof Request) {
-            $request->attributes->set(BearerForms::ROUTE_GUARDS, $guards === [] ? [null] : $guards);
-        }
+        $request->attributes->set(BearerForms::ROUTE_GUARDS, $guards === [] ? [null] : $guards);
 
         parent::authenticate($request, $guards);
     }
 
     /**
      * Handle an unauthenticated user: raise the exception without a redirect
-     * when every guard is a package guard, or when given something other than a
-     * request, which Laravel cannot decide a redirect for; otherwise defer to
-     * Laravel.
+     * when every guard is a package guard, otherwise defer to Laravel.
      *
-     * @param  mixed  $request
+     * @param  \Illuminate\Http\Request  $request
      * @param  array<array-key, mixed>  $guards
      * @return never
      *
@@ -93,7 +88,7 @@ class Authenticate extends IlluminateAuthenticate
     protected function unauthenticated(mixed $request, array $guards)
     {
         /** @var array<int, ?string> $guards */
-        if (!$request instanceof Request || $this->response->appliesTo($guards)) {
+        if ($this->response->appliesTo($guards)) {
             throw new AuthenticationException(ConsumerMessages::UNAUTHENTICATED, $guards);
         }
 
