@@ -29,9 +29,8 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * The part of a passkey registration that enrols a factor on a pending sign-in
- * (see `PasskeyService::register()`): reading the pending credential handed
- * in, holding the pending session it names, and reporting the registration
- * refused.
+ * (see `PasskeyService::register()`): reading the pending credential handed in,
+ * holding the pending session it names, and reporting the registration refused.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,8 +59,8 @@ final readonly class PendingRegistration
 
     /**
      * The pending credential handed in, as `SessionPreconditions` reads it, or
-     * `null` for an ordinary registration. Given one, the identity must live
-     * on the storage connection. Raised before anything is read or consumed.
+     * `null` for an ordinary registration. Given one, the identity must live on
+     * the storage connection. Raised before anything is read or consumed.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Secrets\Secret|string|null  $pending
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
@@ -101,8 +100,12 @@ final readonly class PendingRegistration
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    public function presented(#[\SensitiveParameter] Refused|Secret|string|null $presented, Identity&Model $owner, RelyingParty $rp, ClientContext $client): PasskeyRegistration|Secret|null
-    {
+    public function presented(
+        #[\SensitiveParameter] Refused|Secret|string|null $presented,
+        Identity&Model $owner,
+        RelyingParty $rp,
+        ClientContext $client,
+    ): PasskeyRegistration|Secret|null {
         if ($presented === null) {
             return null;
         }

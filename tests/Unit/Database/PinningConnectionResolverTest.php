@@ -11,8 +11,8 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Database\PinningConnectionResolver;
-use Tests\Unit\Stubs\StubConnectionName;
-use Tests\Unit\Stubs\StubPureConnectionName;
+use Tests\Unit\Stubs\Enums\StubConnectionName;
+use Tests\Unit\Stubs\Enums\StubPureConnectionName;
 
 /**
  * Unit tests for the connection resolver `WriteConnection::during()` installs:

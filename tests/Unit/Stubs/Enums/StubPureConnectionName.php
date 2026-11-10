@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Stubs;
+namespace Tests\Unit\Stubs\Enums;
 
 /**
  * A connection named by a pure enum case.

@@ -30,8 +30,14 @@ final readonly class GrammarExpression implements Expression
      * @param  list<string>  $values
      */
     public function __construct(
+
+        /** The fragment, a `sprintf()` format. */
         private string $sql,
+
+        /** The identifiers the grammar wraps into it. */
         private array $identifiers = [],
+
+        /** The values the grammar escapes into it, after the identifiers. */
         private array $values = [],
     ) {}
 
