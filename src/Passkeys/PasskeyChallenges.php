@@ -212,7 +212,7 @@ final readonly class PasskeyChallenges
      * The configured lifetime of a challenge, in seconds, read as every issue
      * reads it; `authentication:check` validates it the same way.
      *
-     * @return int
+     * @return positive-int
      *
      * @throws \InvalidArgumentException
      */

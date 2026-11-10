@@ -207,7 +207,9 @@ final readonly class RevocationWriter
 
         $kept = array_map(static fn (RevocationScope $scope): RevocationScope => $scope->keepingCutoff(), $scopes);
 
-        $this->afterCommit->runAcross($models, fn () => $this->revokeScopes($kept, $reason, null, CarbonImmutable::now()->startOfSecond(), $sessionRevoked, static fn () => null));
+        $this->afterCommit->runAcross($models, function () use ($kept, $reason, $sessionRevoked): void {
+            $this->revokeScopes($kept, $reason, null, CarbonImmutable::now()->startOfSecond(), $sessionRevoked, static fn () => null);
+        });
     }
 
     /**
