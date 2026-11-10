@@ -746,7 +746,7 @@ final class ResetSubmissionsTest extends TestCase
      * submission is counted.
      *
      * @param  array<string, mixed>  $settings
-     * @param  string  $message
+     * @param  non-empty-string  $message
      * @return void
      *
      * @throws \Throwable

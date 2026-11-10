@@ -124,7 +124,7 @@ final class ContextKeysTest extends TestCase
      * first, naming the namespace and the key.
      *
      * @param  mixed  $keys
-     * @param  string  $problem
+     * @param  non-empty-string  $problem
      * @return void
      */
     #[DataProvider('provideRefusedKeys')]

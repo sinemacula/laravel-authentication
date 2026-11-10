@@ -277,7 +277,7 @@ final class ResetRequestsTest extends TestCase
      * Each misconfiguration throws before anything is counted.
      *
      * @param  \Closure(\SineMacula\Laravel\Authentication\Passwords\PasswordService): mixed  $call
-     * @param  string  $message
+     * @param  non-empty-string  $message
      * @return void
      */
     #[DataProvider('provideMisconfiguredResets')]
@@ -359,7 +359,7 @@ final class ResetRequestsTest extends TestCase
      * counted.
      *
      * @param  array<string, mixed>  $settings
-     * @param  string  $message
+     * @param  non-empty-string  $message
      * @return void
      *
      * @throws \Throwable

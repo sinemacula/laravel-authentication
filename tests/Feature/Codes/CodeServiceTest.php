@@ -708,7 +708,7 @@ final class CodeServiceTest extends TestCase
      *
      * @param  \Closure(): \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  class-string<\Throwable>  $exception
-     * @param  string  $message
+     * @param  non-empty-string  $message
      * @return void
      *
      * @throws \Throwable
@@ -795,7 +795,7 @@ final class CodeServiceTest extends TestCase
      * before any code request is counted or any code issued.
      *
      * @param  array<string, mixed>  $settings
-     * @param  string  $message
+     * @param  non-empty-string  $message
      * @return void
      *
      * @throws \Throwable
@@ -855,7 +855,7 @@ final class CodeServiceTest extends TestCase
      * issued, with the factor package's counters ready to admit it.
      *
      * @param  array<string, mixed>  $settings
-     * @param  string  $message
+     * @param  non-empty-string  $message
      * @param  \Closure(\SineMacula\Laravel\Authentication\Codes\CodeService, \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding): mixed  $call
      * @return void
      *
