@@ -241,8 +241,8 @@ final readonly class SessionEstablishment
         $outstanding = Requirement::strictest($owed, $policy->factor);
         $writer      = $this->writer->underTenantPolicy($policy->version);
 
-        // Read apart, so a session without a principal is known to wait on
-        // something.
+        // Asked apart for a session without a principal, so its requirements
+        // are known to be the non-empty list a pending draft is given.
         if ($principal === null) {
             $requires = PendingEvaluation::requirements($outstanding, null);
         } else {

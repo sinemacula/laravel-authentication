@@ -79,8 +79,8 @@ class Authenticate extends IlluminateAuthenticate
 
     /**
      * Handle an unauthenticated user: raise the exception without a redirect
-     * when every guard is a package guard, or when given something other than
-     * a request, which Laravel cannot decide a redirect for; otherwise defer to
+     * when every guard is a package guard, or when given something other than a
+     * request, which Laravel cannot decide a redirect for; otherwise defer to
      * Laravel.
      *
      * @param  mixed  $request
