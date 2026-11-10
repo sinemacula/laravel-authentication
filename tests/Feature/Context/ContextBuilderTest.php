@@ -210,7 +210,7 @@ final class ContextBuilderTest extends TestCase
 
         $guard = $this->freshGuard();
 
-        $guard->login($signedIn->identity, $signedIn->identity, $signedIn->record);
+        $guard->login($signedIn->identity, $signedIn->principal, $signedIn->record);
 
         $this->clockAt($this->now->subMinute());
 
@@ -599,7 +599,7 @@ final class ContextBuilderTest extends TestCase
         $signedIn = $this->signedIn();
         $guard    = $this->freshGuard();
 
-        $guard->login($signedIn->identity, $signedIn->identity, $signedIn->record);
+        $guard->login($signedIn->identity, $signedIn->principal, $signedIn->record);
 
         return $guard;
     }

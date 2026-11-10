@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -176,7 +177,7 @@ final class PrincipalListingTest extends TestCase
         $candidates = self::principalsOf($listing);
 
         self::assertSame([null], $listing->refusals(self::GUARD, [$candidates[1]]));
-        self::assertSame([false, true, false], array_map(static fn (Model $candidate): bool => $candidate->relationLoaded('tenant'), $candidates));
+        self::assertSame([false, true, false], array_map(self::tenantLoadedOn(...), $candidates));
         self::assertSame([], $listing->refusals(self::GUARD, []));
     }
 
@@ -218,7 +219,7 @@ final class PrincipalListingTest extends TestCase
             self::assertFalse($workspace->preventsLazyLoading);
         }
 
-        $tenants = array_map(static fn (WorkspaceMembership $membership): mixed => $membership->getTenant()?->getTenantIdentifier(), $candidates);
+        $tenants = array_map(static fn (Principal $membership): mixed => $membership->getTenant()?->getTenantIdentifier(), $candidates);
 
         self::assertSame([$first->tenant_id, $second->tenant_id], $tenants);
     }
@@ -242,7 +243,7 @@ final class PrincipalListingTest extends TestCase
         ChoosingMembership::query()->create(['identity_id' => 1, 'tenant_id' => $tenant->getKey()]);
 
         $query = ChoosingMembership::query()->orderBy('id')->afterQuery(static fn (Collection $rows): Collection => $rows->map(
-            static fn (ChoosingMembership $row): Model => (new WorkspaceMembership)->newFromBuilder($row->getAttributes()),
+            static fn (Model $row): Model => (new WorkspaceMembership)->newFromBuilder($row->getAttributes()),
         ));
 
         $listing    = PrincipalListing::of($this->identityListing($query));
@@ -415,9 +416,9 @@ final class PrincipalListingTest extends TestCase
         }
 
         $constraint = match ($eagerLoad) {
-            'trashed'  => static fn (BelongsTo $relation): BelongsTo => $relation->withoutGlobalScope(SoftDeletingScope::class),
-            'inactive' => static fn (BelongsTo $relation): BelongsTo => $relation->where('is_active', false),
-            default    => static fn (BelongsTo $relation): BelongsTo => $relation->select(['id', 'name']),
+            'trashed'  => static fn (Relation $relation): Relation => $relation->withoutGlobalScope(SoftDeletingScope::class),
+            'inactive' => static fn (Relation $relation): Relation => $relation->where('is_active', false),
+            default    => static fn (Relation $relation): Relation => $relation->select(['id', 'name']),
         };
 
         $scope   = static fn (EloquentBuilder $query): EloquentBuilder => $query->with(['tenant' => $constraint]);
@@ -649,7 +650,7 @@ final class PrincipalListingTest extends TestCase
 
         self::assertSame([FailureReason::PRINCIPAL_INACTIVE, null], $refusals);
         self::assertCount(1, $queries);
-        self::assertSame([false, true], array_map(static fn (Model $candidate): bool => $candidate->relationLoaded('tenant'), $candidates));
+        self::assertSame([false, true], array_map(self::tenantLoadedOn(...), $candidates));
     }
 
     /**
@@ -777,7 +778,7 @@ final class PrincipalListingTest extends TestCase
         $query = \Mockery::mock(EloquentBuilder::class);
 
         $query->shouldReceive('useWritePdo')->andReturnSelf();
-        $query->shouldReceive('get')->andReturn(new Collection($principals));
+        $query->shouldReceive('get')->andReturn(Collection::make($principals));
 
         return $query;
     }
@@ -822,6 +823,19 @@ final class PrincipalListingTest extends TestCase
     private static function principalsOf(PrincipalListing $listing): array
     {
         return array_values(array_filter($listing->candidates, static fn (mixed $candidate): bool => $candidate instanceof Principal));
+    }
+
+    /**
+     * Whether the principal, an Eloquent model, holds its tenant loaded.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return bool
+     */
+    private static function tenantLoadedOn(Principal $principal): bool
+    {
+        self::assertInstanceOf(Model::class, $principal);
+
+        return $principal->relationLoaded('tenant');
     }
 
     /**

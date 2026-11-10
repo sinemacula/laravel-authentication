@@ -51,7 +51,7 @@ final class RoleMember extends Model implements HasPrincipals, HasSessions, Iden
             ->where('identity_id', $this->getKey())
             ->orderBy('id')
             ->afterQuery(static fn (Collection $roles): Collection => $roles->map(
-                static fn (MemberRole $role): Model => $role->kind === 'membership'
+                static fn (Model $role): Model => $role->getAttribute('kind') === 'membership'
                     ? (new MemberRoleMembership)->newFromBuilder($role->getAttributes(), $role->getConnectionName())
                     : $role,
             ));

@@ -11,6 +11,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 use SineMacula\Laravel\Authentication\Database\TableAlreadyExistsException;
+use Tests\Concerns\RunsMigrationSteps;
 use Tests\TestCase;
 
 /**
@@ -29,6 +30,8 @@ use Tests\TestCase;
 #[CoversClass(MigrationCollisionGuard::class)]
 final class SignInTablesMigrationCollisionTest extends TestCase
 {
+    use RunsMigrationSteps;
+
     /** @var string Directory of the shipped migrations. */
     private const string MIGRATIONS = __DIR__ . '/../../../database/migrations/';
 
@@ -154,6 +157,6 @@ final class SignInTablesMigrationCollisionTest extends TestCase
 
         self::assertInstanceOf(Migration::class, $migration);
 
-        \call_user_func([$migration, 'up']);
+        self::runMigrationStep($migration);
     }
 }

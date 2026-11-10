@@ -405,7 +405,7 @@ final class ContextForgettingTest extends TestCase
 
         config()->set('auth.guards.7', config('auth.guards.api'));
 
-        self::assertArrayHasKey(7, config('auth.guards'));
+        self::assertArrayHasKey(7, config()->array('auth.guards'));
         self::assertTrue(Auth::sessions('api')->stepUp(self::adapterProof($signedIn->identity, 'api', $signedIn->record->getKey()), self::requestClient())->isIssued());
         self::assertTrue($guard->authenticationContext()->mfa);
     }
@@ -556,7 +556,7 @@ final class ContextForgettingTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $guard->login($session->identity, $session->identity, $session->record);
+        $guard->login($session->identity, $session->principal, $session->record);
 
         return $guard;
     }

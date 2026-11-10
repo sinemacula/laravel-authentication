@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -327,14 +328,14 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     }
 
     /**
-     * Persist a session of the guard owned by the identity with a refresh
-     * digest for the shared rotation id.
+     * Persist a session of the guard owned by the identity, signed in as
+     * itself, with a refresh digest for the shared rotation id.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\Principal  $identity
      * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Models\Session
      */
-    private function seedSession(Identity $identity, string $guard): Session
+    private function seedSession(Identity&Principal $identity, string $guard): Session
     {
         $session = new Session;
         $session->forceFill([

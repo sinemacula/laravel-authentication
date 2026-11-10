@@ -155,19 +155,19 @@ final class HoldsAuthenticationContextTest extends TestCase
         $kept = CredentialKind::ACCESS_TOKEN;
 
         yield 'setPrincipal()' => [static function (JwtGuard $guard, SignedInSession $in): void {
-            $guard->setPrincipal($in->identity);
+            $guard->setPrincipal($in->principal);
         }, true, $kept];
         yield 'setSession()' => [static function (JwtGuard $guard, SignedInSession $in): void {
             $guard->setSession($in->record);
         }, true, $kept];
         yield 'login()' => [static function (JwtGuard $guard, SignedInSession $in): void {
-            $guard->login($in->identity, $in->identity, $in->record);
+            $guard->login($in->identity, $in->principal, $in->record);
         }, true, null];
         yield 'setUser()' => [static function (JwtGuard $guard, SignedInSession $in): void {
             $guard->setUser($in->identity);
         }, true, null];
         yield 'authenticateAs()' => [static function (JwtGuard $guard, SignedInSession $in): void {
-            $guard->authenticateAs($in->identity, $in->identity, $in->record);
+            $guard->authenticateAs($in->identity, $in->principal, $in->record);
         }, true, null];
         yield 'forgetUser()' => [static function (JwtGuard $guard): void {
             $guard->forgetUser();

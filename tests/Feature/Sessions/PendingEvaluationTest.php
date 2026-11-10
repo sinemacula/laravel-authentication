@@ -233,7 +233,7 @@ final class PendingEvaluationTest extends TestCase
 
         [$principals, $refusal] = $this->evaluation(self::CHOOSERS)->principals($member);
 
-        self::assertSame([$second->getKey()], array_map(static fn (ChoosingMembership $membership): mixed => $membership->getKey(), $principals));
+        self::assertSame([$second->getKey()], array_map(static fn (Principal $membership): mixed => $membership->getPrincipalIdentifier(), $principals));
         self::assertSame(FailureReason::TENANT_INACTIVE, $refusal);
 
         $this->refuseIdentifiers();
@@ -261,7 +261,7 @@ final class PendingEvaluationTest extends TestCase
 
         [$principals, $refusal] = $this->evaluation(self::CHOOSERS)->principals($member);
 
-        self::assertSame([$first->getKey()], array_map(static fn (ChoosingMembership $membership): mixed => $membership->getKey(), $principals));
+        self::assertSame([$first->getKey()], array_map(static fn (Principal $membership): mixed => $membership->getPrincipalIdentifier(), $principals));
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $refusal);
 
         ActivatableTenant::query()->whereKey($first->tenant_id)->update(['is_active' => false]);
@@ -437,7 +437,7 @@ final class PendingEvaluationTest extends TestCase
         $unique->shouldReceive('getPrincipalIdentifier')->andReturn('unique');
         $unique->shouldReceive('getTenant')->andReturnNull();
         $query->shouldReceive('useWritePdo')->andReturnSelf();
-        $query->shouldReceive('get')->andReturn(new Collection([$twin, 'not a principal', $other, $unique]));
+        $query->shouldReceive('get')->andReturn(Collection::make([$twin, 'not a principal', $other, $unique]));
         $members->shouldReceive('principals')->andReturn($query);
         $access->shouldReceive('mayUse')->once()->with('api', $unique)->andReturnTrue();
 

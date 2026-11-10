@@ -113,10 +113,11 @@ trait InteractsWithPasskeys
 
     /**
      * Sign in through the guard's session service with the authenticator's
-     * answer to fresh sign-in options, after letting the test change it.
+     * answer to fresh sign-in options, after letting the test change it or
+     * hand it on as JSON.
      *
      * @param  string  $guard
-     * @param  ?\Closure(array<string, mixed>): array<string, mixed>  $tamper
+     * @param  ?\Closure(array<string, mixed>): (array<string, mixed>|string)  $tamper
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable

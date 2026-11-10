@@ -83,10 +83,42 @@ final class Cbor
         $encoded = self::head(5, count($pairs));
 
         foreach ($pairs as [$key, $item]) {
-            $encoded .= self::encode($key) . self::encode($item);
+            $encoded .= self::encode($key) . self::encodeItem($item);
         }
 
         return $encoded;
+    }
+
+    /**
+     * Encode a map's value, refusing one CBOR is not written with here.
+     *
+     * @param  mixed  $item
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function encodeItem(mixed $item): string
+    {
+        if (is_int($item) || is_string($item) || $item instanceof \Stringable) {
+            return self::encode($item);
+        }
+
+        if (!is_array($item) || !array_is_list($item)) {
+            throw new \InvalidArgumentException('A map value is an integer, a string or a list of pairs.');
+        }
+
+        $pairs = [];
+
+        foreach ($item as $pair) {
+
+            if (!is_array($pair) || !array_is_list($pair) || count($pair) !== 2 || !(is_int($pair[0]) || is_string($pair[0]) || $pair[0] instanceof \Stringable)) {
+                throw new \InvalidArgumentException('A map is a list of [key, value] pairs.');
+            }
+
+            $pairs[] = [$pair[0], $pair[1]];
+        }
+
+        return self::map($pairs);
     }
 
     /**

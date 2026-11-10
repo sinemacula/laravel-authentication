@@ -34,7 +34,6 @@ use Tests\Concerns\InteractsWithProofs;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Tenancy\ProofJudgingRequirementCheck;
 use Tests\Fixtures\Tenancy\ScriptedTenantAuthenticationPolicy;
-use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\TestCase;
 
 /**
@@ -267,13 +266,12 @@ final class ConcurrentPendingLocksTest extends TestCase
 
         [$activated, $second] = $this->race(
             fn (): bool => $this->sessions(self::GUARD)->satisfy($credential, $proof, self::requestClient())->isSignedIn(),
-            function (ActivatableTenant $tenant): array {
+            function () use ($tenant): array {
 
                 $this->policy->requirement = new TenantRequirement('v2', connections: ['conn-a']);
 
                 return ['revoked' => $this->sessions(self::GUARD)->tenantPolicyChanged($tenant)];
             },
-            $tenant,
         );
 
         self::assertTrue($activated);
@@ -412,20 +410,19 @@ final class ConcurrentPendingLocksTest extends TestCase
      * outcome and the second's, with how long it waited.
      *
      * @param  \Closure(): mixed  $first
-     * @param  \Closure(mixed): array<string, mixed>  $second
-     * @param  mixed  ...$arguments
+     * @param  \Closure(): array<string, mixed>  $second
      * @return array{0: mixed, 1: array<array-key, mixed>}
      *
      * @throws \Throwable
      */
-    private function race(\Closure $first, \Closure $second, mixed ...$arguments): array
+    private function race(\Closure $first, \Closure $second): array
     {
         DB::disconnect();
 
         $pid = pcntl_fork();
 
         if ($pid === 0) {
-            $this->runInChild($second, $arguments);
+            $this->runInChild($second);
         }
 
         DB::beginTransaction();
@@ -538,11 +535,10 @@ final class ConcurrentPendingLocksTest extends TestCase
      * of its own, report its outcome and how long it took, and end without
      * running the parent's shutdown.
      *
-     * @param  \Closure(mixed): array<string, mixed>  $call
-     * @param  list<mixed>  $arguments
+     * @param  \Closure(): array<string, mixed>  $call
      * @return never
      */
-    private function runInChild(\Closure $call, array $arguments): never
+    private function runInChild(\Closure $call): never
     {
         try {
             $deadline = microtime(true) + self::START_TIMEOUT_SECONDS;
@@ -552,7 +548,7 @@ final class ConcurrentPendingLocksTest extends TestCase
             }
 
             $started = microtime(true);
-            $outcome = [...$call(...$arguments), 'waited' => 0.0];
+            $outcome = [...$call(), 'waited' => 0.0];
 
             $outcome['waited'] = microtime(true) - $started;
         } catch (\Throwable $e) {

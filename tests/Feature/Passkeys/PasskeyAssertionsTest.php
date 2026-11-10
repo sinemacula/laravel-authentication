@@ -307,7 +307,7 @@ final class PasskeyAssertionsTest extends TestCase
 
         DB::beginTransaction();
 
-        $this->assertions()->used(self::rp(), $client, $identity, $passkey, app(Dispatcher::class)->dispatch(...));
+        $this->assertions()->used(self::rp(), $client, $identity, $passkey, self::dispatch(...));
 
         self::assertSame([], $this->recorded);
 
@@ -316,7 +316,7 @@ final class PasskeyAssertionsTest extends TestCase
         self::assertSame([], $this->recorded);
 
         DB::transaction(function () use ($client, $identity, $passkey): void {
-            $this->assertions()->used(self::rp(), $client, $identity, $passkey, app(Dispatcher::class)->dispatch(...));
+            $this->assertions()->used(self::rp(), $client, $identity, $passkey, self::dispatch(...));
         });
 
         $used = $this->recordedEvent(PasskeyUsed::class);
@@ -347,7 +347,7 @@ final class PasskeyAssertionsTest extends TestCase
 
         app()->offsetUnset('db.transactions');
 
-        $this->assertions()->used(self::rp(), new ClientContext(null, null), $identity, $passkey, app(Dispatcher::class)->dispatch(...));
+        $this->assertions()->used(self::rp(), new ClientContext(null, null), $identity, $passkey, self::dispatch(...));
 
         self::assertSame([PasskeyUsed::class], $this->recordedClasses());
 
@@ -417,5 +417,16 @@ final class PasskeyAssertionsTest extends TestCase
     private static function rp(): RelyingParty
     {
         return RelyingParty::forGuard('api', app(ConfigRepository::class));
+    }
+
+    /**
+     * Dispatch the event through the application's dispatcher.
+     *
+     * @param  object  $event
+     * @return void
+     */
+    private static function dispatch(object $event): void
+    {
+        app(Dispatcher::class)->dispatch($event);
     }
 }

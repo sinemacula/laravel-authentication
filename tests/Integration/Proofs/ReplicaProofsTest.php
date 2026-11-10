@@ -141,7 +141,7 @@ final class ReplicaProofsTest extends TestCase
         self::assertNotNull($session);
 
         $key     = $session->record->getKey();
-        $subject = new ContributionSubject(self::contextFor($session->identity), $session->identity, $session->identity, null, $session->record);
+        $subject = new ContributionSubject(self::contextFor($session->identity), $session->identity, $session->principal, null, $session->record);
 
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('authentication_sessions')->count());
         self::assertSame(ProofKind::FIRST_FACTOR, $this->sessions()->firstFactor($key)?->kind);

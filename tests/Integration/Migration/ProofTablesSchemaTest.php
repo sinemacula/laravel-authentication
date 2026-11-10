@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use SineMacula\Laravel\Authentication\Database\TableAlreadyExistsException;
+use Tests\Concerns\RunsMigrationSteps;
 use Tests\TestCase;
 
 /**
@@ -32,6 +33,8 @@ use Tests\TestCase;
 #[CoversNothing]
 final class ProofTablesSchemaTest extends TestCase
 {
+    use RunsMigrationSteps;
+
     /** @var string Absolute path to the shipped proofs migration file. */
     private const string PROOFS_MIGRATION = __DIR__ . '/../../../database/migrations/2026_04_06_000008_create_authentication_proofs_table.php';
 
@@ -67,8 +70,8 @@ final class ProofTablesSchemaTest extends TestCase
         Builder::defaultTimePrecision(6);
 
         try {
-            \call_user_func([self::load(self::PROOFS_MIGRATION), 'up']);
-            \call_user_func([self::load(self::PROVENANCE_MIGRATION), 'up']);
+            self::runMigrationStep(self::load(self::PROOFS_MIGRATION));
+            self::runMigrationStep(self::load(self::PROVENANCE_MIGRATION));
         } finally {
             Builder::defaultTimePrecision($precision);
         }
@@ -391,8 +394,8 @@ final class ProofTablesSchemaTest extends TestCase
         config()->set('authentication.proofs.guards_table', $guards);
 
         try {
-            \call_user_func([self::load(self::PROOFS_MIGRATION), 'up']);
-            \call_user_func([self::load(self::PROVENANCE_MIGRATION), 'up']);
+            self::runMigrationStep(self::load(self::PROOFS_MIGRATION));
+            self::runMigrationStep(self::load(self::PROVENANCE_MIGRATION));
 
             self::assertSame([$proofs . '_session_index'], array_column(self::secondaryIndexes($proofs), 0));
             self::assertEqualsCanonicalizing([$provenance . '_provider_index', $provenance . '_tenant_index'], array_column(self::secondaryIndexes($provenance), 0));
@@ -417,7 +420,7 @@ final class ProofTablesSchemaTest extends TestCase
         $refusal = null;
 
         try {
-            \call_user_func([self::load(self::PROVENANCE_MIGRATION), 'up']);
+            self::runMigrationStep(self::load(self::PROVENANCE_MIGRATION));
         } catch (TableAlreadyExistsException $exception) { // @phpstan-ignore catch.neverThrown
             $refusal = $exception->getMessage();
         }
@@ -438,8 +441,8 @@ final class ProofTablesSchemaTest extends TestCase
      */
     public function testRollsBackByDroppingTheTables(): void
     {
-        \call_user_func([self::load(self::PROOFS_MIGRATION), 'down']);
-        \call_user_func([self::load(self::PROVENANCE_MIGRATION), 'down']);
+        self::runMigrationStep(self::load(self::PROOFS_MIGRATION), 'down');
+        self::runMigrationStep(self::load(self::PROVENANCE_MIGRATION), 'down');
 
         self::assertFalse(Schema::hasTable(self::PROOFS));
         self::assertFalse(Schema::hasTable(self::PROVENANCE));
