@@ -89,7 +89,7 @@ final class ResetSubmissionsTest extends TestCase
 
         self::assertNotNull($link);
         self::assertSame(['web', 'email', self::EMAIL, '2026-10-29 10:30:00'], [$link->guard, $link->type, $link->identifier, $link->expiresAt->format('Y-m-d H:i:s')]);
-        self::assertTrue(PasswordIdentity::query()->sole()->is($link->identity));
+        self::assertIsModel(PasswordIdentity::query()->sole(), $link->identity);
         self::assertSame(0, $this->codes->count());
 
         $token = $link->token()->reveal();

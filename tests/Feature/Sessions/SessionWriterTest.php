@@ -130,7 +130,7 @@ final class SessionWriterTest extends TestCase
             UndescribedSignInProof::of('password', $this->now),
         );
         $record = Session::query()->whereKey($session->record->getKey())->firstOrFail();
-        $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken?->reveal(), TokenType::REFRESH);
+        $claims = Auth::manager()->jwt('api')->parse(self::bodyRefreshToken($session->tokens), TokenType::REFRESH);
 
         self::assertSame('password', $session->method);
         self::assertSame('password', $record->getSignInMethod());
@@ -405,7 +405,7 @@ final class SessionWriterTest extends TestCase
         JWT::$timestamp = $later->getTimestamp();
 
         $record = Session::query()->whereKey($session->record->getKey())->firstOrFail();
-        $claims = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken?->reveal(), TokenType::REFRESH);
+        $claims = Auth::manager()->jwt('api')->parse(self::bodyRefreshToken($session->tokens), TokenType::REFRESH);
 
         self::assertNotNull($claims);
         self::assertSame($record->getKey(), $claims['sid']);

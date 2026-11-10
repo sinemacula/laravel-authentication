@@ -14,6 +14,8 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Concerns\BuildsPlainValues;
+use Tests\Concerns\ComparesModels;
+use Tests\Concerns\ReadsBodyRefreshTokens;
 use Tests\Fixtures\Sessions\FirstFactorRecorder;
 use Tests\Fixtures\Sessions\SessionGenerations;
 
@@ -41,7 +43,7 @@ use Tests\Fixtures\Sessions\SessionGenerations;
  */
 abstract class TestCase extends OrchestraTestCase
 {
-    use BuildsPlainValues;
+    use BuildsPlainValues, ComparesModels, ReadsBodyRefreshTokens;
 
     /** @var string The `iss` every test guard's tokens carry. */
     protected const string JWT_ISSUER = 'https://issuer.example.test';

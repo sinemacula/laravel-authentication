@@ -22,7 +22,6 @@ use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Factors\Enums\FactorChangeMade;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -127,7 +126,7 @@ final class StorageConnectionSessionsTest extends TestCase
         $digest = $this->records()->value('refresh_key');
 
         self::assertNotNull(
-            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
         self::assertNotSame($digest, $this->records()->value('refresh_key'));
     }

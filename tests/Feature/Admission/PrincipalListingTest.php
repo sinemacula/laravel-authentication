@@ -254,7 +254,7 @@ final class PrincipalListingTest extends TestCase
 
             self::assertInstanceOf(WorkspaceMembership::class, $candidate);
             self::assertFalse($candidate->relationLoaded('tenant'));
-            self::assertTrue($tenant->is($candidate->getRelation('workspace')));
+            self::assertIsModel($tenant, $candidate->getRelation('workspace'));
         }
     }
 

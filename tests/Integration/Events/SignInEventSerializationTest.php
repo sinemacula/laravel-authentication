@@ -258,7 +258,7 @@ final class SignInEventSerializationTest extends TestCase
         self::assertStringNotContainsString('ModelIdentifier', $queued);
         self::assertStringNotContainsString(sprintf('O:%d:"%s"', strlen(ActivatableTenantMember::class), ActivatableTenantMember::class), $queued);
         self::assertStringNotContainsString($session->tokens->accessToken->reveal(), $queued);
-        self::assertStringNotContainsString($session->tokens->refreshToken?->reveal(), $queued);
+        self::assertStringNotContainsString(self::bodyRefreshToken($session->tokens), $queued);
         self::assertStringNotContainsString($digest, $queued);
         self::assertStringNotContainsString($hash, $queued);
     }

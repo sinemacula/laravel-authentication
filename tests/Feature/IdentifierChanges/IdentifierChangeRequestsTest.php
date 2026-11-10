@@ -147,7 +147,7 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         self::assertSame(['web', CodePurpose::CHANGE_IDENTIFIER, 'email'], [$message->guard, $message->purpose, $message->type]);
         self::assertSame([self::NEW_EMAIL, self::CODE], [$message->identifier, $message->code->reveal()]);
-        self::assertTrue($identity->is($message->identity));
+        self::assertIsModel($identity, $message->identity);
     }
 
     /**

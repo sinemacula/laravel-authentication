@@ -125,7 +125,7 @@ final class RefreshCredentialTest extends TestCase
         $credential = $this->serving(body: ['refresh_token' => self::refreshOf($session)])->refreshCredential(self::servedToken(), self::requestClient());
 
         self::assertInstanceOf(RefreshCredential::class, $credential);
-        self::assertTrue($identity->is($credential->identity));
+        self::assertIsModel($identity, $credential->identity);
         self::assertSame($identity->getPrincipalIdentifier(), $credential->principal->getPrincipalIdentifier());
         self::assertNull($credential->tenant);
         self::assertSame($session->record->getKey(), $credential->session->getKey());
@@ -160,7 +160,7 @@ final class RefreshCredentialTest extends TestCase
         )->refreshCredential(self::servedToken('members'), self::requestClient());
 
         self::assertInstanceOf(RefreshCredential::class, $credential);
-        self::assertTrue($member->is($credential->identity));
+        self::assertIsModel($member, $credential->identity);
         self::assertSame($membership->getPrincipalIdentifier(), $credential->principal->getPrincipalIdentifier());
         self::assertSame($tenant->getTenantIdentifier(), $credential->tenant?->getTenantIdentifier());
         self::assertSame(RefreshTokenSource::HEADER, $credential->source);
@@ -170,7 +170,7 @@ final class RefreshCredentialTest extends TestCase
         $asked = $policy->asked[0];
 
         self::assertSame('members', $asked->application);
-        self::assertTrue($member->is($asked->identity));
+        self::assertIsModel($member, $asked->identity);
         self::assertSame($membership->getPrincipalIdentifier(), $asked->principal->getPrincipalIdentifier());
         self::assertSame($tenant->getTenantIdentifier(), $asked->tenant->getTenantIdentifier());
         self::assertSame($session->record->getKey(), $asked->session?->getSessionIdentifier());
@@ -321,7 +321,7 @@ final class RefreshCredentialTest extends TestCase
         $credential = $this->serving(body: ['refresh_token' => self::refreshOf($session)])->refreshCredential(self::servedToken(), self::requestClient());
 
         self::assertInstanceOf(RefreshCredential::class, $credential);
-        self::assertTrue($identity->is($credential->identity));
+        self::assertIsModel($identity, $credential->identity);
     }
 
     /**
@@ -346,7 +346,7 @@ final class RefreshCredentialTest extends TestCase
         $credential = self::sessionsOf($this->crossSiteGuard(self::COOKIE))->refreshCredential($cookie, self::sameSiteClient());
 
         self::assertInstanceOf(RefreshCredential::class, $credential);
-        self::assertTrue($identity->is($credential->identity));
+        self::assertIsModel($identity, $credential->identity);
         self::assertSame(RefreshTokenSource::COOKIE, $credential->source);
 
         $service = $this->sessions(self::COOKIE);

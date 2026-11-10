@@ -20,7 +20,6 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -264,7 +263,7 @@ final class MachineIdentitySignInTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertNull(
-            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
         self::assertSame(FailureReason::MACHINE_IDENTITY, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertSame(AuthenticationFlow::REFRESH, $this->recordedEvent(AuthenticationFailed::class)->flow);
@@ -272,7 +271,7 @@ final class MachineIdentitySignInTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         $switched = $this->sessions()->switchTo(
-            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            self::bodyToken($session->tokens),
             SwitchTarget::principal($session->principal),
             self::requestClient(),
         );

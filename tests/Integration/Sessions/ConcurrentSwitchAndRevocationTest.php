@@ -213,7 +213,7 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
                 fn (): int => $this->sessions(self::GUARD)->revokeSessions($member, RevocationReason::REVOKED),
                 fn (): array => self::describe(
                     $this->sessions(self::GUARD)->switchTo(
-                        PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                        self::bodyToken($session->tokens),
                         SwitchTarget::principal($target),
                         self::requestClient(),
                     ),
@@ -258,12 +258,12 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
 
             [$refreshed, $second] = $this->race(
                 fn (): bool => self::sessionsOf($this->freshGuard(self::GUARD))->refresh(
-                    PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                    self::bodyToken($session->tokens),
                     self::requestClient(),
                 )->isRefreshed(),
                 fn (): array => self::describe(
                     $this->sessions(self::GUARD)->switchTo(
-                        PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                        self::bodyToken($session->tokens),
                         SwitchTarget::principal($target),
                         self::requestClient(),
                     ),
@@ -313,14 +313,14 @@ final class ConcurrentSwitchAndRevocationTest extends TestCase
             [$first, $second] = $this->race(
                 fn (): array => self::describe(
                     $this->sessions(self::GUARD)->switchTo(
-                        PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                        self::bodyToken($session->tokens),
                         SwitchTarget::principal($target),
                         self::requestClient(),
                     ),
                 ),
                 fn (): array => self::describe(
                     $this->sessions(self::GUARD)->switchTo(
-                        PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                        self::bodyToken($session->tokens),
                         SwitchTarget::principal($target),
                         self::requestClient(),
                     ),

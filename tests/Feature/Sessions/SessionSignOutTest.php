@@ -147,7 +147,7 @@ final class SessionSignOutTest extends TestCase
         self::assertNull($result->forgetCookie);
         self::assertSame([SessionRevoked::class, Logout::class], $this->recordedClasses());
         self::assertSame(RevocationReason::SIGNED_OUT, $this->recordedEvent(SessionRevoked::class)->reason);
-        self::assertTrue($identity->is($this->recordedEvent(Logout::class)->user));
+        self::assertIsModel($identity, $this->recordedEvent(Logout::class)->user);
         self::assertSame('signed_out', $this->revokedReasonOf($session));
         self::assertNull($this->revokedReasonOf($other));
         self::assertTrue(Auth::guard('api')->guest());
@@ -175,7 +175,7 @@ final class SessionSignOutTest extends TestCase
         self::assertFalse($result->isFailed());
         self::assertNull($result->source);
         self::assertSame([Logout::class], $this->recordedClasses());
-        self::assertTrue($identity->is($this->recordedEvent(Logout::class)->user));
+        self::assertIsModel($identity, $this->recordedEvent(Logout::class)->user);
         self::assertFalse(Auth::guard('api')->check());
     }
 
@@ -300,7 +300,7 @@ final class SessionSignOutTest extends TestCase
         self::assertSame(['api', 'password'], [$revoked->context->guard, $revoked->context->method]);
         self::assertSame(IdentifierCoercion::stringify($session->record->getKey()), $revoked->context->sessionId);
         EventContextAssertions::assertIdentity($identity, $revoked->context);
-        self::assertTrue($identity->is($this->recordedEvent(Logout::class)->user));
+        self::assertIsModel($identity, $this->recordedEvent(Logout::class)->user);
         self::assertSame('api', $this->recordedEvent(Logout::class)->guard);
         self::assertSame('signed_out', $this->revokedReasonOf($session));
         self::assertSame(FailureReason::SESSION_REVOKED, $this->sessions()->refresh(PresentedRefreshToken::fromBody(self::refreshOf($session)), self::requestClient())->reason);
@@ -532,7 +532,7 @@ final class SessionSignOutTest extends TestCase
 
         self::assertTrue($sessions->signOutWith(PresentedRefreshToken::fromBody(self::refreshOf($current)), self::requestClient())->isSignedOut());
         self::assertSame([SessionRevoked::class, Logout::class], $this->recordedClasses());
-        self::assertTrue($identity->is($this->recordedEvent(Logout::class)->user));
+        self::assertIsModel($identity, $this->recordedEvent(Logout::class)->user);
         self::assertTrue(Auth::guard('api')->guest());
         self::assertSame('signed_out', $this->revokedReasonOf($current));
         self::assertSame('signed_out', $this->revokedReasonOf($other));
@@ -638,7 +638,7 @@ final class SessionSignOutTest extends TestCase
         self::assertSame([SessionRevoked::class, Logout::class], $this->recordedClasses());
         self::assertSame($client, $this->recordedEvent(SessionRevoked::class)->context->client);
         self::assertSame(RevocationReason::SIGNED_OUT, $this->recordedEvent(SessionRevoked::class)->reason);
-        self::assertTrue($identity->is($this->recordedEvent(Logout::class)->user));
+        self::assertIsModel($identity, $this->recordedEvent(Logout::class)->user);
         self::assertTrue(Auth::guard(self::BROWSER)->check());
 
         $this->recordEvents(self::EVENTS);

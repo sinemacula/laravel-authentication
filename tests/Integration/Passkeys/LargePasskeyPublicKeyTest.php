@@ -123,7 +123,7 @@ final class LargePasskeyPublicKeyTest extends TestCase
         $result = $this->signInWithPasskey();
 
         self::assertTrue($result->isSignedIn());
-        self::assertTrue($identity->is($result->session?->identity));
+        self::assertIsModel($identity, $result->session?->identity);
     }
 
     /**

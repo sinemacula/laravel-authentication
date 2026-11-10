@@ -163,7 +163,7 @@ final class EmailCodeSignInTest extends TestCase
         $result = $this->signIn(self::CODE, $entered);
 
         self::assertTrue($result->isSignedIn());
-        self::assertTrue($identity->is($result->session?->identity));
+        self::assertIsModel($identity, $result->session?->identity);
         self::assertSame(['email_code', 'email'], [$result->session?->method, Session::query()->sole()->sign_in_identifier_type]);
     }
 
@@ -342,7 +342,7 @@ final class EmailCodeSignInTest extends TestCase
 
         $this->configureLookAlikeGuard();
 
-        self::assertTrue($holder->is($this->freshGuard('lookalike')->getProvider()->retrieveByCredentials(['email' => self::LOOK_ALIKE])));
+        self::assertIsModel($holder, $this->freshGuard('lookalike')->getProvider()->retrieveByCredentials(['email' => self::LOOK_ALIKE]));
         self::assertTrue($this->codeService('lookalike')->send('email_code', ['email' => self::LOOK_ALIKE], self::requestClient())->isSent());
 
         $this->app?->terminate();
@@ -382,7 +382,7 @@ final class EmailCodeSignInTest extends TestCase
         $message = $this->sender->sent()[0] ?? null;
 
         self::assertSame(self::EMAIL, $message?->identifier);
-        self::assertTrue($holder->is($message->identity));
+        self::assertIsModel($holder, $message->identity);
         self::assertTrue($this->signIn(self::CODE, guard: 'lookalike')->isSignedIn());
     }
 
@@ -403,7 +403,7 @@ final class EmailCodeSignInTest extends TestCase
 
         $holder = self::seedCodeIdentity(email: self::EMAIL);
 
-        self::assertTrue($holder->is($this->freshGuard('mobile')->getProvider()->retrieveByCredentials(['email' => self::LOOK_ALIKE])));
+        self::assertIsModel($holder, $this->freshGuard('mobile')->getProvider()->retrieveByCredentials(['email' => self::LOOK_ALIKE]));
 
         $this->codeService()->send('email_code', ['email' => self::LOOK_ALIKE], self::requestClient());
         $this->app?->terminate();

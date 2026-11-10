@@ -648,7 +648,7 @@ final class EventSequenceTest extends TestCase
 
         $result = $sessions->choose($token, $membership, self::requestClient());
 
-        self::assertTrue($chooser->is($result->session?->identity));
+        self::assertIsModel($chooser, $result->session?->identity);
         self::assertSame([
             'SessionCreated choosers i1/p1/s1',
             'SignedIn choosers new i1/p1/s1',
@@ -847,7 +847,7 @@ final class EventSequenceTest extends TestCase
         $this->recordSequence();
 
         self::assertTrue(
-            $sessions->switchTo(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), SwitchTarget::principal($second), self::requestClient())->isSwitched(),
+            $sessions->switchTo(self::bodyToken($session->tokens), SwitchTarget::principal($second), self::requestClient())->isSwitched(),
         );
         self::assertSame([
             'PrincipalSwitched members from:p1 i1/p2/s1',

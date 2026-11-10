@@ -20,7 +20,6 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Freshness\ConfiguredFreshness;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRequestStatus;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
@@ -354,7 +353,7 @@ final class RecentAuthenticationTest extends TestCase
         $this->moveTo($this->now->addSeconds(1000));
 
         self::assertNotNull(
-            self::sessionsOf($this->freshGuard('web'))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard('web'))->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
 
         $refreshed = Session::query()->findOrFail($session->record->getKey());

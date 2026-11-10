@@ -27,7 +27,6 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Reauthenticated;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Models\SessionProof;
@@ -152,7 +151,7 @@ final class SessionReauthenticationTest extends TestCase
         self::assertNull($answer['reason']);
         self::assertIsString($answer['access_token']);
         self::assertSame($before, self::refreshState());
-        self::assertTrue($this->sessions()->refresh(PresentedRefreshToken::fromBody($signedIn->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
+        self::assertTrue($this->sessions()->refresh(self::bodyToken($signedIn->tokens), self::requestClient())->isRefreshed());
     }
 
     /**

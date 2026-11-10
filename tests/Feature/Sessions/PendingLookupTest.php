@@ -118,8 +118,8 @@ final class PendingLookupTest extends TestCase
 
             self::assertNotNull($found);
             self::assertSame($pending->pending?->id, $found[0]->getSessionIdentifier());
-            self::assertTrue($identity->is($found[1]));
-            self::assertTrue($identity->is($found[2]));
+            self::assertIsModel($identity, $found[1]);
+            self::assertIsModel($identity, $found[2]);
         }
 
         DB::rollBack();

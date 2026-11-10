@@ -100,14 +100,14 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testTheCurrentRefreshTokenProvesItsSession(): void
     {
-        $proven = $this->prove($this->session->tokens->refreshToken?->reveal());
+        $proven = $this->prove(self::bodyRefreshToken($this->session->tokens));
 
         self::assertInstanceOf(Session::class, $proven);
         self::assertSame($this->session->record->getKey(), $proven->getKey());
 
         JWT::$timestamp = Carbon::now()->addYears(2)->getTimestamp();
 
-        self::assertSame($this->session->record->getKey(), $this->prove($this->session->tokens->refreshToken?->reveal())?->getSessionIdentifier());
+        self::assertSame($this->session->record->getKey(), $this->prove(self::bodyRefreshToken($this->session->tokens))?->getSessionIdentifier());
     }
 
     /**
@@ -215,7 +215,7 @@ final class ProvenSessionsTest extends TestCase
         $admin = Auth::manager()->jwt('admin');
         $api   = Auth::manager()->jwt('api');
 
-        $claims = $this->claims($this->session->tokens->refreshToken?->reveal());
+        $claims = $this->claims(self::bodyRefreshToken($this->session->tokens));
 
         self::assertNull($this->prove('not-a-jwt'));
         self::assertNull($this->prove($this->session->tokens->accessToken->reveal()));
@@ -234,7 +234,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testARotationIdThatIsNotAStringProvesNothing(): void
     {
-        $claims = $this->claims($this->session->tokens->refreshToken?->reveal());
+        $claims = $this->claims(self::bodyRefreshToken($this->session->tokens));
 
         $claims[Claims::JWT_ID->value] = 12345;
 

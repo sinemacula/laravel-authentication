@@ -569,7 +569,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertSame('p-1', $accessClaims[Claims::PRINCIPAL->value]);
         self::assertSame($session->id, $accessClaims[Claims::SESSION_ID->value]);
 
-        $refreshClaims = $this->tokens->parse($result->refreshToken?->reveal(), TokenType::REFRESH);
+        $refreshClaims = $this->tokens->parse(self::bodyRefreshToken($result), TokenType::REFRESH);
         self::assertIsArray($refreshClaims);
         self::assertSame($session->id, $refreshClaims[Claims::SESSION_ID->value]);
         self::assertSame('p-1', $refreshClaims[Claims::PRINCIPAL->value]);
@@ -735,7 +735,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertTrue(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($token), self::requestClient($guard->getRequest()))->isRefreshed());
         self::assertSame($identity, $guard->identity());
         self::assertSame($principal, $guard->principal());
-        self::assertTrue($session->is($guard->session()));
+        self::assertIsModel($session, $guard->session());
     }
 
     /**

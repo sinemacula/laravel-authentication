@@ -23,7 +23,6 @@ use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\SessionReturnedToPending;
 use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\TokenPair;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
@@ -133,7 +132,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->beforeTheSwap(function () use ($session, &$refreshed): void {
             $refreshed = self::sessionsOf($this->freshGuard(self::GUARD))->refresh(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 self::requestClient(),
             )->session?->tokens;
         });
@@ -405,7 +404,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->beforeTheSwap(function () use ($session, &$refreshed): void {
             $refreshed[] = self::sessionsOf($this->freshGuard(self::GUARD))->refresh(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 self::requestClient(),
             )->session?->tokens;
         });
@@ -435,14 +434,14 @@ final class SessionSwitchTest extends TestCase
         $this->beforeTheSwap(function () use ($session, &$refreshed): void {
 
             $refreshed[] = $first = self::sessionsOf($this->freshGuard(self::GUARD))->refresh(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 self::requestClient(),
             )->session?->tokens;
 
             self::assertNotNull($first);
 
             $refreshed[] = self::sessionsOf($this->freshGuard(self::GUARD))->refresh(
-                PresentedRefreshToken::fromBody($first->refreshToken?->reveal()),
+                self::bodyToken($first),
                 self::requestClient(),
             )->session?->tokens;
         });
@@ -483,7 +482,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->beforeTheReturn(function () use ($session, &$refreshed): void {
             $refreshed = self::sessionsOf($this->freshGuard(self::GUARD))->refresh(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 self::requestClient(),
             )->session;
         });
@@ -527,7 +526,7 @@ final class SessionSwitchTest extends TestCase
         $this->advance(5);
 
         self::assertNotNull(
-            self::sessionsOf($this->freshGuard(self::GUARD))->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard(self::GUARD))->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
 
         $policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart));
@@ -539,7 +538,7 @@ final class SessionSwitchTest extends TestCase
         $this->recordEvents([SessionReturnedToPending::class, PrincipalSwitched::class]);
 
         $result = $this->sessions(self::GUARD)->switchTo(
-            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            self::bodyToken($session->tokens),
             SwitchTarget::tenant(TenantSelection::principalDefault()),
             self::requestClient(),
         );
@@ -597,7 +596,7 @@ final class SessionSwitchTest extends TestCase
 
         $returned = self::proofReadLocks(function () use ($first, &$results): void {
             $results[] = $this->sessions(self::GUARD)->switchTo(
-                PresentedRefreshToken::fromBody((string) $results[1]->session?->tokens->refreshToken?->reveal()),
+                self::bodyToken($results[1]->session?->tokens),
                 SwitchTarget::principal($first),
                 self::requestClient(),
             );
@@ -721,7 +720,7 @@ final class SessionSwitchTest extends TestCase
     private function switch(SignedInSession $session, ActivatableTenantMembership $target): SwitchResult
     {
         return $this->sessions(self::GUARD)->switchTo(
-            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            self::bodyToken($session->tokens),
             SwitchTarget::principal($target),
             self::requestClient(),
         );
@@ -777,7 +776,7 @@ final class SessionSwitchTest extends TestCase
         foreach ([$session->tokens, ...$tokens] as $pair) {
             $this->bearer($pair->accessToken->reveal())->assertUnauthorized();
             self::assertNull(
-                self::sessionsOf($this->freshGuard(self::GUARD))->refresh(PresentedRefreshToken::fromBody($pair->refreshToken?->reveal()), self::requestClient())->session,
+                self::sessionsOf($this->freshGuard(self::GUARD))->refresh(self::bodyToken($pair), self::requestClient())->session,
             );
         }
     }

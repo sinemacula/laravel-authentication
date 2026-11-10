@@ -107,7 +107,7 @@ final class ActingContextTest extends TestCase
 
         $guard = ActingContext::guard('members');
 
-        self::assertTrue($membership->is(ActingContext::defaultPrincipal($guard, $member)));
+        self::assertIsModel($membership, ActingContext::defaultPrincipal($guard, $member));
 
         $alone = ActivatableTenantMember::query()->create(['email' => 'alone@example.test', 'password' => 'irrelevant']);
 
@@ -157,7 +157,7 @@ final class ActingContextTest extends TestCase
 
         [, $principal] = ActingContext::recordedOn(ActingContext::guard('members'), $session);
 
-        self::assertTrue($membership->is($principal));
+        self::assertIsModel($membership, $principal);
     }
 
     /**

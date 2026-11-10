@@ -121,8 +121,8 @@ final class PrincipalListingTest extends TestCase
         $offered = Auth::sessions(self::GUARD)->principals($member);
 
         self::assertCount(1, $offered);
-        self::assertTrue($kept->is($offered[0]));
-        self::assertTrue($keptTenant->is($offered[0]->getTenant()));
+        self::assertIsModel($kept, $offered[0]);
+        self::assertIsModel($keptTenant, $offered[0]->getTenant());
     }
 
     /**

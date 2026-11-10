@@ -142,7 +142,7 @@ final class PasskeySignInTest extends TestCase
         $result = $this->signInWithPasskey();
 
         self::assertTrue($result->isSignedIn());
-        self::assertTrue($identity->is($result->session?->identity));
+        self::assertIsModel($identity, $result->session?->identity);
         self::assertSame([Attempting::class, PasskeyUsed::class, SignedIn::class], $this->recordedClasses());
         self::assertSame([], $this->recordedEvent(Attempting::class)->credentials);
 

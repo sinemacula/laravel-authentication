@@ -249,7 +249,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         )->session?->tokens;
 
         self::assertNotNull($pair);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->authManager()->jwt('api')->parse($pair->refreshToken?->reveal())['jti'] ?? null);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->authManager()->jwt('api')->parse(self::bodyRefreshToken($pair))['jti'] ?? null);
         self::assertCount(1, $updates);
         self::assertStringContainsString('issuance_sequence', $updates[0]);
     }
@@ -456,7 +456,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         self::assertNotNull($pair);
         self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->accessToken->reveal())['exp'] ?? null);
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken?->reveal())['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse(self::bodyRefreshToken($pair))['exp'] ?? null);
         self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $stored);
     }
 
@@ -490,8 +490,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         self::assertNotNull($pair);
         self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->accessToken->reveal())['exp'] ?? null);
-        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken?->reveal())['exp'] ?? null);
-        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $tokens->parse($pair->refreshToken?->reveal())['jti'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse(self::bodyRefreshToken($pair))['exp'] ?? null);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $tokens->parse(self::bodyRefreshToken($pair))['jti'] ?? null);
     }
 
     /**
@@ -837,7 +837,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $provider = new ModelProvider(app(Hasher::class), StubPrincipal::class);
 
-        self::assertTrue($identity->is($provider->retrieveByCredentials(['email' => 'writer@example.test'])));
+        self::assertIsModel($identity, $provider->retrieveByCredentials(['email' => 'writer@example.test']));
     }
 
     /**
@@ -854,7 +854,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $credentials = ['email' => 'writer@example.test', 'unsuspended' => self::excludeSuspendedIdentities()];
 
-        self::assertTrue($identity->is($provider->retrieveByCredentials($credentials)));
+        self::assertIsModel($identity, $provider->retrieveByCredentials($credentials));
 
         $this->suspend($identity);
 
@@ -913,8 +913,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $resolver = app(PrincipalResolver::class);
 
-        self::assertTrue($principal->is($resolver->resolve($identity)));
-        self::assertTrue($principal->is($resolver->resolve($identity, $principal->getKey())));
+        self::assertIsModel($principal, $resolver->resolve($identity));
+        self::assertIsModel($principal, $resolver->resolve($identity, $principal->getKey()));
     }
 
     /**

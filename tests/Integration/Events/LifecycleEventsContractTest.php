@@ -22,7 +22,6 @@ use SineMacula\Laravel\Authentication\Events\SessionRevoked;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Requirements\Requirement;
 use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -145,7 +144,7 @@ final class LifecycleEventsContractTest extends TestCase
         self::assertNotNull($session);
         self::assertTrue(
             $this->sessions('members')->switchTo(
-                PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+                self::bodyToken($session->tokens),
                 SwitchTarget::principal($second),
                 self::requestClient(),
             )->isSwitched(),

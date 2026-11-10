@@ -508,13 +508,13 @@ final class SecretRedactionTest extends TestCase
 
         self::assertNotNull($active);
 
-        $refreshed = $this->sessions()->refresh(PresentedRefreshToken::fromBody($active->tokens->refreshToken?->reveal()), self::requestClient())->session;
+        $refreshed = $this->sessions()->refresh(self::bodyToken($active->tokens), self::requestClient())->session;
 
         self::assertNotNull($refreshed);
 
         $sessions = $this->sessions();
 
-        self::assertTrue($sessions->refresh(PresentedRefreshToken::fromBody($refreshed->tokens->refreshToken?->reveal()), self::requestClient())->isRefreshed());
+        self::assertTrue($sessions->refresh(self::bodyToken($refreshed->tokens), self::requestClient())->isRefreshed());
         self::assertTrue($sessions->signOut());
 
         $secrets = [$credential, self::PASSWORD, $active->tokens->accessToken->reveal(), $refreshed->tokens->refreshToken?->reveal()];

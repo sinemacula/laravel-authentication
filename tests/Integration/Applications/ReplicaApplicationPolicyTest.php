@@ -13,7 +13,6 @@ use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Sessions\PendingEvaluation;
 use SineMacula\Laravel\Authentication\Sessions\SessionSwitch;
@@ -175,7 +174,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
 
         $this->verify($identity);
 
-        $refreshed = $this->sessions()->refresh(PresentedRefreshToken::fromBody($this->signIn('api', 'ada@example.test')->tokens->refreshToken?->reveal()), self::requestClient());
+        $refreshed = $this->sessions()->refresh(self::bodyToken($this->signIn('api', 'ada@example.test')->tokens), self::requestClient());
 
         self::assertNotNull($refreshed->session);
 
@@ -183,7 +182,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
 
         self::assertSame(
             FailureReason::PRINCIPAL_INELIGIBLE,
-            $this->sessions()->refresh(PresentedRefreshToken::fromBody($refreshed->session->tokens->refreshToken?->reveal()), self::requestClient())->reason,
+            $this->sessions()->refresh(self::bodyToken($refreshed->session->tokens), self::requestClient())->reason,
         );
         self::assertNull(DB::table('authentication_sessions')->useWritePdo()->value('revoked_at'));
     }
@@ -209,7 +208,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $this->grant($second);
 
         $switched = $this->sessions('members')->switchTo(
-            PresentedRefreshToken::fromBody($this->signIn('members', 'member@example.test', $first)->tokens->refreshToken?->reveal()),
+            self::bodyToken($this->signIn('members', 'member@example.test', $first)->tokens),
             SwitchTarget::principal($second),
             self::requestClient(),
         );
@@ -220,7 +219,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $this->withdrawOnThePrimary(GrantedApplicationPolicy::VERIFICATIONS, $verification);
 
         $back = $this->sessions('members')->switchTo(
-            PresentedRefreshToken::fromBody($switched->session->tokens->refreshToken?->reveal()),
+            self::bodyToken($switched->session->tokens),
             SwitchTarget::principal($first),
             self::requestClient(),
         );
@@ -255,7 +254,7 @@ final class ReplicaApplicationPolicyTest extends TestCase
         $principals = $this->sessions('members')->principals($member, 'email');
 
         self::assertCount(1, $principals);
-        self::assertTrue($second->is($principals[0]));
+        self::assertIsModel($second, $principals[0]);
 
         $this->withdrawOnThePrimary(GrantedApplicationPolicy::VERIFICATIONS, $verification);
 

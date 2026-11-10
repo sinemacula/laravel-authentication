@@ -180,14 +180,14 @@ final class SessionActivationTest extends TestCase
         self::assertNotNull($activated);
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertFalse($this->recordedEvent(SignedIn::class)->refresh);
-        self::assertTrue($membership->is($activated->principal));
+        self::assertIsModel($membership, $activated->principal);
 
         $row = Session::query()->sole();
 
         self::assertSame(SessionStatus::ACTIVE, $row->getStatus());
         self::assertSame([], $row->getRequires());
         self::assertNull($row->getPendingKey());
-        $rotationId = self::claimsOf($activated->tokens->refreshToken?->reveal())[Claims::JWT_ID->value] ?? null;
+        $rotationId = self::claimsOf(self::bodyRefreshToken($activated->tokens))[Claims::JWT_ID->value] ?? null;
 
         self::assertIsString($rotationId);
         self::assertSame(RefreshTokenHasher::hash($rotationId), $row->getRefreshKey());

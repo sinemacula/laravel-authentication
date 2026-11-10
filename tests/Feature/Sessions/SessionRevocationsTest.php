@@ -117,7 +117,7 @@ final class SessionRevocationsTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $revoked->context->principalId);
         self::assertSame('198.51.100.40', $revoked->context->client->ip);
         self::assertSame('api', $logout->guard);
-        self::assertTrue($identity->is($logout->user));
+        self::assertIsModel($identity, $logout->user);
         self::assertTrue($guard->guest());
         self::assertSame('signed_out', DB::table('authentication_sessions')->value('revoked_reason'));
 

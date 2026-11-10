@@ -120,7 +120,7 @@ final class RefreshApplicationIntegrationTest extends TestCase
 
         $session = $this->signIn();
         $replay  = self::sessionsOf($this->freshGuard())->refresh(
-            PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()),
+            self::bodyToken($session->tokens),
             self::requestClient(),
         )->session?->tokens;
 
@@ -131,7 +131,7 @@ final class RefreshApplicationIntegrationTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class, SessionRevoked::class]);
 
         self::assertNull(
-            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
         self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(FailureReason::SESSION_GUARD_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
@@ -143,7 +143,7 @@ final class RefreshApplicationIntegrationTest extends TestCase
 
         $this->bearer($replay->accessToken->reveal())->assertOk()->assertJson(['session' => $session->record->getKey()]);
 
-        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($replay->refreshToken?->reveal()), self::requestClient())->session);
+        self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($replay), self::requestClient())->session);
     }
 
     /**
@@ -166,14 +166,14 @@ final class RefreshApplicationIntegrationTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertNull(
-            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(AuthenticationFailed::class)->reason);
 
         app()->instance(ApplicationPolicy::class, $allowed);
 
         self::assertNotNull(
-            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
     }
 
@@ -195,7 +195,7 @@ final class RefreshApplicationIntegrationTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertNull(
-            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
         self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(AuthenticationFailed::class)->reason);
     }
@@ -218,7 +218,7 @@ final class RefreshApplicationIntegrationTest extends TestCase
         $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertNull(
-            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull($this->stored($session)->getRevokedAt());
@@ -241,7 +241,7 @@ final class RefreshApplicationIntegrationTest extends TestCase
         $this->bindApplicationPolicy(lifetimes: new TokenLifetimes(5, 30, 60 * 24, 30));
 
         self::assertNotNull(
-            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
         self::assertSame(
             CarbonImmutable::now()->addMinutes(30)->getTimestamp(),
@@ -275,7 +275,7 @@ final class RefreshApplicationIntegrationTest extends TestCase
         app()->instance(AttemptLimiter::class, $limiter);
 
         self::assertNotNull(
-            self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($session->tokens->refreshToken?->reveal()), self::requestClient())->session,
+            self::sessionsOf($this->freshGuard())->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
         self::assertNull(self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody('not-a-refresh-token'), self::requestClient())->session);
         self::assertCount(1, $counted);
