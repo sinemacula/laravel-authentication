@@ -747,7 +747,7 @@ final class ActsAsPrincipalTest extends TestCase
      *
      * @formatter:off
      *
-     * @param  \Illuminate\Database\Eloquent\Relations\Relation<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model, mixed>&\Mockery\MockInterface  $relation
+     * @param  \Illuminate\Database\Eloquent\Relations\Relation<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model, *>&\Mockery\MockInterface  $relation
      * @param  array<string, mixed>  $attributes
      * @return \Tests\Unit\Stubs\Stub3dPrincipal
      *

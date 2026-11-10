@@ -72,7 +72,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
             'principal_resolver' => StubAlternateGuardScopedPrincipalResolver::class,
         ]);
 
-        $guard = AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
+        $guard = AuthenticationServiceProvider::createJwtGuard($this->application(), 'custom_jwt', [
             'driver'             => 'jwt',
             'provider'           => 'identities',
             'principal_resolver' => StubAlternateGuardScopedPrincipalResolver::class,
@@ -110,7 +110,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $this->expectException(InvalidSessionModelConfigurationException::class);
         $this->expectExceptionMessage('authentication.session.model');
 
-        AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
+        AuthenticationServiceProvider::createJwtGuard($this->application(), 'custom_jwt', [
             'driver'   => 'jwt',
             'provider' => 'identities',
         ]);
@@ -132,7 +132,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $this->expectException(InvalidSessionModelConfigurationException::class);
         $this->expectExceptionMessage(StubBareSession::class);
 
-        AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
+        AuthenticationServiceProvider::createJwtGuard($this->application(), 'custom_jwt', [
             'driver'   => 'jwt',
             'provider' => 'identities',
         ]);
@@ -153,7 +153,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $this->expectException(InvalidSessionModelConfigurationException::class);
         $this->expectExceptionMessage(PlainSessionFixture::class);
 
-        AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
+        AuthenticationServiceProvider::createJwtGuard($this->application(), 'custom_jwt', [
             'driver'   => 'jwt',
             'provider' => 'identities',
         ]);
@@ -175,7 +175,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         config()->set('authentication.session.model', SeparateConnectionSession::class);
 
         try {
-            AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', ['driver' => 'jwt', 'provider' => 'identities']);
+            AuthenticationServiceProvider::createJwtGuard($this->application(), 'custom_jwt', ['driver' => 'jwt', 'provider' => 'identities']);
 
             self::fail('Expected the session model to be refused.');
         } catch (InvalidSessionModelConfigurationException $exception) {
@@ -186,7 +186,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
 
         config()->set('authentication.storage.connection', SeparateConnectionSession::CONNECTION);
 
-        self::assertSame('custom_jwt', AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', ['driver' => 'jwt', 'provider' => 'identities'])->getName());
+        self::assertSame('custom_jwt', AuthenticationServiceProvider::createJwtGuard($this->application(), 'custom_jwt', ['driver' => 'jwt', 'provider' => 'identities'])->getName());
     }
 
     /**
@@ -203,7 +203,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('principal_resolver must be a non-empty string');
 
-        AuthenticationServiceProvider::createJwtGuard($this->app, 'tenant_api', [
+        AuthenticationServiceProvider::createJwtGuard($this->application(), 'tenant_api', [
             'driver'             => 'jwt',
             'provider'           => 'identities',
             'principal_resolver' => '',
@@ -223,7 +223,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('principal_resolver must be a non-empty string');
 
-        AuthenticationServiceProvider::createJwtGuard($this->app, 'tenant_api', [
+        AuthenticationServiceProvider::createJwtGuard($this->application(), 'tenant_api', [
             'driver'             => 'jwt',
             'provider'           => 'identities',
             'principal_resolver' => ['not-a-string'],
@@ -245,7 +245,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('resolved to [stdClass]');
 
-        AuthenticationServiceProvider::createJwtGuard($this->app, 'tenant_api', [
+        AuthenticationServiceProvider::createJwtGuard($this->application(), 'tenant_api', [
             'driver'             => 'jwt',
             'provider'           => 'identities',
             'principal_resolver' => 'not-a-resolver',
@@ -270,7 +270,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
 
         $this->expectException(BindingResolutionException::class);
 
-        AuthenticationServiceProvider::createJwtGuard($this->app, 'unresolvable_jwt', [
+        AuthenticationServiceProvider::createJwtGuard($this->application(), 'unresolvable_jwt', [
             'driver'             => 'jwt',
             'provider'           => 'identities',
             'principal_resolver' => 'missing-resolver-binding',
@@ -350,5 +350,17 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $resolver->shouldReceive('resolve')->andReturn($principal);
 
         $this->app?->instance(PrincipalResolver::class, $resolver);
+    }
+
+    /**
+     * The application the test runs.
+     *
+     * @return \Illuminate\Foundation\Application
+     */
+    private function application(): Application
+    {
+        self::assertNotNull($this->app);
+
+        return $this->app;
     }
 }
