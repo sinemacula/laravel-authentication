@@ -79,7 +79,9 @@ class Authenticate extends IlluminateAuthenticate
 
     /**
      * Handle an unauthenticated user: raise the exception without a redirect
-     * when every guard is a package guard, otherwise defer to Laravel.
+     * when every guard is a package guard, or when given something other than
+     * a request, which Laravel cannot decide a redirect for; otherwise defer to
+     * Laravel.
      *
      * @param  mixed  $request
      * @param  array<array-key, mixed>  $guards
@@ -91,7 +93,7 @@ class Authenticate extends IlluminateAuthenticate
     protected function unauthenticated(mixed $request, array $guards)
     {
         /** @var array<int, ?string> $guards */
-        if ($this->response->appliesTo($guards)) {
+        if (!$request instanceof Request || $this->response->appliesTo($guards)) {
             throw new AuthenticationException(ConsumerMessages::UNAUTHENTICATED, $guards);
         }
 
