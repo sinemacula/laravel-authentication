@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Sessions\Concerns;
 use Carbon\CarbonInterface;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessionProofs;
 use SineMacula\Laravel\Authentication\Sessions\ActiveSessions;
@@ -154,5 +155,32 @@ trait LooksUpSessions
     public function firstFactor(mixed $session): ?RecordedProof
     {
         return ActiveSessionProofs::firstFactor($this->context->name(), $session);
+    }
+
+    /**
+     * How an external identity provider established one of this guard's live,
+     * active sessions of a person, named by its identifier or given as a
+     * `Session` as for `proofs()`: the provenance it records. `null` when the
+     * session is not one this guard may answer for, as `proofs()` decides,
+     * without saying why, and when no provider established it. Read, and locked
+     * inside a transaction, as `proofs()` is. A pending session's provenance
+     * stays on its `PendingSession`.
+     *
+     * This is a server-side read: the application decides which sessions a
+     * caller may ask about. The value holds provider ids and the evidence the
+     * provider asserted, so it is not response JSON as it is.
+     *
+     * @param  mixed  $session
+     * @return ?\SineMacula\Laravel\Authentication\Proofs\Provenance
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     *
+     * @phpstan-impure
+     */
+    public function provenance(mixed $session): ?Provenance
+    {
+        return ActiveSessionProofs::provenance($this->context->name(), $session);
     }
 }

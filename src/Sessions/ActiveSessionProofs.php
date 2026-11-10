@@ -9,6 +9,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\Proofs\SessionProofs;
 use SineMacula\Laravel\Authentication\Requirements\RequirementSubject;
@@ -17,9 +18,9 @@ use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionOwnership;
 
 /**
- * Reads the counting proofs and the first factor of one of a guard's live,
- * active sessions of a person, for the session service's public reads and a
- * contribution subject's.
+ * Reads the counting proofs, the first factor and the provenance of one of a
+ * guard's live, active sessions of a person, for the session service's public
+ * reads and a contribution subject's.
  *
  * The session is named by its key (whichever session holds it now) or given as
  * a `Session` (only while its key still holds that very session: the same
@@ -97,6 +98,27 @@ final class ActiveSessionProofs
         $active = self::active($guard, $session);
 
         return $active === null ? null : SessionProofs::firstFactor($active[0], $active[1]);
+    }
+
+    /**
+     * The provenance the session records, once the session is found live and
+     * active: how an external identity provider established it. `null` when it
+     * is not found so, and when no provider established it. Read, and locked
+     * inside a transaction, as `query()` is.
+     *
+     * @param  string  $guard
+     * @param  mixed  $session
+     * @return ?\SineMacula\Laravel\Authentication\Proofs\Provenance
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidSessionModelConfigurationException
+     */
+    public static function provenance(string $guard, mixed $session): ?Provenance
+    {
+        $active = self::active($guard, $session);
+
+        return $active === null ? null : SessionProofs::provenance($active[0], $active[1]);
     }
 
     /**

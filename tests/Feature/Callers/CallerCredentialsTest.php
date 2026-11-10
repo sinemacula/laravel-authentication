@@ -116,6 +116,7 @@ final class CallerCredentialsTest extends TestCase
         self::assertNull($caller->tenant);
         self::assertSame($session->record->getKey(), $caller->session?->getSessionIdentifier());
         self::assertNull($caller->pending);
+        self::assertNull($caller->scopes);
         self::assertTrue($caller->owns($other));
 
         $queries = 0;
@@ -208,6 +209,7 @@ final class CallerCredentialsTest extends TestCase
         self::assertSame($membership->getKey(), $caller->principal?->getPrincipalIdentifier());
         self::assertSame($session->record->getKey(), $caller->session?->getSessionIdentifier());
         self::assertNull($caller->pending);
+        self::assertNull($caller->scopes);
         self::assertTrue($caller->owns($other));
         self::assertCount(0, $this->failures);
     }
@@ -380,6 +382,7 @@ final class CallerCredentialsTest extends TestCase
             self::assertSame(CallerCredential::PENDING, $caller->credential);
             self::assertSame($member->getKey(), $caller->identity->getAuthIdentifier());
             self::assertNull($caller->principal);
+            self::assertNull($caller->scopes);
             self::assertSame($result->pending->session->getSessionIdentifier(), $caller->session?->getSessionIdentifier());
             self::assertNotNull($caller->pending);
             self::assertSame($result->pending->id, $caller->pending->id);
@@ -509,8 +512,91 @@ final class CallerCredentialsTest extends TestCase
         self::assertSame($machine->getKey(), $caller->identity->getAuthIdentifier());
         self::assertSame($machine->getKey(), $caller->principal?->getPrincipalIdentifier());
         self::assertNull($caller->session);
+        self::assertSame([], $caller->scopes);
         self::assertTrue($caller->owns($machine));
         self::assertFalse($caller->owns($membership));
+    }
+
+    /**
+     * An API key's caller carries the scopes the key was granted, in order, and
+     * `[]` for a key granted none, which is not `null`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnApiKeysCallerCarriesTheScopesItWasGranted(): void
+    {
+        $machine = MachineClient::query()->create(['email' => 'robot@example.test']);
+
+        $this->request('GET');
+
+        $scoped = Auth::apiKeys('machine')->issue($machine, $machine, ['read', 'write'])->key()->reveal();
+        $bare   = Auth::apiKeys('machine')->issue($machine, $machine)->key()->reveal();
+
+        Auth::shouldUse('machine');
+
+        self::assertSame(['read', 'write'], self::callers()->caller($this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $scoped]))?->scopes);
+        self::assertSame([], self::callers()->caller($this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $bare]))?->scopes);
+    }
+
+    /**
+     * A client-credentials access token's caller carries the scopes the token
+     * was validated to grant, which may be fewer than its key holds.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAClientCredentialsTokensCallerCarriesTheScopesItGrants(): void
+    {
+        $machine = MachineClient::query()->create(['email' => 'robot@example.test']);
+
+        $this->request('GET');
+
+        $issued = Auth::apiKeys('m2m')->issue($machine, $machine, ['read', 'write']);
+        $secret = substr($issued->key()->reveal(), 20);
+
+        foreach ([['write', ['write']], [null, ['read', 'write']]] as [$asked, $granted]) {
+
+            $result = Auth::clientCredentials('m2m')->exchange(self::basicClient($issued->summary->publicId, $secret, $asked), self::requestClient());
+
+            self::assertNotNull($result->accessToken);
+
+            Auth::shouldUse('m2m');
+
+            $caller = self::callers()->caller($this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $result->accessToken->reveal()]));
+
+            self::assertNotNull($caller);
+            self::assertSame(CallerCredential::ACCESS, $caller->credential);
+            self::assertNull($caller->session);
+            self::assertSame($granted, $caller->scopes);
+        }
+    }
+
+    /**
+     * A human's access token, with or without a session, has no scope ceiling:
+     * its caller's scopes are `null`, not `[]`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAHumansAccessTokenHasNoScopeCeiling(): void
+    {
+        [$member, [$membership]] = $this->seedMember('ada@example.test');
+
+        $tokens = Auth::jwt(self::MEMBERS);
+
+        self::assertNotNull($tokens);
+
+        $accessOnly = $tokens->issueAccessToken($member, $membership, null, null)->reveal();
+
+        $caller = self::callers()->caller($this->request('GET', ['HTTP_AUTHORIZATION' => 'Bearer ' . $accessOnly]));
+
+        self::assertNotNull($caller);
+        self::assertNull($caller->session);
+        self::assertNull($caller->scopes);
     }
 
     /**
@@ -532,6 +618,7 @@ final class CallerCredentialsTest extends TestCase
         self::configureCallerGuards($config);
 
         $config->set('auth.providers.machines', ['driver' => 'model', 'model' => MachineClient::class]);
+        $config->set('auth.guards.m2m', ['driver' => 'jwt', 'provider' => 'machines', 'application' => ['methods' => ['client_credentials']]]);
         $config->set('auth.guards.machine', ['driver' => 'api_key', 'provider' => 'machines', 'application' => ['methods' => ['api_key']]]);
         $config->set('auth.guards.' . self::BROWSER, [
             'driver'        => 'jwt',

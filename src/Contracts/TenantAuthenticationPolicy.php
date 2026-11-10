@@ -31,6 +31,11 @@ use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
  * reauthentication after every lock the adapter took), so an implementation
  * only reads, or takes no lock its caller does not already hold.
  *
+ * The context's `connectionId()` is read while `requirementFor()` runs: once
+ * the check ends, a connection the policy did not read is never read, and
+ * asking for it throws a `LogicException`, so a policy does not keep the
+ * context to read it later.
+ *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

@@ -53,23 +53,23 @@ session holds; the token's claims and every freshness answer are worked out from
   kind and time index (`SessionProofs::newestMeeting()`), so a session with many step-ups costs what one with few does.
 - Another package reads an active session's proofs only through the session service,
   `Auth::sessions($guard)->proofs($session, $since, $kinds, $limit)` and `firstFactor($session)`
-  (`Sessions\ActiveSessionProofs`), and a context contributor through its `ContributionSubject` (see
-  `authentication-context.md`). `SessionProofs` stays internal, since its current mode is a precondition (the session's
-  row held locked) only the package can honour, and so does `RequirementSubject`'s constructor. The reads answer
-  `PendingSession::proofs()`'s filter, order and bound (1 to `RequirementSubject::MAX_LIMIT`, checked before anything is
-  read) and the oldest counting first factor, only for one of the guard's live, active sessions of a person: an id that
-  cannot be a key of the session model (no query), one that names no row, and a session of another guard, revoked,
-  pending, past a deadline at this second or without deadlines, or a machine's, answer `[]` and `null` alike, with no
-  exception and no event (`OwnedSession::refusal()` and `SessionOwnership::isMachineOwned()`, as `externalStanding()`).
-  The proofs are bound to the row as stored, so an id names whichever session holds the key now; a `Session` given to
-  the service, and a subject's, answers only while the stored row is still that session
-  (`SessionOwnership::isSameSession()`: its generation and owner, with no query), and one that is not an Eloquent
-  session is not looked up. `$since` is any `CarbonInterface`, as the package's other times from a caller are (so
-  `now()`'s mutable `Carbon` serves), and an immutable copy of it is converted to the application's time zone, the one
-  proofs are written in, before it is compared, so it is the same instant in whichever zone it is given and the caller's
-  time is never changed (as `PendingSession::proofs()` and `RequirementSubject::proofs()` read it too;
-  `RequirementSubject` hands its reader the immutable copy). No identity is checked: which sessions a caller may ask
-  about is the application's to decide.
+  (`Sessions\ActiveSessionProofs`), its provenance through `provenance($session)` under the same rules, and a context
+  contributor through its `ContributionSubject` (see `authentication-context.md`). `SessionProofs` stays internal, since
+  its current mode is a precondition (the session's row held locked) only the package can honour, and so does
+  `RequirementSubject`'s constructor. The reads answer `PendingSession::proofs()`'s filter, order and bound (1 to
+  `RequirementSubject::MAX_LIMIT`, checked before anything is read) and the oldest counting first factor, only for one
+  of the guard's live, active sessions of a person: an id that cannot be a key of the session model (no query), one that
+  names no row, and a session of another guard, revoked, pending, past a deadline at this second or without deadlines,
+  or a machine's, answer `[]` and `null` alike, with no exception and no event (`OwnedSession::refusal()` and
+  `SessionOwnership::isMachineOwned()`, as `externalStanding()`). The proofs are bound to the row as stored, so an id
+  names whichever session holds the key now; a `Session` given to the service, and a subject's, answers only while the
+  stored row is still that session (`SessionOwnership::isSameSession()`: its generation and owner, with no query), and
+  one that is not an Eloquent session is not looked up. `$since` is any `CarbonInterface`, as the package's other times
+  from a caller are (so `now()`'s mutable `Carbon` serves), and an immutable copy of it is converted to the
+  application's time zone, the one proofs are written in, before it is compared, so it is the same instant in whichever
+  zone it is given and the caller's time is never changed (as `PendingSession::proofs()` and
+  `RequirementSubject::proofs()` read it too; `RequirementSubject` hands its reader the immutable copy). No identity is
+  checked: which sessions a caller may ask about is the application's to decide.
 - `auth_time` is the newest time of any counting proof. `amr` is the values of the first factor, the further factors,
   the recovery codes and the reauthentications with an accepted evaluation, once each, in the order of their newest
   times and then of their values; `mfa` is added only when an accepted evaluation reported multifactor authentication
@@ -439,8 +439,9 @@ These parts are columns, kinds or values with nothing yet behind them; the guide
 - `src/Sessions/ProofIssuance.php`, `SessionStepUp.php`, `SessionReauthentication.php`, `ExternalReauthentication.php`,
   `ExternalResults.php`, `AccessTokenResult.php`, `Concerns/ProvesSessions.php`, `Concerns/SignsInExternally.php`,
   `SessionWriter.php` (`record()`).
-- `src/Sessions/ActiveSessionProofs.php`, `src/Sessions/Concerns/LooksUpSessions.php` (`proofs()`, `firstFactor()`),
-  `src/Context/ContributionSubject.php` (`proofs()`, `firstFactor()`): the public reads of an active session's proofs.
+- `src/Sessions/ActiveSessionProofs.php`, `src/Sessions/Concerns/LooksUpSessions.php` (`proofs()`, `firstFactor()`,
+  `provenance()`), `src/Context/ContributionSubject.php` (`proofs()`, `firstFactor()`): the public reads of an active
+  session's proofs.
 - `src/Contracts/ExternalEvidencePolicy.php`, `src/External/*` (`ExternalEvidence`, `EvidenceSubject`,
   `EvidenceAcceptance`, `InsufficientEvidence`), `src/Requirements/RequirementJudge.php`,
   `src/Tenancy/SessionEvidence.php`.

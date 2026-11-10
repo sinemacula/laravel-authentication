@@ -144,12 +144,19 @@ the names your policy allows are its own.
 
 ### Tenant authentication policies
 
-Bind `Contracts\TenantAuthenticationPolicy` to say what a tenant requires of the sessions active in it. It is asked
-with a `Tenancy\TenantPolicyContext` (the application, the identity, the principal acting in the tenant, the tenant,
-and the session, or `null` before one is written) and answers a `Tenancy\TenantRequirement`: a `version` (1 to 64
-characters, or `null`), a further factor as a `Requirements\Requirement` (empty asks for none), and the
-`connections` a session must have been established through (`null` for no such requirement, `[]` for none that
-satisfies). Exemptions are the policy's own answer: answer an exempt identity's sessions with nothing required.
+Bind `Contracts\TenantAuthenticationPolicy` to say what a tenant requires of the sessions active in it. It is asked with
+a `Tenancy\TenantPolicyContext` (the application, the identity, the principal acting in the tenant, the tenant, and the
+session, or `null` before one is written; `connectionId()` adds the connection the session was established through, or
+`null` when no external provider established it) and answers a `Tenancy\TenantRequirement`: a `version` (1 to 64
+characters, or `null`), a further factor as a `Requirements\Requirement` (empty asks for none), and the `connections` a
+session must have been established through (`null` for no such requirement, `[]` for none that satisfies). Exemptions
+are the policy's own answer: answer an exempt identity's sessions with nothing required. The `connectionId()` is the
+sign-in's own while its session is not yet written, and otherwise the one the session's provenance records. It is found
+when first asked and kept, so a policy that never calls it, and a judgement that names no connections, cost no read; one
+that does read it shares that single read with the judgement. Read it inside `requirementFor()`: when the check ends, a
+connection not yet read is never read, and asking for it throws a `LogicException` (the session's key may name another
+session by then), so do not keep the context to read it later; one already read stays readable. In a test, build the
+context with a closure, `new TenantPolicyContext(..., connectionId: fn (): ?string => 'conn-a')`.
 
 ```php
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;

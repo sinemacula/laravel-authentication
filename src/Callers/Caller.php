@@ -20,9 +20,15 @@ use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
  * Who a request is, as the credential its route authenticates with proves it
  * (`Auth::caller()`): the guard, the credential, the identity, and the
  * principal, active tenant and session the credential holds, with the pending
- * session a pending credential names; and whether a session, identity or
- * principal model is the caller's, for an application that scopes what its
- * routes bind to the caller.
+ * session a pending credential names and the scopes an access credential
+ * grants; and whether a session, identity or principal model is the caller's,
+ * for an application that scopes what its routes bind to the caller.
+ *
+ * The scopes are a ceiling for the application to intersect with its own
+ * authorisation, never a grant. They are `null` when no credential limits the
+ * caller (a human's access token) and for a pending or refresh caller, which is
+ * not a general access caller and for which scopes do not apply; `[]` is a
+ * credential granting none.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -39,6 +45,7 @@ final readonly class Caller
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\PendingSession  $pending
+     * @param  ?list<string>  $scopes
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\SessionService  $sessions
      */
     public function __construct(
@@ -63,6 +70,9 @@ final readonly class Caller
 
         /** The pending session a pending credential names, or `null` for any other credential. */
         public ?PendingSession $pending = null,
+
+        /** The scopes the credential grants (a ceiling, never a grant), or `null` when none limits it or scopes do not apply. */
+        public ?array $scopes = null,
 
         /** The session service of the guard, which admits a principal by its id, or `null` for a guard that keeps no sessions. */
         private ?SessionService $sessions = null,

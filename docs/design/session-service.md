@@ -174,13 +174,14 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   end with an optional `$expectedSession` for a route scoped to one session, refusing a token that proves another as
   `session_mismatch` after the token is classified and before anything is rotated, switched, revoked or bound.
 - Looking up is the service's too, in `Sessions\Concerns\LooksUpSessions`: `session($identity, $id)` and `principal()`
-  (see `callers.md`), and `proofs($session, $since, $kinds, $limit)` and `firstFactor($session)`, which read the
-  counting proofs and the first factor of one of this guard's live, active sessions of a person through
-  `Sessions\ActiveSessionProofs`, named by its id (whichever session holds the key now) or given as a `Session`
-  (answered only while its key still holds that very session, `SessionOwnership::isSameSession()`; one that is not an
-  Eloquent session is not looked up), answering `[]` and `null` alike, with no exception and no event, for every other
-  session, and locking the session's row and reading its proofs current only inside a transaction on the session
-  model's connection (see `proofs-and-freshness.md`). They check no identity, write nothing and report nothing.
+  (see `callers.md`), and `proofs($session, $since, $kinds, $limit)`, `firstFactor($session)` and
+  `provenance($session)`, which read the counting proofs, the first factor and the provenance of one of this guard's
+  live, active sessions of a person through `Sessions\ActiveSessionProofs`, named by its id (whichever session holds the
+  key now) or given as a `Session` (answered only while its key still holds that very session,
+  `SessionOwnership::isSameSession()`; one that is not an Eloquent session is not looked up), answering `[]` and `null`
+  alike, with no exception and no event, for every other session, and locking the session's row and reading its proofs
+  current only inside a transaction on the session model's connection (see `proofs-and-freshness.md`). They check no
+  identity, write nothing and report nothing.
 
 ## Success Path
 

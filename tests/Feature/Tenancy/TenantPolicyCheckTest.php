@@ -9,8 +9,13 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\ExternalEvidencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
+use SineMacula\Laravel\Authentication\Contracts\Session as SessionContract;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Contracts\TenantAuthenticationPolicy;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\Models\Session;
@@ -27,6 +32,7 @@ use SineMacula\Laravel\Authentication\Requirements\RequirementPart;
 use SineMacula\Laravel\Authentication\Tenancy\Enums\TenantPolicyStanding;
 use SineMacula\Laravel\Authentication\Tenancy\SessionEvidence;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyCheck;
+use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyContext;
 use SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict;
 use SineMacula\Laravel\Authentication\Tenancy\TenantRequirement;
 use Tests\Concerns\InteractsWithExternalSignIns;
@@ -229,7 +235,7 @@ final class TenantPolicyCheckTest extends TestCase
      */
     public function testAnAnsweredRequirementIsJudgedWithoutAskingThePolicy(): void
     {
-        [$member, , $tenant] = $this->seedMember();
+        [$member, $membership, $tenant] = $this->seedMember();
 
         $now      = CarbonImmutable::now();
         $answered = new TenantRequirement('v3', connections: ['conn-a']);
@@ -238,8 +244,8 @@ final class TenantPolicyCheckTest extends TestCase
 
         $this->policy->requirement = new TenantRequirement(connections: ['conn-b']);
 
-        $met     = TenantPolicyCheck::judge($answered, $tenant, 'members', $member, null, $now, new ProofSource($external));
-        $refused = TenantPolicyCheck::judge($answered, $tenant, 'members', $member, null, $now, new ProofSource($password));
+        $met     = self::judged($answered, $tenant, $member, $membership, null, $now, new ProofSource($external));
+        $refused = self::judged($answered, $tenant, $member, $membership, null, $now, new ProofSource($password));
 
         self::assertSame([TenantPolicyStanding::MET, 'v3'], [$met->standing, $met->version]);
         self::assertSame([TenantPolicyStanding::SSO_REQUIRED, 'v3'], [$refused->standing, $refused->version]);
@@ -324,7 +330,7 @@ final class TenantPolicyCheckTest extends TestCase
         $this->policy->requirement = new TenantRequirement('v1', new Requirement(new RequirementPart), ['conn-a']);
 
         $checked = static fn (ProofSource $source): TenantPolicyVerdict => TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now, $source);
-        $judged  = fn (ProofSource $source): TenantPolicyVerdict => TenantPolicyCheck::judge($this->policy->requirement, $tenant, 'members', $member, $session, $now, $source);
+        $judged  = fn (ProofSource $source): TenantPolicyVerdict => self::judged($this->policy->requirement, $tenant, $member, $membership, $session, $now, $source);
         $check   = static fn (ProofSource $source): array => self::proofReadLocks(static fn (): mixed => $checked($source));
         $judge   = static fn (ProofSource $source): array => self::proofReadLocks(static fn (): mixed => $judged($source));
 
@@ -408,8 +414,8 @@ final class TenantPolicyCheckTest extends TestCase
     }
 
     /**
-     * What a tenant requires is the policy's answer, asked about the guard,
-     * identity, principal, tenant and session given.
+     * What a tenant requires is the policy's answer, asked about the context
+     * given.
      *
      * @return void
      *
@@ -424,7 +430,7 @@ final class TenantPolicyCheckTest extends TestCase
         $this->policy->requirement = new TenantRequirement('v7', connections: ['conn-a']);
 
         $before      = count($this->policy->asked);
-        $requirement = TenantPolicyCheck::requirementFor('members', $member, $membership, $tenant, $session);
+        $requirement = TenantPolicyCheck::requirementFor(new TenantPolicyContext('members', $member, $membership, $tenant, $session, static fn (): string => 'conn-a'));
         $asked       = array_slice($this->policy->asked, $before);
 
         self::assertSame($this->policy->requirement, $requirement);
@@ -434,6 +440,172 @@ final class TenantPolicyCheckTest extends TestCase
         self::assertSame($membership, $asked[0]->principal);
         self::assertSame($tenant, $asked[0]->tenant);
         self::assertSame($session, $asked[0]->session);
+        self::assertSame('conn-a', $asked[0]->connectionId());
+    }
+
+    /**
+     * The policy is told the connection the session was established through,
+     * read once for it and the judgement: a provider-established active
+     * session's, a pending session's, the sign-in's own before its session is
+     * written (without a read), and none for a session no provider established
+     * or none at all.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePolicyIsToldTheConnectionTheSessionWasEstablishedThrough(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $active   = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a'), self::asPrincipal($membership))->session?->record;
+        $password = $this->signedIn();
+
+        $factors = \Mockery::mock(AdditionalFactorPolicy::class);
+
+        $factors->shouldReceive('requirementFor')->andReturn(new Requirement(new RequirementPart));
+        app()->instance(AdditionalFactorPolicy::class, $factors);
+
+        $pending = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-b', 'link-2'), self::asPrincipal($membership))->pending?->session;
+
+        self::assertNotNull($active);
+        self::assertNotNull($pending);
+
+        $now      = CarbonImmutable::now();
+        $evidence = new ProofSource(SessionEvidence::of(SignInProof::external('sso', new Provenance('conn-c'), $now)));
+        $asked    = function (?SessionContract $session, ProofSource $source = new ProofSource) use ($member, $membership, $tenant, $now): ?string {
+            $told = [];
+
+            $this->policy->answer = static function (TenantPolicyContext $context) use (&$told): TenantRequirement {
+                $told[] = $context->connectionId();
+
+                return new TenantRequirement;
+            };
+
+            TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, $now, $source);
+
+            return $told[0] ?? null;
+        };
+
+        self::assertSame('conn-a', $asked($active));
+        self::assertSame('conn-b', $asked($pending));
+        self::assertNull($asked($password));
+        self::assertNull($asked(null));
+
+        DB::enableQueryLog();
+
+        self::assertSame('conn-c', $asked(null, $evidence));
+        self::assertSame('conn-c', $asked($password, $evidence));
+        self::assertSame([], DB::getQueryLog());
+    }
+
+    /**
+     * The connection is read only when asked, and once: the default policy,
+     * which never asks, and a judgement that names no connections cost no read
+     * of the session's provenance; a policy that reads the connection and a
+     * judgement that names connections read it once between them.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheConnectionIsReadOnlyWhenAskedAndOnce(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a'), self::asPrincipal($membership))->session?->record;
+
+        self::assertNotNull($session);
+
+        $provenanceReads = function () use ($member, $membership, $tenant, $session): int {
+            $statements = self::statementsDuring(static function () use ($member, $membership, $tenant, $session): void {
+                TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, CarbonImmutable::now());
+            });
+
+            return count(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'authentication_provenance')));
+        };
+
+        $this->policy->requirement = new TenantRequirement('v1');
+
+        self::assertSame(0, $provenanceReads());
+
+        $this->policy->requirement = new TenantRequirement('v1', connections: ['conn-a']);
+
+        self::assertSame(1, $provenanceReads());
+
+        $seen = [];
+
+        $this->policy->answer = function (TenantPolicyContext $context) use (&$seen): TenantRequirement {
+            $seen[] = [$context->connectionId(), $context->connectionId()];
+
+            return $this->policy->requirement;
+        };
+
+        self::assertSame(1, $provenanceReads());
+        self::assertSame([['conn-a', 'conn-a']], $seen);
+    }
+
+    /**
+     * A policy that keeps its context cannot read the connection after the
+     * check: one it did not read is expired, whether the check returned or the
+     * policy threw, and reads no provenance; one it read stays readable.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAKeptContextCannotReadTheConnectionAfterTheCheck(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $session = $this->sessions('members')->signInExternally($this->linkedResult($member, 'conn-a'), self::asPrincipal($membership))->session?->record;
+
+        self::assertNotNull($session);
+
+        $kept = [];
+
+        $this->policy->answer = function (TenantPolicyContext $context) use (&$kept): TenantRequirement {
+            $kept[] = $context;
+
+            if (count($kept) === 2) {
+                $context->connectionId();
+            }
+
+            if (count($kept) === 3) {
+                throw new \RuntimeException('The policy failed.');
+            }
+
+            return new TenantRequirement('v1');
+        };
+
+        $check = static fn () => TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, CarbonImmutable::now());
+
+        $check();
+        $check();
+
+        try {
+            $check();
+            self::fail('Expected the policy to throw.');
+        } catch (\RuntimeException) {
+            // The failing policy is expected.
+        }
+
+        self::assertCount(3, $kept);
+
+        $statements = self::statementsDuring(static function () use ($kept): void {
+            self::assertSame('conn-a', $kept[1]->connectionId());
+
+            foreach ([0, 2] as $index) {
+                try {
+                    $kept[$index]->connectionId();
+                    self::fail('Expected the expired context to throw.');
+                } catch (\LogicException) {
+                    // An expired context is expected to refuse.
+                }
+            }
+        });
+
+        self::assertSame([], $statements);
     }
 
     /**
@@ -469,6 +641,33 @@ final class TenantPolicyCheckTest extends TestCase
         assert($app instanceof Application);
 
         self::configureSessionGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * Judge the answered requirement as `check()` does, against a context read
+     * for the session and source given.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Tenancy\TenantRequirement  $requirement
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Session  $session
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Requirements\ProofSource  $source
+     * @return \SineMacula\Laravel\Authentication\Tenancy\TenantPolicyVerdict
+     *
+     * @throws \Throwable
+     */
+    private static function judged(
+        TenantRequirement $requirement,
+        Tenant $tenant,
+        Identity $identity,
+        Principal $principal,
+        ?SessionContract $session,
+        CarbonImmutable $now,
+        ProofSource $source,
+    ): TenantPolicyVerdict {
+        return TenantPolicyCheck::judge($requirement, TenantPolicyCheck::contextFor('members', $identity, $principal, $tenant, $session, $source), $now, $source);
     }
 
     /**

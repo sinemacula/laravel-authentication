@@ -111,12 +111,16 @@ final readonly class CallerCredentials
     }
 
     /**
-     * The caller the guard authenticates the request as, or `null` for a guest.
+     * The caller the guard authenticates the request as, or `null` for a guest,
+     * with the scopes its credential grants: an API key's stored list or a
+     * client-credentials token's validated list (`[]` for none), and `null` for
+     * a human's access token, which no credential limits.
      *
      * @param  string  $guard
      * @return ?\SineMacula\Laravel\Authentication\Callers\Caller
      *
      * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function access(string $guard): ?Caller
     {
@@ -134,7 +138,16 @@ final readonly class CallerCredentials
 
         $sessions = in_array($guard, JwtGuards::names($this->config), true) ? $this->auth->sessions($guard) : null;
 
-        return new Caller($guard, CallerCredential::ACCESS, $identity, $resolved->principal(), $resolved->tenant(), $resolved->session(), sessions: $sessions);
+        return new Caller(
+            $guard,
+            CallerCredential::ACCESS,
+            $identity,
+            $resolved->principal(),
+            $resolved->tenant(),
+            $resolved->session(),
+            scopes: $resolved->scopes(),
+            sessions: $sessions,
+        );
     }
 
     /**

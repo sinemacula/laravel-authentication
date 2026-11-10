@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Models\Session;
 use SineMacula\Laravel\Authentication\Proofs\Enums\ProofKind;
 use SineMacula\Laravel\Authentication\Proofs\ProofWriter;
+use SineMacula\Laravel\Authentication\Proofs\Provenance;
 use SineMacula\Laravel\Authentication\Proofs\RecordedProof;
 use SineMacula\Laravel\Authentication\SessionRecords\SessionLookup;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\LooksUpSessions;
@@ -52,9 +53,10 @@ use Tests\TestCase;
  * `Auth::sessions('members')->principal()` answers one of the principals the
  * identity may use the application as, and nothing for another identity's or
  * one no longer admitted; and `Auth::sessions('api')->proofs()` and
- * `firstFactor()` answer the counting proofs and first factor of any of the
- * guard's active sessions, named by key or given as the instance while its key
- * still holds it, and nothing for one of another guard, revoked or pending.
+ * `firstFactor()` answer the counting proofs and first factor, and
+ * `provenance()` the provenance, of any of the guard's active sessions, named
+ * by key or given as the instance while its key still holds it, and nothing for
+ * one of another guard, revoked or pending.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -335,6 +337,53 @@ final class LooksUpSessionsTest extends TestCase
         foreach ([self::idOf($admin), self::idOf($revoked), (string) IdentifierCoercion::stringify($pending->id)] as $id) {
             $this->proofsOf($token, $id)->assertOk()->assertExactJson(['proofs' => [], 'first_factor' => null]);
         }
+    }
+
+    /**
+     * The guard answers the provenance of an active session a provider
+     * established, by key and as an instance, and nothing for one no provider
+     * established, one of another guard, a revoked one or a pending one, whose
+     * provenance stays on its pending session.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnswersAnActiveSessionsProvenance(): void
+    {
+        $this->seedIdentity();
+
+        $current = $this->signIn('api', 'Phone');
+        $plain   = $this->signIn('api', 'Plain');
+        $admin   = $this->signIn('admin', 'Console');
+        $revoked = $this->signIn('api', 'Revoked');
+
+        foreach ([$current, $admin, $revoked] as $session) {
+            ProofWriter::provenance($session->record, new Provenance('conn-a', 'tenant-1', linkId: 'link-a'));
+        }
+
+        Session::query()->whereKey($revoked->record->getKey())->update(['revoked_at' => now(), 'revoked_reason' => 'revoked']);
+
+        app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
+
+        $pending = $this->sessions('api')->signIn('password', self::credentials(), self::requestContext())->pending;
+
+        self::assertNotNull($pending);
+
+        $sessions = $this->sessions('api');
+
+        foreach ([self::idOf($current), $current->record] as $named) {
+            $provenance = $sessions->provenance($named);
+
+            self::assertNotNull($provenance);
+            self::assertSame(['conn-a', 'tenant-1', 'link-a'], [$provenance->connectionId, $provenance->tenantId, $provenance->linkId]);
+        }
+
+        foreach ([self::idOf($plain), self::idOf($admin), self::idOf($revoked), (string) IdentifierCoercion::stringify($pending->id)] as $id) {
+            self::assertNull($sessions->provenance($id));
+        }
+
+        self::assertNull($sessions->provenance($admin->record));
     }
 
     /**
