@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use SineMacula\Laravel\Authentication\Contracts\EloquentSession;
 use SineMacula\Laravel\Authentication\Contracts\Session;
+use SineMacula\Laravel\Authentication\Database\GrammarExpression;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\External\ExternalEvidence;
 use SineMacula\Laravel\Authentication\External\ProviderContext;
@@ -97,19 +98,18 @@ final class SessionProofs
     public static function history(Session $session, bool $current = false): ProofHistory
     {
         $model  = new SessionProof;
-        $at     = $model->getConnection()->getQueryGrammar()->wrap('authenticated_at');
         $shared = self::sharesLock($model, $current);
 
         $rows = WriteConnection::during($model, static fn (): array => self::counting($session)
             ->toBase()
             ->select(['kind', 'methods', 'multifactor', 'additional_verification', 'accepted'])
-            ->selectRaw("max({$at}) as newest")
+            ->addSelect(new GrammarExpression('max(%s) as newest', ['authenticated_at']))
             ->groupBy(['kind', 'methods', 'multifactor', 'additional_verification', 'accepted'])
             ->when($shared, static fn (QueryBuilder $query): QueryBuilder => $query->sharedLock())
             ->get()
             ->all());
 
-        return new ProofHistory(array_map(static fn (object $row): array => self::summary($model, $row), $rows));
+        return new ProofHistory(array_values(array_map(static fn (object $row): array => self::summary($model, $row), $rows)));
     }
 
     /**

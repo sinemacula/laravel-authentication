@@ -9,7 +9,6 @@ use Carbon\CarbonInterface;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
-use Illuminate\Database\Query\Expression;
 use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Admission\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Admission\PrincipalAdmission;
@@ -20,6 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Database\GrammarExpression;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\ApiKeyIssued;
 use SineMacula\Laravel\Authentication\Events\ApiKeyRevoked;
@@ -294,9 +294,7 @@ final readonly class ApiKeyService
     private function replace(ApiKey $previous, CarbonImmutable $deadline, CarbonImmutable $now, array $row): ?array
     {
         $id         = (string) Str::uuid();
-        $connection = $previous->getConnection();
-        $column     = $connection->getQueryGrammar()->wrap('expires_at');
-        $ends       = $connection->getPdo()->quote((string) $previous->fromDateTime($deadline));
+        $ends       = (string) $previous->fromDateTime($deadline);
         $at         = $previous->fromDateTime($now);
 
         $replaced = $previous->newQuery()
@@ -309,7 +307,7 @@ final readonly class ApiKeyService
             ->whereNull('rotated_at')
             ->where(static fn (QueryBuilder $query): QueryBuilder => $query->whereNull('expires_at')->orWhere('expires_at', '>', $at))
             ->update([
-                'expires_at'  => new Expression("CASE WHEN {$column} IS NULL OR {$column} > {$ends} THEN {$ends} ELSE {$column} END"),
+                'expires_at'  => new GrammarExpression('CASE WHEN %1$s IS NULL OR %1$s > %2$s THEN %2$s ELSE %1$s END', ['expires_at'], [$ends]),
                 'rotated_at'  => $at,
                 'replaced_by' => $id,
                 'updated_at'  => $at,
