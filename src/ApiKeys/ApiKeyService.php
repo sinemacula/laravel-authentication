@@ -293,9 +293,9 @@ final readonly class ApiKeyService
      */
     private function replace(ApiKey $previous, CarbonImmutable $deadline, CarbonImmutable $now, array $row): ?array
     {
-        $id         = (string) Str::uuid();
-        $ends       = (string) $previous->fromDateTime($deadline);
-        $at         = $previous->fromDateTime($now);
+        $id   = (string) Str::uuid();
+        $ends = (string) $previous->fromDateTime($deadline);
+        $at   = $previous->fromDateTime($now);
 
         $replaced = $previous->newQuery()
             ->toBase()

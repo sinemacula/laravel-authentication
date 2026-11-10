@@ -186,7 +186,9 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
 
         config()->set('authentication.storage.connection', SeparateConnectionSession::CONNECTION);
 
-        self::assertSame('custom_jwt', AuthenticationServiceProvider::createJwtGuard($this->application(), 'custom_jwt', ['driver' => 'jwt', 'provider' => 'identities'])->getName());
+        $guard = AuthenticationServiceProvider::createJwtGuard($this->application(), 'custom_jwt', ['driver' => 'jwt', 'provider' => 'identities']);
+
+        self::assertSame('custom_jwt', $guard->getName());
     }
 
     /**

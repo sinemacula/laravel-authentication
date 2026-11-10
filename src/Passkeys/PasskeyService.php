@@ -228,7 +228,7 @@ final readonly class PasskeyService
             return $consumed->registration();
         }
 
-        $held = $onPending->presented($presented, $owner, $rp, $client);
+        $held = $presented === null ? null : $onPending->presented($presented, $owner, $rp, $client);
 
         if ($held instanceof PasskeyRegistration) {
             return $held;

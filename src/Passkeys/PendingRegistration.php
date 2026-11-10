@@ -87,29 +87,20 @@ final readonly class PendingRegistration
      * The pending credential handed in as the secret the gate is given, or the
      * registration's refusal: `cross_site_request` for a cookie application's
      * client that did not come from a page of its own site, `pending_invalid`
-     * for `pending_invalid` handed in or a credential that is empty; `null`
-     * for an ordinary registration. Read before the pending session, and so
-     * before any query.
+     * for `pending_invalid` handed in or a credential that is empty. Read
+     * before the pending session, and so before any query.
      *
-     * @param  \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Secrets\Secret|string|null  $presented
+     * @param  \SineMacula\Laravel\Authentication\Admission\Refused|\SineMacula\Laravel\Authentication\Secrets\Secret|string  $presented
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration|\SineMacula\Laravel\Authentication\Secrets\Secret|null
+     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyRegistration|\SineMacula\Laravel\Authentication\Secrets\Secret
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    public function presented(
-        #[\SensitiveParameter] Refused|Secret|string|null $presented,
-        Identity&Model $owner,
-        RelyingParty $rp,
-        ClientContext $client,
-    ): PasskeyRegistration|Secret|null {
-        if ($presented === null) {
-            return null;
-        }
-
+    public function presented(#[\SensitiveParameter] Refused|Secret|string $presented, Identity&Model $owner, RelyingParty $rp, ClientContext $client): PasskeyRegistration|Secret
+    {
         $transport = RefreshTokenTransport::forGuard($rp->guard, $this->container->make(Repository::class));
 
         if (SessionPreconditions::crossSite($transport, $client) !== null) {

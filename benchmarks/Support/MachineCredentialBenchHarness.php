@@ -200,7 +200,8 @@ final class MachineCredentialBenchHarness
 
         [$clientId, $clientSecret] = self::clientCredentialsOf($client);
 
-        $granted = (new ClientCredentialsExchange($this->tokenGuard(null)->context(), $this->app))->exchange(new PresentedClient($clientId, $clientSecret, null, ClientAuthentication::BASIC), ClientContext::fromRequest(BenchRequest::client()));
+        $presented = new PresentedClient($clientId, $clientSecret, null, ClientAuthentication::BASIC);
+        $granted   = (new ClientCredentialsExchange($this->tokenGuard(null)->context(), $this->app))->exchange($presented, ClientContext::fromRequest(BenchRequest::client()));
 
         $this->clientToken = $granted->accessToken?->reveal() ?? '';
     }

@@ -366,6 +366,8 @@ final readonly class SessionActivation
             IdentifierCoercion::stringify($session->getAttribute($session->getCreatedIpName())),
         );
 
-        return array_map(static fn (array $window): AttemptReservation => new AttemptReservation($subject, null, $window), is_array($windows) ? array_values(array_filter($windows, is_array(...))) : []);
+        $windows = is_array($windows) ? array_values(array_filter($windows, is_array(...))) : [];
+
+        return array_map(static fn (array $window): AttemptReservation => new AttemptReservation($subject, null, $window), $windows);
     }
 }
