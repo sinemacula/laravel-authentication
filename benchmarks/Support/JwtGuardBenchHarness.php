@@ -7,6 +7,7 @@ namespace Benchmarks\Support;
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Container\Container;
+use Illuminate\Foundation\Application;
 use Illuminate\Contracts\Events\Dispatcher as DispatcherContract;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Events\Dispatcher;
@@ -139,7 +140,7 @@ final class JwtGuardBenchHarness
 
         $config = JwtBenchSetup::config();
 
-        $container = new Container;
+        $container = new Application;
         $container->instance('config', $config);
         Facade::setFacadeApplication($container);
         JwtBenchSetup::bindPackageDefaults($container);

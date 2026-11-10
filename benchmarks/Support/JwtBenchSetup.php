@@ -6,6 +6,7 @@ namespace Benchmarks\Support;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
+use Illuminate\Foundation\Application;
 use SineMacula\Laravel\Authentication\Applications\AdmitAnyPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\ApplicationAccess;
 use SineMacula\Laravel\Authentication\Contracts\RequirementCheck;
@@ -54,10 +55,10 @@ final class JwtBenchSetup
      * paths resolve from the global container, and an auth manager that holds
      * the guards the harness builds, and make it that container.
      *
-     * @param  \Illuminate\Container\Container  $container
+     * @param  \Illuminate\Foundation\Application  $container
      * @return void
      */
-    public static function bindPackageDefaults(Container $container): void
+    public static function bindPackageDefaults(Application $container): void
     {
         $container->singleton(ApplicationAccess::class, AdmitAnyPrincipal::class);
         $container->singleton(TenantAccess::class, OwnTenantOnly::class);

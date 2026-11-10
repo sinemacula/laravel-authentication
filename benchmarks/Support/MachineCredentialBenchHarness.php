@@ -14,10 +14,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
+use SineMacula\Laravel\Authentication\ClientCredentials\Enums\ClientAuthentication;
+use SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
@@ -116,6 +119,7 @@ final class MachineCredentialBenchHarness
         BenchSchema::ensureMachineClientTable();
         BenchSchema::ensureApiKeyTable();
         BenchSchema::ensureSessionTable();
+        BenchSchema::ensureRateLimitTable();
 
         $this->seedFixtures();
         $this->assertEachPathReachesItsOutcome();
@@ -196,7 +200,7 @@ final class MachineCredentialBenchHarness
 
         [$clientId, $clientSecret] = self::clientCredentialsOf($client);
 
-        $granted = (new ClientCredentialsExchange($this->tokenGuard(null)->context(), $this->app))->exchange($clientId, $clientSecret);
+        $granted = (new ClientCredentialsExchange($this->tokenGuard(null)->context(), $this->app))->exchange(new PresentedClient($clientId, $clientSecret, null, ClientAuthentication::BASIC), ClientContext::fromRequest(BenchRequest::client()));
 
         $this->clientToken = $granted->accessToken?->reveal() ?? '';
     }
