@@ -81,7 +81,7 @@ final class AccessContractsTest extends TestCase
         $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), self::requestContext())->session;
 
         self::assertNotNull($session);
-        self::assertIsModel($membership, $session->principal); // @phpstan-ignore method.notFound
+        self::assertIsModel($membership, $session->principal);
         $listed = $this->sessions('members')->principals($member);
 
         self::assertSame([$membership->getKey()], array_map(static fn (Principal $principal): mixed => $principal->getPrincipalIdentifier(), $listed));
