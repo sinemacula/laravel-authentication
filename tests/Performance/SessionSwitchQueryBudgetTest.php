@@ -159,7 +159,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         [, $first, $tenant] = $this->seedMember();
 
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
-        $tree       = (new DescendantTenants)->place($descendant->getKey(), $tenant->getKey());
+        $tree       = (new DescendantTenants)->place(self::modelKey($descendant), self::modelKey($tenant));
 
         app()->instance(TenantAccess::class, $tree);
         app()->instance(TenantResolver::class, $tree);
@@ -169,7 +169,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         self::assertNotNull($session);
 
         $sessions = $this->sessions('members');
-        $target   = SwitchTarget::tenant(TenantSelection::of($descendant->getKey()));
+        $target   = SwitchTarget::tenant(TenantSelection::of(self::modelKey($descendant)));
         $result   = $this->assertQueryBudget(
             12,
             2,

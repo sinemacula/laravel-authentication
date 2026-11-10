@@ -2301,19 +2301,19 @@ final class PendingSessionsTest extends TestCase
 
         [$refusedCredential] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
 
-        $refused = $this->sessions(self::CHOOSERS)->choose($refusedCredential, $first, self::requestClient(), TenantSelection::of($descendant->getKey()));
+        $refused = $this->sessions(self::CHOOSERS)->choose($refusedCredential, $first, self::requestClient(), TenantSelection::of(self::modelKey($descendant)));
 
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $refused->reason);
         self::assertNotNull($this->sessions(self::CHOOSERS)->pending($refusedCredential, PendingAction::CHOOSE_PRINCIPAL));
 
-        $tree = (new DescendantTenants)->place($descendant->getKey(), $first->tenant_id);
+        $tree = (new DescendantTenants)->place(self::modelKey($descendant), $first->tenant_id);
 
         app()->instance(TenantAccess::class, $tree);
         app()->instance(TenantResolver::class, $tree);
 
         [$credential] = $this->pendingSignIn(self::CHOOSERS, 'chooser@example.test');
 
-        $chosen = $this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient(), TenantSelection::of($descendant->getKey()));
+        $chosen = $this->sessions(self::CHOOSERS)->choose($credential, $first, self::requestClient(), TenantSelection::of(self::modelKey($descendant)));
 
         self::assertTrue($chosen->isSignedIn());
         self::assertNotNull($chosen->session);

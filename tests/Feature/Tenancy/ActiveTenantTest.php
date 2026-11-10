@@ -143,13 +143,13 @@ final class ActiveTenantTest extends TestCase
 
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
 
-        self::assertSame(FailureReason::TENANT_INELIGIBLE, $this->signInTo(TenantSelection::of($descendant->getKey()))->reason);
+        self::assertSame(FailureReason::TENANT_INELIGIBLE, $this->signInTo(TenantSelection::of(self::modelKey($descendant)))->reason);
 
-        $this->tree->place($descendant->getKey(), $own->getKey());
+        $this->tree->place(self::modelKey($descendant), self::modelKey($own));
 
         app()->instance(TenantResolver::class, new ResolveNoTenant);
 
-        self::assertSame(FailureReason::TENANT_INELIGIBLE, $this->signInTo(TenantSelection::of($descendant->getKey()))->reason);
+        self::assertSame(FailureReason::TENANT_INELIGIBLE, $this->signInTo(TenantSelection::of(self::modelKey($descendant)))->reason);
         self::assertSame(0, Session::query()->count());
     }
 
@@ -321,9 +321,9 @@ final class ActiveTenantTest extends TestCase
 
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
 
-        $this->tree->place($descendant->getKey(), $own->getKey());
+        $this->tree->place(self::modelKey($descendant), self::modelKey($own));
 
-        $session = $this->signInTo(TenantSelection::of($descendant->getKey()))->session;
+        $session = $this->signInTo(TenantSelection::of(self::modelKey($descendant)))->session;
 
         self::assertNotNull($session);
         self::assertInstanceOf(ActivatableTenantMembership::class, $membership);

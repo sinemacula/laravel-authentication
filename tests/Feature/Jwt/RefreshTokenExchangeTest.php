@@ -54,6 +54,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use SineMacula\Laravel\Authentication\Runtime\CredentialTimebox;
 use SineMacula\Laravel\Authentication\Runtime\GuardContext;
+use SineMacula\Laravel\Authentication\Sessions\ReturnedToPending;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Tenancy\OwnTenantOnly;
 use SineMacula\Laravel\Authentication\Tenancy\ResolveNoTenant;
@@ -2396,10 +2397,10 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * Assert an exchange failed, remember its failure, and return it.
      *
-     * @param  \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh  $result
+     * @param  \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh|\SineMacula\Laravel\Authentication\Sessions\ReturnedToPending  $result
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      */
-    private function refused(AuthenticationFailed|ExchangedRefresh $result): AuthenticationFailed
+    private function refused(AuthenticationFailed|ExchangedRefresh|ReturnedToPending $result): AuthenticationFailed
     {
         self::assertInstanceOf(AuthenticationFailed::class, $result);
 

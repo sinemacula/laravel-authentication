@@ -649,7 +649,7 @@ final class RefreshTokenExchangeTest extends TestCase
     {
         return self::sessionsOf($this->freshGuard(self::GUARD))->switchTo(
             PresentedRefreshToken::fromBody($refreshToken),
-            SwitchTarget::tenant(TenantSelection::of($tenant->getKey())),
+            SwitchTarget::tenant(TenantSelection::of(self::modelKey($tenant))),
             self::requestClient(),
         );
     }
@@ -664,7 +664,7 @@ final class RefreshTokenExchangeTest extends TestCase
     private function below(ActivatableTenant $tenant): ActivatableTenant
     {
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
-        $tree       = (new DescendantTenants)->place($descendant->getKey(), $tenant->getKey());
+        $tree       = (new DescendantTenants)->place(self::modelKey($descendant), self::modelKey($tenant));
 
         app()->instance(TenantAccess::class, $tree);
         app()->instance(TenantResolver::class, $tree);

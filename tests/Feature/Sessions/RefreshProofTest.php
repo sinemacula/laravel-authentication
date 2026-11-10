@@ -357,7 +357,7 @@ final class RefreshProofTest extends TestCase
 
         Session::query()->whereKey($session->record->getKey())->update(['refresh_key' => RefreshTokenHasher::hash(self::KNOWN_ROTATION)]);
 
-        $named  = new PlainPrincipalFixture($identity->getKey());
+        $named  = new PlainPrincipalFixture(self::modelKey($identity));
         $token  = Auth::jwt('api')->issueRefreshToken($session->record, self::KNOWN_ROTATION, $named);
         $proven = $this->proof()->prove($token, AuthenticationFlow::SIGN_OUT, CarbonImmutable::now(), self::requestClient());
 

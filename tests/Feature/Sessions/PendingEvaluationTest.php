@@ -685,7 +685,7 @@ final class PendingEvaluationTest extends TestCase
         self::assertInstanceOf(ActivatableTenant::class, $own);
         self::assertTrue($tenant->is($own));
         self::assertSame(FailureReason::TENANT_INELIGIBLE, $evaluation->destination($membership, TenantSelection::none()));
-        self::assertSame(FailureReason::TENANT_INELIGIBLE, $evaluation->destination($membership, TenantSelection::of($other->getKey())));
+        self::assertSame(FailureReason::TENANT_INELIGIBLE, $evaluation->destination($membership, TenantSelection::of(self::modelKey($other))));
     }
 
     /**

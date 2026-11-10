@@ -1658,7 +1658,7 @@ final class SessionSwitchTest extends TestCase
 
         $result = $this->sessions(self::GUARD)->switchTo(
             self::bodyToken($session->tokens),
-            SwitchTarget::tenant(TenantSelection::of($descendant->getKey())),
+            SwitchTarget::tenant(TenantSelection::of(self::modelKey($descendant))),
             self::requestClient(),
         );
 
@@ -1712,7 +1712,7 @@ final class SessionSwitchTest extends TestCase
 
         $result = $this->sessions(self::GUARD)->switchTo(
             self::bodyToken($session->tokens),
-            SwitchTarget::principal($second, TenantSelection::of($descendant->getKey())),
+            SwitchTarget::principal($second, TenantSelection::of(self::modelKey($descendant))),
             self::requestClient(),
         );
 
@@ -1754,7 +1754,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        $away = $this->switchedTo(self::bodyRefreshToken($session->tokens), SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+        $away = $this->switchedTo(self::bodyRefreshToken($session->tokens), SwitchTarget::tenant(TenantSelection::of(self::modelKey($descendant))));
 
         $this->advance(5);
 
@@ -1789,7 +1789,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        $away = $this->switchedTo(self::bodyRefreshToken($session->tokens), SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+        $away = $this->switchedTo(self::bodyRefreshToken($session->tokens), SwitchTarget::tenant(TenantSelection::of(self::modelKey($descendant))));
         $back = $this->switchedTo(self::bodyRefreshToken($away->tokens), SwitchTarget::tenant(TenantSelection::principalDefault()));
 
         self::assertSame($this->now->addSecond()->toDateTimeString(), $this->storedTime('switched_at'));
@@ -1832,7 +1832,7 @@ final class SessionSwitchTest extends TestCase
 
         $result = $this->sessions(self::GUARD)->switchTo(
             self::bodyToken($session->tokens),
-            SwitchTarget::tenant(TenantSelection::of($own->getKey())),
+            SwitchTarget::tenant(TenantSelection::of(self::modelKey($own))),
             self::requestClient(),
         );
 
@@ -1864,7 +1864,7 @@ final class SessionSwitchTest extends TestCase
         $session = $this->signIn();
         $row     = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole());
 
-        $foreign = $this->assertTargetFails(FailureReason::TENANT_INELIGIBLE, $session, SwitchTarget::tenant(TenantSelection::of($other->getKey())));
+        $foreign = $this->assertTargetFails(FailureReason::TENANT_INELIGIBLE, $session, SwitchTarget::tenant(TenantSelection::of(self::modelKey($other))));
 
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $foreign->context->principalId);
 
@@ -1874,7 +1874,7 @@ final class SessionSwitchTest extends TestCase
 
         $descendant->forceFill(['is_active' => false])->save();
 
-        $this->assertTargetFails(FailureReason::TENANT_INACTIVE, $session, SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+        $this->assertTargetFails(FailureReason::TENANT_INACTIVE, $session, SwitchTarget::tenant(TenantSelection::of(self::modelKey($descendant))));
 
         self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->sole()));
     }
@@ -1900,7 +1900,7 @@ final class SessionSwitchTest extends TestCase
 
         $own->forceFill(['is_active' => false])->save();
 
-        $refused = $this->assertTargetFails(FailureReason::TENANT_INACTIVE, $session, SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+        $refused = $this->assertTargetFails(FailureReason::TENANT_INACTIVE, $session, SwitchTarget::tenant(TenantSelection::of(self::modelKey($descendant))));
 
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $refused->context->principalId);
         self::assertSame($asked, $this->tree()->asked);
@@ -2275,7 +2275,7 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        $this->assertTargetFails(FailureReason::SSO_REQUIRED, $session, SwitchTarget::tenant(TenantSelection::of($descendant->getKey())));
+        $this->assertTargetFails(FailureReason::SSO_REQUIRED, $session, SwitchTarget::tenant(TenantSelection::of(self::modelKey($descendant))));
 
         self::assertSame(IdentifierCoercion::stringify($own->getKey()), DB::table('authentication_sessions')->value('tenant_id'));
     }
@@ -3375,7 +3375,7 @@ final class SessionSwitchTest extends TestCase
     {
         $descendant = ActivatableTenant::query()->create(['name' => 'Descendant', 'is_active' => true]);
 
-        $this->tree()->place($descendant->getKey(), $tenant->getKey());
+        $this->tree()->place(self::modelKey($descendant), self::modelKey($tenant));
 
         return $descendant;
     }

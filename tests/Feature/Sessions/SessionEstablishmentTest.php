@@ -839,7 +839,7 @@ final class SessionEstablishmentTest extends TestCase
 
         $elsewhere = ActivatableTenant::query()->create(['name' => 'Elsewhere', 'is_active' => true]);
         $asked     = count($policy->asked);
-        $context   = SignInContext::fromRequest(app('request'), refreshToken: $first->tokens->refreshToken?->reveal(), tenant: TenantSelection::of($elsewhere->getKey()));
+        $context   = SignInContext::fromRequest(app('request'), refreshToken: $first->tokens->refreshToken?->reveal(), tenant: TenantSelection::of(self::modelKey($elsewhere)));
 
         $this->recordEvents([SessionRevoked::class, SessionPending::class, SessionCreated::class, SignedIn::class]);
 
