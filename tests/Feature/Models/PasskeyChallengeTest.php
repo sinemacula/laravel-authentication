@@ -149,6 +149,8 @@ final class PasskeyChallengeTest extends TestCase
 
         Artisan::call('model:prune', ['--model' => [PasskeyChallenge::class]]);
 
-        self::assertSame([3, 4, 5, 6], array_map(static fn (mixed $id): int => (int) substr(self::storedString($id), -12), PasskeyChallenge::query()->orderBy('id')->pluck('id')->all()));
+        $kept = PasskeyChallenge::query()->orderBy('id')->pluck('id')->all();
+
+        self::assertSame([3, 4, 5, 6], array_map(static fn (mixed $id): int => (int) substr(self::storedString($id), -12), $kept));
     }
 }

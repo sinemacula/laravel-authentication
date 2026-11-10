@@ -177,7 +177,7 @@ final class PrincipalListingTest extends TestCase
         $candidates = self::principalsOf($listing);
 
         self::assertSame([null], $listing->refusals(self::GUARD, [$candidates[1]]));
-        self::assertSame([false, true, false], array_map(self::tenantLoadedOn(...), $candidates));
+        self::assertSame([false, true, false], array_map(self::hasTenantLoaded(...), $candidates));
         self::assertSame([], $listing->refusals(self::GUARD, []));
     }
 
@@ -650,7 +650,7 @@ final class PrincipalListingTest extends TestCase
 
         self::assertSame([FailureReason::PRINCIPAL_INACTIVE, null], $refusals);
         self::assertCount(1, $queries);
-        self::assertSame([false, true], array_map(self::tenantLoadedOn(...), $candidates));
+        self::assertSame([false, true], array_map(self::hasTenantLoaded(...), $candidates));
     }
 
     /**
@@ -831,7 +831,7 @@ final class PrincipalListingTest extends TestCase
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return bool
      */
-    private static function tenantLoadedOn(Principal $principal): bool
+    private static function hasTenantLoaded(Principal $principal): bool
     {
         self::assertInstanceOf(Model::class, $principal);
 

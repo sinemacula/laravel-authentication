@@ -342,7 +342,9 @@ final class EventSequenceTest extends TestCase
         self::assertSame(['Attempting api', ...self::REPORT], $this->recordedSequence());
         self::assertFalse($guard->hasUser());
         self::assertSame([0, 0], self::slotsTaken());
-        self::assertSame([self::CLIENT_IP, self::CLIENT_IP], array_map(static fn (SessionCreated|SignedIn $event): ?string => $event->context->client->ip, $this->recordedAs(SessionCreated::class, SignedIn::class)));
+        $reported = $this->recordedAs(SessionCreated::class, SignedIn::class);
+
+        self::assertSame([self::CLIENT_IP, self::CLIENT_IP], array_map(static fn (SessionCreated|SignedIn $event): ?string => $event->context->client->ip, $reported));
         self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
 

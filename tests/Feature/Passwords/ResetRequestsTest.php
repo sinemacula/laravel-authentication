@@ -189,8 +189,10 @@ final class ResetRequestsTest extends TestCase
 
         self::assertSame(CodeRequestStatus::RATE_LIMITED, $limited->status);
         self::assertSame(1800, $limited->retryAfter);
-        self::assertSame(['rate_limited', 'rate_limited'], array_map(static fn (AuthenticationFailed $event): string => $event->reason->value, $this->recordedAs(AuthenticationFailed::class)));
-        self::assertSame([60, 1800], array_map(static fn (AuthenticationFailed $event): ?int => $event->retryAfter, $this->recordedAs(AuthenticationFailed::class)));
+        $failures = $this->recordedAs(AuthenticationFailed::class);
+
+        self::assertSame(['rate_limited', 'rate_limited'], array_map(static fn (AuthenticationFailed $event): string => $event->reason->value, $failures));
+        self::assertSame([60, 1800], array_map(static fn (AuthenticationFailed $event): ?int => $event->retryAfter, $failures));
     }
 
     /**

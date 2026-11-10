@@ -244,7 +244,10 @@ final class PasswordServiceTest extends TestCase
         $identity = self::seedPasswordIdentity();
         $kept     = $this->signInWithPassword('web')->record;
         $client   = new ClientContext('198.51.100.9', 'Worker/1.0');
-        $clients  = fn (): array => array_map(static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client, $this->recordedAs(PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class));
+        $clients  = fn (): array => array_map(
+            static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
+            $this->recordedAs(PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class),
+        );
 
         $this->signInWithPassword('admin');
         $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);

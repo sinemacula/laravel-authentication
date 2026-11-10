@@ -332,6 +332,7 @@ final class VirtualAuthenticator
      * @param  string  $data
      * @return string
      *
+     * @throws \LogicException
      * @throws \SodiumException
      */
     private function sign(string $id, string $data): string

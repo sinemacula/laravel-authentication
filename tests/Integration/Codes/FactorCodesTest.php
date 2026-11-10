@@ -422,8 +422,8 @@ final class FactorCodesTest extends TestCase
     /**
      * Rows of `[the binding checked, the challenge id named]`: a code checked
      * against another session, another factor, another proof purpose, the other
-     * kind of challenge, another identity, or naming another challenge, is
-     * not found and counts and reports nothing.
+     * kind of challenge, another identity, or naming another challenge, is not
+     * found and counts and reports nothing.
      *
      * @return iterable<string, array{0: \Closure(self): \SineMacula\Laravel\Authentication\Codes\FactorCodeBinding, 1: ?string}>
      */

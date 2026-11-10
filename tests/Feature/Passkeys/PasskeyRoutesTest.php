@@ -134,7 +134,9 @@ final class PasskeyRoutesTest extends TestCase
 
         self::assertIsArray($again);
 
-        $this->send('/sign-in/passkey', ['challenge' => $again['challenge'], 'credential' => $this->authenticator()->get(self::ceremonyOptions($again['options']))])->assertUnauthorized();
+        $replayed = $this->authenticator()->get(self::ceremonyOptions($again['options']));
+
+        $this->send('/sign-in/passkey', ['challenge' => $again['challenge'], 'credential' => $replayed])->assertUnauthorized();
     }
 
     /**

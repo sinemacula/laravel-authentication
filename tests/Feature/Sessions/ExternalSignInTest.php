@@ -762,7 +762,9 @@ final class ExternalSignInTest extends TestCase
         $refused = $this->sessions()->signInExternally($named('link-1'), self::requestContext());
 
         self::assertSame(FailureReason::LINK_MISMATCH, $refused->reason);
-        self::assertSame([FailureReason::LINK_MISMATCH], array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->recordedAs(AuthenticationFailed::class)));
+        $failures = $this->recordedAs(AuthenticationFailed::class);
+
+        self::assertSame([FailureReason::LINK_MISMATCH], array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $failures));
         self::assertSame([], $policy->asked);
         self::assertSame(0, Session::query()->count());
 

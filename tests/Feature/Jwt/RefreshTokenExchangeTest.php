@@ -1351,14 +1351,9 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testTheGraceWindowIsTheTokenServicesWhateverLifetimesThePolicyReturns(): void
     {
-        $policyGrace = 0;
-        $retried     = $this->seedRotatedSession(35, rotatedSecondsAgo: self::GRACE - 1);
+        $retried = $this->seedRotatedSession(35, rotatedSecondsAgo: self::GRACE - 1);
 
-        $this->policy->shouldReceive('lifetimes')->andReturnUsing(
-            static function () use (&$policyGrace): TokenLifetimes {
-                return new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, $policyGrace);
-            },
-        );
+        $this->policy->shouldReceive('lifetimes')->andReturn(new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, 0))->byDefault();
 
         $this->expectRefreshContext(35);
 
@@ -1367,7 +1362,7 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertInstanceOf(ExchangedRefresh::class, $result);
         self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->refreshClaims(self::bodyRefreshToken($result->tokens))[Claims::JWT_ID->value]);
 
-        $policyGrace = TokenLifetimes::MAX_GRACE_SECONDS;
+        $this->policy->shouldReceive('lifetimes')->andReturn(new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, TokenLifetimes::MAX_GRACE_SECONDS));
 
         $replayed = $this->seedRotatedSession(36, rotatedSecondsAgo: self::GRACE);
 

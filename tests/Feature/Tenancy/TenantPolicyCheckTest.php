@@ -176,7 +176,14 @@ final class TenantPolicyCheckTest extends TestCase
 
         self::assertNotNull($external);
 
-        $standing = fn (?SessionContract $session): TenantPolicyStanding => TenantPolicyCheck::check('members', $member, $membership, $tenant, $session, CarbonImmutable::now())->standing;
+        $standing = fn (?SessionContract $session): TenantPolicyStanding => TenantPolicyCheck::check(
+            'members',
+            $member,
+            $membership,
+            $tenant,
+            $session,
+            CarbonImmutable::now(),
+        )->standing;
 
         $this->policy->requirement = new TenantRequirement(connections: ['conn-a']);
 

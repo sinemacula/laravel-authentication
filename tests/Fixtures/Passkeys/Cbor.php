@@ -107,18 +107,24 @@ final class Cbor
             throw new \InvalidArgumentException('A map value is an integer, a string or a list of pairs.');
         }
 
-        $pairs = [];
+        return self::map(array_map(self::pair(...), $item));
+    }
 
-        foreach ($item as $pair) {
-
-            if (!is_array($pair) || !array_is_list($pair) || count($pair) !== 2 || !(is_int($pair[0]) || is_string($pair[0]) || $pair[0] instanceof \Stringable)) {
-                throw new \InvalidArgumentException('A map is a list of [key, value] pairs.');
-            }
-
-            $pairs[] = [$pair[0], $pair[1]];
+    /**
+     * The `[key, value]` pair of a nested map, refusing anything else.
+     *
+     * @param  mixed  $pair
+     * @return array{0: int|string|\Stringable, 1: mixed}
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function pair(mixed $pair): array
+    {
+        if (!is_array($pair) || !array_is_list($pair) || count($pair) !== 2 || !(is_int($pair[0]) || is_string($pair[0]) || $pair[0] instanceof \Stringable)) {
+            throw new \InvalidArgumentException('A map is a list of [key, value] pairs.');
         }
 
-        return self::map($pairs);
+        return [$pair[0], $pair[1]];
     }
 
     /**

@@ -538,10 +538,11 @@ final class ResetSubmissionsTest extends TestCase
             self::assertSame(ResetStatus::INVALID, $result->status);
         }
 
-        $reasons = array_map(static fn (AuthenticationFailed $event): string => $event->reason->value, $this->recordedAs(AuthenticationFailed::class));
+        $failures = $this->recordedAs(AuthenticationFailed::class);
+        $reasons  = array_map(static fn (AuthenticationFailed $event): string => $event->reason->value, $failures);
 
         self::assertSame(['invalid_credentials', 'invalid_credentials', 'code_exhausted'], $reasons);
-        self::assertSame(array_fill(0, 3, self::challenge()), array_map(static fn (AuthenticationFailed $event): ?string => $event->challengeId, $this->recordedAs(AuthenticationFailed::class)));
+        self::assertSame(array_fill(0, 3, self::challenge()), array_map(static fn (AuthenticationFailed $event): ?string => $event->challengeId, $failures));
         self::assertSame(0, DB::transactionLevel());
         self::assertEquals(2, DB::table('one_time_codes')->value('attempts'));
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));

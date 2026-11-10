@@ -684,7 +684,10 @@ final class ExternalReauthenticationTest extends TestCase
 
         self::assertSame(
             [[FailureReason::SSO_REQUIRED, $principal, $key], [FailureReason::ADDITIONAL_FACTOR_REQUIRED, $principal, $key]],
-            array_map(static fn (AuthenticationFailed $event): array => [$event->reason, $event->context->principalId, $event->context->sessionId], $this->recordedAs(AuthenticationFailed::class)),
+            array_map(
+                static fn (AuthenticationFailed $event): array => [$event->reason, $event->context->principalId, $event->context->sessionId],
+                $this->recordedAs(AuthenticationFailed::class),
+            ),
         );
 
         DB::beginTransaction();
