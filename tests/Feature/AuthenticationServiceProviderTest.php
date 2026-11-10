@@ -39,6 +39,7 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Codes\RefuseFactorCodes;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
+use SineMacula\Laravel\Authentication\Console\ConfigurationChecks;
 use SineMacula\Laravel\Authentication\Context\ContextContributors;
 use SineMacula\Laravel\Authentication\Context\GuardAuthenticationContexts;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -552,6 +553,22 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertSame($resolver, $guard->getPrincipalResolver());
         self::assertSame($resolver, $this->contextOf($exchange)->resolver());
         self::assertNotSame($replacement, $guard->getPrincipalResolver());
+    }
+
+    /**
+     * The registry of configuration checks is a container singleton, so a check
+     * registered in one provider is run by the command.
+     *
+     * @return void
+     */
+    public function testTheConfigurationChecksAreOneRegistry(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(ConfigurationChecks::class));
+        self::assertSame(app(ConfigurationChecks::class), app(ConfigurationChecks::class));
     }
 
     /**
