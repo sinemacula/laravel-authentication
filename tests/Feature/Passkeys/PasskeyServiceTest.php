@@ -2352,7 +2352,7 @@ final class PasskeyServiceTest extends TestCase
         $passkeyWrite = self::firstQueryOn($queries->getArrayCopy(), '/^insert.* into [`"]?passkeys[`"]? /i');
 
         self::assertLessThan($sessionRead, $identityRead);
-        self::assertStringContainsString('for update', strtolower($queries[$sessionRead]));
+        self::assertStringContainsString('for update', strtolower($queries->getArrayCopy()[$sessionRead]));
         self::assertLessThan($passkeyWrite, $sessionRead);
     }
 

@@ -327,6 +327,9 @@ final class RecentAuthenticationTest extends TestCase
 
         foreach ([Contract::class, EloquentSession::class] as $contract) {
             $session = \Mockery::mock($contract);
+
+            self::assertInstanceOf(Contract::class, $session);
+
             $session->shouldReceive('getSessionIdentifier')->andReturn($replacement->getKey());
 
             self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($session), null), $contract);
@@ -356,8 +359,8 @@ final class RecentAuthenticationTest extends TestCase
             self::sessionsOf($this->freshGuard('web'))->refresh(self::bodyToken($session->tokens), self::requestClient())->session,
         );
 
-        $refreshed = Session::query()->findOrFail($session->record->getKey());
-        $check     = new RecentAuthentication($this->guardContext(), $this->app);
+        $refreshed = Session::query()->findOrFail(self::modelKey($session->record));
+        $check     = $this->check();
 
         self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::session($refreshed), null));
 
@@ -607,6 +610,8 @@ final class RecentAuthenticationTest extends TestCase
      */
     private function check(): RecentAuthentication
     {
+        self::assertNotNull($this->app);
+
         return new RecentAuthentication($this->guardContext(), $this->app);
     }
 

@@ -210,7 +210,7 @@ final class SessionSwitchTest extends TestCase
 
         $switched->assertJson(['switched' => true, 'reason' => null, 'principal' => $second->getKey()]);
 
-        $this->bearer($switched->json('access'))->assertOk()->assertExactJson(['principal' => $second->getKey()]);
+        $this->bearer(self::tokenIn($switched, 'access'))->assertOk()->assertExactJson(['principal' => $second->getKey()]);
         $this->bearer($session->tokens->accessToken->reveal())->assertUnauthorized();
 
         self::assertNotSame($first->getKey(), $second->getKey());
@@ -406,11 +406,11 @@ final class SessionSwitchTest extends TestCase
 
         $this->advance(5);
 
-        $back = $this->switch($toSecond->json('refresh'), $first)->assertJson(['switched' => true, 'principal' => $first->getKey()]);
+        $back = $this->switch(self::tokenIn($toSecond, 'refresh'), $first)->assertJson(['switched' => true, 'principal' => $first->getKey()]);
 
         $this->bearer($session->tokens->accessToken->reveal())->assertUnauthorized();
-        $this->bearer($toSecond->json('access'))->assertUnauthorized();
-        $this->bearer($back->json('access'))->assertOk()->assertExactJson(['principal' => $first->getKey()]);
+        $this->bearer(self::tokenIn($toSecond, 'access'))->assertUnauthorized();
+        $this->bearer(self::tokenIn($back, 'access'))->assertOk()->assertExactJson(['principal' => $first->getKey()]);
     }
 
     /**
@@ -789,7 +789,7 @@ final class SessionSwitchTest extends TestCase
         self::assertNull($mismatch->context->principalId);
         self::assertSame(IdentifierCoercion::stringify($session->record->getSessionIdentifier()), $mismatch->context->sessionId);
 
-        $this->assertSwitchFails(FailureReason::PRINCIPAL_MISMATCH, $session, ChoosingMembership::query()->findOrFail($second->getKey()));
+        $this->assertSwitchFails(FailureReason::PRINCIPAL_MISMATCH, $session, ChoosingMembership::query()->findOrFail(self::modelKey($second)));
 
         ActivatableTenant::query()->whereKey($second->tenant_id)->update(['is_active' => false]);
 
@@ -2872,7 +2872,7 @@ final class SessionSwitchTest extends TestCase
             self::bodyToken($session->tokens),
             SwitchTarget::principal($second),
             self::requestClient(),
-            expectedSession: $other->record->getSessionIdentifier(),
+            expectedSession: self::modelKey($other->record),
         );
 
         self::assertSame(FailureReason::SESSION_MISMATCH, $result->reason);
@@ -2932,7 +2932,7 @@ final class SessionSwitchTest extends TestCase
 
         $session = $this->signIn();
         $other   = $this->signIn();
-        $id      = $session->record->getSessionIdentifier();
+        $id      = self::modelKey($session->record);
 
         $this->advance(5);
         $this->switched($session, $second);
@@ -2940,14 +2940,14 @@ final class SessionSwitchTest extends TestCase
 
         $row = self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->where('id', $id)->sole());
 
-        $retry = fn (mixed $expected) => $this->sessions(self::GUARD)->switchTo(
+        $retry = fn (int|string $expected) => $this->sessions(self::GUARD)->switchTo(
             self::bodyToken($session->tokens),
             SwitchTarget::principal($second),
             self::requestClient(),
             expectedSession: $expected,
         );
 
-        self::assertSame(FailureReason::SESSION_MISMATCH, $retry($other->record->getSessionIdentifier())->reason);
+        self::assertSame(FailureReason::SESSION_MISMATCH, $retry(self::modelKey($other->record))->reason);
         self::assertEquals($row, self::withoutIssuanceGuard((array) DB::table('authentication_sessions')->where('id', $id)->sole()));
         self::assertNull(DB::table('authentication_sessions')->where('id', $id)->value('revoked_at'));
         self::assertTrue($retry($id)->isSwitched());
@@ -2978,7 +2978,7 @@ final class SessionSwitchTest extends TestCase
             self::bodyToken($session->tokens),
             SwitchTarget::principal($first),
             self::requestClient(),
-            expectedSession: $other->record->getSessionIdentifier(),
+            expectedSession: self::modelKey($other->record),
         );
 
         self::assertSame(FailureReason::ROTATION_REUSE, $result->reason);
@@ -3009,7 +3009,7 @@ final class SessionSwitchTest extends TestCase
             self::bodyToken($session->tokens),
             SwitchTarget::principal($second),
             self::requestClient(),
-            expectedSession: $other->record->getSessionIdentifier(),
+            expectedSession: self::modelKey($other->record),
         );
 
         self::assertSame(FailureReason::SESSION_REVOKED, $result->reason);
@@ -3304,6 +3304,23 @@ final class SessionSwitchTest extends TestCase
         }
 
         self::fail('Expected the listener to throw.');
+    }
+
+    /**
+     * The token the response's JSON holds under the key, failing the test when
+     * it holds none.
+     *
+     * @param  \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>  $response
+     * @param  string  $key
+     * @return string
+     */
+    private static function tokenIn(TestResponse $response, string $key): string
+    {
+        $token = $response->json($key);
+
+        self::assertIsString($token, "The response holds no {$key} token.");
+
+        return $token;
     }
 
     /**

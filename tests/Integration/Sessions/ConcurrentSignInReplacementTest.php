@@ -159,6 +159,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
                 self::assertSame(2, DB::table('authentication_sessions')->count());
             }
 
+            self::assertIsString($second['result']);
             self::assertNull($this->reasonOf($second['result']));
 
             $this->reset();
@@ -274,6 +275,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
         self::assertSame('revoked', $this->reasonOf($previous));
         self::assertSame([SessionRevoked::class], $this->recordedClasses());
         self::assertSame([SessionCreated::class, SignedIn::class], $second['events']);
+        self::assertIsString($second['result']);
         self::assertNull($this->revokedAtOf($second['result']));
 
         $this->reset();
@@ -320,6 +322,7 @@ final class ConcurrentSignInReplacementTest extends TestCase
             );
 
             self::assertSame(1, $count);
+            self::assertIsString($second['result']);
             self::assertNull($this->revokedAtOf($second['result']));
 
             if ($commit) {

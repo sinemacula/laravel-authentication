@@ -80,10 +80,12 @@ final class LargePasskeyPublicKeyTest extends TestCase
         $this->registerPasskey($this->seedIdentity());
 
         $stored = DB::table('passkeys')->value('public_key');
+        $keyId  = $this->authenticator()->keyId;
 
         self::assertIsString($stored);
+        self::assertNotSame('', $keyId);
         self::assertGreaterThan(self::TEXT_BYTES, strlen($stored));
-        self::assertStringEndsWith($this->authenticator()->keyId, VirtualAuthenticator::decode($stored));
+        self::assertStringEndsWith($keyId, VirtualAuthenticator::decode($stored));
     }
 
     /**

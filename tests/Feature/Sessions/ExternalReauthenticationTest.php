@@ -7,6 +7,7 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -395,7 +396,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         $reported = array_map(
             static fn (AuthenticationFailed $event): array => [$event->flow, $event->reason, $event->context->method, $event->context->identityId, $event->context->sessionId],
-            $this->recorded,
+            $this->recordedAs(AuthenticationFailed::class),
         );
 
         $owner = IdentifierCoercion::stringify($identity->getAuthIdentifier());
@@ -683,7 +684,7 @@ final class ExternalReauthenticationTest extends TestCase
 
         self::assertSame(
             [[FailureReason::SSO_REQUIRED, $principal, $key], [FailureReason::ADDITIONAL_FACTOR_REQUIRED, $principal, $key]],
-            array_map(static fn (AuthenticationFailed $event): array => [$event->reason, $event->context->principalId, $event->context->sessionId], $this->recorded),
+            array_map(static fn (AuthenticationFailed $event): array => [$event->reason, $event->context->principalId, $event->context->sessionId], $this->recordedAs(AuthenticationFailed::class)),
         );
 
         DB::beginTransaction();
@@ -1073,12 +1074,12 @@ final class ExternalReauthenticationTest extends TestCase
      * Reauthenticate the session through the seeded identity's link, the
      * provider authenticating it now.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\Session  $session
+     * @param  \Illuminate\Database\Eloquent\Model  $session
      * @return \SineMacula\Laravel\Authentication\Sessions\AccessTokenResult
      *
      * @throws \Throwable
      */
-    private function reauthenticate(Session $session): AccessTokenResult
+    private function reauthenticate(Model $session): AccessTokenResult
     {
         return $this->sessions()->reauthenticateExternally($session->getKey(), $this->throughTheLink(authenticatedAt: CarbonImmutable::now()), self::requestClient());
     }

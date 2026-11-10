@@ -553,12 +553,11 @@ final class DatabaseAttemptLimiterTest extends TestCase
         $this->limiter()->acquire(new AttemptSubject('admin', AttemptFlow::SIGN_IN, 'ben@example.com', 'email', self::IP));
         $this->limiter()->recordFailure(new AttemptSubject(self::GUARD, AttemptFlow::REFRESH, 'ben@example.com', 'email', self::IP));
 
-        $keys = DB::table('rate_limits')->pluck('key')->all();
+        $keys = array_map(self::storedString(...), DB::table('rate_limits')->pluck('key')->all());
 
         self::assertCount(6, array_unique($keys));
 
         foreach ($keys as $key) {
-            self::assertIsString($key);
             self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $key);
         }
 

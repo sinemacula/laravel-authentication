@@ -213,7 +213,7 @@ final class RevocationWriterTest extends TestCase
 
             if (!$loads) {
                 $tenant->delete();
-                $membership = ActivatableTenantMembership::query()->findOrFail($membership->getKey());
+                $membership = ActivatableTenantMembership::query()->findOrFail(self::modelKey($membership));
             }
 
             $guard->login($member, $membership, $session->record);

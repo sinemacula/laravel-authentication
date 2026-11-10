@@ -120,7 +120,7 @@ final class IdentifierVerifierTest extends TestCase
     public function testVerifyingAgainReportsAlreadyVerified(): void
     {
         $identity = self::seedVerifiableIdentity();
-        $stale    = VerifiableIdentity::query()->findOrFail($identity->getKey());
+        $stale    = VerifiableIdentity::query()->findOrFail(self::modelKey($identity));
 
         $this->verifier()->verify(self::GUARD, $identity, 'email', 'ben@example.com', self::requestClient());
 

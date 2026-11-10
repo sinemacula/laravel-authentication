@@ -6,6 +6,7 @@ namespace Tests\Feature\Codes;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -387,7 +388,8 @@ final class CodeServiceTest extends TestCase
 
         self::assertTrue($request->isSent());
 
-        Queue::assertPushed(SendOneTimeCode::class, static fn (SendOneTimeCode $job): bool => $identity->is($job->identity)
+        Queue::assertPushed(SendOneTimeCode::class, static fn (SendOneTimeCode $job): bool => $job->identity instanceof Model
+                && $identity->is($job->identity)
                 && $job->binding->purpose             === CodePurpose::VERIFICATION
                 && self::bindingDigest($job->binding) === self::bindingDigest(CodeBinding::verification('mobile', 'phone', self::PHONE, $identity)));
     }
@@ -505,7 +507,11 @@ final class CodeServiceTest extends TestCase
 
         self::assertSame(0, self::storedAttempts());
         self::assertSame(1, self::counterHits('identifier_verification', 'per_account', AccountAttempts::account($identity)));
-        self::assertSame(1, self::counterHits('mobile', 'identifier_verification', 'per_ip', self::requestClient()->ip));
+
+        $ip = self::requestClient()->ip;
+
+        self::assertNotNull($ip);
+        self::assertSame(1, self::counterHits('mobile', 'identifier_verification', 'per_ip', $ip));
     }
 
     /**

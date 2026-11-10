@@ -251,7 +251,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         self::assertNotNull($pair);
         self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->authManager()->jwt('api')->parse(self::bodyRefreshToken($pair))['jti'] ?? null);
         self::assertCount(1, $updates);
-        self::assertStringContainsString('issuance_sequence', $updates[0]);
+        self::assertStringContainsString('issuance_sequence', $updates->getArrayCopy()[0]);
     }
 
     /**
@@ -281,8 +281,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             GuardSessions::of($this->guardForRequest(Request::create('/refresh', 'POST')))->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient())->session,
         );
         self::assertCount(2, $updates);
-        self::assertStringContainsString('issuance_sequence', $updates[0]);
-        self::assertStringContainsString('revoked_reason', $updates[1]);
+        self::assertStringContainsString('issuance_sequence', $updates->getArrayCopy()[0]);
+        self::assertStringContainsString('revoked_reason', $updates->getArrayCopy()[1]);
         self::assertSame('rotation_reuse', DB::connection(self::PRIMARY_CONNECTION)->table('authentication_sessions')->where('id', $session->getKey())->value('revoked_reason'));
     }
 
@@ -783,7 +783,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $credentials = ['email' => 'member@example.test', 'password' => self::PASSWORD];
         $guard       = $this->guardForRequest(Request::create('/sign-in', 'POST'), 'members');
 
-        self::assertTrue($guard->attempt($credentials, ActivatableTenantMembership::query()->useWritePdo()->findOrFail($membership->getKey())));
+        self::assertTrue($guard->attempt($credentials, ActivatableTenantMembership::query()->useWritePdo()->findOrFail(self::modelKey($membership))));
         self::assertSame($membership->getKey(), $guard->principal()?->getPrincipalIdentifier());
     }
 

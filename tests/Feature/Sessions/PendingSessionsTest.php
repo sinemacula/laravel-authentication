@@ -257,7 +257,7 @@ final class PendingSessionsTest extends TestCase
         self::assertNull($listed->principal);
         self::assertNull($listed->tenant);
         self::assertSame([PendingRequirement::PRINCIPAL], $listed->requires);
-        self::assertSame([$first->getKey(), $second->getKey()], array_map(static fn (ChoosingMembership $membership): mixed => $membership->getKey(), $listed->principals));
+        self::assertSame([$first->getKey(), $second->getKey()], array_map(static fn (Principal $membership): mixed => $membership->getPrincipalIdentifier(), $listed->principals));
         self::assertSame([], $this->sessions(self::CHOOSERS)->pending($both)?->principals);
         self::assertSame([], $this->sessions()->pending($factor)?->principals);
     }
@@ -517,6 +517,7 @@ final class PendingSessionsTest extends TestCase
         $claims = Auth::manager()->jwt('api')->parse($session->tokens->accessToken->reveal(), TokenType::ACCESS);
 
         self::assertIsArray($claims);
+        self::assertIsArray($claims['amr']);
         self::assertContains('otp', $claims['amr']);
         self::assertSame($this->now->getTimestamp(), $claims['auth_time']);
 

@@ -365,12 +365,12 @@ final class GuardContextTest extends TestCase
 
         self::assertNull(self::sessionsOf($api)->refresh(self::bodyToken($adminSession->tokens), self::requestClient())->session);
         self::assertNull(self::sessionsOf($admin)->refresh(self::bodyToken($apiSession->tokens), self::requestClient())->session);
-        self::assertSame(['api', 'admin'], array_map(static fn (AuthenticationFailed $event): ?string => $event->context->guard, $this->recorded));
+        self::assertSame(['api', 'admin'], array_map(static fn (AuthenticationFailed $event): ?string => $event->context->guard, $this->recordedAs(AuthenticationFailed::class)));
 
         $this->recordEvents([Refreshed::class]);
 
         self::assertTrue(self::sessionsOf($api)->refresh(self::bodyToken($apiSession->tokens), self::requestClient())->isRefreshed());
-        self::assertSame(['api'], array_map(static fn (Refreshed $event): ?string => $event->context->guard, $this->recorded));
+        self::assertSame(['api'], array_map(static fn (Refreshed $event): ?string => $event->context->guard, $this->recordedAs(Refreshed::class)));
 
         $silent = \Mockery::mock(Dispatcher::class);
         $silent->shouldNotReceive('dispatch');
@@ -380,7 +380,7 @@ final class GuardContextTest extends TestCase
         $this->recordEvents([Refreshed::class]);
 
         self::assertTrue(self::sessionsOf($admin)->refresh(self::bodyToken($adminSession->tokens), self::requestClient())->isRefreshed());
-        self::assertSame(['admin'], array_map(static fn (Refreshed $event): ?string => $event->context->guard, $this->recorded));
+        self::assertSame(['admin'], array_map(static fn (Refreshed $event): ?string => $event->context->guard, $this->recordedAs(Refreshed::class)));
         self::assertNotSame($silent, $admin->context()->events());
     }
 

@@ -378,7 +378,16 @@ final class SessionActivationTest extends TestCase
         foreach ($windows as $window) {
             self::assertIsArray($window);
 
-            $given[] = new AttemptReservation($subject, null, $window);
+            $stamps = [];
+
+            foreach ($window as $scope => $stamp) {
+                self::assertIsString($scope);
+                self::assertIsString($stamp);
+
+                $stamps[$scope] = $stamp;
+            }
+
+            $given[] = new AttemptReservation($subject, null, $stamps);
         }
 
         self::assertSame([SessionCreated::class, SignedIn::class], $this->recordedClasses());

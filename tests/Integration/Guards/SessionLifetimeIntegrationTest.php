@@ -243,7 +243,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
     {
         [$identity, $session] = $this->signIn();
 
-        $partial = Session::query()->select(['id', 'authenticatable_type', 'authenticatable_id'])->findOrFail($session->getKey());
+        $partial = Session::query()->select(['id', 'authenticatable_type', 'authenticatable_id'])->findOrFail(self::modelKey($session));
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('its `idle_expires_at` attribute is not loaded');
@@ -384,7 +384,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
             self::assertNotNull($pair);
 
-            $token = $pair->refreshToken?->reveal();
+            $token = self::bodyRefreshToken($pair);
         }
 
         $nearTheEnd = $absolute->copy()->subMinutes(2);

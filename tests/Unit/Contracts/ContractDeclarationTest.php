@@ -605,6 +605,8 @@ final class ContractDeclarationTest extends TestCase
                 continue;
             }
 
+            self::assertTrue(class_exists($class), $class);
+
             $events[$class] = (new \ReflectionClass($class))->implementsInterface(AuthenticationEvent::class);
         }
 
@@ -659,6 +661,8 @@ final class ContractDeclarationTest extends TestCase
 
         foreach ($contracts as $file) {
             $interface = 'SineMacula\Laravel\Authentication\Contracts\\' . basename($file, '.php');
+
+            self::assertTrue(interface_exists($interface), $interface);
 
             foreach (self::declaredMethods($interface) as $method) {
                 self::assertStringNotContainsStringIgnoringCase('device', $method, $interface . '::' . $method);

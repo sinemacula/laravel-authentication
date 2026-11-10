@@ -153,7 +153,7 @@ final class PasswordWriterTest extends TestCase
         self::assertSame([SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
         self::assertSame([$client, $client, $client, $client], array_map(
             static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
-            $this->recorded,
+            $this->recordedAs(PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class),
         ));
         self::assertSame(self::CLIENT_IP, $context->client()->ip);
     }

@@ -395,7 +395,7 @@ final class TenantActivityIntegrationTest extends TestCase
     {
         [$member, $membership] = $this->seedMembership();
 
-        $partial = ActivatableTenantMembership::query()->select(['id', 'identity_id'])->findOrFail($membership->getKey());
+        $partial = ActivatableTenantMembership::query()->select(['id', 'identity_id'])->findOrFail(self::modelKey($membership));
 
         $guard = $this->freshGuard()->setPrincipalResolver(new StubFixedPrincipalResolver($partial));
 
@@ -420,7 +420,7 @@ final class TenantActivityIntegrationTest extends TestCase
         $member     = ActivatableTenantMember::query()->findOrFail($membership->identity_id);
 
         $token   = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null, null)->reveal();
-        $partial = MorphTenantMembership::query()->select(['id', 'identity_id', 'tenant_id'])->findOrFail($membership->getKey());
+        $partial = MorphTenantMembership::query()->select(['id', 'identity_id', 'tenant_id'])->findOrFail(self::modelKey($membership));
 
         $guard = $this->bearerGuard($token)->setPrincipalResolver(new StubFixedPrincipalResolver($partial));
 
@@ -455,7 +455,7 @@ final class TenantActivityIntegrationTest extends TestCase
             $reasons[] = $event->reason;
         });
 
-        $guard = $this->freshGuard()->setPrincipalResolver(new StubFixedPrincipalResolver(MorphTenantMembership::query()->findOrFail($membership->getKey())));
+        $guard = $this->freshGuard()->setPrincipalResolver(new StubFixedPrincipalResolver(MorphTenantMembership::query()->findOrFail(self::modelKey($membership))));
 
         self::assertNull(GuardSessions::of($guard)->refresh(PresentedRefreshToken::fromBody($refreshToken), self::requestClient($guard->getRequest()))->session);
         self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
@@ -482,7 +482,7 @@ final class TenantActivityIntegrationTest extends TestCase
 
         $tenant->delete();
 
-        $orphaned = DefaultTenantMembership::query()->findOrFail($membership->getKey());
+        $orphaned = DefaultTenantMembership::query()->findOrFail(self::modelKey($membership));
         $guard    = $this->freshGuard()->setPrincipalResolver(new StubFixedPrincipalResolver($orphaned));
 
         self::assertFalse($guard->attempt(['email' => $member->email, 'password' => self::PASSWORD]));

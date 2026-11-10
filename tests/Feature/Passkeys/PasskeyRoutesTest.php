@@ -105,7 +105,7 @@ final class PasskeyRoutesTest extends TestCase
         self::assertIsArray($options['options']);
         self::assertIsString($options['expires_at']);
 
-        $credential = $this->authenticator()->create($options['options']);
+        $credential = $this->authenticator()->create(self::ceremonyOptions($options['options']));
         $registered = $this->send('/passkeys', ['challenge' => $options['challenge'], 'credential' => $credential, 'name' => 'Laptop'], $access)
             ->assertCreated()
             ->assertJsonPath('name', 'Laptop')
@@ -119,7 +119,7 @@ final class PasskeyRoutesTest extends TestCase
 
         self::assertIsArray($signIn);
 
-        $assertion = $this->authenticator()->get((array) $signIn['options']);
+        $assertion = $this->authenticator()->get(self::ceremonyOptions($signIn['options']));
         $tokens    = $this->send('/sign-in/passkey', ['challenge' => $signIn['challenge'], 'credential' => $assertion])->assertOk()->json();
 
         self::assertIsArray($tokens);
@@ -134,7 +134,7 @@ final class PasskeyRoutesTest extends TestCase
 
         self::assertIsArray($again);
 
-        $this->send('/sign-in/passkey', ['challenge' => $again['challenge'], 'credential' => $this->authenticator()->get((array) $again['options'])])->assertUnauthorized();
+        $this->send('/sign-in/passkey', ['challenge' => $again['challenge'], 'credential' => $this->authenticator()->get(self::ceremonyOptions($again['options']))])->assertUnauthorized();
     }
 
     /**
@@ -333,5 +333,27 @@ final class PasskeyRoutesTest extends TestCase
         Auth::forgetGuards();
 
         return $this->json($method, $path, [], ['Authorization' => 'Bearer ' . $token]);
+    }
+
+    /**
+     * The ceremony options a response's JSON holds, keyed by name, failing the
+     * test when it holds none.
+     *
+     * @param  mixed  $options
+     * @return array<string, mixed>
+     */
+    private static function ceremonyOptions(mixed $options): array
+    {
+        self::assertIsArray($options);
+
+        $named = [];
+
+        foreach ($options as $name => $value) {
+            self::assertIsString($name);
+
+            $named[$name] = $value;
+        }
+
+        return $named;
     }
 }

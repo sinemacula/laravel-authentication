@@ -112,7 +112,7 @@ final class ProofWriterTest extends TestCase
         self::assertTrue((bool) $row->getAttribute('accepted'));
         self::assertTrue((bool) $row->getAttribute('additional_verification'));
         self::assertNull($row->getAttribute('evidence'));
-        self::assertSame('2026-04-06 12:00:00', CarbonImmutable::parse($row->getRawOriginal('authenticated_at'))->toDateTimeString());
+        self::assertSame('2026-04-06 12:00:00', self::storedInstant($row->getRawOriginal('authenticated_at'))->toDateTimeString());
     }
 
     /**
@@ -220,12 +220,12 @@ final class ProofWriterTest extends TestCase
         $this->seedIdentity();
 
         $session = $this->newSession();
-        $before  = SessionProof::query()->pluck('id')->all();
+        $before  = array_map(self::storedString(...), SessionProof::query()->pluck('id')->all());
 
         ProofWriter::record($session, 'api', self::furtherFactor(CarbonImmutable::now()));
         ProofWriter::record($session, 'api', self::furtherFactor(CarbonImmutable::now()));
 
-        $ids = array_values(array_diff(SessionProof::query()->pluck('id')->all(), $before));
+        $ids = array_values(array_diff(array_map(self::storedString(...), SessionProof::query()->pluck('id')->all()), $before));
 
         self::assertCount(2, $ids);
 
@@ -389,11 +389,11 @@ final class ProofWriterTest extends TestCase
         SessionProof::query()->whereKey($foreign)->update(['authenticatable_id' => '999']);
 
         self::assertSame(1, ProofWriter::void($session, 'api', 'factor-1', $now->addMinute()));
-        self::assertSame('2026-04-06 12:01:00', CarbonImmutable::parse(SessionProof::query()->findOrFail($voided)->getRawOriginal('voided_at'))->toDateTimeString());
+        self::assertSame('2026-04-06 12:01:00', self::storedInstant(SessionProof::query()->findOrFail($voided)->getRawOriginal('voided_at'))->toDateTimeString());
         self::assertSame(0, SessionProof::query()->whereKey([...$kept, $foreign])->whereNotNull('voided_at')->count());
 
         self::assertSame(0, ProofWriter::void($session, 'api', 'factor-1', $now->addMinutes(2)));
-        self::assertSame('2026-04-06 12:01:00', CarbonImmutable::parse(SessionProof::query()->findOrFail($voided)->getRawOriginal('voided_at'))->toDateTimeString());
+        self::assertSame('2026-04-06 12:01:00', self::storedInstant(SessionProof::query()->findOrFail($voided)->getRawOriginal('voided_at'))->toDateTimeString());
     }
 
     /**

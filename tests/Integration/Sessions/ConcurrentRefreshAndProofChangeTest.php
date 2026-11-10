@@ -168,6 +168,7 @@ final class ConcurrentRefreshAndProofChangeTest extends TestCase
         self::assertGreaterThanOrEqual(self::SETTLE_MICROSECONDS / 1000000 / 2, $reported['waited']);
         self::assertSame($steppedUpAt->getTimestamp(), $reported['claims']['iat']);
         self::assertSame($steppedUpAt->getTimestamp(), $reported['claims']['auth_time']);
+        self::assertIsArray($reported['claims']['amr']);
         self::assertContains('hwk', $reported['claims']['amr']);
         self::assertContains('mfa', $reported['claims']['amr']);
     }

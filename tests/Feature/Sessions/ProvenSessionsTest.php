@@ -118,7 +118,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testTheSessionMustBeLiveAndHoldTheRotationId(): void
     {
-        $token = $this->session->tokens->refreshToken?->reveal();
+        $token = self::bodyRefreshToken($this->session->tokens);
 
         $this->updateSession(['refresh_key' => hash('sha256', 'another-rotation-id')]);
         self::assertNull($this->prove($token));
@@ -144,7 +144,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testASessionReturnedToPendingProvesNothing(): void
     {
-        $token = $this->session->tokens->refreshToken?->reveal();
+        $token = self::bodyRefreshToken($this->session->tokens);
 
         $this->updateSession(['status' => 'pending', 'requires' => '["mfa"]']);
         self::assertNull($this->prove($token));
@@ -161,7 +161,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testTheSessionMustBeTheIdentitysForTheGuardAndPrincipal(): void
     {
-        $token = $this->session->tokens->refreshToken?->reveal();
+        $token = self::bodyRefreshToken($this->session->tokens);
         $other = $this->seedIdentity('bea@example.test');
 
         self::assertNull($this->prove($token, $other));
@@ -188,7 +188,7 @@ final class ProvenSessionsTest extends TestCase
      */
     public function testAProofWithoutAPrincipalIgnoresTheRecordedPrincipal(): void
     {
-        $token = $this->session->tokens->refreshToken?->reveal();
+        $token = self::bodyRefreshToken($this->session->tokens);
         $proof = new ProvenSessions(Auth::manager()->jwt('api'));
 
         $this->updateSession(['principal_id' => '999']);

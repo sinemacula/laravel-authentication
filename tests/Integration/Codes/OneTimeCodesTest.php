@@ -864,7 +864,7 @@ final class OneTimeCodesTest extends TestCase
 
         self::assertSame(4, $ended);
         self::assertCount(1, $statements);
-        self::assertStringStartsWith('update', strtolower($statements[0]));
+        self::assertStringStartsWith('update', strtolower($statements->getArrayCopy()[0]));
 
         $after = self::rows();
 

@@ -258,7 +258,7 @@ final class OutdatedProofsTest extends TestCase
         $seeded             = self::seedResettable();
         $token              = self::issueToken('web');
         [$challenge, $code] = self::issueCode('web', 'phone', self::PHONE);
-        $partial            = PasswordIdentity::query()->select(['id', 'password'])->findOrFail($seeded->getKey());
+        $partial            = PasswordIdentity::query()->select(['id', 'password'])->findOrFail(self::modelKey($seeded));
 
         self::assertTrue($this->passwords()->set($partial, self::NEW_PASSWORD, PasswordFlow::CHANGE, self::requestClient())->set);
         self::assertSame(0, DB::table('one_time_codes')->whereNull('consumed_at')->count());

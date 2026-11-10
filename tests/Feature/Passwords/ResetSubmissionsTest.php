@@ -538,10 +538,10 @@ final class ResetSubmissionsTest extends TestCase
             self::assertSame(ResetStatus::INVALID, $result->status);
         }
 
-        $reasons = array_map(static fn (AuthenticationFailed $event): string => $event->reason->value, $this->recorded);
+        $reasons = array_map(static fn (AuthenticationFailed $event): string => $event->reason->value, $this->recordedAs(AuthenticationFailed::class));
 
         self::assertSame(['invalid_credentials', 'invalid_credentials', 'code_exhausted'], $reasons);
-        self::assertSame(array_fill(0, 3, self::challenge()), array_map(static fn (AuthenticationFailed $event): ?string => $event->challengeId, $this->recorded));
+        self::assertSame(array_fill(0, 3, self::challenge()), array_map(static fn (AuthenticationFailed $event): ?string => $event->challengeId, $this->recordedAs(AuthenticationFailed::class)));
         self::assertSame(0, DB::transactionLevel());
         self::assertEquals(2, DB::table('one_time_codes')->value('attempts'));
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
@@ -721,7 +721,7 @@ final class ResetSubmissionsTest extends TestCase
         self::assertSame([AuthenticationFailed::class, SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
         self::assertSame([$client, $client, $client, $client], array_map(
             static fn (AuthenticationFailed|PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
-            $this->recorded,
+            $this->recordedAs(AuthenticationFailed::class, PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class),
         ));
     }
 

@@ -244,7 +244,7 @@ final class PasswordServiceTest extends TestCase
         $identity = self::seedPasswordIdentity();
         $kept     = $this->signInWithPassword('web')->record;
         $client   = new ClientContext('198.51.100.9', 'Worker/1.0');
-        $clients  = fn (): array => array_map(static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client, $this->recorded);
+        $clients  = fn (): array => array_map(static fn (PasswordSet|SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client, $this->recordedAs(PasswordSet::class, SessionRevoked::class, SignedOutEverywhere::class));
 
         $this->signInWithPassword('admin');
         $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class, PasswordSet::class]);
@@ -808,7 +808,7 @@ final class PasswordServiceTest extends TestCase
 
         $wrong->assertStatus(422)->assertExactJson(['message' => 'The current password is wrong.']);
 
-        self::assertSame([1, 1], array_map(intval(...), DB::table('rate_limits')->orderBy('key')->pluck('hits')->all()));
+        self::assertSame([1, 1], array_map(self::storedInt(...), DB::table('rate_limits')->orderBy('key')->pluck('hits')->all()));
         self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
 
         $statements = [];
@@ -831,7 +831,7 @@ final class PasswordServiceTest extends TestCase
         $commit = (int) array_search('commit', $statements, true);
         $inside = array_slice($statements, $begin + 1, $commit - $begin - 1);
 
-        self::assertSame([1, 1], array_map(intval(...), DB::table('rate_limits')->orderBy('key')->pluck('hits')->all()));
+        self::assertSame([1, 1], array_map(self::storedInt(...), DB::table('rate_limits')->orderBy('key')->pluck('hits')->all()));
         self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) PasswordIdentity::query()->sole()->password));
         self::assertNotSame([], array_filter(array_slice($statements, 0, $begin), static fn (string $sql): bool => str_contains($sql, 'rate_limits')));
         self::assertNotSame([], array_filter(array_slice($statements, $commit), static fn (string $sql): bool => str_contains($sql, 'rate_limits')));

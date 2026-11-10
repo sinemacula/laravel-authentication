@@ -833,6 +833,9 @@ final class SessionReauthenticationTest extends TestCase
 
         foreach ([Contract::class, EloquentSession::class] as $contract) {
             $session = \Mockery::mock($contract);
+
+            self::assertInstanceOf(Contract::class, $session);
+
             $session->shouldReceive('getSessionIdentifier')->andReturn($signedIn->record->getKey());
 
             self::assertSame(

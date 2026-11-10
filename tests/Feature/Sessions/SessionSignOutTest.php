@@ -486,7 +486,7 @@ final class SessionSignOutTest extends TestCase
 
         $guard = $this->freshGuard();
 
-        $guard->setSession(Session::query()->findOrFail($session->record->getKey()));
+        $guard->setSession(Session::query()->findOrFail(self::modelKey($session->record)));
 
         $this->recordEvents(self::EVENTS);
 
@@ -899,7 +899,7 @@ final class SessionSignOutTest extends TestCase
 
         $this->recordEvents(self::EVENTS);
 
-        $result = $sessions->signOutWith(PresentedRefreshToken::fromBody(self::refreshOf($session)), self::requestClient(), $other->record->getSessionIdentifier());
+        $result = $sessions->signOutWith(PresentedRefreshToken::fromBody(self::refreshOf($session)), self::requestClient(), self::modelKey($other->record));
 
         self::assertFalse($result->isSignedOut());
         self::assertSame([FailureReason::SESSION_MISMATCH, RefreshTokenSource::BODY], [$result->reason, $result->source]);
@@ -932,14 +932,14 @@ final class SessionSignOutTest extends TestCase
         $client  = self::sameSiteClient();
         $token   = self::presentedToken(self::cookieTokenOf($session), RefreshTokenSource::COOKIE);
 
-        $result = $this->serving(guard: self::BROWSER)->signOutWith($token, $client, $other->record->getSessionIdentifier());
+        $result = $this->serving(guard: self::BROWSER)->signOutWith($token, $client, self::modelKey($other->record));
 
         self::assertSame([FailureReason::SESSION_MISMATCH, RefreshTokenSource::COOKIE], [$result->reason, $result->source]);
         self::assertNull($result->forgetCookie);
         self::assertSame([], $result->attachTo(new Response)->headers->getCookies());
         self::assertNull($this->revokedReasonOf($session));
 
-        $own = $this->serving(guard: self::BROWSER)->signOutWith($token, $client, $session->record->getSessionIdentifier());
+        $own = $this->serving(guard: self::BROWSER)->signOutWith($token, $client, self::modelKey($session->record));
 
         self::assertTrue($own->isSignedOut());
         self::assertClears($own);
@@ -972,7 +972,7 @@ final class SessionSignOutTest extends TestCase
         }
 
         $stale   = self::presentedToken(self::cookieTokenOf($graced), RefreshTokenSource::COOKIE);
-        $retried = $this->serving(guard: self::BROWSER)->signOutWith($stale, $client, $graced->record->getSessionIdentifier());
+        $retried = $this->serving(guard: self::BROWSER)->signOutWith($stale, $client, self::modelKey($graced->record));
 
         self::assertTrue($retried->isSignedOut());
 
@@ -981,7 +981,7 @@ final class SessionSignOutTest extends TestCase
         $reused = $this->serving(guard: self::BROWSER)->signOutWith(
             self::presentedToken(self::cookieTokenOf($replayed), RefreshTokenSource::COOKIE),
             $client,
-            $other->record->getSessionIdentifier(),
+            self::modelKey($other->record),
         );
 
         self::assertSame(FailureReason::ROTATION_REUSE, $reused->reason);
@@ -994,7 +994,7 @@ final class SessionSignOutTest extends TestCase
         $gone = $this->serving(guard: self::BROWSER)->signOutWith(
             self::presentedToken(self::cookieTokenOf($revoked), RefreshTokenSource::COOKIE),
             $client,
-            $other->record->getSessionIdentifier(),
+            self::modelKey($other->record),
         );
 
         self::assertSame(FailureReason::SESSION_REVOKED, $gone->reason);

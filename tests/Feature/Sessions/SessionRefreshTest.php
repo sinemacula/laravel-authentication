@@ -363,8 +363,8 @@ final class SessionRefreshTest extends TestCase
     {
         $this->seedIdentity();
 
-        $fromHeader = $this->signedIn()->tokens->refreshToken?->reveal();
-        $fromBody   = $this->signedIn()->tokens->refreshToken?->reveal();
+        $fromHeader = self::bodyRefreshToken($this->signedIn()->tokens);
+        $fromBody   = self::bodyRefreshToken($this->signedIn()->tokens);
 
         $header = self::sessionsOf($this->guardServing(['HTTP_X_REFRESH_TOKEN' => $fromHeader]))->refresh(self::servedToken(), self::requestClient());
         $body   = self::sessionsOf($this->guardServing([], ['refresh_token' => $fromBody]))->refresh(self::servedToken(), self::requestClient());
@@ -405,7 +405,7 @@ final class SessionRefreshTest extends TestCase
         $this->seedIdentity();
 
         $session = $this->signedIn();
-        $token   = $session->tokens->refreshToken?->reveal();
+        $token   = self::bodyRefreshToken($session->tokens);
         $before  = $this->refreshKeyOf($session);
         $guard   = $this->guardServing(['HTTP_X_REFRESH_TOKEN' => $token], ['refresh_token' => $token]);
 
@@ -1151,7 +1151,7 @@ final class SessionRefreshTest extends TestCase
         $result = $this->sessions()->refresh(
             self::bodyToken($session->tokens),
             self::requestClient(),
-            $other->record->getSessionIdentifier(),
+            self::modelKey($other->record),
         );
 
         self::assertSame([false, FailureReason::SESSION_MISMATCH], [$result->isRefreshed(), $result->reason]);
@@ -1183,14 +1183,14 @@ final class SessionRefreshTest extends TestCase
         $session = $this->signedIn();
         $other   = $this->signedIn();
         $revoked = $this->signedIn();
-        $id      = $session->record->getSessionIdentifier();
+        $id      = self::modelKey($session->record);
         $old     = self::bodyToken($session->tokens);
 
         self::assertTrue($this->sessions()->refresh($old, self::requestClient())->isRefreshed());
 
         $current = $this->refreshKeyOf($session);
 
-        self::assertSame(FailureReason::SESSION_MISMATCH, $this->sessions()->refresh($old, self::requestClient(), $other->record->getSessionIdentifier())->reason);
+        self::assertSame(FailureReason::SESSION_MISMATCH, $this->sessions()->refresh($old, self::requestClient(), self::modelKey($other->record))->reason);
         self::assertSame($current, $this->refreshKeyOf($session));
         self::assertTrue($this->sessions()->refresh($old, self::requestClient(), $id)->isRefreshed());
 
@@ -1204,7 +1204,7 @@ final class SessionRefreshTest extends TestCase
         $this->moveTo(CarbonImmutable::now()->addMinutes(2));
         $this->recordEvents([SessionRevoked::class]);
 
-        $replayed = $this->sessions()->refresh($old, self::requestClient(), $other->record->getSessionIdentifier());
+        $replayed = $this->sessions()->refresh($old, self::requestClient(), self::modelKey($other->record));
 
         self::assertSame(FailureReason::ROTATION_REUSE, $replayed->reason);
         self::assertSame('rotation_reuse', Session::query()->whereKey($id)->value('revoked_reason'));

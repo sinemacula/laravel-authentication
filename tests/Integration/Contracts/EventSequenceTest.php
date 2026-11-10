@@ -191,7 +191,7 @@ final class EventSequenceTest extends TestCase
     public function testARefreshRolledBackIsNeverReported(): void
     {
         $session = $this->signedIn();
-        $refresh = $session->tokens->refreshToken?->reveal();
+        $refresh = self::bodyRefreshToken($session->tokens);
         $guard   = $this->freshGuard();
 
         $this->nameSessions($session->record);
@@ -342,7 +342,7 @@ final class EventSequenceTest extends TestCase
         self::assertSame(['Attempting api', ...self::REPORT], $this->recordedSequence());
         self::assertFalse($guard->hasUser());
         self::assertSame([0, 0], self::slotsTaken());
-        self::assertSame([self::CLIENT_IP, self::CLIENT_IP], array_map(static fn (SessionCreated|SignedIn $event): ?string => $event->context->client->ip, $this->recorded));
+        self::assertSame([self::CLIENT_IP, self::CLIENT_IP], array_map(static fn (SessionCreated|SignedIn $event): ?string => $event->context->client->ip, $this->recordedAs(SessionCreated::class, SignedIn::class)));
         self::assertSame('s1', $this->nameOfSession(Session::query()->sole()));
     }
 

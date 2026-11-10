@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Models\Session;
 use Tests\Concerns\BuildsPlainValues;
 use Tests\Concerns\ComparesModels;
 use Tests\Concerns\ReadsBodyRefreshTokens;
+use Tests\Concerns\ReadsStoredValues;
 use Tests\Fixtures\Sessions\FirstFactorRecorder;
 use Tests\Fixtures\Sessions\SessionGenerations;
 
@@ -43,7 +44,7 @@ use Tests\Fixtures\Sessions\SessionGenerations;
  */
 abstract class TestCase extends OrchestraTestCase
 {
-    use BuildsPlainValues, ComparesModels, ReadsBodyRefreshTokens;
+    use BuildsPlainValues, ComparesModels, ReadsBodyRefreshTokens, ReadsStoredValues;
 
     /** @var string The `iss` every test guard's tokens carry. */
     protected const string JWT_ISSUER = 'https://issuer.example.test';
@@ -408,7 +409,7 @@ abstract class TestCase extends OrchestraTestCase
         /** @var \Illuminate\Database\Migrations\DatabaseMigrationRepository $repository */
         $repository = $this->app?->make('migration.repository');
 
-        $repository->setSource(null);
+        $repository->setSource(DB::getDefaultConnection());
 
         if (!$repository->repositoryExists()) {
             return;

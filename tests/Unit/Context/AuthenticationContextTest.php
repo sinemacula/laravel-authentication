@@ -225,6 +225,8 @@ final class AuthenticationContextTest extends TestCase
     {
         $resource = fopen('php://memory', 'rb');
 
+        self::assertIsResource($resource);
+
         try {
             $this->expectException(\InvalidArgumentException::class);
             $this->expectExceptionMessage('The value of [sso.stream] must be null, a scalar or an array of them');

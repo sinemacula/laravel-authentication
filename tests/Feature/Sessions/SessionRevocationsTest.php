@@ -627,7 +627,7 @@ final class SessionRevocationsTest extends TestCase
         self::assertSame([SessionRevoked::class, SessionRevoked::class, SessionRevoked::class, SignedOutEverywhere::class], $this->recordedClasses());
         self::assertSame([$client, $client, $client, $client], array_map(
             static fn (SessionRevoked|SignedOutEverywhere $event): ClientContext => $event->context->client,
-            $this->recorded,
+            $this->recordedAs(SessionRevoked::class, SignedOutEverywhere::class),
         ));
 
         $this->recordEvents([SessionRevoked::class, SignedOutEverywhere::class]);
@@ -721,7 +721,7 @@ final class SessionRevocationsTest extends TestCase
     {
         [, $membership, $tenant] = $this->seedMember();
 
-        $eager = EagerTenantMembership::query()->findOrFail($membership->getKey());
+        $eager = EagerTenantMembership::query()->findOrFail(self::modelKey($membership));
 
         self::sessionsOf($this->freshGuard('members'))->signIn('password', self::credentials('member@example.test'), self::requestContext());
 

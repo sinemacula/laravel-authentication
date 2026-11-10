@@ -449,7 +449,7 @@ final class BearerAuthenticationTest extends TestCase
     {
         $identity  = $this->seedIdentity();
         $session   = $this->signedIn();
-        $sessionId = $session->record->getKey();
+        $sessionId = self::modelKey($session->record);
         $recorded  = Session::query()->findOrFail($sessionId)->only(['principal_type', 'principal_id']);
         $earlier   = $session->tokens->accessToken->reveal();
 

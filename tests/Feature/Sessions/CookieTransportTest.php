@@ -815,7 +815,7 @@ final class CookieTransportTest extends TestCase
 
         $guard = $this->freshGuard(self::BROWSER);
 
-        $guard->setSession(Session::query()->findOrFail($bound->record->getKey()));
+        $guard->setSession(Session::query()->findOrFail(self::modelKey($bound->record)));
 
         $results = ['bound' => self::signOutServed(self::sessionsOf($guard), self::BROWSER)];
         $armed   = new \ArrayObject(['armed' => true]);

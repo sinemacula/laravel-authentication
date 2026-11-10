@@ -191,7 +191,7 @@ final class ReplicaOneTimeCodesTest extends TestCase
     {
         DB::connection(self::PRIMARY_CONNECTION)->table('code_identities')->update(['phone' => self::CHANGED_PHONE]);
 
-        $identity = CodeIdentity::query()->useWritePdo()->findOrFail($this->identity->getKey());
+        $identity = CodeIdentity::query()->useWritePdo()->findOrFail(self::modelKey($this->identity));
 
         $challenge = (string) $this->codeService()->sendVerification($identity, 'phone', self::requestClient())->challengeId;
 

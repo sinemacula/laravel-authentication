@@ -228,7 +228,7 @@ final class PasskeyChallengesTest extends TestCase
 
         $consumed = self::challenges()->consume($first->challengeId, ChallengePurpose::FACTOR, self::rp('api'), $identity, $this->now, $binding);
 
-        self::assertNotNull($consumed);
+        self::assertInstanceOf(PasskeyChallenge::class, $consumed);
         self::assertSame(['session-7', 'step_up'], [$consumed->session_id, $consumed->binding_purpose]);
 
         $read = PasskeyChallenges::bindingOf($consumed, $identity);
@@ -259,7 +259,10 @@ final class PasskeyChallengesTest extends TestCase
     {
         $issued = self::challenges()->issue(ChallengePurpose::SIGN_IN, self::rp('api'), null, ['challenge' => 'abc'], $this->now);
 
-        self::assertSame(['challenge' => 'abc'], self::challenges()->consume($issued->challengeId, ChallengePurpose::SIGN_IN, self::rp('api'), null, $this->now)?->options);
+        $consumed = self::challenges()->consume($issued->challengeId, ChallengePurpose::SIGN_IN, self::rp('api'), null, $this->now);
+
+        self::assertInstanceOf(PasskeyChallenge::class, $consumed);
+        self::assertSame(['challenge' => 'abc'], $consumed->options);
     }
 
     /**

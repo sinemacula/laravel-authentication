@@ -256,7 +256,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         app()->instance(TenantAuthenticationPolicy::class, new ScriptedTenantAuthenticationPolicy(new TenantRequirement('v2', new Requirement(multifactor: new RequirementPart))));
 
         $sessions = $this->sessions('members');
-        $token    = $session->tokens->refreshToken?->reveal();
+        $token    = self::bodyRefreshToken($session->tokens);
         $result   = $this->assertQueryBudget(
             $reads,
             2,
@@ -595,7 +595,7 @@ final class SessionSwitchQueryBudgetTest extends PerformanceContractTestCase
         [$session, $second, $first] = $this->signInWithASecondMembership();
         [, $foreign]                = $this->seedMember('other@example.test');
 
-        $token   = $session->tokens->refreshToken?->reveal();
+        $token   = self::bodyRefreshToken($session->tokens);
         $targets = [$second, $first];
 
         self::assertNotNull($this->sessions('members')->switchTo(PresentedRefreshToken::fromBody($token), SwitchTarget::principal($foreign), self::requestClient())->reason);

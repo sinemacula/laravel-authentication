@@ -186,7 +186,7 @@ final class SecretRedactionTest extends TestCase
     {
         $this->seedIdentity();
 
-        $presented = $this->signedIn()->refreshToken?->reveal();
+        $presented = self::bodyRefreshToken($this->signedIn());
 
         Event::listen(Refreshed::class, static function (): never {
             throw new \RuntimeException('a bug in a refresh listener');
@@ -221,7 +221,7 @@ final class SecretRedactionTest extends TestCase
 
         self::assertNotNull($session);
 
-        $presented = $session->tokens->refreshToken?->reveal();
+        $presented = self::bodyRefreshToken($session->tokens);
 
         Event::listen(PrincipalSwitched::class, static function (): never {
             throw new \RuntimeException('a bug in a switch listener');
@@ -460,22 +460,21 @@ final class SecretRedactionTest extends TestCase
         app()->instance(AdditionalFactorPolicy::class, new AlwaysRequireAdditionalFactor);
         app()->instance(RequirementCheck::class, new ProofJudgingRequirementCheck);
 
-        /** @var \ArrayObject<string, string> $digest */
-        $digest = new \ArrayObject;
+        $pending = '';
 
-        Event::listen('eloquent.creating: ' . Session::class, static function (Session $session) use ($digest): never {
+        Event::listen('eloquent.creating: ' . Session::class, static function (Session $session) use (&$pending): never {
 
-            $digest['pending'] = (string) $session->pending_key;
+            $pending = (string) $session->pending_key;
 
             throw new \RuntimeException('the pending session was not written');
         });
 
         $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->sessions()->signIn('password', self::credentials(), self::requestContext()));
         $secret    = static fn (string $value): bool => preg_match_all('/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/', $value, $found) > 0
-            && array_filter($found[0], static fn (string $candidate): bool => RefreshTokenHasher::verify($candidate, $digest['pending'])) !== [];
+            && array_filter($found[0], static fn (string $candidate): bool => RefreshTokenHasher::verify($candidate, $pending)) !== [];
 
         self::assertSame('the pending session was not written', $exception->getMessage());
-        self::assertNotSame('', $digest['pending']);
+        self::assertNotSame('', $pending);
         self::assertTrue(self::runsClosure($exception, Connection::class, 'transaction'));
         self::assertFalse(self::dumpsInTrace($exception, $secret));
         self::assertFalse(self::dumpsInTrace($exception, self::PASSWORD));
@@ -517,7 +516,7 @@ final class SecretRedactionTest extends TestCase
         self::assertTrue($sessions->refresh(self::bodyToken($refreshed->tokens), self::requestClient())->isRefreshed());
         self::assertTrue($sessions->signOut());
 
-        $secrets = [$credential, self::PASSWORD, $active->tokens->accessToken->reveal(), $refreshed->tokens->refreshToken?->reveal()];
+        $secrets = [$credential, self::PASSWORD, $active->tokens->accessToken->reveal(), self::bodyRefreshToken($refreshed->tokens)];
 
         self::assertGreaterThan(10, $events->count());
 

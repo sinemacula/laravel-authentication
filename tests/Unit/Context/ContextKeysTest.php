@@ -145,6 +145,8 @@ final class ContextKeysTest extends TestCase
     {
         $resource = fopen('php://memory', 'rb');
 
+        self::assertIsResource($resource);
+
         try {
             self::assertSame('The value of [sso.stream] ' . self::VALUE_RULE, ContextKeys::checked('sso', ['stream' => $resource]));
             self::assertSame('The value of [sso.streams] ' . self::VALUE_RULE, ContextKeys::checked('sso', ['streams' => [[$resource]]]));

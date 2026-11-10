@@ -578,6 +578,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $fresh = StubSession::query()->findOrFail($session->id);
         self::assertNotSame($oldDigest, $fresh->refresh_key);
+        self::assertNotNull($fresh->refresh_key);
         self::assertTrue(RefreshTokenHasher::verify($refreshClaims[Claims::JWT_ID->value], $fresh->refresh_key));
 
         $refreshed = array_values(

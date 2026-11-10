@@ -515,6 +515,7 @@ final class SessionProofsTest extends TestCase
             $current = $read(true);
         }));
         self::assertEquals($plain, $current);
+        self::assertIsArray($plain[0]);
         self::assertCount(3, $plain[0]);
         self::assertSame(['conn-a', null], [$plain[5], $plain[4]]);
         self::assertNull($plain[6]);

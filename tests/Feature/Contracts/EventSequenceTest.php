@@ -701,7 +701,7 @@ final class EventSequenceTest extends TestCase
         $identity = $this->seedIdentity();
 
         $session = $this->signedIn();
-        $refresh = $session->tokens->refreshToken?->reveal();
+        $refresh = self::bodyRefreshToken($session->tokens);
         $guard   = $this->freshGuard();
 
         $this->nameKeys($identity, $identity, $session->record);
@@ -734,7 +734,7 @@ final class EventSequenceTest extends TestCase
         $identity = $this->seedIdentity();
 
         $session = $this->signedIn();
-        $refresh = $session->tokens->refreshToken?->reveal();
+        $refresh = self::bodyRefreshToken($session->tokens);
 
         $this->nameKeys($identity, $identity, $session->record);
         $this->recordSequence();
@@ -776,7 +776,7 @@ final class EventSequenceTest extends TestCase
 
         $session = $this->signedIn();
         $record  = $session->record;
-        $refresh = $session->tokens->refreshToken?->reveal();
+        $refresh = self::bodyRefreshToken($session->tokens);
 
         self::assertNotNull(self::sessionsOf($this->freshGuard())->refresh(PresentedRefreshToken::fromBody($refresh), self::requestClient())->session);
 

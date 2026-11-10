@@ -200,7 +200,7 @@ final class ActingContextTest extends TestCase
         $session->forceFill($change);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage(sprintf($message, $session->getKey()));
+        $this->expectExceptionMessage(sprintf($message, self::modelKey($session)));
 
         ActingContext::recordedOn(ActingContext::guard($guard), $session);
     }
